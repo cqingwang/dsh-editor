@@ -1,0 +1,150 @@
+import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import test from 'node:test';
+
+import { gitStatus, parseNumstat } from '../lib/index.js';
+
+const root = join(dirname(fileURLToPath(import.meta.url)), '..');
+const read = (path) => readFileSync(join(root, path), 'utf8');
+
+/** One throwaway repository with a commit already in place. */
+async function fixture() {
+  const dir = await mkdtemp(join(tmpdir(), 'dsh-editor-r16-'));
+  execFileSync('git', ['-C', dir, 'init', '-q']);
+  execFileSync('git', ['-C', dir, 'config', 'user.email', 'test@example.com']);
+  execFileSync('git', ['-C', dir, 'config', 'user.name', 'Test']);
+  await writeFile(join(dir, 'tracked.txt'), 'one\n');
+  execFileSync('git', ['-C', dir, 'add', '.']);
+  execFileSync('git', ['-C', dir, 'commit', '-qm', 'init']);
+  return { dir, cleanup: () => rm(dir, { recursive: true, force: true }) };
+}
+
+test('numstat keeps ordinary, binary and rename records apart', () => {
+  const ordinary = parseNumstat('2\t0\ta.txt\u0000');
+  assert.deepEqual(ordinary.get('a.txt'), { additions: 2, deletions: 0 });
+  /* A binary change has no counts; inventing `+0 −0` would be a lie. */
+  const binary = parseNumstat('-\t-\tlogo.png\u0000');
+  assert.deepEqual(binary.get('logo.png'), { binary: true });
+  /* `-z` framing puts the origin first and the new name second. */
+  const renamed = parseNumstat('3\t1\t\u0000old.txt\u0000new.txt\u0000');
+  assert.deepEqual(renamed.get('new.txt'), { additions: 3, deletions: 1 });
+  assert.equal(renamed.has('old.txt'), false);
+  assert.equal(parseNumstat('').size, 0);
+});
+
+test('status reports per-band line counts without touching the staged flag', async (t) => {
+  const { dir, cleanup } = await fixture();
+  t.after(cleanup);
+  await writeFile(join(dir, 'tracked.txt'), 'one\ntwo\nthree\n');
+  await writeFile(join(dir, 'added.txt'), 'x\n');
+  execFileSync('git', ['-C', dir, 'add', 'added.txt']);
+
+  const status = await gitStatus(dir);
+  const tracked = status.changes.find((change) => change.path === 'tracked.txt');
+  const added = status.changes.find((change) => change.path === 'added.txt');
+
+  /* The boolean `staged` flag and the counts answer different questions. */
+  assert.equal(tracked.staged, false);
+  assert.deepEqual(tracked.unstagedLines, { additions: 2, deletions: 0 });
+  assert.equal(tracked.stagedLines, undefined);
+  assert.equal(added.staged, true);
+  assert.deepEqual(added.stagedLines, { additions: 1, deletions: 0 });
+  assert.equal(added.unstagedLines, undefined);
+});
+
+test('both sides of an MM path keep their own reading', async (t) => {
+  const { dir, cleanup } = await fixture();
+  t.after(cleanup);
+  await writeFile(join(dir, 'tracked.txt'), 'one\ntwo\n');
+  execFileSync('git', ['-C', dir, 'add', 'tracked.txt']);
+  await writeFile(join(dir, 'tracked.txt'), 'one\ntwo\nthree\n');
+
+  const status = await gitStatus(dir);
+  const change = status.changes.find((entry) => entry.path === 'tracked.txt');
+  assert.equal(change.status, 'MM');
+  assert.deepEqual(change.stagedLines, { additions: 1, deletions: 0 });
+  assert.deepEqual(change.unstagedLines, { additions: 1, deletions: 0 });
+});
+
+test('closing a dirty tab asks first and batch close asks once', () => {
+  const client = read('lib/client.js');
+  assert.match(client, /const closeFile = React\.useCallback\(\(path, skipConfirm = false\) => \{/);
+  assert.match(client, /file\?\.dirty === true && !window\.confirm\(t\('editor\.unsavedTabsConfirm', \{ count: 1 \}\)\)/);
+  assert.match(client, /const closeOtherTabs = React\.useCallback\(/);
+  assert.match(client, /const closeAllTabs = React\.useCallback\(/);
+  assert.match(client, /for \(const file of doomed\) closeFile\(file\.path, true\)/);
+  /* Middle-click and the tab context menu both reach the same lifecycle. */
+  assert.match(client, /onAuxClick: \(event\) => \{/);
+  assert.match(client, /id: 'closeOthers', label: t\('editor\.closeOtherTabs'\)/);
+});
+
+test('the editor exposes breadcrumbs, go to line and a live status bar', () => {
+  const client = read('lib/client.js');
+  assert.match(client, /const breadcrumbSegments = activeFile !== null && diffOpen === false/);
+  assert.match(client, /t\('editor\.breadcrumb'\)/);
+  assert.match(client, /id: 'dsh-editor\.gotoLine'/);
+  assert.match(client, /const gotoLine = React\.useCallback\(/);
+  /* `123` and `12:7` both parse; the column is optional. */
+  assert.ok(client.includes('/^(\\d+)(?:\\s*[:,]\\s*(\\d+))?$/u'));
+  assert.match(client, /t\('editor\.lineCount', \{ count: lineStats\.lines \}\)/);
+  assert.match(client, /t\('editor\.selectionInfo', \{ count: lineStats\.selected \}\)/);
+});
+
+test('line separators use the Monaco enum and indentation is user-owned', () => {
+  const client = read('lib/client.js');
+  /* `pushEOL('\\r\\n')` is silently a no-op: the argument must be the enum. */
+  assert.match(client, /const sequence = monaco\?\.editor\?\.EndOfLineSequence;/);
+  assert.match(client, /model\.pushEOL\(value\)/);
+  assert.doesNotMatch(client, /pushEOL\(next\)/);
+  /* `detectIndentation` would re-detect from content and undo the toggle. */
+  assert.doesNotMatch(client, /model\.detectIndentation\(/);
+  assert.match(client, /editor\.action\.indentationToSpaces/);
+});
+
+test('the terminal split tracks its focused pane and remembers its ratio', () => {
+  const client = read('lib/client.js');
+  assert.match(client, /const \[focusedPane, setFocusedPane\] = React\.useState\('left'\);/);
+  assert.match(client, /'data-dsh-terminal-pane-role': 'left'/);
+  assert.match(client, /'data-dsh-terminal-pane-role': 'right'/);
+  assert.match(client, /const \[splitPercent, setSplitPercent\] = React\.useState\(\(\) => readStoredNumber\('dsh-editor\.terminal\.splitPercent', 50\)\);/);
+  assert.match(client, /window\.localStorage\.setItem\('dsh-editor\.terminal\.splitPercent'/);
+  /* Unsplit keeps the pane the user was typing in. */
+  assert.match(client, /const keep = focusedPane === 'right' \? splitId : activeId;/);
+});
+
+test('commit rows render numstat badges instead of fabricating counts', () => {
+  const client = read('lib/client.js');
+  assert.match(client, /function LineCounts\(\{ counts \}\) \{/);
+  assert.match(client, /if \(counts\.binary === true\)/);
+  assert.match(client, /counts: group\.id === 'staged' \? change\.stagedLines : group\.id === 'unstaged' \? change\.unstagedLines : undefined/);
+  /* Round 50 moved the summing into one shared helper the directory row reuses. */
+  assert.match(client, /function subtotalOf\(changes, band\) \{/);
+  assert.match(client, /const groupTotals = \(group\) => subtotalOf\(group\.changes, group\.id\);/);
+});
+
+test('the first shell auto-starts once the retained list settles', () => {
+  const client = read('lib/client.js');
+  /* A ref here never re-runs the effect, so the dock stayed empty until a manual "+". */
+  assert.match(client, /const \[loaded, setLoaded\] = React\.useState\(false\);/);
+  assert.match(client, /setLoaded\(true\)/);
+  assert.match(client, /if \(!loaded \|\| !available \|\| busy \|\| terminals\.length > 0 \|\| error !== null\) return;/);
+  /* Round 150: `createTerminal`/`restoreTerminals` left the dependency list.
+     Their identity changes on practically every parent render, so an effect
+     depending on them re-fired and spawned a shell per render — the dock froze
+     when `+` was pressed. `openedRef` keeps the body idempotent instead. */
+  assert.match(client, /\}, \[available, busy, loaded, terminals\.length, error, onRequestClose\]\);/);
+  assert.match(client, /if \(openedRef\.current\) \{/);
+  assert.doesNotMatch(client, /loadedRef/);
+});
+
+test('a single shell can still be split into a fresh right pane', () => {
+  const client = read('lib/client.js');
+  assert.match(client, /disabled: available === false \|\| activeId === null,/);
+  assert.match(client, /const created = await createTerminal\(\);/);
+  assert.match(client, /setSplitId\(created\.id\);/);
+});

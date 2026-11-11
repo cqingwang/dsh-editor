@@ -1,0 +1,9 @@
+{
+  "view": { "editor": "Editor", "chat": "对话" },
+  "editor": {
+    "files": "文件",
+    "open": "打开的文件",
+    "placeholder": "文件树与编辑器将在下一步接入 Monaco。",
+    "workspace": "工作区"
+  }
+}

@@ -1,0 +1,7 @@
+# dsh-editor bundle patch
+#
+# Mount the plugin as one profile entry. The bundle channel appends this package
+# to `dsh.profile.bundles`; the loader then merges this insert row.
+- insert:
+    - id: dsh-editor
+      name: 'dsh-editor'

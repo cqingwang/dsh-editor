@@ -1,0 +1,9 @@
+{
+  "view": { "editor": "Editor", "chat": "Chat" },
+  "editor": {
+    "files": "Files",
+    "open": "Open file",
+    "placeholder": "The file tree and Monaco editor arrive in the next step.",
+    "workspace": "Workspace"
+  }
+}
