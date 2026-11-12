@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { promisify } from 'node:util';
 
-import { gitCommit, gitDiff, gitInspect, gitLastCommit, gitLog, gitResolveConflict, gitRollback, gitShowCommit, gitStage, gitStatus } from '../lib/index.js';
+import { gitApplyChunk, gitCommit, gitDiff, gitInspect, gitLastCommit, gitLog, gitResolveConflict, gitRollback, gitShowCommit, gitStage, gitStatus } from '../lib/index.js';
 
 const run = promisify(execFile);
 
@@ -93,8 +93,70 @@ test('diff of a staged change compares HEAD against the index', async (t) => {
 
   const diff = await gitDiff(dir, '', { path: 'tracked.txt', staged: true });
   assert.equal(diff.original, 'one\n');
-  assert.equal(diff.modified, 'one\nstaged\nlater\n');
+  /* The right side is the INDEX, not the working tree: resolving a staged hunk
+     must change staged bytes, while the unstaged `later` line stays put. */
+  assert.equal(diff.modified, 'one\nstaged\n');
   assert.equal(diff.staged, true);
+});
+
+test('an unstaged hunk restore writes only the working tree', async (t) => {
+  const { dir, cleanup } = await fixture();
+  t.after(cleanup);
+  await writeFile(join(dir, 'tracked.txt'), 'one\nfirst\nsecond\n');
+  const loaded = await gitDiff(dir, '', { path: 'tracked.txt', staged: false });
+
+  await gitApplyChunk(dir, '', {
+    path: 'tracked.txt',
+    side: 'worktree',
+    expected: loaded.modified,
+    content: 'one\nsecond\n',
+  });
+  assert.equal(await readFile(join(dir, 'tracked.txt'), 'utf8'), 'one\nsecond\n');
+  await assert.rejects(() => gitApplyChunk(dir, '', {
+    path: 'tracked.txt',
+    side: 'worktree',
+    expected: loaded.modified,
+    content: 'stale\n',
+  }), /changed since the diff was loaded/);
+});
+
+test('a staged hunk restore updates the index and leaves the working tree alone', async (t) => {
+  const { dir, cleanup } = await fixture();
+  t.after(cleanup);
+  await writeFile(join(dir, 'tracked.txt'), 'one\nfirst\nsecond\n');
+  await gitStage(dir, { paths: ['tracked.txt'], staged: false });
+  await writeFile(join(dir, 'tracked.txt'), 'one\nfirst\nsecond\nworktree\n');
+  const loaded = await gitDiff(dir, '', { path: 'tracked.txt', staged: true });
+
+  await gitApplyChunk(dir, '', {
+    path: 'tracked.txt',
+    side: 'index',
+    expected: loaded.modified,
+    content: 'one\nsecond\n',
+  });
+  const status = await gitStatus(dir);
+  assert.equal(status.changes.find((change) => change.path === 'tracked.txt')?.status, 'MM');
+  assert.equal((await gitDiff(dir, '', { path: 'tracked.txt', staged: true })).modified, 'one\nsecond\n');
+  assert.equal(await readFile(join(dir, 'tracked.txt'), 'utf8'), 'one\nfirst\nsecond\nworktree\n');
+});
+
+test('a staged restore on a root-commit addition publishes the file in the index', async (t) => {
+  const { dir, cleanup } = await fixture();
+  t.after(cleanup);
+  await writeFile(join(dir, 'new.txt'), 'alpha\nbeta\n');
+  await gitStage(dir, { paths: ['new.txt'], staged: false });
+  const loaded = await gitDiff(dir, '', { path: 'new.txt', staged: true });
+  assert.equal(loaded.original, '');
+  assert.equal(loaded.modified, 'alpha\nbeta\n');
+
+  await gitApplyChunk(dir, '', {
+    path: 'new.txt',
+    side: 'index',
+    expected: loaded.modified,
+    content: 'alpha\n',
+  });
+  assert.equal((await gitDiff(dir, '', { path: 'new.txt', staged: true })).modified, 'alpha\n');
+  assert.equal(await readFile(join(dir, 'new.txt'), 'utf8'), 'alpha\nbeta\n');
 });
 
 test('last commit survives an unborn HEAD', async (t) => {

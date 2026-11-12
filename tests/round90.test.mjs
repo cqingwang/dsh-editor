@@ -64,7 +64,8 @@ test('an unmeasured viewport defaults to opening right, IDEA\'s default', () => 
 test('the submenu position is driven by that decision', () => {
   const start = source.indexOf('function ContextMenu({ menu, onClose, t })');
   assert.notEqual(start, -1);
-  const block = source.slice(start, start + 7000);
+  const next = source.indexOf('\n    function ', start + 10);
+  const block = source.slice(start, next === -1 ? undefined : next);
   assert.match(block, /submenuGeometry\(/);
   assert.match(block, /styles\.submenuLeft/);
 });

@@ -59,8 +59,8 @@ test('the change menu offers both discards, worded apart', () => {
   const client = read('lib/client.js');
   const start = client.indexOf('const buildChangeMenu = React.useCallback(');
   assert.notEqual(start, -1);
-  const block = client.slice(start, start + 3000);
+  const block = client.slice(start, client.indexOf('Context menu for one directory node', start));
   assert.match(block, /t\('editor\.rollbackStaged'\)/);
-  assert.match(block, /t\('editor\.rollbackWorking'\)/);
+  assert.match(block, /batchLabel\('editor\.rollbackWorking', 'editor\.rollbackWorkingCount'\)/);
   assert.match(block, /staged: true/);
 });

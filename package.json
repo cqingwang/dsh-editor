@@ -32,6 +32,7 @@
         "@deepseek-ai/dsh-client-locale",
         "@deepseek-ai/dsh-client-ui-conversation",
         "@deepseek-ai/dsh-client-ui-chat",
+        "@deepseek-ai/dsh-client-ui-primitives",
         "@deepseek-ai/dsh-api-terminal-controller"
       ],
       "platform": "web"
@@ -43,11 +44,13 @@
     "@deepseek-ai/dsh-client-locale": "^0.2.2-rc.1",
     "@deepseek-ai/dsh-client-ui-chat": "^0.2.2-rc.1",
     "@deepseek-ai/dsh-client-ui-conversation": "^0.2.2-rc.1",
+    "@deepseek-ai/dsh-client-ui-primitives": "^0.2.2-rc.1",
     "react": "^18.2.0"
   },
   "license": "MIT",
   "scripts": {
-    "test": "node --test --test-concurrency=1 \"tests/*.test.mjs\""
+    "test": "node --test --test-concurrency=1 \"tests/*.test.mjs\"",
+    "fixture:editor": "bash scripts/prepare-editor-fixture.sh"
   },
   "dependencies": {
     "@xterm/addon-fit": "0.11.0",

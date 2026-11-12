@@ -34,7 +34,7 @@ test('Alt+1/2/3 raise Project, Commit and Terminal', () => {
   assert.match(block, /if \(event\.altKey && !event\.metaKey && !event\.ctrlKey && event\.key === 'F12'\)/);
   /* It reads the CURRENT selectActivity, or the first render's closure would
      keep toggling whatever the activity was at mount time. */
-  assert.match(block, /\}, \[selectActivity\]\);/);
+  assert.match(block, /\}, \[selectActivity, terminalOpen\]\);/);
 });
 
 test('switching tool windows keeps the terminal dock open', () => {
@@ -84,7 +84,7 @@ test('⌘⇧A stages and ⌥⌘A unstages the current change', () => {
   assert.match(block, /activityRef\.current !== 'commit'/);
   /* The band decides the direction, read from the live git snapshot. */
   assert.match(block, /const staged = change\.status\[0\] !== ' ' && change\.status\[0\] !== '\?'/);
-  assert.match(block, /void restageRef\.current\(\[path\], staged\);/);
+  assert.match(block, /void restageRef\.current\(\[\.\.\.new Set\(eligible\)\], staged\);/);
   /* Text fields and the terminal keep the key. */
   assert.match(block, /closest\('\.monaco-editor'\)/);
   assert.match(block, /closest\('\[data-dsh-editor-terminal\]'\)/);

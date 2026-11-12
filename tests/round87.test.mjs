@@ -44,7 +44,8 @@ test('Esc closes one level, not the whole menu', () => {
 test('the menu wires those keys to the submenu state', () => {
   const start = source.indexOf('function ContextMenu({ menu, onClose, t })');
   assert.notEqual(start, -1);
-  const block = source.slice(start, start + 2600);
+  const next = source.indexOf('\n    function ', start + 10);
+  const block = source.slice(start, next === -1 ? undefined : next);
   assert.match(block, /submenuKeyAction\(event\.key/);
   assert.match(block, /setSubmenu\(null\)/);
 });

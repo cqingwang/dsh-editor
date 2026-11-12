@@ -77,7 +77,9 @@ test('closing a dirty tab asks first and batch close asks once', () => {
   assert.match(client, /file\?\.dirty === true && !window\.confirm\(t\('editor\.unsavedTabsConfirm', \{ count: 1 \}\)\)/);
   assert.match(client, /const closeOtherTabs = React\.useCallback\(/);
   assert.match(client, /const closeAllTabs = React\.useCallback\(/);
-  assert.match(client, /for \(const file of doomed\) closeFile\(file\.path, true\)/);
+  assert.match(client, /const closePaths = React\.useCallback\(\(paths\) => \{/);
+  assert.match(client, /setOpenFiles\(remaining\);/);
+  assert.match(client, /if \(dirty > 0 && !window\.confirm\(t\('editor\.unsavedTabsConfirm', \{ count: dirty \}\)\)\) return false;/);
   /* Middle-click and the tab context menu both reach the same lifecycle. */
   assert.match(client, /onAuxClick: \(event\) => \{/);
   assert.match(client, /id: 'closeOthers', label: t\('editor\.closeOtherTabs'\)/);

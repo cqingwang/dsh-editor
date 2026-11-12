@@ -58,7 +58,9 @@ test('the hunk counter names the hunk the caret sits in', () => {
     { modifiedStartLineNumber: 12, modifiedEndLineNumber: 12 },
     { modifiedStartLineNumber: 40, modifiedEndLineNumber: 44 },
   ];
-  assert.deepEqual(hunkAt(changes, 1), { index: 0, total: 3 });
+  /* IDEA numbers the first difference from 1 even before the caret enters it;
+     `0/N` is only correct for a file with no differences at all. */
+  assert.deepEqual(hunkAt(changes, 1), { index: 1, total: 3 });
   assert.deepEqual(hunkAt(changes, 3), { index: 1, total: 3 });
   assert.deepEqual(hunkAt(changes, 5), { index: 1, total: 3 });
   assert.deepEqual(hunkAt(changes, 12), { index: 2, total: 3 });
@@ -78,8 +80,8 @@ test('between hunks the counter keeps the hunk above', () => {
     { modifiedStartLineNumber: 30, modifiedEndLineNumber: 31 },
   ];
   assert.deepEqual(hunkAt(changes, 20), { index: 1, total: 2 });
-  /* Only above the first hunk does the index stay 0. */
-  assert.deepEqual(hunkAt(changes, 1), { index: 0, total: 2 });
+  /* Above the first hunk still reads as the first difference, not `0/2`. */
+  assert.deepEqual(hunkAt(changes, 1), { index: 1, total: 2 });
 });
 
 test('an unchanged file reports no hunks, and bad input does not throw', () => {
@@ -122,12 +124,15 @@ test('autoscroll follows the active tab without reopening the tool window', () =
   assert.match(reveal, /setPanelVisible\(true\)/);
 });
 
-test('the autoscroll toggle is in the Project toolbar and persists', () => {
+test('the autoscroll toggle is reachable and persists', () => {
   assert.match(source, /dsh-editor\.project\.autoscroll/);
   const toggle = source.slice(source.indexOf('const toggleAutoScroll = React.useCallback('), source.indexOf('/* Start the inline create row'));
   assert.match(toggle, /localStorage\.setItem\('dsh-editor\.project\.autoscroll'/);
-  assert.match(source, /id: 'autoscroll',[\s\S]{0,200}onClick: onToggleAutoScroll \?\? \(\(\) => \{\}\)/);
-  assert.match(source, /autoScroll,\n\s+onToggleAutoScroll: \(\) => toggleAutoScroll\(\),/);
+  /* Round 177 moved this low-frequency switch under IDEA's Project Options
+     disclosure; the visible toolbar keeps creation, reveal, expand, collapse,
+     options and hide. The behavior and the persistence contract are unchanged. */
+  const options = source.slice(source.indexOf('onOpenOptions: (event) => {'), source.indexOf('onCreateChange: (value) =>'));
+  assert.match(options, /id: 'autoscroll'[\s\S]{0,260}toggleAutoScroll\(\)/);
 });
 
 /* ── IDEA's in-tree typeahead ───────────────────────────────────────────── */

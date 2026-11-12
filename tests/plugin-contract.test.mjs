@@ -78,12 +78,15 @@ test('client half opens the terminal as a bottom dock with an ESM xterm import',
   assert.doesNotMatch(client, /terminalPlaceholder/);
 });
 
-test('commit tool window splits staged and unstaged changes with an inline diff', () => {
+test('commit tool window splits staged and unstaged changes with an IDEA diff', () => {
   const client = read('lib/client.js');
   const host = read('lib/index.js');
   assert.match(client, /function splitChanges/);
   assert.match(client, /function changeTreeOf/);
-  assert.match(client, /renderSideBySide: false/);
+  assert.match(client, /readStoredText\('dsh-editor\.diff\.sideBySide', '1'\) !== '0'/);
+  assert.match(client, /renderSideBySideInlineBreakpoint: 0/);
+  assert.match(client, /renderMarginRevertIcon: true/);
+  assert.match(client, /diff\.updateOptions\(\{ renderSideBySide: sideBySide \}\)/);
   assert.match(client, /diffTarget/);
   assert.match(host, /case 'stage':/);
   assert.match(host, /case 'diff':/);

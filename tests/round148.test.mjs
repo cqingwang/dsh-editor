@@ -122,9 +122,9 @@ test('closing the diff tab drops the preview and returns to the file', () => {
   const tab = slice("key: 'dsh-editor-difftab',", '/* One layout for this render');
   assert.match(tab, /onClick: \(\) => setDiffActive\(true\)/);
   assert.match(tab, /onAuxClick: \(event\) => \{/);
-  assert.match(tab, /onClick: \(event\) => \{\n\s+event\.stopPropagation\(\);\n\s+setDiffTarget\(null\);/);
+  assert.match(tab, /onClick: \(event\) => \{\n\s+event\.stopPropagation\(\);\n\s+closeDiff\(\);/);
   /* ⌘W closes the tab that is showing, which may be the diff. */
-  assert.match(source, /if \(diffActiveRef\.current\) setDiffTarget\(null\);/);
+  assert.match(source, /if \(diffActiveRef\.current\) closeDiff\(\);/);
 });
 
 test('the diff tab is named Commit: for changes and Compare: for a revision', () => {

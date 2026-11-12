@@ -124,10 +124,10 @@ test('no change-row label keeps both a clamp and an ellipsis', () => {
   /* Guard the class of bug rather than the two instances: inside the change
      list, an ellipsized NAME is what made the row unreadable. The group label
      and the path may ellipsize — they are not names. */
-  for (const name of ['commitGroupLabel', 'commitFileDir']) {
+  for (const name of ['commitFileDir']) {
     assert.match(styleBlock(name), /textOverflow: 'ellipsis'/, `${name} should still ellipsize`);
   }
-  for (const name of ['commitFileName', 'commitDirName']) {
+  for (const name of ['commitGroupLabel', 'commitFileName', 'commitDirName']) {
     assert.doesNotMatch(styleBlock(name), /textOverflow: 'ellipsis'/, `${name} must stay whole`);
   }
 });

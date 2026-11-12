@@ -97,14 +97,16 @@ test('an empty Recent Files list says so instead of "no matches"', () => {
 
 /* ── discoverability: both popups sit in the Project toolbar ───────────── */
 
-test('the Project toolbar exposes both navigation popups', () => {
-  /* Without buttons the only way to find ⌘E / ⌘⇧O is already knowing the key. */
-  const toolbar = source.slice(source.indexOf("id: 'newFolder', icon: 'newFolder'"), source.indexOf("id: 'reveal'"));
-  assert.match(toolbar, /id: 'gotoFile', icon: 'file', label: t\('editor\.gotoFileHint'\)/);
-  assert.match(toolbar, /id: 'recent', icon: 'refresh', label: t\('editor\.recentFilesHint'\)/);
+test('the Project Options menu exposes both navigation popups', () => {
+  /* Without entries the only way to find ⌘E / ⌘⇧O is already knowing the key.
+     Round 177 moved them under IDEA's Options disclosure so the visible toolbar
+     keeps only the frequent actions. */
+  const options = source.slice(source.indexOf('onOpenOptions: (event) => {'), source.indexOf('onCreateChange: (value) =>'));
+  assert.match(options, /id: 'gotoFile', label: t\('editor\.gotoFileHint'\)/);
+  assert.match(options, /id: 'recent', label: t\('editor\.recentFilesHint'\)/);
   /* They must be wired, not decorative. */
-  assert.match(source, /onGotoFile: \(\) => void openQuickOpen\(\),/);
-  assert.match(source, /onRecent: \(\) => openRecent\(\),/);
+  assert.match(options, /void openQuickOpen\(\)/);
+  assert.match(options, /openRecent\(\)/);
 });
 
 test('both popups carry their shortcut in the label', () => {
