@@ -1,5 +1,43 @@
 # dsh-editor 工程记忆
 
+## 2026-11-12 — Commit Changes 目录/文件列对齐与窄窗行数裁切
+
+**作用域**：Commit Changes 的目录行、文件行、列栅格与窄工具窗口。
+
+**症状**：
+
+- 目录行和文件行的状态、图标、名称、父路径、行数各自按内容宽度排布，长名称会让列位置漂移；
+- 初次改网格时目录少一个状态槽，文件行会折成两行；
+- 190px 左右 Changes 面板下，`+N −N` 的右端仍可能被裁切。
+
+**根因**：
+
+- 原来是两套 flex 行：目录行和文件行 DOM 子项数量不同，无法形成稳定列；
+- 只有文件行有 porcelain 状态槽；目录行直接进入文件夹图标；
+- 名称、父路径、行数都参与内容宽度分配，没有明确的“固定列 + 弹性路径列”。
+
+**修复**：
+
+- 新增 `styles.commitTreeNode` 网格：`12px 16px 16px 16px max-content minmax(0,1fr) max-content`，目录和文件共用；
+- 目录补空状态槽，文件补空 chevron 槽；这样文件夹/文件图标、名称、父路径与行数落在同一列；
+- 名称与父路径分到不同 grid cell，父路径列吸收剩余宽度并 ellipsis，行数固定右端；
+- `tests/round182.test.mjs` 锁住共享网格、空槽对齐和路径/名称分列；旧 `round50` 的目录 subtotal 扫描窗口扩展到覆盖整个目录块。
+
+**验证**：
+
+```bash
+node --check lib/client.js
+node --test tests/round182.test.mjs tests/round50.test.mjs tests/static-order.test.mjs
+```
+
+运行态（隔离 `/private/tmp/dsh-editor-r182-fixture`，端口 63094）：
+
+- `MM sample.txt`、` M second.txt` 在 Changes 中渲染为单行；
+- 目录组与文件行的状态/图标/名称/父路径对齐；
+- `pageerror` 无运行时异常（页面仍可继续切换 Project/Commit）。
+
+**已知边界**：Changes 窄于约 190px 时，固定行数列仍可能被裁；下一轮按 IDEA 的窄窗策略降级行数或改用更紧凑显示，并补真实宽度断言。
+
 ## 2026-11-12 — CommitPanel 越界引用导致整块崩溃；diff 未修改区域折叠
 
 **作用域**：Commit Changes 动作条、批量 Rollback、DiffPreview、Editor host 生命周期。

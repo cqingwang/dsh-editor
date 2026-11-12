@@ -63,7 +63,7 @@ test('the directory row and the group header share one subtotal helper', () => {
   const dirStart = source.indexOf("if (row.kind === 'directory') {");
   /* Round 140 grew the directory row ("N files" label + parent path), so the
      window that has to contain the subtotal reading got wider. */
-  const dirBlock = source.slice(dirStart, dirStart + 4400);
+  const dirBlock = source.slice(dirStart, dirStart + 6400);
   assert.match(dirBlock, /React\.createElement\(LineCounts, \{ counts: subtotalOf\(row\.changes, group\.id\) \}\)/);
 });
 

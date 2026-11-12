@@ -93,7 +93,9 @@ test('the muted parent path is the part that shrinks', () => {
   assert.match(block, /minWidth: 0/);
   assert.match(block, /overflow: 'hidden'/);
   assert.match(block, /textOverflow: 'ellipsis'/);
-  const row = styleBlock('commitFileRow');
+  /* Directory and file rows share one grid node; the wrapping/nowrap rule
+     moved there when the columns were unified. */
+  const row = styleBlock('commitTreeNode');
   assert.match(row, /whiteSpace: 'nowrap'/);
   /* The row itself must be allowed to shrink inside the scrolling column. */
   assert.match(row, /minWidth: 0/);
