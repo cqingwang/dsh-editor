@@ -1,6 +1,6 @@
 {
   "name": "dsh-editor",
-  "version": "0.1.0",
+  "version": "10.1.0",
   "description": "Editor view for DeepSeek Harness conversations: a 3/4 editor beside the original 1/4 chat.",
   "type": "module",
   "main": "lib/index.js",
