@@ -54,22 +54,20 @@ function collapseKeys(changes) {
 }
 
 test('Alt+F12 closes from the terminal and returns to the originating editor', () => {
-  const keys = slice(
-    "const onKeyDown = (event) => {\n          if (event.altKey && !event.metaKey && !event.ctrlKey && event.key === 'F12')",
-    "if (event.altKey && !event.metaKey && !event.ctrlKey && (event.key === '1'",
-  );
-  assert.match(keys, /const inTerminal = document\.activeElement instanceof Element/);
-  assert.match(keys, /if \(terminalOpen\) \{/);
-  assert.match(keys, /const previous = terminalReturnFocusRef\.current;/);
-  assert.match(keys, /previous instanceof HTMLElement && previous\.isConnected/);
-  assert.match(keys, /previous\.focus\(\)/);
+  const toggle = slice('const toggleTerminalDock = () => {', 'const onKeyDown = (event) => {');
+  const restore = slice('const restoreTerminalOrigin = () => {', 'const toggleTerminalDock = () => {');
+  assert.match(toggle, /terminalShortcutAction\(/);
+  assert.match(toggle, /document\.activeElement instanceof Element/);
+  assert.match(toggle, /if \(action\.open === false\) \{/);
+  assert.match(toggle, /if \(action\.restoreFocus\) restoreTerminalOrigin\(\);/);
+  assert.match(restore, /const previous = terminalReturnFocusRef\.current;/);
+  assert.match(restore, /previous instanceof HTMLElement && previous\.isConnected/);
+  assert.match(restore, /previous\.focus\(\)/);
 });
 
 test('opening the dock remembers Monaco or the focused tree/list control', () => {
-  const keys = slice(
-    "const onKeyDown = (event) => {\n          if (event.altKey && !event.metaKey && !event.ctrlKey && event.key === 'F12')",
-    "if (event.altKey && !event.metaKey && !event.ctrlKey && (event.key === '1'",
-  );
+  const start = source.lastIndexOf('const rememberTerminalOrigin = () => {');
+  const keys = source.slice(start, source.indexOf("}, [selectActivity, terminalOpen]);", start));
   assert.match(keys, /terminalReturnFocusRef\.current = current !== null/);
   assert.match(keys, /current\.closest\('\[data-dsh-editor-terminal\]'\) === null/);
   assert.match(keys, /setTerminalOpen\(true\)/);
@@ -145,7 +143,7 @@ test('the action strip measures the pane width instead of shrink-wrapping its ac
   assert.match(compact, /new ResizeObserver\(measure\)/);
   assert.match(compact, /const next = actions\.length <= slots \? actions\.length : Math\.max\(0, slots - 1\)/);
   assert.match(compact, /\}, \[actionsKey, visibleCount\]\);/);
-  assert.match(compact, /id: action\.id,\n\s+label: action\.label,\n\s+disabled: action\.disabled === true,\n\s+run: \(\) => action\.onClick\(\)/);
+  assert.match(compact, /id: action\.id,\n\s+label: action\.label,\n\s+shortcut: action\.active === true \? '✓' : '',\n\s+disabled: action\.disabled === true,\n\s+active: typeof action\.active === 'boolean' \? action\.active : undefined,\n\s+run: \(\) => action\.onClick\(\)/);
 });
 
 test('the tree prefers the host file artwork and keeps the badge fallback', () => {

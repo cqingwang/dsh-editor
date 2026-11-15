@@ -34,7 +34,7 @@ test('copy-as-path:line only quotes the caret of the file actually open', () => 
   /* Quoting another file's caret would point at the wrong place (round 104 moved the
      whole decision into `pathWithLine`, which also drops the caret when it is null). */
   assert.match(source, /function pathWithLine\(path, caret, isActive\)/);
-  assert.match(source, /pathWithLine\(row\.path, editorRef\.current\?\.getPosition\?\.\(\) \?\? null, activePathRef\.current === row\.path\)/);
+  assert.match(source, /pathWithLine\(\s*firstPath,\s*editor\?\.getPosition\?\.\(\) \?\? null,\s*editorPath === firstPath,/);
 });
 
 test('a multi-row context menu reports how many rows it will touch', () => {

@@ -61,9 +61,9 @@ test('the directory row and the group header share one subtotal helper', () => {
   assert.match(source, /const groupTotals = \(group\) => subtotalOf\(group\.changes, group\.id\);/);
   /* The collapsible directory row shows the same reading as the group header. */
   const dirStart = source.indexOf("if (row.kind === 'directory') {");
-  /* Round 140 grew the directory row ("N files" label + parent path), so the
-     window that has to contain the subtotal reading got wider. */
-  const dirBlock = source.slice(dirStart, dirStart + 6400);
+  /* Slice to the file-row branch instead of a fixed width so keyboard/ARIA
+     additions cannot silently move the subtotal outside the contract. */
+  const dirBlock = source.slice(dirStart, source.indexOf('const change = row.change;', dirStart));
   assert.match(dirBlock, /React\.createElement\(LineCounts, \{ counts: subtotalOf\(row\.changes, group\.id\) \}\)/);
 });
 

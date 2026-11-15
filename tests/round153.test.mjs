@@ -21,7 +21,7 @@ test('a double-click never starts a rename', () => {
      Rename is now only reachable from the context menu (and F2/⇧F6). */
   const start = source.indexOf('ref: treeRef,');
   assert.notEqual(start, -1);
-  const block = source.slice(start, start + 6400);
+  const block = source.slice(start, source.indexOf('onContextMenu:', start));
   assert.match(block, /onDoubleClick: \(event\) => \{/);
   assert.match(block, /event\.stopPropagation\(\);/);
   const dbl = block.slice(block.indexOf('onDoubleClick:'), block.indexOf('onContextMenu:'));
@@ -72,7 +72,7 @@ test('the tree context menu keeps create and rename on separate targets', () => 
   const menu = source.slice(source.indexOf('const buildTreeMenu = React.useCallback('));
   assert.match(menu, /const createParent = isDirectory \? row\.path : dirname\(row\.path\);/);
   const renameItem = menu.slice(menu.indexOf("id: 'rename'"), menu.indexOf("id: 'moveTo'"));
-  assert.match(renameItem, /setRenameState\(\{ path: row\.path, value: row\.name \}\)/);
+  assert.match(renameItem, /setRenameState\(\{ path: row\.path, value: basename\(row\.path\) \}\)/);
   const newFile = menu.slice(menu.indexOf("id: 'newFile'"), menu.indexOf("id: 'newFolder'"));
   assert.match(newFile, /startCreate\('file', createParent\)/);
 });

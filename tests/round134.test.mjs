@@ -44,7 +44,7 @@ test('an unknown row is ignored', () => {
 });
 
 test('the search handler uses that decision instead of calling onToggle blindly', () => {
-  const start = source.indexOf('const hit = visibleRows.find');
+  const start = source.indexOf('const hit = hits.find');
   assert.notEqual(start, -1);
   const block = source.slice(start, start + 900);
   assert.match(block, /revealInTree\(/);

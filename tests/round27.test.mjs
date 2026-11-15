@@ -110,8 +110,9 @@ test('a multi-row move refuses to drop a directory into itself', () => {
 
 test('open tabs follow a moved directory, not just a moved file', () => {
   const client = source;
-  assert.match(client, /const hit = entries\.find\(\(\[from, to\]\) => file\.path === from \|\| file\.path\.startsWith\(`\$\{from\}\/`\)\);/);
-  assert.match(client, /return hit === undefined \? file : \{ \.\.\.file, path: `\$\{hit\[1\]\}\$\{file\.path\.slice\(hit\[0\]\.length\)\}` \};/);
+  assert.match(client, /function remapPathAfterMove\(path, entries\)/);
+  assert.match(client, /if \(path\.startsWith\(`\$\{from\}\/`\)\) return `\$\{to\}\$\{path\.slice\(from\.length\)\}`;/);
+  assert.match(client, /remapEditorPaths\(entries\);/);
 });
 
 test('a commit switches to the log and marks the new row', () => {

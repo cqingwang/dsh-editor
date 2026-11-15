@@ -44,7 +44,7 @@ test('the placeholder is no longer keyed off the raw loading flag', () => {
 
 test('a refresh keeps the current rows on screen while it loads', () => {
   /* `loadRoot` must not flip the loading flag off when data already exists. */
-  const start = source.indexOf('const loadRoot = React.useCallback(async () => {');
+  const start = source.indexOf('const loadRoot = React.useCallback(async (foldersFirstOverride) => {');
   assert.notEqual(start, -1);
   const block = source.slice(start, start + 400);
   assert.match(block, /shouldShowTreeLoading\(/);
@@ -53,14 +53,14 @@ test('a refresh keeps the current rows on screen while it loads', () => {
 test('a workspace switch shows the placeholder again', () => {
   /* The previous root's rows say nothing about the new one; keeping the silent path
      there would show a stale tree with no hint that a load is in flight. */
-  const start = source.indexOf('const loadRoot = React.useCallback(async () => {');
+  const start = source.indexOf('const loadRoot = React.useCallback(async (foldersFirstOverride) => {');
   const block = source.slice(start, start + 600);
   assert.match(block, /treeRootRef\.current/);
   const setter = source.indexOf("treeRootRef.current = value.root ?? '';");
   assert.notEqual(setter, -1, 'the loaded root must be recorded for the next decision');
 });
 
-test('rowsRef mirrors the flattened rows for the loader', () => {
+test('rowsRef mirrors the project tree rows for the loader', () => {
   assert.match(source, /const rowsRef = React\.useRef\(\[\]\);/);
-  assert.match(source, /rowsRef\.current = rows;/);
+  assert.match(source, /rowsRef\.current = projectRows;/);
 });

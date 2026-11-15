@@ -15,7 +15,7 @@ const source = readFileSync(join(root, 'lib/client.js'), 'utf8');
  * malformed entry is actually dropped.
  * @param {string} name - helper to load.
  * @param {object} storage - `{getItem, setItem}` stub.
- * @param {string} sessionId - value returned by `currentSessionId`.
+ * @param {string} sessionId - value returned by `currentTerminalScope`.
  * @returns {Function} the helper.
  */
 function loadWithStorage(name, storage, sessionId) {
@@ -38,7 +38,7 @@ function loadWithStorage(name, storage, sessionId) {
   const body = source.slice(start, end);
   const factory = new Function(
     'window',
-    'currentSessionId',
+    'currentTerminalScope',
     `'use strict';\n${body}\nreturn ${name};`,
   );
   return factory({ localStorage: storage }, () => sessionId);

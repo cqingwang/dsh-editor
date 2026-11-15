@@ -71,6 +71,6 @@ test('terminal exposes a link provider and a context menu over the PTY', () => {
 test('tool-window toolbars collapse actions instead of the title', () => {
   const client = read('lib/client.js');
   assert.match(client, /function PanelToolbar/);
-  assert.match(client, /const fitGroup = \(group\) =>/);
+  assert.match(client, /function panelToolbarFit\(/);
   assert.match(client, /editor\.moreActions/);
 });

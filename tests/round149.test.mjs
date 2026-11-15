@@ -46,8 +46,8 @@ test('the dock title row is gone and the hide control moved into the tab strip',
   assert.doesNotMatch(source, /styles\.dockTitle/);
   assert.doesNotMatch(source, /React\.createElement\('span', \{ style: styles\.dockTitle \}, t\('editor\.terminal'\)\)/);
 
-  /* Hide lives at the end of the strip's tool cluster, after refresh. */
-  const strip = slice("React.createElement(ToolbarButton, { icon: 'refresh', label: t('editor.refresh'), onClick: () => void refresh() }),", 'find === null');
+  /* Hide lives at the end of the strip's tool cluster, after Options. */
+  const strip = slice("label: t('editor.terminalOptions'),", 'find === null');
   assert.match(strip, /onRequestClose === undefined\n\s+\? null/);
   assert.match(strip, /React\.createElement\(ToolbarButton, \{ icon: 'hide', label: t\('editor\.hideTerminal'\), onClick: \(\) => onRequestClose\(\) \}\)/);
   /* It reaches the panel as a prop: a tool window cannot close itself. */
@@ -58,7 +58,7 @@ test('the dock title row is gone and the hide control moved into the tab strip',
 
 test('the dock keeps exactly one strip above the screen', () => {
   /* The panel is `tabStrip` then the screen; a third row means chrome crept back. */
-  assert.match(source, /function TerminalPanel\(\{ t, generation, startDirectory, workspaceRoot = '', onStartDirectoryUsed, onRequestNew, onRequestClose, onOpenFile, onEditorTerminals, focusGeneration = 0 \}\)/);
+  assert.match(source, /function TerminalPanel\(\{ t, generation, startDirectory, workspaceRoot = '', onStartDirectoryUsed, onRequestNew, onRequestClose, onOpenFile, onEditorTerminals, onSwitchFocusToEditor, focusGeneration = 0 \}\)/);
   const panel = slice('function TerminalPanel(', 'function terminalTheme');
   assert.match(panel, /style: styles\.terminalTabStrip/);
   /* The resize grip belongs to the DOCK, above the panel — not to the panel. */

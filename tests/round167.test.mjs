@@ -16,13 +16,13 @@ test('one click selects a change without opening its diff', () => {
   const title = panel.indexOf('title: change.path,');
   const row = panel.slice(title, panel.indexOf("React.createElement('input', {", title));
   assert.match(row, /onClick: \(event\) => onSelectChange\?\.\(\{[\s\S]*?path: change\.path,[\s\S]*?staged: group\.id === 'staged',[\s\S]*?shift: event\.shiftKey,/);
-  assert.match(row, /onDoubleClick: \(\) => onSelectDiff\?\.\(\{ path: change\.path, staged: group\.id === 'staged' \}\)/);
+  assert.match(row, /onDoubleClick: \(event\) => \{[\s\S]*?closest\('input, button, a, \[role="checkbox"\]'\) !== null\) return;[\s\S]*?onSelectDiff\?\.\(\{ path: change\.path, staged: group\.id === 'staged' \}\);/);
   assert.match(panel, /'aria-selected': selectedForChange,/);
 });
 
 test('the selected change is visibly distinct from the opened diff', () => {
   const panel = commitPanel();
-  assert.match(panel, /selectedChange,\n\s+selectedChanges,\n\s+chosenChangeList = \[\],\n\s+collapsedGroups,/);
+  assert.match(panel, /selectedChange,\n\s+selectedGroup,\n\s+selectedChanges,\n\s+chosenChangeList = \[\],\n\s+collapsedGroups,/);
   const row = panel.slice(panel.indexOf('const selectedForChange'), panel.indexOf("React.createElement('input', {", panel.indexOf('const selectedForChange')));
   assert.match(row, /selectedForChange/);
   assert.match(row, /dsh-editor-commit-row-selected/);

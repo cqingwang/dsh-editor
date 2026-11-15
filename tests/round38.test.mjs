@@ -32,7 +32,7 @@ test('the changes tab no longer duplicates the status strip', () => {
   const panel = bodyOf('CommitPanel');
   /* Exactly one strip, otherwise a failure shows twice in the Changes tab. */
   assert.equal((panel.match(/styles\.commitStatusStack/gu) ?? []).length, 1);
-  assert.equal((panel.match(/styles\.commitError \}, error/gu) ?? []).length, 1);
+  assert.equal((panel.match(/styles\.commitError, display/gu) ?? []).length, 1);
   /* The identity warning stays local to the message box area. */
   assert.match(panel, /t\('editor\.identityMissing'\)/);
 });

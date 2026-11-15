@@ -39,7 +39,7 @@ test('the workspace "..." menu is told apart from every other menu', () => {
 test('the injected item sits before Rename, IDEA\'s ordering for "open editor"', () => {
   const start = source.indexOf('function ensureWorkspaceEditorItem(');
   assert.notEqual(start, -1, 'ensureWorkspaceEditorItem is missing');
-  const block = source.slice(start, start + 3600);
+  const block = source.slice(start, start + 5200);
   assert.match(block, /first\.parentElement\?\.insertBefore\(clone, first\)/);
   assert.match(block, /data-dsh-editor-menu-item/);
   /* It must reuse the split activation, not re-implement it. */
@@ -51,7 +51,7 @@ test('the detector reads the whole item text, not a nested empty span', () => {
      `querySelector('span:last-child')` returned the EMPTY icon node: the labels came
      back as ['', '', ''] and the menu was never recognised. */
   const start = source.indexOf('function ensureWorkspaceEditorItem(');
-  const block = source.slice(start, start + 3600);
+  const block = source.slice(start, start + 5200);
   assert.match(block, /items\.map\(\(item\) => \(item\.textContent \?\? ''\)\.trim\(\)\)/);
   assert.doesNotMatch(block, /querySelector\('span:last-child'\)\s*;/);
 });

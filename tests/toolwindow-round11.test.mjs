@@ -53,7 +53,7 @@ test('terminal dock owns find and tab shortcuts', () => {
 test('tool-window toolbars keep the title and collapse their actions', () => {
   const client = read('lib/client.js');
   const toolbar = client.slice(client.indexOf('function PanelToolbar'), client.indexOf('/** One 24px panel toolbar button. */'));
-  assert.match(toolbar, /fitGroup/);
+  assert.match(toolbar, /panelToolbarFit/);
   assert.match(toolbar, /editor\.moreActions/);
   assert.match(toolbar, /badge/);
   assert.doesNotMatch(toolbar, /flex: '0 1 auto',\n\s+minWidth: 12/);

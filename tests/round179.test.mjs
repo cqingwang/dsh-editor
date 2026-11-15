@@ -80,8 +80,7 @@ test('an empty path selection is refused instead of shelving everything', async 
 });
 
 test('the Commit toolbar exposes Shelve and restores with the index-aware action', () => {
-  assert.match(source, /id: 'shelve',\n\s+icon: 'stash',\n\s+label: t\('editor\.shelve'\)/);
-  assert.match(source, /onShelveMenu: \(position\) => void openShelveMenu\(position\)/);
+  assert.match(source, /id: 'shelve',\n\s+label: t\('editor\.shelve'\),\n\s+run: \(\) => void openShelveMenu\(position\)/);
   const run = source.slice(source.indexOf('const runShelve = React.useCallback('), source.indexOf('const openStashMenu = React.useCallback('));
   assert.match(run, /op: 'shelve'/);
   assert.match(run, /action: operation/);

@@ -7,38 +7,18 @@ import test from 'node:test';
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const source = readFileSync(join(root, 'lib/client.js'), 'utf8');
 
-test('clicking the empty area below the rows clears the selection', () => {
-  /* IDEA drops the selection when you click the tree's background; without it the
-     old row stays highlighted and every context action still targets it. */
+test('clicking the empty area below the rows keeps the IDEA tree selection', () => {
+  /* The current IDEA Project tree retains its selected row when the background is
+     clicked. The background remains a drop target, but it is not a clear surface. */
   const start = source.indexOf('ref: treeRef,');
   assert.notEqual(start, -1);
   const block = source.slice(start, start + 2600);
-  assert.match(block, /onClick: \(event\) => \{/);
-  assert.match(block, /closest\('\.dsh-editor-tree-row'\)/);
-  assert.match(block, /onClearSelection\?\.\(\);/);
+  assert.doesNotMatch(block, /onClearSelection\?\.\(\);/);
+  assert.doesNotMatch(block, /onClick:[\s\S]{0,240}?onClearSelection/);
+  assert.match(block, /onDragOver:/);
 });
 
-test('the clear callback resets the anchor so Shift+click starts over', () => {
-  assert.match(source, /const clearTreeSelection = React\.useCallback\(/);
-  const start = source.indexOf('const clearTreeSelection = React.useCallback(');
-  const block = source.slice(start, start + 500);
-  assert.match(block, /setSelection\(new Set\(\)\)/);
-  assert.match(block, /setSelectedPathRaw\(null\)/);
-  assert.match(block, /selectionAnchor\.current = null/);
-});
-
-test('the clear callback is passed into the panel, not captured from its parent', () => {
-  /* `ProjectPanel` is a sibling component: a bare `clearTreeSelection()` there is a
-     ReferenceError at runtime (found exactly that way), so the handler must arrive
-     as a prop. */
-  assert.match(source, /onClearSelection,\n      showHidden,/);
-  assert.match(source, /onClearSelection: clearTreeSelection,/);
-});
-
-test('a click on a row does not bubble into a clear', () => {
-  const start = source.indexOf('ref: treeRef,');
-  const block = source.slice(start, start + 2600);
-  /* The row handler runs first and the container checks the target, so a row click
-     must not reach the clear branch. */
-  assert.match(block, /if \(target !== null\) return;/);
+test('the obsolete clear-selection callback is no longer declared or passed', () => {
+  assert.doesNotMatch(source, /const clearTreeSelection = React\.useCallback\(/);
+  assert.doesNotMatch(source, /onClearSelection: clearTreeSelection,/);
 });

@@ -27,17 +27,25 @@ test('the terminal screen reclaims focus whenever it becomes visible', () => {
 });
 
 test('Alt+F12 records the originating surface and restores it on close', () => {
-  const keys = slice('const onKeyDown = (event) => {\n          if (event.altKey && !event.metaKey && !event.ctrlKey && event.key === \'F12\')', 'if (event.altKey && !event.metaKey && !event.ctrlKey && (event.key === \'1\'');
-  assert.match(keys, /const inTerminal = document\.activeElement instanceof Element/);
-  assert.match(keys, /if \(terminalOpen\) \{/);
-  assert.match(keys, /const previous = terminalReturnFocusRef\.current;/);
-  assert.match(keys, /if \(previous instanceof HTMLElement && previous\.isConnected\) previous\.focus\(\);/);
-  assert.match(keys, /else editorRef\.current\?\.focus\(\);/);
-  assert.match(keys, /terminalReturnFocusRef\.current = current !== null/);
-  assert.match(keys, /setTerminalOpen\(true\);\n\s+setTerminalFocusGeneration\(\(value\) => value \+ 1\);/);
+  const toggle = slice('const toggleTerminalDock = () => {', 'const onKeyDown = (event) => {');
+  const origin = source.slice(source.lastIndexOf('const rememberTerminalOrigin = () => {'), source.indexOf('const toggleTerminalDock = () => {'));
+  assert.match(toggle, /terminalShortcutAction\(/);
+  assert.match(toggle, /document\.activeElement instanceof Element/);
+  assert.match(toggle, /if \(action\.open === false\) \{/);
+  assert.match(toggle, /restoreTerminalOrigin\(\)/);
+  assert.match(origin, /const previous = terminalReturnFocusRef\.current;/);
+  assert.match(origin, /previous instanceof HTMLElement && previous\.isConnected/);
+  assert.match(origin, /previous\.focus\(\)/);
+  assert.match(origin, /else editorRef\.current\?\.focus\(\);/);
+  assert.match(origin, /terminalReturnFocusRef\.current = current !== null/);
+  assert.match(origin, /current\.closest\('\[data-dsh-editor-terminal\]'\) === null/);
+  assert.match(toggle, /rememberTerminalOrigin\(\);\n\s+setTerminalOpen\(true\);/);
+  assert.match(toggle, /setTerminalFocusGeneration\(\(value\) => value \+ 1\);/);
   assert.match(source, /terminalReturnFocusRef = React\.useRef\(null\);/);
   assert.match(source, /const \[terminalFocusGeneration, setTerminalFocusGeneration\] = React\.useState\(0\);/);
   assert.match(source, /focusGeneration: terminalFocusGeneration,/);
+  const keys = slice("if (event.altKey && !event.metaKey && !event.ctrlKey && event.key === 'F12')", "if (event.altKey && !event.metaKey && !event.ctrlKey && (event.key === '1'");
+  assert.match(keys, /toggleTerminalDock\(\);/);
 });
 
 test('closing the dock through its own toolbar restores focus too', () => {

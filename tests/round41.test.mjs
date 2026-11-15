@@ -17,9 +17,11 @@ const source = readFileSync(join(root, 'lib/client.js'), 'utf8');
  * @returns {Promise<object>} recorded calls and the promise of the paste.
  */
 function harness({ clip, confirmAnswer = true, state = 'running' }) {
-  const start = source.indexOf('    async function pasteIntoTerminal(');
-  assert.notEqual(start, -1, 'pasteIntoTerminal is missing');
-  let index = source.indexOf('{', start);
+  const pasteStart = source.indexOf('    async function pasteIntoTerminal(');
+  const writeStart = source.indexOf('    async function writeTerminalText(');
+  assert.notEqual(pasteStart, -1, 'pasteIntoTerminal is missing');
+  assert.notEqual(writeStart, -1, 'writeTerminalText is missing');
+  let index = source.indexOf('{', pasteStart);
   let depth = 0;
   let end = -1;
   for (; index < source.length; index += 1) {
@@ -51,7 +53,7 @@ function harness({ clip, confirmAnswer = true, state = 'running' }) {
     'navigator',
     'window',
     'callTerminal',
-    `'use strict';\n${source.slice(start, end)}\nreturn pasteIntoTerminal;`,
+    `'use strict';\n${source.slice(writeStart, end)}\nreturn pasteIntoTerminal;`,
   );
   const paste = factory({ clipboard }, { confirm }, write);
   const emulator = { focus: () => { calls.focused += 1; } };

@@ -23,7 +23,7 @@ test('the composer seat is pinned to the chat column, not to the scroller', () =
 test('the seat keeps the chat column geometry', () => {
   const start = source.indexOf("'[data-dsh-editor-active] [data-composer-seat] {',");
   const block = source.slice(start, start + 600);
-  assert.match(block, /width: var\(--dsh-editor-chat-width, 25%\) !important;/);
+  assert.match(block, /width: var\(--dsh-editor-chat-width, 35%\) !important;/);
   assert.match(block, /right: 0 !important;/);
 });
 

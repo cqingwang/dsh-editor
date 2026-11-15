@@ -113,15 +113,21 @@ test('the Group by menu offers all three modes and marks the current one', () =>
   assert.match(block, /\['flat', 'module', 'directory'\]\.map/);
   /* A check mark, not a disabled row: the popup has to say where you ARE. */
   assert.match(block, /shortcut: groupBy === mode \? '✓' : ''/);
-  assert.match(block, /window\.localStorage\.setItem\('dsh-editor\.commit\.groupBy', mode\)/);
+  assert.match(block, /run: \(\) => applyChangeGroupBy\(mode\)/);
+  const apply = source.slice(
+    source.indexOf('const applyChangeGroupBy = React.useCallback('),
+    source.indexOf('const changeGroupMenu = React.useCallback('),
+  );
+  assert.match(apply, /window\.localStorage\.setItem\('dsh-editor\.commit\.groupBy', mode\)/);
 });
 
 test('the choice is persisted and restored', () => {
   assert.match(source, /readStoredText\('dsh-editor\.commit\.groupBy', 'directory'\)/);
   /* The renderer reads the mode through the depth helper, never a second tree. */
   assert.match(source, /changeTreeOf\(group\.changes, groupingDepth\(groupBy\)\)/);
-  /* The toolbar button says which mode is active. */
-  assert.match(source, /label: t\('editor\.groupByMode', \{ mode: t\(`editor\.groupBy_\$\{groupBy\}`\) \}\)/);
+  /* Commit Options carries the same value menu, including its current check mark. */
+  const menu = source.slice(source.indexOf('const openCommitOptionsMenu = React.useCallback('), source.indexOf('const commit = React.useCallback(', source.indexOf('const openCommitOptionsMenu = React.useCallback(')));
+  assert.match(menu, /label: t\('editor\.groupByMenu'\),\s+items: groupMenu\.items/);
 });
 
 test('both dictionaries define every grouping key exactly once', () => {

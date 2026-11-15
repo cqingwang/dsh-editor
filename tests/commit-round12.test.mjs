@@ -21,7 +21,7 @@ test('add to .gitignore is a host operation with an idempotent data path', () =>
   const host = read('lib/index.js');
   assert.match(host, /async function gitIgnore/);
   assert.match(host, /case 'ignore':/);
-  assert.match(host, /export \{[^}]*gitCommit, gitDiff, gitIgnore/);
+  assert.match(host, /export \{[^}]*gitSelectedPatch[^}]*gitIgnore/);
   assert.match(host, /find the repository top level|rev-parse', '--show-toplevel'/);
   assert.match(host, /const separator = existing === ''/);
 });
@@ -42,7 +42,7 @@ test('commit log can be filtered and its files open in the editor', () => {
   assert.match(client, /editor\.logFilterPlaceholder/);
   /* Click shows that commit's diff (IDEA); double-click opens the working copy. */
   assert.match(client, /onClick: \(\) => onShowCommitDiff\?\.\(\{ hash: detail\.hash, path: file\.path \}\)/);
-  assert.match(client, /onDoubleClick: \(\) => onOpenFile\?\.\(file\.path\)/);
+  assert.match(client, /onDoubleClick: \(\) => \{[\s\S]*?if \(localExists\) onEditSource\?\.\(file\.path\);/);
   assert.match(client, /onOpenFile: \(path\) => void openFile\(path\)/);
   assert.match(client, /onOpenFile,/);
 });

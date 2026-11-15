@@ -12,14 +12,18 @@ test('⌘1..⌘9 switches the tab of the FOCUSED pane, not always the left one',
      leave the caret in the right one: the visible change happened somewhere else. */
   const start = source.indexOf("/* IDEA switches terminal tabs with ⌘1–⌘9");
   assert.notEqual(start, -1);
-  const block = source.slice(start, start + 1800);
+  const end = source.indexOf("window.addEventListener('keydown', onKeyDown, true);", start);
+  assert.notEqual(end, -1);
+  const block = source.slice(start, end);
   assert.match(block, /focusedPaneRef\.current === 'right'/);
   assert.match(block, /setSplitId\(target\.id\)/);
 });
 
 test('switching a pane to its own current tab is a no-op, not a double stream', () => {
   const start = source.indexOf("/* IDEA switches terminal tabs with ⌘1–⌘9");
-  const block = source.slice(start, start + 1400);
+  const end = source.indexOf("window.addEventListener('keydown', onKeyDown, true);", start);
+  assert.notEqual(end, -1);
+  const block = source.slice(start, end);
   /* Binding the same terminal to both panes would open two streams on one PTY. */
   assert.match(block, /if \(target\.id === splitIdRef\.current\) return;/);
 });
@@ -28,7 +32,9 @@ test('picking the other pane\'s terminal swaps the panes instead of collapsing t
   /* Two panes bound to one id trips the guard that hides a doubled stream, so the
      dock closed and the shortcut looked like it "lost" the split. */
   const start = source.indexOf("/* IDEA switches terminal tabs with ⌘1–⌘9");
-  const block = source.slice(start, start + 1600);
+  const end = source.indexOf("window.addEventListener('keydown', onKeyDown, true);", start);
+  assert.notEqual(end, -1);
+  const block = source.slice(start, end);
   assert.match(block, /if \(target\.id === activeRef\.current\) \{/);
   assert.match(block, /setActiveId\(splitIdRef\.current\);/);
   assert.match(block, /setSplitId\(target\.id\);/);

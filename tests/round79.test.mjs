@@ -10,7 +10,7 @@ const source = readFileSync(join(root, 'lib/client.js'), 'utf8');
 test('Enter in speed search opens the hit, not just highlights it', () => {
   /* IDEA's speed search is a navigation tool: typing then Enter must take you to
      the file. Selecting the row and stopping there leaves the editor unchanged. */
-  const start = source.indexOf('const hit = visibleRows.find');
+  const start = source.indexOf('const hit = hits.find');
   assert.notEqual(start, -1);
   const block = source.slice(start, start + 1100);
   /* Round 134 routes the decision through `revealInTree`. */

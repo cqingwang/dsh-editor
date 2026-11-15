@@ -13,10 +13,9 @@ function commitPanel() {
 
 test('Commit folders and files share IDEA-style aligned columns', () => {
   assert.match(source, /commitTreeNode: \{[\s\S]*?display: 'grid'/);
-  assert.match(source, /gridTemplateColumns: '12px 16px 16px 16px max-content minmax\(0, 1fr\) max-content'/);
+  assert.match(source, /gridTemplateColumns: '12px 16px 16px max-content minmax\(0, 1fr\) max-content'/);
   const panel = commitPanel();
-  assert.match(panel, /style: \{ \.\.\.styles\.commitTreeNode, paddingLeft: 22 \}/);
-  assert.match(panel, /style: \{\s*\.\.\.styles\.commitTreeNode,[\s\S]*?\.\.\.styles\.commitFileRow,[\s\S]*?paddingLeft: 22,/);
+  assert.equal(panel.match(/paddingLeft: 22 \+ row\.depth \* 14/g)?.length, 2);
 });
 
 test('the file name and its parent path keep stable, separate grid cells', () => {
@@ -29,11 +28,11 @@ test('the file name and its parent path keep stable, separate grid cells', () =>
   assert.match(source, /commitFileDir: \{[\s\S]*?textOverflow: 'ellipsis'/);
 });
 
-test('file rows reserve the disclosure column so checkboxes align with folders', () => {
+test('file rows reserve the disclosure column without a porcelain letter badge', () => {
   const panel = commitPanel();
   const fileBody = panel.slice(panel.indexOf("const change = row.change;"));
   assert.match(fileBody, /React\.createElement\('span', \{ style: styles\.commitChevron \}\)/);
   assert.match(fileBody, /React\.createElement\('input', \{[\s\S]*?type: 'checkbox'/);
-  assert.match(fileBody, /React\.createElement\('span', \{ style: \{ \.\.\.styles\.statusBadge/);
+  assert.doesNotMatch(fileBody, /styles\.statusBadge/);
   assert.match(fileBody, /React\.createElement\(EntryIcon/);
 });

@@ -40,9 +40,10 @@ test('a directory reports three states, like IDEA\'s tri-state checkbox', () => 
 test('the indeterminate flag is set through the DOM property, not React props', () => {
   const start = source.indexOf("if (row.kind === 'directory') {");
   assert.notEqual(start, -1);
-  /* Round 141 comments the chevron-before-checkbox order, so the window that
-     has to contain the checkbox ref/state pair grew. */
-  const block = source.slice(start, start + 3600);
+  /* Slice to the file-row branch rather than a fixed width: keyboard/ARIA
+     support can grow the directory row without silently truncating this
+     contract. */
+  const block = source.slice(start, source.indexOf('const change = row.change;', start));
   /* `indeterminate` only exists as a property; passing it as a prop is ignored. */
   assert.match(block, /element\.indeterminate = state === 'some'/);
   assert.match(block, /ref: \(element\) => \{[\s\S]*?\.indeterminate = state === 'some'/);
@@ -52,7 +53,7 @@ test('the indeterminate flag is set through the DOM property, not React props', 
 });
 
 test('the group header shows the same three states', () => {
-  const start = source.indexOf('const renderGroup = (group) => {');
+  const start = source.indexOf('const renderGroup = (group, groupIndex) => {');
   assert.notEqual(start, -1);
   /* Round 141 added the group-level fold (its own `groupKey`/`groupOpen` pair)
      ahead of the header, so the header's checkbox moved past 1400 chars; round

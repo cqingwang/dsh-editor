@@ -72,12 +72,10 @@ test('status reports an in-progress merge and clears it after abort', async (t) 
   assert.equal((await gitStatus(dir)).operation, null);
 });
 
-test('the panel warns at 72 columns and names an in-progress operation', () => {
+test('the panel drops the subject warning row but names an in-progress operation', () => {
   const client = read('lib/client.js');
-  assert.match(client, /const COMMIT_SUBJECT_HARD_LIMIT = 72;/);
-  assert.match(client, /metrics\.subjectLength > COMMIT_SUBJECT_HARD_LIMIT/);
+  assert.doesNotMatch(client, /COMMIT_SUBJECT_HARD_LIMIT/);
+  assert.doesNotMatch(client, /editor\.commitSubjectTruncated/);
   assert.match(client, /t\('editor\.identityMissing'\)/);
   assert.match(client, /t\('editor\.operationInProgress', \{ operation: git\.operation \}\)/);
-  /* The two limits must stay distinct: 50 is advice, 72 is truncation. */
-  assert.match(client, /COMMIT_SUBJECT_LIMIT = 50;/);
 });

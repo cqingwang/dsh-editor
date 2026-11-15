@@ -49,7 +49,7 @@ test('alt-click on a leaf directory returns only its own key', () => {
 test('a plain click still toggles exactly one node', () => {
   const start = source.indexOf("if (row.kind === 'directory') {");
   assert.notEqual(start, -1);
-  const block = source.slice(start, start + 1400);
+  const block = source.slice(start, source.indexOf('const change = row.change;', start));
   /* Alt is the modifier; a plain click keeps IDEA's single-level behaviour. */
   assert.match(block, /onClick: \(event\) => \{/);
   assert.match(block, /event\.altKey === true/);

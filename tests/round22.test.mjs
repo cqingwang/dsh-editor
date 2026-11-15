@@ -71,7 +71,7 @@ test('an unknown sub-action degrades to list and never writes', async (t) => {
 
 test('the commit toolbar offers stash and the panel shows template chips', () => {
   const client = read('lib/client.js');
-  assert.match(client, /id: 'stash',\n\s+icon: 'stash'/);
+  assert.match(client, /id: 'stash',\n\s+label: t\('editor\.stash'\),\n\s+run: \(\) => void openStashMenu\(position\)/);
   assert.match(client, /const openStashMenu = React\.useCallback\(/);
   /* The sub-action field is `action`: `op` already names the route operation. */
   /* Round 68 added apply/drop refs, so the request now carries an optional ref. */

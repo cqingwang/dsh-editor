@@ -48,7 +48,10 @@ async function settleFrames(events) {
 async function workspace(t) {
   const dir = await mkdtemp(join(tmpdir(), 'dsh-editor-r152-'));
   const events = [];
-  const watcher = new WorkspaceWatcher(dir, (event) => events.push(event));
+  /* These cases exercise the bounded per-directory fallback. Production prefers
+     one recursive FSEvents handle (round383) and only falls back on platforms
+     or runtimes that reject recursive watching. */
+  const watcher = new WorkspaceWatcher(dir, (event) => events.push(event), { recursive: false });
   /* Close first, then delete: `rm -rf` on a still-watched tree emits events that
      can land in the NEXT test's stream through the shared FSEvents channel. */
   t.after(async () => {
@@ -114,7 +117,7 @@ test('the watcher skips only git metadata and caps the watcher count', () => {
   assert.match(host, /const WATCH_IGNORED = IGNORED_DIRECTORIES;/);
   assert.match(host, /const IGNORED_DIRECTORIES = new Set\(\['\.git'\]\);/);
   /* A monorepo with 20k directories must not create 20k watchers. */
-  assert.match(host, /const MAX_WATCHED_DIRECTORIES = 2000;/);
+  assert.match(host, /const MAX_WATCHED_DIRECTORIES = 256;/);
   assert.match(host, /if \(this\.watchers\.size >= MAX_WATCHED_DIRECTORIES\) return;/);
   /* The walk bound for quick-open / Move-to is a separate list and still skips them. */
   assert.match(host, /const WALK_IGNORED = new Set\(\[/);

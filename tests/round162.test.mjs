@@ -56,14 +56,14 @@ test('the first hunk owns the caret, so the counter reads 1/N like IDEA', () => 
 
 test('diff headers name both sides the way IDEA does', () => {
   const body = source.slice(source.indexOf('function DiffPreview('), source.indexOf('* Commit tool window: grouped'));
-  assert.match(body, /const sideLabels = typeof target\?\.commit === 'string'/);
+  assert.match(body, /const sideLabels = target\?\.combined === true[\s\S]*?typeof target\?\.commit === 'string'/);
   assert.match(body, /target\.commit\.slice\(0, 7\), right: t\('editor\.commitVersion'\)/);
   assert.match(body, /typeof target\?\.revision === 'string'/);
   assert.match(body, /t\('editor\.clipboardVersion'\)/);
   assert.match(body, /: target\?\.staged === true/);
   assert.match(body, /className: 'dsh-editor-diff-side-headers'/);
-  assert.match(body, /sideLabels\.left/);
-  assert.match(body, /sideLabels\.right/);
+  assert.match(body, /displayedSideLabels\.left/);
+  assert.match(body, /displayedSideLabels\.right/);
   assert.match(body, /t\('editor\.currentVersion'\)/);
   assert.match(body, /sideBySide\n\s+\? React\.createElement\(\n\s+'div'/);
   assert.match(source, /indexVersion: '索引'/);
@@ -73,8 +73,8 @@ test('diff headers name both sides the way IDEA does', () => {
 test('the side captions disappear in unified mode', () => {
   const body = source.slice(source.indexOf('function DiffPreview('), source.indexOf('* Commit tool window: grouped'));
   const headers = body.slice(body.indexOf("className: 'dsh-editor-diff-side-headers'"), body.indexOf('state.error !== null'));
-  assert.match(headers, /sideLabels\.left/);
-  assert.match(headers, /sideLabels\.right/);
+  assert.match(headers, /displayedSideLabels\.left/);
+  assert.match(headers, /displayedSideLabels\.right/);
   assert.match(headers, /:\s*null,/);
   assert.match(body, /sideBySide\n\s+\? React\.createElement\(\n\s+'div',\n\s+\{ style: styles\.diffSideHeaders/);
 });
@@ -107,7 +107,7 @@ test('the compact capsule advances on click while F7 keeps the keyboard path', (
   const body = source.slice(source.indexOf('function DiffPreview('), source.indexOf('* Commit tool window: grouped'));
   const capsule = body.slice(body.indexOf("className: 'dsh-editor-hunk-nav dsh-editor-hunk-capsule'"), body.indexOf('React.createElement(ToolbarButton, { icon: \'hide\''));
   assert.match(capsule, /onClick: \(event\) => walkHunk\(event\.shiftKey \? 'previous' : 'next'\)/);
-  assert.match(capsule, /t\('editor\.hunkCounterHint'\)/);
+  assert.match(capsule, /t\('editor\.hunkCapsuleHint', \{ index: hunks\.index, total: hunks\.total \}\)/);
   assert.match(body, /event\.key !== 'F7'/);
   assert.match(body, /walkHunk\(event\.shiftKey \? 'previous' : 'next'\)/);
 });

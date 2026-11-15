@@ -85,15 +85,15 @@ test('the graph rows are reachable with the keyboard', () => {
   assert.match(client, /const moveGraphCursor = \(delta\) => \{/);
   assert.match(client, /onKeyDown: graphMode/);
   assert.match(client, /if \(event\.key === 'ArrowDown' \|\| event\.key === 'ArrowUp'\)/);
-  assert.match(client, /onShow\?\.\(graphEntries\[graphIndex\]\.hash\)/);
+  assert.match(client, /onShow\?\.\(graphRows\[graphIndex\]\.hash\)/);
   /* The active row scrolls itself into view; a keyboard cursor off-screen is useless. */
   assert.match(client, /ref: active \? scrollGraphRowIntoView : null/);
   /* A hovered row wins over the cursor so the two never fight over the highlight. */
   assert.match(client, /selected: graphHover \?\? graphCursor/);
   /* Moving by keyboard takes the highlight away from the pointer, and leaving the
      list drops the hover: otherwise the two fight and the cursor looks stuck. */
-  assert.match(client, /setGraphHover\(null\);\n\s+setGraphCursor\(graphEntries\[clamped\]\.hash\);/);
+  assert.match(client, /setGraphHover\(null\);\n\s+setGraphCursor\(graphRows\[clamped\]\.hash\);/);
   assert.match(client, /onMouseLeave: \(\) => onSelect\?\.\(null\)/);
   /* The first arrow key continues from the hovered row, not from the top. */
-  assert.match(client, /const hoverIndex = graphHover === null \? -1 : graphEntries\.findIndex/);
+  assert.match(client, /const hoverIndex = graphHover === null \? -1 : graphRows\.findIndex/);
 });

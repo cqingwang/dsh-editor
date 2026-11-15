@@ -146,8 +146,8 @@ test('the move survives a reload by id', () => {
   /* The PTY outlives the page; the placement does not, unless it is stored. */
   const read = source.slice(source.indexOf('function readEditorTerminals('), source.indexOf('function writeEditorTerminals('));
   const write = source.slice(source.indexOf('function writeEditorTerminals('), source.indexOf('function storeFontSize('));
-  assert.match(read, /dsh-editor\.terminal\.editor:\$\{currentSessionId\(\)\}/);
-  assert.match(write, /dsh-editor\.terminal\.editor:\$\{currentSessionId\(\)\}/);
+  assert.match(read, /dsh-editor\.terminal\.editor:\$\{currentTerminalScope\(\)\}/);
+  assert.match(write, /dsh-editor\.terminal\.editor:\$\{currentTerminalScope\(\)\}/);
 });
 
 test('"return to dock" reaches the panel that owns the placement', () => {
@@ -162,7 +162,7 @@ test('"return to dock" reaches the panel that owns the placement', () => {
 test('the editor area is one surface: a terminal hides the empty placeholder', () => {
   /* Both boxes in the same flex column split the height 50/50, so the shell sat
      under a "no file open" caption (measured pane 618px of 793px). */
-  assert.match(source, /activeFile === null && diffOpen === false && annotateTarget === null && monacoError === null && editorTerminals\.length === 0/);
+  assert.match(source, /activeFile === null && splitFile === null && diffOpen === false && annotateTarget === null && monacoError === null && editorTerminals\.length === 0/);
 });
 
 test('a reloaded page re-resolves its editor terminals from the host', () => {

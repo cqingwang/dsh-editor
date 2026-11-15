@@ -11,10 +11,11 @@ test('the tree and the terminal tab do not both say "copy absolute path"', () =>
   /* The terminal tab copies a directory, the tree copies a file: two items with the
      same label in two menus is a coin flip for the user. The terminal one names the
      noun it copies. */
-  /* No `copyPath` key may still read just "absolute path": the tree's item already
-     owns that label, and the terminal one copies a DIRECTORY. */
+  /* The tree's copyPath label must not claim the terminal's "directory" noun or
+     the old ambiguous "absolute path" wording. */
   const lines = source.split('\n').filter((line) => /^        copyPath: '/.test(line));
-  assert.deepEqual(lines, []);
+  assert.equal(lines.length, 2);
+  assert.ok(lines.every((line) => !/绝对|absolute/i.test(line)));
   const renamed = source.split('\n').filter((line) => /^        copyDirectoryPath: '/.test(line));
   assert.equal(renamed.length, 2, 'zh and en must both define the directory wording');
 });

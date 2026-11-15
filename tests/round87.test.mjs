@@ -46,6 +46,8 @@ test('the menu wires those keys to the submenu state', () => {
   assert.notEqual(start, -1);
   const next = source.indexOf('\n    function ', start + 10);
   const block = source.slice(start, next === -1 ? undefined : next);
-  assert.match(block, /submenuKeyAction\(event\.key/);
+  assert.match(block, /const openSubmenu = \(item\) => \{/);
+  assert.match(block, /event\.key === 'ArrowRight'/);
+  assert.match(block, /event\.key === 'ArrowLeft' && submenu !== null/);
   assert.match(block, /setSubmenu\(null\)/);
 });

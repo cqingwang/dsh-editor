@@ -30,7 +30,7 @@ test('the toggle is big enough to click comfortably', () => {
 test('the icon flips with the state, and the label stays localised', () => {
   const start = source.indexOf('function ensureChatToggle(');
   const block = source.slice(start, start + 3400);
-  assert.match(block, /applyChatCollapsed\(\)/);
+  assert.match(block, /applyChatLayout\(\)/);
   assert.match(source, /panel-left-outline-regular/);
   assert.match(source, /panel-right-outline-regular|panel-left-outline-regular/);
 });

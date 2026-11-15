@@ -69,7 +69,7 @@ test('the commit toolbar shows the branch and uses it as the popup trigger', () 
   assert.match(client, /const branchText = branchLabel\(git\);/);
   assert.match(client, /badge: branchText\.length === 0/);
   assert.match(client, /onBadge: onBranchMenu,/);
-  assert.match(client, /function PanelToolbar\(\{ icon, title, left = \[\], right = \[\], badge = null, t, onBadge \}\)/);
+  assert.match(client, /function PanelToolbar\(\{ icon, title, titleAction = null, titleActionStyle = null, left = \[\], right = \[\], badge = null, t, onBadge, badgeHasPopup = undefined, badgeExpanded = undefined, ariaLabel = null \}\)/);
   /* The chip stays a plain label when no handler is supplied (Project panel). */
   assert.match(client, /onBadge === undefined/);
 });

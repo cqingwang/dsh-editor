@@ -38,7 +38,7 @@ function commitPanelProps() {
  * marker, so an unrelated function growing does not silently empty the slice.
  */
 function renderGroupBody() {
-  const start = source.indexOf('      const renderGroup = (group) => {');
+  const start = source.indexOf('      const renderGroup = (group, groupIndex) => {');
   const end = source.indexOf('      return React.createElement(\n        React.Fragment,\n        null,\n        React.createElement(PanelToolbar, {', start);
   assert.notEqual(start, -1, 'renderGroup is missing');
   assert.notEqual(end, -1, 'renderGroup end marker moved');

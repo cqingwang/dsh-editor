@@ -48,10 +48,12 @@ test('a menu with no enabled rows leaves focus alone', () => {
 test('ContextMenu owns Up/Down, initial focus and return focus', () => {
   const menu = source.slice(source.indexOf('function ContextMenu('), source.indexOf('/**\n     * A tool-window splitter'));
   assert.match(menu, /const returnFocusRef = React\.useRef\(null\)/);
-  assert.match(menu, /querySelector\('button\[role="menuitem"\]:not\(:disabled\)'\)/);
+  assert.match(menu, /querySelector\('button\[data-menu-item-id\]:not\(:disabled\)'\)/);
   assert.match(menu, /previous !== null && previous\.isConnected\) previous\.focus\(\)/);
   assert.match(menu, /event\.key === 'ArrowDown' \|\| event\.key === 'ArrowUp'/);
-  assert.match(menu, /const next = menuStep\(menu\.items \?\? \[\], buttons\.indexOf\(document\.activeElement\), event\.key\)/);
+  assert.match(menu, /const buttons = submenu === null \? topButtons\(\) : childButtons\(submenu\)/);
+  assert.match(menu, /data-menu-item-id/);
+  assert.match(menu, /window\.setTimeout\(\(\) => childButtons\(item\.id\)\[0\]\?\.focus\(\), 0\)/);
 });
 
 test('keyboard invocation of Project overflow actions has a tree fallback anchor', () => {

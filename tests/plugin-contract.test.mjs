@@ -40,17 +40,18 @@ test('host half registers the file API and exact Monaco asset routes', () => {
   assert.match(host, /workingDirectory/);
 });
 
-test('client half keeps the 3/4 + 1/4 and 1/3 split contract', () => {
+test('client half keeps the resizable editor/chat split contract', () => {
   const client = read('lib/client.js');
   assert.match(client, /data-dsh-editor-active/);
-  assert.match(client, /data-dsh-editor-tab/);
-  /* Round 83 made the 25% a drag-adjustable variable; the default split is unchanged. */
-  assert.match(client, /var\(--dsh-editor-chat-width, 25%\)/);
+  /* The Editor is opened from the hero / workspace menu, not injected as a fourth
+     tab beside the host's Chat, Context and Trajectory tabs. */
+  assert.doesNotMatch(client, /setAttribute\('data-dsh-editor-tab'/);
+  assert.match(client, /var\(--dsh-editor-chat-width, 35%\)/);
   /* Round 140 replaced the percentage margin with an offset variable: a % margin
      makes the parent's width depend on this child's, and a shrink-to-fit parent
      then grows on every pass (the "tab row keeps widening" bug). */
-  assert.match(client, /margin-left: var\(--dsh-editor-chat-offset, 75%\) !important;/);
-  assert.match(client, /right: var\(--dsh-editor-chat-width, 25%\);/);
+  assert.match(client, /margin-left: var\(--dsh-editor-chat-offset, 65%\) !important;/);
+  assert.match(client, /right: var\(--dsh-editor-chat-width, 35%\);/);
   assert.match(client, /flex:\s*'0 0 25%'/);
   assert.match(client, /flex:\s*'1 1 0'/);
   assert.match(client, /pointer-events:\s*none/);

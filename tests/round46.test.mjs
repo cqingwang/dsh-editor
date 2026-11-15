@@ -130,12 +130,12 @@ test('both log views mark the commit the detail pane shows', () => {
   assert.match(client, /'aria-selected': selected === commit\.hash,/);
   assert.match(client, /selected: graphHover \?\? graphCursor \?\? selected,/);
   /* Walking the graph with the keyboard loads the detail pane, like IDEA's log. */
-  assert.match(client, /onShow\?\.\(graphEntries\[clamped\]\.hash\);/);
+  assert.match(client, /onShow\?\.\(graphRows\[clamped\]\.hash\);/);
 });
 
 test('re-opening an open file keeps the Annotate reading mode', () => {
   const client = read('lib/client.js');
-  const start = client.indexOf('const openFile = React.useCallback(async (path) => {');
+  const start = client.indexOf('const openFile = React.useCallback(async (path, options = {}) => {');
   assert.notEqual(start, -1);
   const block = client.slice(start, start + 900);
   /* The early return for an already-open file must not reset annotateTarget. */

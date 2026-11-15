@@ -14,7 +14,7 @@ test('a block restore is undoable from the diff toolbar and ⌘Z', () => {
   assert.match(client, /const restoreUndoRef = undoRef \?\? React\.useRef\(\[\]\);/);
   assert.match(client, /const undoRestore = React\.useCallback\(\(\) => \{/);
   assert.match(client, /restoreUndoRef\.current\.pop\(\)/);
-  assert.match(client, /label: t\('editor\.diffUndoRestore'\), onClick: undoRestore/);
+  assert.match(client, /label: t\('editor\.diffUndoRestore'\), group: 'history', shortcut: '⌘Z', disabled: editLocked \|\| diffUnavailable, run: undoRestore/);
   assert.match(client, /case 'undo':/);
   assert.match(client, /icon: 'undo', label: t\('editor\.diffUndoRestore'\)/);
   assert.match(client, /const \[undoNotice, setUndoNotice\] = React\.useState\(null\);/);
@@ -42,7 +42,8 @@ test('one user restore creates one undo entry despite duplicate model events', (
 test('read-only comparisons get no restore or undo affordance', () => {
   const client = read('lib/client.js');
   assert.match(client, /const writable = typeof target\.clipboardText !== 'string' && typeof target\.revision !== 'string' && typeof target\.commit !== 'string';/);
-  assert.match(client, /diff\.updateOptions\(\{\n\s+readOnly: writable === false,\n\s+renderMarginRevertIcon: writable,/);
+  assert.match(client, /const canEdit = diffEditingEnabled\(\{[\s\S]*?writable,[\s\S]*?swapped: swapSidesRef\.current,[\s\S]*?locked: editLockedRef\.current,/);
+  assert.match(client, /diff\.updateOptions\(\{\n\s+readOnly: canEdit === false,\n\s+renderMarginRevertIcon: canEdit,/);
   assert.match(client, /typeof target\?\.commit === 'string' \|\| typeof target\?\.revision === 'string' \|\| typeof target\?\.clipboardText === 'string'/);
 });
 
@@ -122,20 +123,20 @@ test('selection restore only targets changed character ranges', () => {
 
 test('Commit opens at one quarter and remembers a dragged width per workspace', () => {
   const client = read('lib/client.js');
-  assert.match(client, /const \[toolWidths, setToolWidths\] = React\.useState\(\{ project: 26, commit: 25 \}\);/);
+  assert.match(client, /const \[toolWidths, setToolWidths\] = React\.useState\(\{ project: 28, commit: 25 \}\);/);
   assert.match(client, /function readToolWidth\(root, activity, fallback\) \{/);
   assert.match(client, /dsh-editor\.toolWidth\.\$\{activity\}:\$\{root\}/);
   assert.match(client, /writeToolWidth\(rootRef\.current, activity, final\)/);
   assert.match(client, /toolWidthsRef\.current\[activity\] \?\? startWidth/);
   assert.match(client, /commit: readToolWidth\(value\.root \?\? '', 'commit', 25\)/);
-  assert.match(client, /project: readToolWidth\(value\.root \?\? '', 'project', 26\)/);
+  assert.match(client, /project: readToolWidth\(value\.root \?\? '', 'project', 28\)/);
 });
 
 test('the quarter-width diff keeps its glyph gutter but compacts text chrome', () => {
   const client = read('lib/client.js');
   assert.match(client, /lineNumbersMinChars: 2/);
   assert.match(client, /lineDecorationsWidth: 4/);
-  assert.match(client, /glyphMargin: writable \|\|/);
+  assert.match(client, /glyphMargin: canEdit \|\|/);
   assert.match(client, /dsh-editor-diff-view-label/);
   /* The selector may share the container rule with the hidden path hint; the
      behaviour that matters is that the mode label is hidden at 440px. */

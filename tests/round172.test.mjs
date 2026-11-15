@@ -25,7 +25,7 @@ test('the active diff owns IDEA Close Tab and returns focus to its origin', () =
   const diff = diffPreview();
   assert.match(diff, /event\.key\.toLowerCase\(\) === 'w'/);
   assert.match(diff, /event\.preventDefault\(\);[\s\S]*?event\.stopPropagation\(\);[\s\S]*?onClose\(\);/);
-  assert.match(diff, /\}, \[onClose, redoRestore, undoRestore, walkHunk\]\);/);
+  assert.match(diff, /\}, \[actionableSelection, applyLeftSide, editLocked, focusOppositeDiffPane, localPathAvailable, navigationPosition, nextFileAction, onClose, onOpenLocal, previousFileAction, redoRestore, restoreSelection, searchInChanges, target, toggleCombinedFileCollapse, undoRestore, walkHunk\]\);/);
 
   const workspace = source.slice(source.indexOf('function EditorWorkspace('), source.indexOf('function clampChatPercent('));
   assert.match(workspace, /const diffReturnFocusRef = React\.useRef\(null\)/);

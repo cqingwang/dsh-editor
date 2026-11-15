@@ -24,11 +24,11 @@ test('the Project toolbar follows IDEA action density', () => {
   const toolbar = slice('title: t(\'editor.project\'),', 'searchOpen\n');
 
   assert.match(toolbar, /id: 'newEntry'/);
-  assert.match(toolbar, /id: 'reveal', icon: 'target', label: t\('editor\.reveal'\)/);
+  assert.match(toolbar, /id: 'reveal',[\s\S]*?icon: 'target',[\s\S]*?label: t\('editor\.reveal'\)/);
   assert.match(toolbar, /id: 'expandSelected'/);
-  assert.match(toolbar, /id: 'collapse', icon: 'collapse', label: t\('editor\.collapseAll'\)/);
+  assert.match(toolbar, /id: 'collapse', group: 'navigation', icon: 'collapse', label: t\('editor\.collapseAll'\)/);
   assert.match(toolbar, /id: 'options',[\s\S]*?icon: 'settings',[\s\S]*?label: t\('editor\.options'\)/);
-  assert.match(toolbar, /id: 'hide', icon: 'hide', label: t\('editor\.hide'\)/);
+  assert.match(toolbar, /id: 'hide', group: 'window', icon: 'hide', label: t\('editor\.hide'\)/);
 
   /* IDEA's visible toolbar is not a second place to configure the tree. */
   assert.doesNotMatch(toolbar, /id: 'sort'/);
@@ -42,7 +42,7 @@ test('the Project toolbar follows IDEA action density', () => {
 
 test('the right toolbar group keeps Options and Hide while the middle overflows', () => {
   const toolbar = slice('function PanelToolbar({', '/** One 24px panel toolbar button. */');
-  assert.match(toolbar, /let nextRight = right\.length;/);
+  assert.match(toolbar, /const next = panelToolbarFit\(/);
   assert.match(toolbar, /right\.length - fits\.right/);
   assert.match(toolbar, /right\.slice\(right\.length - fits\.right\)\.map\(renderAction\)/);
   assert.match(toolbar, /right\.slice\(0, right\.length - fits\.right\)/);
@@ -50,26 +50,28 @@ test('the right toolbar group keeps Options and Hide while the middle overflows'
   assert.doesNotMatch(toolbar, /\.\.\.right\.slice\(fits\.right\)/);
 });
 
-test('Expand Selected expands a selected directory and is disabled elsewhere', () => {
+test('Expand Selected follows IDEA recursive selection semantics', () => {
   const panel = projectPanel();
-  assert.match(panel, /rows\.find\(\(row\) => row\.path === selectedPath\)\?\.kind !== 'directory'/);
+  assert.match(panel, /disabled: !projectCanExpandSelection\(rows, selection\)/);
   assert.match(panel, /label: t\('editor\.revealSelected'\)/);
 
-  const wiring = slice('onExpandSelected: () => {', 'onExpandAll: expandAll,');
-  assert.match(wiring, /const path = selectedPathRef\.current;/);
-  assert.match(wiring, /row\?\.kind !== 'directory'/);
-  assert.match(wiring, /void expandTo\(path\);/);
+  const wiring = slice('onExpandSelected:', 'onExpandAll: expandAll,');
+  assert.match(wiring, /void expandSelectedTree\(\)/);
 });
 
 test('Options keeps the hidden actions reachable in one grouped menu', () => {
   const wiring = slice('onOpenOptions: (event) => {', 'onHide: () => setPanelVisible(false),');
-  for (const id of ['refresh', 'gotoFile', 'recent', 'expandAll', 'autoscroll', 'sort', 'hidden']) {
+  for (const id of ['refresh', 'gotoFile', 'recent', 'expandAll', 'behavior', 'appearance']) {
+    assert.match(wiring, new RegExp(`id: '${id}'`));
+  }
+  for (const id of ['autoscroll', 'singleClickOpen', 'openDirectoriesSingleClick', 'hidden']) {
     assert.match(wiring, new RegExp(`id: '${id}'`));
   }
   assert.match(wiring, /void refreshTree\(\)/);
   assert.match(wiring, /void openQuickOpen\(\)/);
   assert.match(wiring, /openRecent\(\)/);
-  assert.match(wiring, /cycleSort\(\)/);
+  assert.match(wiring, /\['name', 'type', 'modified', 'modified-asc'\]\.map/);
+  assert.match(wiring, /applySortMode\(mode\)/);
   assert.match(wiring, /toggleAutoScroll\(\)/);
 });
 

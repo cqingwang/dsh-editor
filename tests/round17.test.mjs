@@ -106,7 +106,7 @@ test('commit log opens a commit diff on click and the working copy on double cli
   assert.match(client, /typeof target\.clipboardText === 'string'\n\s+\? \{ op: 'compareText'/);
   assert.match(client, /typeof target\.commit === 'string'\n\s+\? \{ op: 'commitDiff'/);
   assert.match(client, /op: 'commitDiff', hash: target\.commit, path: target\.path/);
-  assert.match(client, /onDoubleClick: \(\) => onOpenFile\?\.\(file\.path\)/);
+  assert.match(client, /onDoubleClick: \(\) => \{[\s\S]*?if \(localExists\) onEditSource\?\.\(file\.path\);/);
   /* The tree can jump straight to one file's history. */
   assert.match(client, /id: 'history',\n\s+label: t\('editor\.showHistory'\)/);
 });

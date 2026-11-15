@@ -73,7 +73,7 @@ test('the workspace walks still skip heavy directories so scanning stays bounded
      never followed the disk. It hides only what the tree hides, and caps the
      number of watchers a huge monorepo can create. */
   assert.match(host, /const WATCH_IGNORED = IGNORED_DIRECTORIES;/);
-  assert.match(host, /const MAX_WATCHED_DIRECTORIES = 2000;/);
+  assert.match(host, /const MAX_WATCHED_DIRECTORIES = 256;/);
   assert.match(host, /if \(this\.watchers\.size >= MAX_WATCHED_DIRECTORIES\) return;/);
 });
 
@@ -85,7 +85,7 @@ test('a change opened from Commit gets ONE "Commit: <name>" tab', () => {
      `diffActive` says whether that tab currently owns the code area. */
   assert.match(source, /const \[diffActive, setDiffActive\] = React\.useState\(true\);/);
   assert.match(source, /const diffOpen = diffTarget !== null && diffActive;/);
-  assert.match(source, /const diffTabName = diffTarget === null \? '' : t\(diffIsCompare \? 'editor\.compareTab' : 'editor\.commitTab', \{ name: basename\(diffTarget\.path\) \}\);/);
+  assert.match(source, /const diffTabName = diffTarget === null[\s\S]*?t\(diffIsCompare \? 'editor\.compareTab' : 'editor\.commitTab', \{ name: basename\(diffTarget\.path\) \}\);/);
   /* The tab is pinned first, so the one the user is reading never overflows. */
   assert.match(source, /const allTabs = diffTab === null \? openFiles : \[DIFF_TAB_KEY, \.\.\.openFiles\];/);
   assert.match(source, /const activeTabKey = diffActive \? DIFF_TAB_KEY : activePath;/);
@@ -104,7 +104,7 @@ test('selecting another change replaces the tab content instead of adding a tab'
 
 test('the diff tab and the file tabs hand the code area back and forth', () => {
   /* Opening a file must not destroy the diff: the tab stays, ready to click. */
-  const open = slice('const openFile = React.useCallback(async (path) => {', 'openingRef.current.add(path);');
+  const open = slice('const openFile = React.useCallback(async (path, options = {}) => {', 'openingRef.current.add(path);');
   assert.match(open, /setDiffActive\(false\);/);
   assert.doesNotMatch(open, /setDiffTarget\(null\);/);
   /* A file tab click does the same, and a tab click keeps the caret on the strip
@@ -112,8 +112,10 @@ test('the diff tab and the file tabs hand the code area back and forth', () => {
   assert.match(source, /onClick: \(\) => \{\n\s+setActivePath\(file\.path\);\n\s+setDiffActive\(false\);\n\s+\},/);
   assert.match(source, /const inTabs = activeNode\?\.closest\('\[data-dsh-editor-tabstrip\]'\) != null;/);
   assert.match(source, /'data-dsh-editor-tabstrip': '',/);
-  /* The surface conditions read the tab state, not the target alone. */
-  assert.match(source, /activeFile === null \|\| diffOpen \|\| annotateTarget !== null \|\| editorTerminals\.length > 0 \? 'none' : 'block'/);
+  /* The file surface owns either one or both editor groups, but never a diff,
+     annotate view or editor terminal. */
+  assert.match(source, /const fileSurfaceVisible = \(activeFile !== null \|\| splitFile !== null\)[\s\S]*?diffOpen === false[\s\S]*?annotateTarget === null[\s\S]*?editorTerminals\.length === 0/);
+  assert.match(source, /display: fileSurfaceVisible \? 'flex' : 'none'/);
   assert.match(source, /diffOpen === false\n\s+\? null\n\s+: React\.createElement\(DiffPreview/);
   assert.match(source, /const breadcrumbSegments = activeFile !== null && diffOpen === false/);
 });
@@ -134,7 +136,7 @@ test('the diff tab is named Commit: for changes and Compare: for a revision', ()
   assert.match(source, /commitTab: '提交: \{name\}',\n        compareTab: '比较: \{name\}',/);
   assert.match(source, /commitTab: 'Commit: \{name\}',\n        compareTab: 'Compare: \{name\}',/);
   /* The name in the tab is the file name; the full path stays in the tooltip. */
-  assert.match(source, /title: `\$\{diffTabName\} — \$\{diffTarget\.path\}`,/);
+  assert.match(source, /title: diffTarget\.combined === true \? diffTabName : `\$\{diffTabName\} — \$\{diffTarget\.path\}`,/);
   /* The overflow list carries the same entry, or the pinned tab could vanish. */
   assert.match(source, /entry === DIFF_TAB_KEY\n\s+\? \{ id: 'tab:diff', label: diffTabName, run: \(\) => setDiffActive\(true\) \}/);
 });

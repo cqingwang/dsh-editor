@@ -42,8 +42,8 @@ test('the context menu acts on all selected rows, not just the clicked one', () 
   const menu = body.slice(body.indexOf('const buildChangeMenu = React.useCallback('), body.indexOf('Context menu for one directory node'));
   assert.match(menu, /const range = payload\.selectedChanges instanceof Set && payload\.selectedChanges\.size > 0/);
   assert.match(menu, /const paths = \[\.\.\.new Set\(selected\.map\(\(entry\) => entry\.path\)\)\]/);
-  assert.match(menu, /run: \(\) => void restage\(paths, allStaged\)/);
-  assert.match(menu, /run: \(\) => void rollback\(paths\)/);
+  assert.match(menu, /run: \(\) => void restage\(removalOnly \? removablePaths : paths, allStaged\)/);
+  assert.match(menu, /run: \(\) => void rollback\(paths, allUnversioned \? \{ unversioned: true \} : undefined\)/);
   assert.match(menu, /disabled: allStaged === false && allWorking === false/);
 });
 

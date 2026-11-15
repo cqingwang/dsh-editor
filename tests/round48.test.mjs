@@ -108,13 +108,13 @@ test('a branch without an upstream and a repo without a remote say so', async (t
 
 test('the commit toolbar offers Fetch and Update Project, and reloads open files', () => {
   const client = read('lib/client.js');
-  /* Both actions live in the Commit toolbar, between the branch chip and Stash. */
+  /* Both actions live in the Commit Options menu, not as crowded toolbar buttons. */
   for (const [id, key] of [['fetch', 'editor.fetchRemote'], ['update', 'editor.updateProject']]) {
     const at = client.indexOf(`id: '${id}',`);
     assert.notEqual(at, -1, `${id} button is missing`);
     const block = client.slice(at, at + 400);
-    assert.match(block, new RegExp(`icon: '${id}'`), `${id} needs its own icon`);
     assert.ok(block.includes(`t('${key}')`), `${id} needs the ${key} label`);
+    assert.match(block, new RegExp(`run: \\(\\) => void ${id}Now\\(\\)`), `${id} must stay wired`);
   }
   /* Update rewrites working files, so an unsaved buffer has to be confirmed first. */
   assert.match(client, /t\('editor\.updateDirty'\)/);

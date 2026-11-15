@@ -10,7 +10,9 @@ const source = readFileSync(join(root, 'lib/client.js'), 'utf8');
 test('the overflow menu carries the same colour stripe as the tab strip', () => {
   const start = source.indexOf('const tabLayout = overflowTabs(');
   assert.notEqual(start, -1);
-  const block = source.slice(start, start + 9800);
+  const end = source.indexOf('\n    function ', start + 1);
+  assert.notEqual(end, -1);
+  const block = source.slice(start, end);
   /* A coloured tab that arrives from the `»` list must still show its colour. */
   assert.match(block, /swatch: colors\[terminal\.id\]/);
   /* The terminal screen menu is built from the tab's own id, so the colour has

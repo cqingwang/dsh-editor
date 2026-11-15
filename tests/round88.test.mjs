@@ -10,7 +10,8 @@ const source = readFileSync(join(root, 'lib/client.js'), 'utf8');
 test('the menu advertises ⌥⌘Z, so the key must actually work', () => {
   /* The item has shown the shortcut since round 81, but nothing listened for it:
      a shortcut that is printed but dead is worse than no hint. */
-  assert.match(source, /batchLabel\('editor\.rollbackWorking', 'editor\.rollbackWorkingCount'\), shortcut: '⌥⌘Z'/);
+  assert.match(source, /batchLabel\('editor\.rollbackWorking', 'editor\.rollbackWorkingCount'\)/);
+  assert.match(source, /shortcut: '⌥⌘Z'/);
   assert.match(source, /if \(!event\.altKey \|\| !meta \|\| event\.shiftKey \|\| event\.key\.toLowerCase\(\) !== 'z'\) return;/);
 });
 

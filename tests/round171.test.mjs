@@ -20,7 +20,7 @@ test('the Changes toolbar exposes IDEA Show Diff for the selected row', () => {
   assert.match(panel, /label: t\('editor\.showDiff'\),\n\s+disabled: selectedChange === null,/);
   assert.match(panel, /if \(selectedChange !== null\) onShowDiff\?\.\(selectedChange\);/);
   assert.match(panel, /active: diffTarget !== null[\s\S]*?diffTarget\.path === selectedChange\.path/);
-  assert.match(panel, /onShowDiff,\n\s+onRollbackSelected,/);
+  assert.match(panel, /onShowDiff,\n\s+onShowCombinedDiff,\n\s+onRollbackSelected,/);
 });
 
 test('Show Diff opens the selected change without toggling the existing diff closed', () => {

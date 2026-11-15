@@ -91,8 +91,8 @@ test('annotate replaces the editor area and the diff closes it', () => {
   assert.match(client, /const toggleAnnotate = React\.useCallback\(async \(\) => \{/);
   /* Annotate and diff both take the editor area, so only one may be open. */
   assert.match(client, /setDiffTarget\(null\);\n\s+setAnnotateTarget\(\{ path \}\);/);
-  /* Round 145 added a third surface (a terminal moved into the editor), so the
-     condition now also hides the code editor while one is open. */
-  assert.match(client, /display: activeFile === null \|\| diffOpen \|\| annotateTarget !== null \|\| editorTerminals\.length > 0 \? 'none' : 'block'/);
+  /* The shared file-surface flag hides both editor groups for diff/annotate/terminal. */
+  assert.match(client, /const fileSurfaceVisible = \(activeFile !== null \|\| splitFile !== null\)[\s\S]*?diffOpen === false[\s\S]*?annotateTarget === null[\s\S]*?editorTerminals\.length === 0/);
+  assert.match(client, /display: fileSurfaceVisible \? 'flex' : 'none'/);
   assert.match(client, /t\('editor\.annotateTruncated'\)/);
 });

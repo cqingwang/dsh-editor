@@ -29,7 +29,7 @@ function bodyOf(marker) {
 test('the commit detail file row offers Select in Project View', () => {
   const body = bodyOf('function CommitLog({');
   /* The menu is opened from the row, not from the whole detail pane. */
-  assert.match(body, /onContextMenu: \(event\) => \{\n\s+event\.preventDefault\(\);\n\s+event\.stopPropagation\(\);\n\s+onFileMenu\?\.\(\{ path: file\.path, x: event\.clientX, y: event\.clientY \}\);/);
+  assert.match(body, /onContextMenu: \(event\) => \{\n\s+event\.preventDefault\(\);\n\s+event\.stopPropagation\(\);\n\s+event\.currentTarget\.focus\?\.\(\);\n\s+onFileMenu\?\.\(\{ path: file\.path, hash: detail\.hash, localExists, localDirExists, x: event\.clientX, y: event\.clientY \}\);/);
   /* The callback's body starts after its indented parameter list. */
   const menuStart = source.indexOf('const buildCommitFileMenu = React.useCallback(');
   const menu = source.slice(menuStart, source.indexOf('const buildLogMenu', menuStart));

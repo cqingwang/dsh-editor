@@ -20,9 +20,9 @@ function load(name) {
       depth -= 1;
       if (depth === 0) {
         const constants = [
-          'const CHAT_WIDTH_MIN = 15;',
-          'const CHAT_WIDTH_MAX = 45;',
-          'const CHAT_WIDTH_DEFAULT = 25;',
+          'const CHAT_WIDTH_MIN = 28;',
+          'const CHAT_WIDTH_MAX = 44;',
+          'const CHAT_WIDTH_DEFAULT = 35;',
         ].join('\n');
         return new Function(`${constants}\n${source.slice(start, index + 1)}; return ${name};`)();
       }
@@ -34,20 +34,20 @@ function load(name) {
 const clampChatPercent = load('clampChatPercent');
 
 test('the chat column can be dragged within a sane range', () => {
-  /* Below ~15% the chat is unusable; past ~45% the editor stops being an editor. */
-  assert.equal(clampChatPercent(25), 25);
-  assert.equal(clampChatPercent(5), 15);
-  assert.equal(clampChatPercent(80), 45);
-  assert.equal(clampChatPercent(Number.NaN), 25);
+  /* Below 28% the chat is unusable; past 44% the editor stops being an editor. */
+  assert.equal(clampChatPercent(35), 35);
+  assert.equal(clampChatPercent(5), 28);
+  assert.equal(clampChatPercent(80), 44);
+  assert.equal(clampChatPercent(Number.NaN), 35);
 });
 
 test('the split width comes from a CSS variable, so a drag can move it', () => {
-  /* Round 82 replaced the hard-coded 25% with one variable read by all three
+  /* Round 82 replaced the hard-coded width with one variable read by all three
      layout rules (chat column, composer, editor host). */
   assert.match(source, /--dsh-editor-chat-width/);
-  assert.match(source, /width: var\(--dsh-editor-chat-width, 25%\) !important;/);
-  assert.match(source, /margin-left: var\(--dsh-editor-chat-offset, 75%\) !important;/);
-  assert.match(source, /right: var\(--dsh-editor-chat-width, 25%\);/);
+  assert.match(source, /width: var\(--dsh-editor-chat-width, 35%\) !important;/);
+  assert.match(source, /margin-left: var\(--dsh-editor-chat-offset, 65%\) !important;/);
+  assert.match(source, /right: var\(--dsh-editor-chat-width, 35%\);/);
 });
 
 test('a drag handle is injected and the width is remembered', () => {

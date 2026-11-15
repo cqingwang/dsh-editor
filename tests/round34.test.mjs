@@ -45,7 +45,7 @@ test('a terminal offers both "clear screen" and "clear scrollback"', () => {
   assert.match(source, /id: 'clearBuffer', label: t\('editor\.terminalClearBuffer'\), danger: true/);
   /* Round 70 spells the difference out and shows the ⌘K shortcut. */
   assert.match(source, /\{ id: 'clear', label: t\('editor\.terminalClear'\), shortcut: '⌘K', run: onClear \},/);
-  assert.match(source, /function terminalMenuModel\(\{ t, emulator, active, onSelectAll, onClear, onClearBuffer, onCreate, onClipboardError \}\)/);
+  assert.match(source, /function terminalMenuModel\(\{[\s\S]*?onClearBuffer[\s\S]*?onCreate/);
 });
 
 test('the tab menu keeps its separators after a null is filtered out', () => {

@@ -57,7 +57,10 @@ test('the zh dictionary holds no ASCII-English values', () => {
     /* Product names IDEA also leaves untranslated, plus key names and symbols. */
     .filter(([key]) => ![
       'terminalCopyShortcut', 'terminalPasteShortcut', 'gotoLineHint',
-      'project', 'commit', 'terminal',
+      'project', 'commit', 'terminal', 'harness',
+      /* The Commit tool-window mode labels are deliberately English in both
+         locales, matching the user's requested IDEA-style Change/Commit tabs. */
+      'tabChanges', 'tabLog',
       /* git's own term of art, spelled the same in every language IDEA ships. */
       'detachedHead',
     ].includes(key))

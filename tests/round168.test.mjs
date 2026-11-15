@@ -23,7 +23,7 @@ test('each change row exposes its group and path to keyboard selection', () => {
   assert.match(row, /'data-dsh-change-path': change.path/);
   assert.match(row, /'data-dsh-change-staged': group.id === 'staged'/);
   assert.match(row, /tabIndex: selectedForChange \? 0 : -1/);
-  assert.match(row, /onKeyDown: \(event\) => onChangesKeyDown\?\.\(event\)/);
+  assert.match(row, /onChangesKeyDown\?\.\(event\)/);
   assert.match(panel, /onChangesKeyDown,\n\s+onChangesKeyUp,\n\s+changeRowRefs,/);
   assert.match(panel, /changeRowRefs\.current\.set/);
 });

@@ -14,7 +14,7 @@ const source = readFileSync(join(root, 'lib/client.js'), 'utf8');
  * runs the SHIPPING parser rather than matching its source text.
  * @param {string} name - helper to load.
  * @param {object} storage - `{getItem, setItem, removeItem}` stub.
- * @param {string} sessionId - value returned by `currentSessionId`.
+ * @param {string} sessionId - value returned by `currentTerminalScope`.
  * @returns {Function} the helper.
  */
 function loadWithStorage(name, storage, sessionId) {
@@ -30,7 +30,7 @@ function loadWithStorage(name, storage, sessionId) {
       if (depth === 0) {
         const body = source.slice(start, index + 1);
         const palette = source.slice(source.indexOf('    const TERMINAL_COLORS'), source.indexOf('\n', source.indexOf('    const TERMINAL_COLORS')) + 1);
-        const factory = new Function('window', 'currentSessionId', `'use strict';\n${palette}\n${body}\nreturn ${name};`);
+        const factory = new Function('window', 'currentTerminalScope', `'use strict';\n${palette}\n${body}\nreturn ${name};`);
         return factory({ localStorage: storage }, () => sessionId);
       }
     }

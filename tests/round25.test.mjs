@@ -85,7 +85,7 @@ test('the tree offers compare-with-revision through the commit log, not a free-f
 test('terminal tabs are remembered per session and rebuilt after a host restart', () => {
   const client = read('lib/client.js');
   assert.match(client, /function readTerminalProfile\(\) \{/);
-  assert.match(client, /dsh-editor\.terminal\.profile:\$\{currentSessionId\(\)\}/);
+  assert.match(client, /dsh-editor\.terminal\.profile:\$\{currentTerminalScope\(\)\}/);
   /* The remembered JSON is untrusted local state: malformed entries are dropped. */
   assert.match(client, /\.filter\(\(entry\) => entry !== null && typeof entry === 'object' && typeof entry\.shell === 'string' && entry\.shell !== ''\)/);
   assert.match(client, /const restoreTerminals = React\.useCallback\(/);

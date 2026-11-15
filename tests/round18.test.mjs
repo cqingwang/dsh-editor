@@ -88,8 +88,9 @@ test('project tree filters in place on ⌘F and keeps ancestors of a hit', () =>
   const client = read('lib/client.js');
   assert.match(client, /function filterTreeRows\(rows, query\) \{/);
   assert.match(client, /for \(const path of \[\.\.\.keep\]\) \{/);
-  assert.match(client, /const visibleRows = React\.useMemo\(\(\) => filterTreeRows\(rows, search\), \[rows, search\]\);/);
-  assert.match(client, /visibleRows\.map\(\(row\) => \{/);
+  assert.match(client, /const localRows = React\.useMemo\(\(\) => filterTreeRows\(rows, search\), \[rows, search\]\);/);
+  assert.match(client, /searchEntryRows\(searchEntries, projectName, compactDirectories\)/);
+  assert.match(client, /visibleRows\.map\(\(row, rowIndex\) => \{/);
   /* The editor keeps ⌘F while its textarea has focus. */
   assert.match(client, /if \(document\.activeElement\?\.closest\('\.monaco-editor'\) != null\) return;/);
 });
@@ -109,7 +110,7 @@ test('terminal clipboard shortcuts use the localized multi-line prompt', () => {
   const client = read('lib/client.js');
   assert.match(client, /t\('editor\.terminalPasteConfirm', \{ count: lines \}\)/);
   assert.match(client, /event\.key\.toLowerCase\(\) === 'c' \|\| event\.key\.toLowerCase\(\) === 'v'/);
-  assert.match(client, /async function pasteIntoTerminal\(emulator, active, t, onRefused\) \{/);
+  assert.match(client, /async function pasteIntoTerminal\(emulator, active, t, onRefused, onPasted\) \{/);
   /* A one-shot key handler reads the live translator through a ref. */
   assert.match(client, /const tRef = React\.useRef\(t\);/);
 });
