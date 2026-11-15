@@ -1,5 +1,76 @@
 # dsh-editor 工程记忆
 
+## 2026-11-15 — Changes 视图与组级菜单展开语义
+
+**作用域**：Commit Changes 的 `View Options`、三个 Changes 组的
+`More actions for …`、CompactActionBar popup 元数据和组菜单 owner。
+
+**运行态证据**：
+
+- `View Options` 能打开真实 `role=menu`，但按钮没有
+  `aria-haspopup` / `aria-expanded`；
+- 200px Changes 面板中 Staged / Unstaged / Unversioned Files
+  三个 `More actions` 都会打开组级菜单，按钮同样缺少语义；
+- 这两类入口都是实际弹出菜单，不是普通命令。
+
+**修复**：
+
+- 全局菜单 owner 增加 `changes-view-options`；
+- CommitPanel 接收 `viewOptionsOpen`；
+- CompactActionBar 将 action 的
+  `ariaHasPopup / ariaExpanded` 透传给直接按钮；
+- 组菜单 owner 使用 `group-actions:<group-id>`；
+- 组级 More actions 直接绑定
+  `groupActionMenu?.owner === \`group-actions:${group.id}\``；
+- 不改菜单动作、disabled、分组、位置或视觉。
+
+**no-commit 首开验证**：
+
+- 临时工作区 HEAD 为 unborn；
+- `README.md` 已暂存，`note.txt` 未纳入版本控制；
+- 从 `... → Editor` 打开后每秒采样，连续 10 秒：
+  - `hostConnected=true`；
+  - `hostChildren=1`；
+  - `workspaceConnected=true`；
+  - `workspaceId=r455-workspace`；
+- 页面 `error` 与 `unhandledrejection` 均为 0；
+- Project 正确显示该 no-commit 工作区，而不是空 `Workspace`。
+
+**回归**：
+
+```bash
+node --test tests/round455.test.mjs tests/round454.test.mjs \
+  tests/round453.test.mjs tests/round250.test.mjs
+npm test
+node --check lib/client.js
+git diff --check
+```
+
+- RED：`tests/round455.test.mjs` 初始 **0 pass / 3 fail**；
+- 目标与相邻回归：**9 pass / 0 fail**；
+- 受影响组菜单回归：**8 pass / 0 fail**；
+- 全量：`npm test` = **1480 pass / 0 fail**；
+- Changes 200px 运行态：
+  - View Options：`aria-haspopup=menu`，
+    false → true（菜单打开）→ false（Esc）；
+  - 三个组按钮都暴露 `aria-haspopup=menu / aria-expanded=false`；
+  - Staged More actions：false → true → false；
+  - 菜单内容、组分组和动作顺序不变。
+
+**适用边界**：
+
+- `group-actions:<id>` 只绑定当前打开的组，不共享 expanded；
+- View Options owner 只服务 Changes 视图菜单；
+- CompactActionBar 的临时 overflow 项不伪造 popup 状态，
+  状态属于稳定可见的直接按钮。
+
+**下一步**：
+
+- 对照 IDEA Project / Commit 工具栏 tooltip 快捷键格式；
+- 检查 Project 视图菜单与 branch popup 的键盘初始焦点；
+- 验证一个组菜单打开后切换另一组时旧菜单关闭；
+- 保持 1480+ 全量回归。
+
 ## 2026-11-15 — Project 视图与分支下拉展开语义
 
 **作用域**：Project 视图选择器、Commit 分支 chip、
