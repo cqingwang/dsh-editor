@@ -1,5 +1,384 @@
 # dsh-editor 工程记忆
 
+## 2026-11-16 — 深色 tab close 焦点态与中键关闭
+
+**作用域**：Editor 文件 tab close 控件、深色主题 media emulation 与
+中键关闭。
+
+**验证结论**：
+
+- 新 Ego Page 首次导航前固定 `prefers-color-scheme: dark`，主题不会被
+  reload 丢失；
+- 深色 tab strip 与 focus 背景均为 `rgb(53, 54, 56)`；
+- focus 边框 `rgba(255, 255, 255, 0.16)`，前景
+  `rgb(249, 250, 251)`，圆角 `5px`；
+- close 控件可通过键盘进入 `:focus-visible`；
+- 中键点击 notes close 后 open list 从
+  `src/app.js|docs/notes.md` 变为 `src/app.js`，无 alert。
+
+**回归**：
+
+- round679 锁定 focus CSS 必须使用宿主 alias token，并锁定文件 tab
+  中键关闭只调用 `closeFile(file.path)`；
+- round676 / round334 继续覆盖尺寸、焦点背景和右组中键关闭。
+
+**验证**：
+
+```bash
+node --test tests/round679.test.mjs tests/round676.test.mjs \
+  tests/round334.test.mjs
+npm test
+npm run check:client-build
+git diff --check
+```
+
+- 定向：**8 pass / 0 fail**；
+- 全量：**2236 pass / 0 fail**；
+- 构建检查：16 modules verified。
+
+## 2026-11-16 — Replace All 零结果后的 Find dock 状态
+
+**作用域**：Replace in Files 成功后零结果、Open in Find Window 与底部
+Find dock。
+
+**验证结论**：
+
+- 隔离 r526 中将两处 `R678_TOKEN` 全量替换为 `R678_DONE`；
+- replacement 不再匹配 query 后 popup 显示 `0 matches in 0 files`；
+- 非空 query 的 `Open in Find Window` 保持可用；
+- 交接后 dock 保留 query/replacement，使用左右 split，active row 为 0，
+  结果区显示 `No matches`，Preview 提示选择左侧结果；
+- 无 alert。
+
+**边界**：
+
+- 本轮为行为审计，没有新增产品代码；
+- 深色主题 tab focus 的 reload/emulation 时序不稳定，另行复核。
+
+**验证**：
+
+```bash
+npm test
+npm run build:client
+```
+
+- 当前全量：**2234 pass / 0 fail**；
+- `build:client` 的 postbuild hook 已实跑通过。
+
+## 2026-11-16 — build:client 自动触发完整回归
+
+**作用域**：`package.json` 的浏览器客户端构建脚本与回归入口。
+
+**症状 / 根因**：
+
+- `build:client` 只生成 `lib/client.js`，不会自动验证生成后的插件；
+- 仅执行构建成功无法发现静态契约、宿主 API 或 UI 行为回归；
+- 开发者可能忘记在提交前再次运行 `npm test`。
+
+**修复 / 固化**：
+
+- 增加 npm 生命周期 hook：
+  `postbuild:client: npm test`；
+- `npm run build:client` 先生成 16 个模块的单产物，成功后自动运行完整
+  `node --test --test-concurrency=1 "tests/*.test.mjs"`；
+- 构建或任一测试失败都会使整个命令返回非零；
+- `check:client-build` 仍只验证生成产物是否最新，保持快速检查语义；
+- round677 锁定 build、postbuild 与 test 三条脚本契约。
+
+**验证**：
+
+```bash
+node --test tests/round677.test.mjs
+npm run build:client
+```
+
+- RED：round677 初始 **1 fail / 0 pass**；
+- 实际 hook 链：
+  - `build-client: 16 modules -> lib/client.js`；
+  - `postbuild:client` -> `npm test`；
+  - **2234 pass / 0 fail**；
+- 第二次完整 hook 验证退出码为 **0**。
+
+## 2026-11-16 — 文件 tab 关闭焦点态与新文件置顶
+
+**作用域**：Editor 文件 tab strip、Diff tab、右侧 Split tab，以及
+Project View 的 Open Files 顺序。
+
+**症状 / 根因**：
+
+- tab 关闭按钮只有 13px 字号与 2px 横向 padding，命中区过小；
+- 内联样式背景透明，普通 CSS 焦点规则无法覆盖，键盘聚焦没有可见圆角态；
+- 新文件使用 `[...current, file]` 追加，新 tab 和 Open Files 菜单项落在末尾。
+
+**修复 / 固化**：
+
+- `tabClose` 改为 `20×20`、`inline-flex`、`borderRadius: 5`，
+  X 字号 15；
+- 文件/Diff/Split 三类编辑器 tab 共用
+  `dsh-editor-tab-close` class；
+- hover 与 `:focus-visible` 使用 `!important` 覆盖内联透明背景，
+  显示圆角背景、边框和高对比前景；
+- 新打开文件改为 `[file, ...current]`；重新打开已存在文件仍只聚焦，
+  不改变已有 tab 顺序；
+- Open Files 继续直接投影 `openFiles` 顺序，因此与新 tab strip 一致。
+
+**运行态证据**：
+
+- Ego Browser / 隔离 r526：
+  - 依次打开 README、notes、app 后，
+    open list 为 `src/app.js|docs/notes.md|README.md`；
+  - Project View `Open Files` 显示 `app.js / notes.md / README.md`；
+  - close button 实际 `20×20`，圆角 `5px`；
+  - 键盘聚焦后 `:focus-visible=true`，背景
+    `rgb(241, 243, 245)`，边框 `rgba(0, 0, 0, 0.12)`；
+  - 无 alert。
+
+**验证**：
+
+```bash
+node --test tests/round676.test.mjs tests/round46.test.mjs \
+  tests/round379.test.mjs tests/round314.test.mjs \
+  tests/round333.test.mjs tests/round334.test.mjs \
+  tests/round59.test.mjs tests/round659.test.mjs
+npm test
+npm run check:client-build
+node --check lib/client.js
+node --check lib/index.js
+node --check lib/terminal.js
+git diff --check
+```
+
+- RED：round676 初始 **2 fail / 0 pass**；
+- 定向：**33 pass / 0 fail**；
+- 全量：**2233 pass / 0 fail**；
+- 构建检查：16 modules verified。
+
+## 2026-11-16 — 单处 Replace 后推进 active result
+
+**作用域**：Find in Files 的单一 `Replace`、自动重搜与 active result /
+Preview 生命周期。
+
+**症状 / 根因**：
+
+- 单处 Replace 成功后只递增 `searchGeneration` 并保留当前索引；
+- 当 replacement 仍包含原 query 时，重新搜索会把刚插入的文本作为同一
+  row key 再次排在原位置；
+- 因而 active row 与 Preview 停在刚替换的匹配上，没有推进到下一处。
+
+**修复 / 固化**：
+
+- 新增 `findToolReplaceAdvanceIndex()`：
+  - 新结果中仍存在被替换 row key 时选择下一条并循环；
+  - 被替换 row 不再匹配时使用原 index，自然落到下一条原始结果；
+  - 空列表和非法 index 安全收敛；
+- 单处 Replace 保存被替换 row key，并递增
+  `replaceAdvanceRevision`；
+- FindToolWindow 等待目标 generation 完成且退出 loading 后只消费一次
+  advance request；
+- round675 使用纯函数与静态契约覆盖推进、消失、末尾循环和空结果。
+
+**运行态证据**：
+
+- 隔离 r526 `r675-single.txt`：
+  - 初始两处 `R675_TOKEN`；
+  - single Replace 后第一行变为 `R675_TOKEN_NEXT one`；
+  - active row 从第一行推进到第二行 `R675_TOKEN two`；
+  - Preview 同步显示两行替换后内容；
+  - replacement 输入继续持焦，无 alert；
+  - 临时文件已删除，fixture 仅保留既有 `M README.md`。
+
+**验证**：
+
+```bash
+node --test tests/round675.test.mjs tests/round674.test.mjs \
+  tests/round673.test.mjs tests/round666.test.mjs \
+  tests/round661.test.mjs tests/round654.test.mjs \
+  tests/round653.test.mjs tests/round647.test.mjs
+npm test
+npm run check:client-build
+node --check lib/client.js
+node --check lib/index.js
+node --check lib/terminal.js
+git diff --check
+```
+
+- RED：round675 初始 **1 fail**；
+- 定向：**17 pass / 0 fail**；
+- 全量：**2231 pass / 0 fail**；
+- 构建检查：16 modules verified。
+
+## 2026-11-16 — Find 窗口零结果交接与取消替换焦点
+
+**作用域**：`Cmd+Shift+F` Find in Files、Persistent Find dock、
+Search Everywhere Replace 的确认取消与工具窗交接。
+
+**症状 / 根因**：
+
+- DSH 以 result row 数量禁用 `Open in Find Window`，但 IDEA 对非空
+  query 的零结果仍允许把查询和空结果交接到 Find 窗口；只有空 query
+  才禁用；
+- Replace All 取消确认后仅释放写锁，焦点留在动作按钮；IDEA 的连续
+  替换流应回到 replacement 输入；
+- Search Everywhere 原先没有 replacement input ref，无法响应取消后的
+  焦点恢复。
+
+**修复 / 固化**：
+
+- Find in Files 的 Open in Find Window 改为只校验
+  `hasFindToolContentQuery(query)`；空 query 显示专用 tooltip；
+- popup Replace All 取消时递增 `replaceFocusRequest`，沿用现有
+  replacement focus effect；
+- Search Everywhere 新增 replacement ref、`replaceFocusRequest`
+  effect 和取消路径，不重建 query/results；
+- round674 锁定零结果交接、两条取消焦点路径与 replacement ref；
+  round488 / round635 更新旧的结果数量禁用契约。
+
+**运行态证据**：
+
+- IDEA CUA：
+  - 非空零结果查询时 `Open in Find Window` enabled，
+    `Replace All / Replace` disabled；
+  - 空查询时 `Open in Find Window` disabled；
+  - 查询恢复为 `dsh-editor`，真实项目未替换。
+- Ego Browser / 隔离 r526：
+  - `R674_NO_SUCH_TOKEN` 以 `0 matches in 0 files` 交接到底部 dock，
+    query 保持，左右 split 与空 Preview 正常；
+  - 取消 `Scoped -> ScopedNoWrite` 后，activeElement 为
+    `Replace in files with…`，query/replacement/结果均保持；
+  - `r674-lifecycle.txt` Replace All 后自动重搜 2 条结果，
+    Open in Find Window 保留 query、replacement、active row 与 Preview；
+  - 无 alert；临时文件已删除，fixture 仅保留既有 `M README.md`。
+
+**验证**：
+
+```bash
+node --test tests/round674.test.mjs tests/round635.test.mjs \
+  tests/round488.test.mjs tests/round673.test.mjs \
+  tests/round647.test.mjs tests/round646.test.mjs \
+  tests/round653.test.mjs tests/round654.test.mjs \
+  tests/round661.test.mjs tests/round666.test.mjs
+npm test
+npm run check:client-build
+node --check lib/client.js
+node --check lib/index.js
+node --check lib/terminal.js
+git diff --check
+```
+
+- RED：round674 初始 **3 fail / 0 pass**；
+- 定向：**19 pass / 0 fail**；
+- 全量：**2228 pass / 0 fail**；
+- 构建检查：16 modules verified。
+
+## 2026-11-16 — Replace in Files 计数文案与 mixed 替换生命周期
+
+**作用域**：`Cmd+Shift+F` Find/Replace in Files 浮层、持久 Find dock 与
+单处 Replace 的确认和完成状态。
+
+**症状 / 根因**：
+
+- 替换确认框和完成状态直接使用 `occurrence(s) / file(s)`；
+  IDEA 按实际数量显示自然单复数，单处结果和 mixed dirty/clean
+  替换都不应出现占位括号；
+- 三条替换路径各自拼接 `{matches, files}`，容易再次分叉。
+
+**修复 / 固化**：
+
+- 新增 `searchReplaceCountParams()`，统一归一化 matches/files，并从当前
+  locale 选择 `occurrence / occurrences` 与 `file / files`；
+- Search Everywhere Replace All、Find dock Replace All、popup
+  Replace All 和单处 Replace 共用该 helper；
+- 中文 locale 保留“个文件 / 处”语序，英文 locale 使用单位占位符；
+- round673 同时锁定 helper 的输出和所有调用路径，round647 / round666
+  更新为验证共享格式而非旧对象字面量。
+
+**运行态证据**：
+
+- IDEA CUA：`Replace in Files` 独立窗口具备 Search/Replace、筛选、
+  Scope、Replace All/Replace 与结果 Preview；查询结束后已恢复原值；
+- Ego Browser / 隔离 r526：
+  - mixed dirty/clean 搜索为 `4 matches in 2 files`；
+  - 确认框为 `Replace 4 occurrences in 2 files?`；
+  - dirty model 与 clean 磁盘文件都正确替换，dirty sentinel 保留；
+  - replacement 含原 query 时自动重搜得到 4 条新结果和 Preview；
+  - 单处路径显示 `Replace 1 occurrence in 1 file?` 与
+    `Replaced 1 occurrence in 1 file`；
+  - 无 alert；临时 fixture 文件已删除，仅保留既有 `M README.md`。
+
+**验证**：
+
+```bash
+node --test tests/round673.test.mjs tests/round666.test.mjs \
+  tests/round661.test.mjs tests/round654.test.mjs \
+  tests/round653.test.mjs tests/round647.test.mjs \
+  tests/round646.test.mjs tests/round584.test.mjs \
+  tests/round516.test.mjs tests/round467.test.mjs
+npm test
+npm run check:client-build
+node --check lib/client.js
+node --check lib/index.js
+node --check lib/terminal.js
+git diff --check
+```
+
+- RED：round673 初始 **1 fail**；
+- 定向：**24 pass / 0 fail**；
+- 全量：**2224 pass / 0 fail**；
+- 构建检查：16 modules verified。
+
+## 2026-11-16 — 浏览器客户端按业务拆分并保持单产物加载契约
+
+**作用域**：`lib/client.js`、`src/client/*.js`、`scripts/build-client.mjs`、
+`package.json` 的构建与打包入口。
+
+**症状 / 根因**：
+
+- 浏览器半长期集中为 36k 行的 `lib/client.js`，业务边界不可维护；
+- 但 DSH lazy-CJS 客户端运行态只请求每个插件的一个
+  `<package>/client.js`，不是 Node ESM 多模块入口；
+- `lib/index.js` 是宿主半，可以正常 `import './terminal.js'`；
+  这条规则不能直接套到浏览器半。
+
+**修复 / 固化**：
+
+- 按仓库内 `docs/dsh-gufa-code` 的既有模式，将 factory 内代码无损拆分为：
+  foundation、locales、domain core、inline styles、editor core、
+  UI primitives、project、menu、diff、commit、Search Everywhere、
+  Find tool、terminal、editor workspace、injected CSS、controller；
+- `src/client/*.js` 都在同一个 factory 作用域内执行，不写顶层
+  `import/export`，共享 React 和闭包状态；
+- `scripts/build-client.mjs` 使用显式模块清单固定 factory 执行顺序并生成
+  `lib/client.js`；源码文件名保持语义化，不使用数字前缀；
+- 构建脚本拒绝清单缺失文件和 `src/client` 中未登记的模块；
+- `--check` 阻止生成产物过期；
+- package 暴露 `build:client` / `check:client-build` 并随包分发源码与构建脚本；
+- runtime 证据：页面只加载 combined plugin URL 中的
+  `dsh-editor/client.js`；加载后 Editor、Project、Harness 和 Monaco 正常。
+
+**验证**：
+
+```bash
+npm run build:client
+npm run check:client-build
+node --test tests/round671.test.mjs
+npm test
+node --check lib/client.js
+node --check scripts/build-client.mjs
+git diff --check
+```
+
+- round671：**4 pass / 0 fail**；
+- 全量：**2222 pass / 0 fail**；
+- 浏览器运行态：`workspace=1`、README tab 正常、Project 树正常、
+  Harness active、无 alert；改名后复测仍由合并资源加载
+  `dsh-editor/client.js`。
+
+**边界**：
+
+- `lib/index.js` 保持 ESM import 多个宿主模块；
+- 浏览器 `lib/client.js` 仍是 DSH 要求生成单产物，不改成运行时多文件加载；
+- 后续新增业务必须先落到 `src/client`，再重新构建。
+
 ## 2026-11-16 — Harness 激活态语义与可拖拽边界线
 
 **作用域**：Activity Stripe 的 Harness 按钮、编辑器/聊天分隔条、
@@ -67,8 +446,9 @@ dirty Monaco buffer、替换后搜索刷新。
 
 **修复**：
 
-- Search Everywhere Replace All 按 dirty/clean 拆分命中：
-  - dirty path 使用 `editorReplaceAll()` 预检；
+- Search Everywhere 与 Find 共用 `planWorkspaceReplacements()` 按
+  dirty/clean 拆分命中：
+  - dirty path 使用 `editorReplaceAll()` 预检且不修改 model；
   - clean path 只提交给 host `replaceText`；
   - dirty models 通过 `commitFindToolDirtyPlans()` 一次性事务提交；
 - replacement 在异步写入前固定为局部值，避免 busy 期间输入变化影响
@@ -96,6 +476,7 @@ dirty Monaco buffer、替换后搜索刷新。
 
 ```bash
 node --test tests/round666.test.mjs tests/round584.test.mjs \
+  tests/round670.test.mjs \
   tests/round467.test.mjs tests/round480.test.mjs \
   tests/round646.test.mjs tests/round647.test.mjs \
   tests/round653.test.mjs tests/round654.test.mjs \
@@ -108,8 +489,8 @@ git diff --check
 ```
 
 - RED：round666 初始 **2 fail / 1 pass**；
-- 定向：**28 pass / 0 fail**；
-- 全量：**2212 pass / 0 fail**。
+- round670 共享规划器定向：**25 pass / 0 fail**；
+- 全量：**2218 pass / 0 fail**。
 
 ## 2026-11-16 — 根行移除后的项目根上下文菜单与选中态
 

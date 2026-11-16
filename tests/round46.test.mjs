@@ -152,6 +152,6 @@ test('a double-click cannot open the same file twice', () => {
   /* Two clicks fire two reads before either resolves; both appends used to land. */
   assert.match(client, /const openingRef = React\.useRef\(new Set\(\)\);/);
   assert.match(client, /if \(existing === undefined && openingRef\.current\.has\(path\)\) \{/);
-  assert.match(client, /setOpenFiles\(\(current\) => \(current\.some\(\(entry\) => entry\.path === path\) \? current : \[\.\.\.current, file\]\)\);/);
+  assert.match(client, /setOpenFiles\(\(current\) => \(current\.some\(\(entry\) => entry\.path === path\) \? current : \[file, \.\.\.current\]\)\);/);
   assert.match(client, /openingRef\.current\.delete\(path\);/);
 });

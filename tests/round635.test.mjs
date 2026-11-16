@@ -33,12 +33,12 @@ test('Find renders one shared result model in a resizable bottom dock', () => {
   assert.match(source, /findToolDockHeightRef\.current/);
 });
 
-test('Open in Find Window is enabled by results and warns above the shared limit', () => {
-  assert.match(findTool, /const resultRowCount = scopedFileResults\.length \+ scopedMatches\.length/);
+test('Open in Find Window follows query presence and warns above the shared limit', () => {
+  assert.match(findTool, /if \(!floating \|\| !hasFindToolContentQuery\(query\)\) return/);
   assert.match(findTool, /searchEverywhereRequiresResultConfirmation\(scopedFileResults, scopedMatches\)/);
   assert.match(findTool, /window\.confirm\(t\('editor\.searchTooManyResults'/);
   assert.match(findTool, /onClick: requestOpenInFindWindow/);
-  assert.match(findTool, /disabled: resultRowCount === 0/);
+  assert.match(findTool, /disabled: !hasFindToolContentQuery\(query\)/);
 });
 
 test('The dock reuses FindToolWindow without popup-only outside-click closing', () => {

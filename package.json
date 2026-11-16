@@ -19,6 +19,8 @@
     "lib/index.js",
     "lib/client.js",
     "lib/link-parser.mjs",
+    "src/client",
+    "scripts/build-client.mjs",
     "locale/*.json",
     "cordis.patch.yml",
     "README.md"
@@ -49,6 +51,9 @@
   },
   "license": "MIT",
   "scripts": {
+    "build:client": "node scripts/build-client.mjs",
+    "postbuild:client": "npm test",
+    "check:client-build": "node scripts/build-client.mjs --check",
     "test": "node --test --test-concurrency=1 \"tests/*.test.mjs\"",
     "fixture:editor": "bash scripts/prepare-editor-fixture.sh"
   },

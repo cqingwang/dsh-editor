@@ -26,13 +26,14 @@ test('Every dirty path is preflighted and changed file/replacement totals are me
   assert.match(replacementPlanner, /dirtyPlans\.push\(\{ path, model, text: rewritten\.text, count: rewritten\.count \}\)/);
   assert.match(replaceAll, /const dirtyReplacements = dirtyCommit\.count/);
   assert.match(replaceAll, /const changed = \[\.\.\.new Set\(\[\.\.\.hostChanged, \.\.\.dirtyChanged\]\)\]/);
-  assert.match(replaceAll, /matches: \(value\?\.replacements \?\? 0\) \+ dirtyReplacements/);
+  assert.match(replaceAll, /const replacedCount = \(value\?\.replacements \?\? 0\) \+ dirtyReplacements/);
+  assert.match(replaceAll, /searchReplaceCountParams\(t, replacedCount, changed\.length\)/);
 });
 
 test('Cancel and preflight failures cannot mutate dirty models', () => {
   const confirmAt = replaceAll.indexOf('window.confirm');
   const dirtyCommit = replaceAll.indexOf('commitFindToolDirtyPlans(dirtyPlans)');
   assert.ok(confirmAt >= 0 && dirtyCommit > confirmAt);
-  assert.match(replaceAll, /releaseReplaceAttempt\(replaceWriteBusyRef\);\s*return;/);
+  assert.match(replaceAll, /releaseReplaceAttempt\(replaceWriteBusyRef\);[\s\S]*?replaceFocusRequest: \(current\.replaceFocusRequest \?\? 0\) \+ 1[\s\S]*?return;/);
   assert.match(replacementPlanner, /if \(rewritten\.error !== null\)/);
 });

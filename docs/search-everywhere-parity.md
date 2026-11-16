@@ -163,7 +163,8 @@
   `Replace` / `Replace All` 对 dirty path 直接更新 Monaco model，并为
   每次动作建立独立 undo 边界；clean path 继续使用宿主受保护磁盘写入。
 - Search Everywhere 的 Replace All 与持久 Find/popup 的 Replace All
-  使用同一 dirty/clean 拆分和 `commitFindToolDirtyPlans()` 事务：
+  使用同一 `planWorkspaceReplacements()` dirty/clean 拆分和
+  `commitFindToolDirtyPlans()` 事务：
   clean targets 先走 host，之后一次性提交 dirty models；任一 dirty
   model 预检或应用失败都不会产生部分 dirty 修改。
 - Find 已打开时重复双击 Shift / CmdShiftF 只回焦 query，不重置现有
@@ -234,13 +235,24 @@
 - Scope 行顺序固定为 Search → Replace → Scope。
 - 查找模式的底部动作栏提供 Open results in new tab、`⌘⏎` 与
   Open in Find Window；Replace / Replace All 只在 Replace 行展开时出现。
-- 有结果时 Open in Find Window 会把同一 query、results、options 与
-  active descendant 转入可调整高度的底部持久 Find 工具窗并关闭弹框；
-  无结果时 disabled，超过 200 条时先确认；`⌘⏎` 调用同一路径。
+- Open in Find Window 只要求非空 query；有结果时把同一 query、results、
+  options 与 active descendant 转入可调整高度的底部持久 Find 工具窗并
+  关闭弹框，零结果时也把 query/options/空结果一并交接；空 query
+  disabled，超过 200 条时先确认；`⌘⏎` 调用同一路径。
+- 取消 Replace All 的确认框后，popup 与 Search Everywhere 都把焦点
+  返回 replacement 输入；Search Everywhere 通过独立的
+  `replaceFocusRequest` 和 replacement ref 完成，不重建搜索状态。
 - Replace All 使用 IDEA 的 `⌥⇧⏎`，同时兼容 Cmd/Ctrl+Enter；
   持久 Find 工具窗的 Rerun 复用当前 query，不另建搜索状态。
 - Replace All 成功后若 replacement 仍包含原 query，结果会按原 query
   立即重搜；新结果、Preview 与 dirty tab 状态保持同步。
+- 单处 Replace 会记录被替换行的 row identity；若 replacement 仍匹配
+  原 query，重搜后跳过刚插入的同一匹配并推进到下一处。
+  若 replacement 不再匹配，原 active index 自然指向下一条原始结果。
+- Replace 的确认框、完成状态和单处替换共用
+  `searchReplaceCountParams()`：英文按真实数量输出
+  `occurrence / occurrences` 与 `file / files`，中文继续使用
+  `处 / 个文件`，不再显示 `occurrence(s) / file(s)` 占位写法。
 - 持久 Find 的 Group By 提供真实的 `Directory Structure ⌃D` 与
   `File Structure ⌃S`；目录模式按目录稳定排序并插入目录标题与命中计数。
   Module、Package、Production/Test、Usage Type、Merge Same Line 等语言级
