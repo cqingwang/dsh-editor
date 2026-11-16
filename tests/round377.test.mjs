@@ -43,12 +43,10 @@ const git = {
   ],
 };
 
-test('Project and Project Files reuse the real project row model', () => {
+test('Project Files reuses the real project row model', () => {
   assert.equal(normalizeProjectView('projectFiles'), 'projectFiles');
-  assert.equal(projectViewIsTree('project'), true);
   assert.equal(projectViewIsTree('projectFiles'), true);
   assert.equal(projectViewIsTree('openFiles'), false);
-  assert.equal(projectViewRows('project', projectRows, openFiles, git), projectRows);
   assert.equal(projectViewRows('projectFiles', projectRows, openFiles, git), projectRows);
 });
 
@@ -65,23 +63,23 @@ test('All Changed Files deduplicates git paths and sorts them stably', () => {
 });
 
 test('unsupported IDEA views cannot become the active filtered-row source', () => {
-  for (const view of ['packages', 'production', 'tests', 'scratches', 'bogus']) {
-    assert.equal(normalizeProjectView(view), view === 'bogus' ? 'project' : view);
+  for (const view of ['project', 'packages', 'production', 'tests', 'scratches', 'bogus']) {
+    assert.equal(normalizeProjectView(view), 'projectFiles');
     assert.equal(projectViewRows(view, projectRows, openFiles, git), projectRows);
   }
 });
 
-test('the Project title exposes the IDEA view selector with unavailable views disabled', () => {
+test('the Project title exposes only the three backed IDEA views', () => {
   const start = source.indexOf('function ProjectPanel(');
   const end = source.indexOf('/** IDEA-style context menu', start);
   const panel = source.slice(start, end);
   assert.match(panel, /titleAction:/);
   assert.match(panel, /projectViewDefinitions\(t\)/);
-  assert.match(panel, /editor\.projectViewProject/);
-  assert.match(panel, /editor\.projectViewPackages/);
   assert.match(panel, /editor\.projectViewProjectFiles/);
   assert.match(panel, /editor\.projectViewOpenFiles/);
   assert.match(panel, /editor\.projectViewChangedFiles/);
+  assert.doesNotMatch(panel, /editor\.projectViewPackages/);
+  assert.doesNotMatch(panel, /editor\.projectViewProduction/);
   assert.match(panel, /disabled: definition\.available !== true/);
 });
 

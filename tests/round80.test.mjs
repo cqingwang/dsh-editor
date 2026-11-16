@@ -12,7 +12,7 @@ test('the log row menu offers "copy subject" next to "copy hash"', () => {
      description or a changelog. IDEA's log menu has both. */
   const start = source.indexOf('const buildLogMenu = React.useCallback(');
   assert.notEqual(start, -1);
-  const block = source.slice(start, start + 2600);
+  const block = source.slice(start, source.indexOf('/* Rollback discards edits', start));
   assert.match(block, /t\('editor\.copySubject'\)/);
   assert.match(block, /navigator\.clipboard\?\.writeText\(commit\.subject\)/);
   /* The two copy items stay adjacent, separated from the history actions. */
@@ -21,7 +21,7 @@ test('the log row menu offers "copy subject" next to "copy hash"', () => {
 
 test('a missing subject disables the item instead of copying "undefined"', () => {
   const start = source.indexOf('const buildLogMenu = React.useCallback(');
-  const block = source.slice(start, start + 2800);
+  const block = source.slice(start, source.indexOf('/* Rollback discards edits', start));
   assert.match(block, /disabled: typeof commit\.subject !== 'string' \|\| commit\.subject === ''/);
 });
 

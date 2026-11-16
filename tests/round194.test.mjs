@@ -20,7 +20,7 @@ test('a file row selects on one click and opens on double click unless the prefe
   const start = source.indexOf("const isDirectory = row.kind === 'directory';");
   assert.notEqual(start, -1);
   const row = source.slice(start, source.indexOf('onContextMenu:', start));
-  assert.match(row, /if \(isDirectory\) \{[\s\S]*?if \(openDirectoriesSingleClick === true\) onToggle\(row\.path\);/);
+  assert.match(row, /if \(isDirectory\) \{[\s\S]*?if \(row\.root !== true && openDirectoriesSingleClick === true\) onToggle\(row\.path\);/);
   assert.match(row, /else if \(singleClickOpen === true\) onOpenPreview\(row\.path\);/);
   assert.match(row, /onDoubleClick: \(event\) => \{[\s\S]*?if \(isDirectory && openDirectoriesSingleClick !== true\) onToggle\(row\.path\);[\s\S]*?else if \(!isDirectory && singleClickOpen !== true\) onOpen\(row\.path\);/);
   assert.doesNotMatch(row, /setRenameState|onStartRename/);

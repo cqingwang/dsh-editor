@@ -36,17 +36,12 @@ test('shortcuts act on the newly selected row before the last opened diff', () =
   assert.match(shortcut, /selectedDiffPathRef\.current/);
 });
 
-test('an empty connected host is rebuilt instead of being reused', () => {
+test('a connected host is reused by its stable parent instead of child count', () => {
   const source = readFileSync(join(root, 'lib/client.js'), 'utf8');
   const block = source.slice(source.indexOf('function ensureHost(body) {'), source.indexOf('function idleHost()'));
-  assert.match(block, /host\.childElementCount > 0/);
-  assert.match(block, /for \(const stale of body\.querySelectorAll\('\[data-dsh-editor-host\]'\)\) stale\.remove\(\)/);
-  assert.match(block, /destroyHost\(\);/);
-});
-
-test('an empty host is discarded when the Editor split is no longer active', () => {
-  const block = source.slice(source.indexOf('function discardEmptyHost(body) {'), source.indexOf('function destroyHost()'));
-  assert.match(block, /host\.childElementCount > 0/);
-  assert.match(block, /destroyHost\(\);/);
-  assert.match(source, /discardEmptyHost\(body\);/);
+  assert.match(block, /if \(hostParent !== null && host\.parentElement !== hostParent\)/);
+  assert.match(block, /hostParent\.appendChild\(host\)/);
+  assert.match(block, /if \(host !== null && root !== null\)/);
+  assert.doesNotMatch(block, /childElementCount/);
+  assert.doesNotMatch(source, /discardEmptyHost\(body\);/);
 });

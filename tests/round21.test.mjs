@@ -105,7 +105,7 @@ test('the log row menu offers cherry-pick, revert and restore', () => {
   assert.match(client, /const buildLogMenu = React\.useCallback\(/);
   assert.match(client, /run: \(\) => void runHistoryAction\('cherryPick', commit\.hash\)/);
   assert.match(client, /run: \(\) => void runHistoryAction\('revert', commit\.hash\)/);
-  assert.match(client, /onContextMenu\?\.\(\{ commit, x: event\.clientX, y: event\.clientY \}\)/);
+  assert.match(client, /onContextMenu\?\.\(\{ commit, selectionHashes, x: event\.clientX, y: event\.clientY \}\)/);
   /* Two destructive git actions must confirm before running. */
   assert.match(client, /window\.confirm\(t\('editor\.historyActionConfirm'/);
   assert.match(client, /window\.confirm\(t\('editor\.restoreFileConfirm'/);

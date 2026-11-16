@@ -20,17 +20,19 @@ test('the diff toolbar measures itself and collapses secondary actions when very
   assert.match(diff, /ref: diffToolbarRef/);
 });
 
-test('view, unchanged-fold, restore history and selection restore are overflowable actions', () => {
+test('diff modes stay fixed while unfold, restore history and selection restore remain actions', () => {
   const diff = diffPreview();
   const start = diff.indexOf('const diffToolbarActions =');
   assert.notEqual(start, -1);
   const actions = diff.slice(start, diff.indexOf('const hidden =', start));
-  for (const id of ['view', 'collapse', 'undo', 'redo', 'selection']) {
+  for (const id of ['collapse', 'undo', 'redo', 'selection']) {
     assert.match(actions, new RegExp(`id: '${id}'`));
   }
-  assert.match(actions, /label: t\('editor\.diffViewToggle'\)/);
+  assert.doesNotMatch(actions, /id: 'view'/);
   assert.match(actions, /label: t\('editor\.diffUndoRestore'\)/);
   assert.match(actions, /label: t\('editor\.diffSelectionRestore'\)/);
+  assert.match(diff, /React\.createElement\(DiffViewModeControl, \{/);
+  assert.match(diff, /mode: diffViewModeControl/);
 });
 
 test('the compact overflow keeps hunk and close controls visible and reuses ContextMenu', () => {

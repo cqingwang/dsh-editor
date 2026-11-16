@@ -142,7 +142,7 @@ test('the action strip measures the pane width instead of shrink-wrapping its ac
   const compact = slice('function CompactActionBar(', '/** Project tool window:');
   assert.match(compact, /new ResizeObserver\(measure\)/);
   assert.match(compact, /const next = actions\.length <= slots \? actions\.length : Math\.max\(0, slots - 1\)/);
-  assert.match(compact, /\}, \[actionsKey, visibleCount\]\);/);
+  assert.match(compact, /\}, \[actionSlotWidth, actionsKey, visibleCount\]\);/);
   assert.match(compact, /id: action\.id,\n\s+label: action\.label,\n\s+shortcut: action\.active === true \? '✓' : '',\n\s+disabled: action\.disabled === true,\n\s+active: typeof action\.active === 'boolean' \? action\.active : undefined,\n\s+run: \(\) => action\.onClick\(\)/);
 });
 

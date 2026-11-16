@@ -88,7 +88,7 @@ test('Project stores Compact Directories off by default and exposes it under App
 });
 
 test('flattenRows compacts loaded chains while preserving the deepest real path', () => {
-  assert.match(source, /function flattenRows\(entries, children, expanded, projectName, root, compactDirectories = false\)/);
+  assert.match(source, /function flattenRows\(entries, children, expanded, projectName, root, compactDirectories = false, sortMode = 'name', manualOrder = null\)/);
   assert.match(source, /const compacted = compactDirectories === true && entry\.kind === 'directory' \? compactDirectoryChain\(entry, children\) : null;/);
   assert.match(source, /const rowEntry = compacted === null[\s\S]*?path: compacted\.path,[\s\S]*?name: compacted\.name,/);
   assert.match(source, /rows\.push\(\{ \.\.\.rowEntry, depth, continues \}\);/);

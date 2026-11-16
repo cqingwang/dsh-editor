@@ -18,7 +18,7 @@ function diffPreview() {
 test('Diff marks every model-dependent action unavailable without a loaded diff', () => {
   const diff = diffPreview();
   assert.match(diff, /const diffUnavailable = target === null \|\| state\.binary \|\| state\.missing \|\| diffLoadedRef\.current === null;/);
-  assert.match(diff, /id: 'view',[\s\S]*?disabled: diffUnavailable,/);
+  assert.match(diff, /React\.createElement\(DiffViewModeControl, \{[\s\S]*?disabled: diffUnavailable,/);
   assert.match(diff, /id: 'swapSides',[\s\S]*?disabled: diffUnavailable,/);
   assert.match(diff, /id: 'disableEditing',[\s\S]*?disabled: swapSides \|\| diffUnavailable,/);
   assert.match(diff, /id: 'settings',[\s\S]*?disabled: diffUnavailable,/);

@@ -19,7 +19,7 @@ test('a double-click never starts a rename', () => {
      Two causes stacked: a double-click opened the inline editor, and that editor
      commits on blur, so the next click committed a rename nobody asked for.
      Rename is now only reachable from the context menu (and F2/⇧F6). */
-  const start = source.indexOf('ref: treeRef,');
+  const start = source.indexOf("const isDirectory = row.kind === 'directory';");
   assert.notEqual(start, -1);
   const block = source.slice(start, source.indexOf('onContextMenu:', start));
   assert.match(block, /onDoubleClick: \(event\) => \{/);

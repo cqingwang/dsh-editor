@@ -13,7 +13,7 @@ function diffPreview() {
 
 test('every diff offers IDEA Open Local Version through existing openFile', () => {
   const diff = diffPreview();
-  assert.match(diff, /function DiffPreview\(\{ t, target, monacoReady, includedInCommit = false, onClose, onRestored, onStatus, onNotice, onNavigate, undoRef, redoRef, viewStatesRef, filePosition = null, onPreviousFile, onNextFile, onOpenLocal \}\)/);
+  assert.match(diff, /function DiffPreview\(\{ t, target, monacoReady, includedInCommit = false, onClose, onRestored, onStatus, onNotice, onNavigate, undoRef, redoRef, viewStatesRef, searchInChangesRef = null, filePosition = null, onPreviousFile, onNextFile, onOpenLocal \}\)/);
   assert.match(diff, /\.\.\.\(typeof target\?\.path === 'string' && typeof onOpenLocal === 'function'/);
   assert.doesNotMatch(diff, /\.\.\.\(diffReadOnly && typeof target\?\.path === 'string' && typeof onOpenLocal === 'function'/);
   assert.match(diff, /id: 'openLocalVersion'/);

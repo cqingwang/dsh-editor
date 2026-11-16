@@ -16,9 +16,9 @@ function optionsMenu() {
 
 test('Project Sort By is a value menu instead of a blind cycling action', () => {
   const options = optionsMenu();
-  assert.match(options, /id: 'appearance'[\s\S]*?\['name', 'type', 'modified', 'modified-asc'\]\.map/);
+  assert.match(options, /id: 'appearance'[\s\S]*?\['name', 'type', 'modified', 'modified-asc', 'manual'\]\.map/);
   assert.match(options, /id: `sort:\$\{mode\}`/);
-  assert.match(options, /\['name', 'type', 'modified', 'modified-asc'\]\.map/);
+  assert.match(options, /\['name', 'type', 'modified', 'modified-asc', 'manual'\]\.map/);
   assert.match(options, /shortcut: \(sortMode \?\? 'name'\) === mode \? '✓' : ''/);
   assert.match(options, /run: \(\) => runProjectOption\(\(\) => applySortMode\(mode\)\)/);
   assert.match(source, /const applySortMode = React\.useCallback\(\(next\) => \{/);

@@ -21,13 +21,14 @@ test('Diff exposes IDEA Search In Changes through Monaco actions.find', () => {
   assert.match(diff, /id: 'find',[\s\S]*?icon: 'search',[\s\S]*?label: t\('editor\.searchInChanges'\),[\s\S]*?shortcut: '⌘F'/);
 });
 
-test('⌘F is claimed only while the Diff pane owns focus', () => {
+test('⌘F is claimed across the Diff surface but not foreign editors', () => {
   const diff = diffPreview();
   const start = diff.indexOf('const onKeyDown = (event) => {');
   const end = diff.indexOf("window.addEventListener('keydown', onKeyDown, true);", start);
   const handler = diff.slice(start, end);
   assert.match(handler, /if \(meta && !event\.altKey && !event\.shiftKey && event\.key\.toLowerCase\(\) === 'f'\)/);
-  assert.match(handler, /if \(!insideDiffPane\) return;/);
+  assert.match(handler, /const insideDiffSurface = shortcutTarget\?\.closest\('\[data-dsh-editor-diff-surface\]'\) !== null/);
+  assert.match(handler, /if \(!insideDiffSurface\) return;/);
   assert.match(handler, /event\.preventDefault\(\);/);
   assert.match(handler, /searchInChanges\(\);/);
 });

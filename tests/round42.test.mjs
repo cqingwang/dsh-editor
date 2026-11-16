@@ -65,7 +65,7 @@ test('the graph survives a repository with no commits', async (t) => {
 
 test('the log tab toggles into graph mode and back', () => {
   const client = read('lib/client.js');
-  assert.match(client, /function CommitGraph\(\{ t, graph, onShow, selected, onSelect, folded, onToggleFolded, onPickRef, onContextMenu \}\)/);
+  assert.match(client, /function CommitGraph\(\{ t, graph, onShow, selected, selectionHashes = \[\], onRowClick, onSelect, folded, onToggleFolded, onPickRef, onContextMenu \}\)/);
   assert.match(client, /const \[graphMode, setGraphMode\] = React\.useState\(false\);/);
   assert.match(client, /t\('editor\.logGraph'\)/);
   /* Graph mode replaces the flat list rather than appending to it. */

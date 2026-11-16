@@ -29,12 +29,11 @@ test('direct Diff submenu actions expose menu semantics without lying about expa
   assert.match(diff, /ariaExpanded: Array\.isArray\(action\.items\) \? diffActionMenu\?\.actionId === action\.id : undefined/);
 });
 
-test('medium Diff widths recover View, Apply, Swap and Reload before low-frequency actions', () => {
+test('medium Diff widths recover Apply, Swap and Reload after the fixed mode control', () => {
   const directCountForWidth = new Function(
     `${extract('groupDiffToolbarActions')}\n${extract('diffDirectActionCountForWidth')}\nreturn diffDirectActionCountForWidth;`,
   )();
   const actions = [
-    ['view', 'mode'],
     ['applyLeftSide', 'mode'],
     ['swapSides', 'mode'],
     ['disableEditing', 'mode'],
@@ -50,9 +49,9 @@ test('medium Diff widths recover View, Apply, Swap and Reload before low-frequen
   ].map(([id, group]) => ({ id, group }));
   const visible = (width) => actions.slice(0, directCountForWidth(width, 220, actions)).map((action) => action.id);
 
-  assert.deepEqual(visible(320), ['view']);
-  assert.deepEqual(visible(360), ['view', 'applyLeftSide']);
-  assert.deepEqual(visible(400), ['view', 'applyLeftSide', 'swapSides', 'disableEditing']);
+  assert.deepEqual(visible(320), ['applyLeftSide']);
+  assert.deepEqual(visible(360), ['applyLeftSide', 'swapSides']);
+  assert.deepEqual(visible(400), ['applyLeftSide', 'swapSides', 'disableEditing', 'focusOppositePane']);
   assert.ok(visible(520).includes('reloadDiff'));
   assert.ok(visible(520).includes('find'));
   assert.ok(!visible(520).includes('openLocalVersion'));

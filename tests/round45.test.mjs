@@ -82,7 +82,7 @@ test('the graph toolbar exposes a branch picker and HEAD badge', () => {
 
 test('the graph rows are reachable with the keyboard', () => {
   const client = read('lib/client.js');
-  assert.match(client, /const moveGraphCursor = \(delta\) => \{/);
+  assert.match(client, /const moveGraphCursor = \(delta, shiftKey = false\) => \{/);
   assert.match(client, /onKeyDown: graphMode/);
   assert.match(client, /if \(event\.key === 'ArrowDown' \|\| event\.key === 'ArrowUp'\)/);
   assert.match(client, /onShow\?\.\(graphRows\[graphIndex\]\.hash\)/);

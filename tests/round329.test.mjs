@@ -24,7 +24,7 @@ function fakeMonaco() {
   const createdModels = [];
   const editors = [];
   const monaco = {
-    KeyMod: { CtrlCmd: 1, Alt: 2 },
+    KeyMod: { CtrlCmd: 1, Alt: 2, WinCtrl: 3 },
     KeyCode: { KeyS: 10, KeyF: 11, KeyL: 12, KeyW: 13 },
     Uri: { parse: (value) => ({ value }) },
     languages: { getLanguages: () => [{ id: 'typescript' }] },
@@ -40,6 +40,17 @@ function fakeMonaco() {
           addAction(spec) {
             actions.push(spec);
             return { dispose() { spec.disposed = (spec.disposed ?? 0) + 1; } };
+          },
+          createContextKey() {
+            return { set() {} };
+          },
+          getSelection() { return null; },
+          getPosition() { return null; },
+          onDidChangeCursorSelection() {
+            return { dispose() {} };
+          },
+          onDidChangeModel() {
+            return { dispose() {} };
           },
           setModel(model) { this.model = model; },
           getModel() { return this.model; },
@@ -84,7 +95,12 @@ test('two editor groups share a model and disposing one never disposes it', () =
   const create = new Function(
     'detectTheme',
     'EDITOR_UI_FONT',
-    `${extractFunction('createCodeEditorGroup')}; return createCodeEditorGroup;`,
+    `let codeEditorGroupSequence = 0;
+     ${extractFunction('isMacPlatform')}
+     ${extractFunction('ideaControlKeyModifier')}
+     ${extractFunction('findUsagesSearchTarget')}
+     ${extractFunction('createCodeEditorGroup')};
+     return createCodeEditorGroup;`,
   )(() => 'vs', '"Trebuchet MS", sans-serif');
   const ensure = new Function(
     'safeLanguage',
@@ -119,7 +135,12 @@ test('editor group actions forward IDEA shortcuts and dispose once', () => {
   const create = new Function(
     'detectTheme',
     'EDITOR_UI_FONT',
-    `${extractFunction('createCodeEditorGroup')}; return createCodeEditorGroup;`,
+    `let codeEditorGroupSequence = 0;
+     ${extractFunction('isMacPlatform')}
+     ${extractFunction('ideaControlKeyModifier')}
+     ${extractFunction('findUsagesSearchTarget')}
+     ${extractFunction('createCodeEditorGroup')};
+     return createCodeEditorGroup;`,
   )(() => 'vs', '"Trebuchet MS", sans-serif');
   const calls = [];
   const group = create(monaco, {}, {

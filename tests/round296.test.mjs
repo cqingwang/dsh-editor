@@ -25,5 +25,5 @@ test('Commit Log file menu advertises and reuses the same F4 path', () => {
     workspace.indexOf('const buildLogMenu = React.useCallback(', workspace.indexOf('const buildCommitFileMenu = React.useCallback(')),
   );
   assert.match(menu, /id: 'openLocalVersion'[\s\S]*?shortcut: 'F4'[\s\S]*?if \(localExists !== false\) void editLocalVersion\(path\)/);
-  assert.match(menu, /\[showCommitDiff, editLocalVersion, openInTerminal, revealPath, showFileHistory, root\]/);
+  assert.match(menu, /\[showCommitDiff, editLocalVersion, openInTerminal, openRepositoryVersion, revealPath, showFileHistory, root, t\]/);
 });

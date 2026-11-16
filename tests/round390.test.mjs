@@ -26,7 +26,7 @@ test('Harness follows Project, Commit and Terminal in the activity stripe', () =
   assert.deepEqual(ids, ['project', 'commit', 'terminal', 'harness']);
   assert.match(stripe, /label: t\('editor\.harness'\)/);
   assert.match(stripe, /icon: 'harness'/);
-  assert.match(stripe, /active: harnessCollapsed/);
+  assert.match(stripe, /active: harnessCollapsed !== true/);
   assert.match(stripe, /onClick: onToggleHarness/);
   assert.match(source, /case 'harness':/);
 });

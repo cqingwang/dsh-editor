@@ -70,7 +70,7 @@ test('Options keeps the hidden actions reachable in one grouped menu', () => {
   assert.match(wiring, /void refreshTree\(\)/);
   assert.match(wiring, /void openQuickOpen\(\)/);
   assert.match(wiring, /openRecent\(\)/);
-  assert.match(wiring, /\['name', 'type', 'modified', 'modified-asc'\]\.map/);
+  assert.match(wiring, /\['name', 'type', 'modified', 'modified-asc', 'manual'\]\.map/);
   assert.match(wiring, /applySortMode\(mode\)/);
   assert.match(wiring, /toggleAutoScroll\(\)/);
 });

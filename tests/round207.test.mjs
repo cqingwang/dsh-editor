@@ -42,7 +42,7 @@ test('modification-time direction still honours Folders Always on Top', () => {
 
 test('Project Appearance exposes newest-first and oldest-first as separate choices', () => {
   const appearance = client.slice(client.indexOf("id: 'appearance'"), client.indexOf('onCreateChange:', client.indexOf("id: 'appearance'")));
-  assert.match(appearance, /\['name', 'type', 'modified', 'modified-asc'\]/);
+  assert.match(appearance, /\['name', 'type', 'modified', 'modified-asc', 'manual'\]/);
   assert.match(client, /sort_modified_asc:/);
   assert.match(client, /sort_modified: '按修改时间（最新优先）'/);
   assert.match(client, /sort_modified_asc: '按修改时间（最早优先）'/);
@@ -50,6 +50,6 @@ test('Project Appearance exposes newest-first and oldest-first as separate choic
 });
 
 test('the toolbar cycle visits both modification-time directions', () => {
-  assert.match(client, /const order = \['name', 'type', 'modified', 'modified-asc'\];/);
+  assert.match(client, /const order = \['name', 'type', 'modified', 'modified-asc', 'manual'\];/);
   assert.match(client, /order\[\(order\.indexOf\(current\) \+ 1\) % order\.length\]/);
 });

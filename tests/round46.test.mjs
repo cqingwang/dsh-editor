@@ -127,7 +127,7 @@ test('both log views mark the commit the detail pane shows', () => {
   /* One selection, two renderings: a row picked in either view is marked in both. */
   assert.match(client, /const \[selectedCommit, setSelectedCommit\] = React\.useState\(null\);/);
   assert.match(client, /setSelectedCommit\(hash\);/);
-  assert.match(client, /'aria-selected': selected === commit\.hash,/);
+  assert.match(client, /'aria-selected': selectedCommits\.includes\(commit\.hash\),/);
   assert.match(client, /selected: graphHover \?\? graphCursor \?\? selected,/);
   /* Walking the graph with the keyboard loads the detail pane, like IDEA's log. */
   assert.match(client, /onShow\?\.\(graphRows\[clamped\]\.hash\);/);

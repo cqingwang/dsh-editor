@@ -24,7 +24,7 @@ function extract(name) {
 
 test('search result synthetic trees honor Compact Directories', () => {
   const factory = new Function(
-    `'use strict';\n${extract('basename')}\n${extract('dirname')}\n${extract('continuationFlags')}\n${extract('compactDirectoryChain')}\n${extract('flattenRows')}\n${extract('searchEntryRows')}\nreturn searchEntryRows;`,
+    `'use strict';\n${extract('basename')}\n${extract('dirname')}\n${extract('continuationFlags')}\n${extract('compactDirectoryChain')}\n${extract('orderProjectEntriesByManual')}\n${extract('flattenRows')}\n${extract('searchEntryRows')}\nreturn searchEntryRows;`,
   );
   const matches = [{ path: 'docs/nested/deep/note.txt', name: 'note.txt', kind: 'file' }];
   const plain = factory()(matches, 'workspace', false);

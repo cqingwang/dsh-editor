@@ -1,5 +1,9607 @@
 # dsh-editor 工程记忆
 
+## 2026-11-16 — Harness 激活态语义与可拖拽边界线
+
+**作用域**：Activity Stripe 的 Harness 按钮、编辑器/聊天分隔条、
+工具窗 side resize、Terminal split、底部 dock resize。
+
+**症状 / 根因**：
+
+- Harness 使用 `active: harnessCollapsed`，把“聊天隐藏”误画成激活亮色；
+- 聊天 handle 默认透明，工具窗 handle 默认透明，Terminal split 只有
+  0.5px 边框，拖拽边界不易识别。
+
+**修复**：
+
+- Harness 激活条件改为 `harnessCollapsed !== true`：
+  - 聊天隐藏时 `aria-pressed=false`、透明背景/灰色 rail；
+  - 聊天显示时 `aria-pressed=true`、亮色 active 背景；
+- 聊天 handle 保持 8px 命中区，默认绘制 2px 中线；
+- 工具窗 side resize 保持 5px 命中区，默认绘制 1px 中线；
+- Terminal split 提升为 1px 左边界；
+- dock resize 保持 6px 命中区，并绘制 1px 水平线；
+- hover/drag 继续使用业务蓝色反馈。
+
+**运行态证据**：
+
+- Ego Browser / 隔离 r526：
+  - 聊天可见：Harness `aria-pressed=true`，背景
+    `rgb(255,255,255)`，标题 `Hide Harness chat`；
+  - 点击隐藏：`aria-pressed=false`，背景透明，颜色
+    `rgb(129,133,140)`，标题 `Show Harness chat`；
+  - 再次点击：恢复 active；
+  - chat handle 计算宽度 `8px`，含 2px `rgba(0,0,0,0.12)` 中线；
+  - side resize 计算宽度 `5px`，含 1px 中线；
+  - editor split/Terminal split 使用 1px 边界。
+
+**回归**：
+
+```bash
+node --test tests/round667.test.mjs tests/round390.test.mjs \
+  tests/round461.test.mjs tests/round397.test.mjs \
+  tests/round84.test.mjs tests/round332.test.mjs \
+  tests/round149.test.mjs
+npm test
+node --check lib/client.js
+node --check lib/index.js
+node --check lib/terminal.js
+git diff --check
+```
+
+- RED：round667 初始 **3 fail / 0 pass**；
+- 定向：**25 pass / 0 fail**；
+- 全量：**2215 pass / 0 fail**。
+
+## 2026-11-16 — Search Everywhere / Find Replace All 的 Dirty Buffer 与重搜刷新
+
+**作用域**：Search Everywhere Replace All、`Cmd+Shift+F` Find popup、
+dirty Monaco buffer、替换后搜索刷新。
+
+**症状 / 根因**：
+
+- 持久 Find dock 已支持 dirty model replacement；
+- Search Everywhere 的 `replaceInFiles()` 仍先拒绝所有 dirty targets，
+  与 IDEA 对未保存编辑器内容的替换语义不一致；
+- 替换值本身仍包含原 query 时，必须重新搜索，否则结果与 Preview
+  会错误地停留在旧状态。
+
+**修复**：
+
+- Search Everywhere Replace All 按 dirty/clean 拆分命中：
+  - dirty path 使用 `editorReplaceAll()` 预检；
+  - clean path 只提交给 host `replaceText`；
+  - dirty models 通过 `commitFindToolDirtyPlans()` 一次性事务提交；
+- replacement 在异步写入前固定为局部值，避免 busy 期间输入变化影响
+  host 与 dirty model 的替换内容；
+- 成功后同步 openFiles dirty content、Git 状态、历史与状态栏计数，
+  递增 `textRevision` 触发原 query 重搜；
+- 失败保留 query/replacement 并展示错误，write guard 始终释放。
+
+**运行态证据**：
+
+- Ego Browser / 隔离 r526：
+  - 打开 `r666-refresh.txt`，Monaco model 改为未保存
+    `R666_DIRTY unsaved / R666_DIRTY unsaved2`；
+  - `Cmd+Shift+R` 搜索结果 2 条；
+  - Replace All → `R666_DIRTY_DONE`：
+    - model 立即变为 2 个 `R666_DIRTY_DONE`；
+    - 结果与 Preview 自动刷新为替换后的新命中；
+    - tab 保持 dirty；
+    - 磁盘仍为原 `R666_TOKEN_DONE` 内容；
+    - 状态栏 `Replaced 2 occurrence(s) in 1 file(s)`；
+    - 无 alert；
+  - 临时文件已删除，fixture 最终仅保留既有 `M README.md`。
+
+**回归**：
+
+```bash
+node --test tests/round666.test.mjs tests/round584.test.mjs \
+  tests/round467.test.mjs tests/round480.test.mjs \
+  tests/round646.test.mjs tests/round647.test.mjs \
+  tests/round653.test.mjs tests/round654.test.mjs \
+  tests/round616.test.mjs
+npm test
+node --check lib/client.js
+node --check lib/index.js
+node --check lib/terminal.js
+git diff --check
+```
+
+- RED：round666 初始 **2 fail / 1 pass**；
+- 定向：**28 pass / 0 fail**；
+- 全量：**2212 pass / 0 fail**。
+
+## 2026-11-16 — 根行移除后的项目根上下文菜单与选中态
+
+**作用域**：Project 工具栏项目名、Project 树空白区域、项目根菜单。
+
+**用户要求**：
+
+- 删除重复的项目根行后，仍要保留根目录上下文菜单；
+- 必须能在项目根层级新建文件/目录；
+- 右键项目名时，项目名要显示 IDEA 蓝色选中背景。
+
+**修复**：
+
+- 项目名按钮右键、`ContextMenu`/`Shift+F10` 打开同一个根菜单；
+- Project 树空白区域右键也打开根菜单，但不会清除现有树选择；
+- 根菜单复用 `buildTreeMenu()`，payload 为
+  `{ path: '', kind: 'directory', root: true }`，因此 New File / New
+  Directory 的 `createParent` 为 `''`；
+- 根菜单带 `owner: 'project-root'`；
+- 菜单打开期间项目名按钮使用
+  `--dsw-alias-state-business-primary` 蓝底白字，关闭后恢复。
+
+**运行态证据**：
+
+- Ego Browser / 隔离 r526：
+  - 右键项目名时按钮背景 `rgb(65,118,230)`、文字白色；
+  - `data-dsh-project-root-context-active="true"`；
+  - New File / New Directory 均 enabled；
+  - 树空白区域右键出现同一 17 项根菜单；
+  - 点击 New File 后创建行父目录 value 为 `''`，显示项目根名称；
+  - fixture 未写入新文件，最终仅保留既有 `M README.md`。
+
+**回归**：
+
+```bash
+node --test tests/round665.test.mjs tests/round664.test.mjs \
+  tests/round662.test.mjs tests/round373.test.mjs \
+  tests/round76.test.mjs tests/round153.test.mjs
+npm test
+node --check lib/client.js
+node --check lib/index.js
+node --check lib/terminal.js
+git diff --check
+```
+
+- RED：round665 初始 **3 fail / 0 pass**；
+- 定向：**12 pass / 0 fail**；
+- 全量：**2209 pass / 0 fail**。
+
+## 2026-11-16 — Project 树移除重复的项目根行
+
+**作用域**：Project 工具窗的文件树、名称搜索结果和三个 Project View。
+
+**用户要求**：工具栏已经显示项目名和完整路径，树中项目根文件夹整行属于
+重复信息，直接移除。
+
+**修复**：
+
+- `flattenRows()` 不再创建 `path: ''`、`root: true` 的合成根行；
+- 真实顶层目录/文件直接使用 `depth: 0`，原有第二层从 `depth: 1` 开始；
+- 空项目树直接在 `depth: 0` 显示空占位，不再额外保留根行；
+- Project Speed Search 经同一 flattener 渲染，结果树也不再带根行；
+- Project Files / Open Files / All Changed Files 均不再显示项目根行。
+
+**运行态证据**：
+
+- Ego Browser / 隔离 r526：
+  - Project Files 行为 `docs / docs/notes.md / src / README.md`；
+  - 根路径行数量为 `0`；
+  - 顶层 `docs`、`src`、`README.md` 的 `aria-level=1`；
+  - Open Files 与 All Changed Files 均只显示实际文件；
+  - 工具栏仍显示根文件夹名和完整路径；
+  - fixture 最终仅保留既有 `M README.md`。
+
+**回归**：
+
+```bash
+node --test tests/round664.test.mjs tests/round662.test.mjs \
+  tests/round27.test.mjs tests/round242.test.mjs \
+  tests/round272.test.mjs tests/round562.test.mjs
+npm test
+node --check lib/client.js
+node --check lib/index.js
+node --check lib/terminal.js
+git diff --check
+```
+
+- RED：round664 初始 **3 fail / 0 pass**；
+- 定向：**27 pass / 0 fail**；
+- 全量：**2206 pass / 0 fail**。
+
+**边界**：
+
+- 不删除工具栏中的项目名、复制路径或视图菜单；
+- 不伪造新的根节点；
+- 顶层目录仍可展开，子层缩进从 `depth: 1` 开始。
+
+## 2026-11-16 — 统一代码预览 gutter、2px 间距与工具窗栏灰底
+
+**作用域**：Monaco 编辑器、Search Everywhere Preview、Find 弹窗与
+Find dock 的右侧 Preview、Project / Commit / Terminal / Harness
+活动栏。
+
+**症状 / 根因**：
+
+- Monaco gutter 用 `border-right`，分隔线与正文直接相接，没有内容间距；
+- Search Everywhere 与 Find Preview 是自定义 DOM，不经过 Monaco：
+  - 正文整块使用 `bg-layer-1`；
+  - 行号没有独立 gutter、分隔线和 2px 留白；
+  - 内容没有语言着色；
+- Activity Stripe 使用 `bg-layer-1`，当前宿主浅色主题下接近白色。
+
+**修复 / 固化**：
+
+- 在 `[data-dsh-editor-gutter-surface="idea"]` 下定义共享变量：
+  `--dsh-editor-gutter-fill`、`--dsh-editor-gutter-divider`、
+  `--dsh-editor-content-fill`、`--dsh-editor-gutter-gap: 2px`；
+- Monaco `.margin` 改用共享背景渐变：灰 gutter → 1px 分隔线 →
+  2px 正文底色留白；
+- Search Everywhere 与 Find Preview 共用
+  `dsh-editor-code-preview*` class，复用相同 gutter/divider/gap/正文底色；
+- 预览复用 `monaco.editor.colorize()` 和当前 Monaco theme 做语法着色，
+  不再维护第二套语言配色；
+- Find 命中高亮在 colorize 后通过 DOM Range 标成
+  `dsh-editor-code-preview-match`，保持原搜索强调；
+- Activity Stripe 背景改为与 editor tab strip 相同的
+  `--dsw-alias-interactive-bg-hover-solid`。
+
+**运行态证据**：
+
+- Ego Browser / 隔离 r526：
+  - Monaco margin 背景渐变包含
+    `divider calc(100% - 3px) calc(100% - 2px)` 和
+    `content-fill calc(100% - 2px)`，共享 gap 为 `2px`；
+  - Find 右侧预览正文为 `rgb(255,255,255)`；
+  - gutter 为 `rgb(241,243,245)`，含同一分隔线与 2px 留白；
+  - Markdown 标题使用 Monaco token 色 `rgb(0,0,255)`；
+  - Find 命中节点保留 `data-dsh-find-preview-match="1"`；
+  - Activity Stripe 计算背景为 `rgb(241,243,245)`；
+  - Find dock 仍保持左结果/右预览 split。
+
+**回归**：
+
+```bash
+node --test tests/round663.test.mjs tests/round659.test.mjs \
+  tests/round658.test.mjs tests/round639.test.mjs \
+  tests/round652.test.mjs tests/round465.test.mjs \
+  tests/round468.test.mjs
+npm test
+node --check lib/client.js
+node --check lib/index.js
+node --check lib/terminal.js
+git diff --check
+```
+
+- RED：round663 初始 **3 fail / 0 pass**；
+- 定向：**21 pass / 0 fail**；
+- 全量：**2203 pass / 0 fail**。
+
+**边界**：
+
+- 不为 Search/Find Preview 引入第二套语法解析器；
+- 不为预览创建额外 Monaco editor 实例；
+- Monaco、Search Preview、Find Preview 共用 gutter/divider/content 规则；
+- fixture 只读验证，最终仅保留既有 `M README.md`。
+
+## 2026-11-16 — Project 标题复制、三项视图与根行收紧
+
+**作用域**：Project 工具窗标题、Project View 选择器、项目根行。
+
+**用户要求**：
+
+- 视图菜单只保留有真实数据源的 `Project Files / Open Files /
+  All Changed Files`；
+- 写死的 `Project:` 标题改为项目根文件夹名；
+- 点击根文件夹名复制完整项目路径，悬浮显示完整路径；
+- 项目根行不再显示展开/收起箭头，并利用空出的列向左收紧。
+
+**实现**：
+
+- `normalizeProjectView()` 只接受三项视图；旧值 `project` 及已移除视图
+  迁移为 `projectFiles`；
+- `projectViewDefinitions()` 删除 Packages / Production / Tests /
+  Scratches 等无可信数据源的占位项；
+- 标题拆成“项目名复制按钮 + 独立的视图菜单箭头”；
+- 复制复用 `copySearchResultText(root, onNotify, t)`，不再另造剪贴板路径；
+- 根行不渲染 chevron，单击、双击、Enter、← 也不会收起根目录；
+- 根行第一个图标从原来的箭头之后开始，实测 x 坐标为面板左沿 `317`。
+
+**运行态证据**：
+
+- Ego Browser / 隔离 r526：
+  - 菜单项仅为 `Project Files / Open Files / All Changed Files`；
+  - 三项分别切换成功，树内容和视图标题同步；
+  - 标题文本为 `dsh-editor-r526-fixture`；
+  - `title` 为 `/private/tmp/dsh-editor-r526-fixture`；
+  - 点击后系统剪贴板实测为该完整路径；
+  - 根行 `chevronCount=0`，无 `Collapse folder` 按钮；
+  - fixture 最终只保留既有 `M README.md`。
+
+**回归**：
+
+```bash
+node --test tests/round662.test.mjs tests/round377.test.mjs \
+  tests/round378.test.mjs tests/round82.test.mjs \
+  tests/round454.test.mjs tests/round194.test.mjs \
+  tests/round198.test.mjs
+npm test
+node --check lib/client.js
+node --check lib/index.js
+node --check lib/terminal.js
+git diff --check
+```
+
+- RED：round662 初始 **4 fail / 0 pass**；
+- 定向：**20 pass / 0 fail**；
+- 全量：**2200 pass / 0 fail**。
+
+**边界**：
+
+- 不伪造 Packages / Production / Tests / Scratches 数据源；
+- 不把“复制路径”和“打开视图菜单”合并成一个点击手势；
+- 项目根目录固定展开，避免移除 chevron 后出现无法恢复的折叠状态。
+
+## 2026-11-16 — Find 结果打开不得污染 Search Everywhere 历史
+
+**作用域**：Find result open、Find query history、Search Everywhere
+recent search、`openFindTool()` handoff。
+
+**症状 / 根因**：
+
+- Find 搜索本身已正确写入
+  `dsh-editor.find.query.history:<root>`；
+- 但双击/Enter 打开 Find result 时，`onOpen` 仍调用
+  `rememberSearchEverywhereQuery(findTool.query)`；
+- 运行态确认 `R660_TOKEN` 打开结果后，Search Everywhere history 首项
+  从 `Scoped` 被改写为 `R660_TOKEN`，两个历史源重新串流；
+- `openFindTool()` 另用 `query.trim()`，内部 handoff 仍可能丢首尾空白。
+
+**修复 / 固化**：
+
+- 删除 Find result open 对 Search Everywhere history 的写入；
+- Find query 只由 `dsh-editor.find.query.history:<root>` 记录；
+- Search Everywhere 仍只通过自身 `onRememberQuery` 记录；
+- `openFindTool()` 改用 `findToolContentQuery(query)`，只把非字符串归一为空；
+- 新增 round660 精确 handoff 与历史所有权回归。
+
+**运行态证据**：
+
+- Ego Browser / 隔离 r526：
+  - Find 搜索 `R660_TOKEN` 得到 `1 match in 1 file`；
+  - before Search Everywhere history 20 条，首项 `Scoped`；
+  - 双击 Find result 打开 `r660-token.txt` 后：
+    - Search Everywhere history 20 条逐项和顺序完全不变；
+    - Find history 保留 `R660_TOKEN`；
+    - Find dock 保持打开；
+    - 无 alert；
+  - 运行前先复现了旧逻辑会污染 Search history，修复后同流程通过；
+  - 临时 fixture 文件已删除，最终仅剩既有 `M README.md`。
+
+**回归**：
+
+```bash
+node --test tests/round660.test.mjs tests/round655.test.mjs \
+  tests/round656.test.mjs tests/round492.test.mjs \
+  tests/round503.test.mjs tests/round590.test.mjs
+npm test
+node --check lib/client.js
+node --check lib/index.js
+node --check lib/terminal.js
+git diff --check
+```
+
+- RED：round660 初始 **2 fail / 1 pass**；
+- 定向：**19 pass / 0 fail**；
+- 全量：**2193 pass / 0 fail**。
+
+**已排除方案**：
+
+- 不在 Find result open 时继续写 Search Everywhere history；
+- 不让 Search Everywhere history 充当 Find 的共享查询存储；
+- 不在内部 `openFindTool()` handoff 中 trim query；
+- 不修改 Search Everywhere 自身已有的 query/history 语义。
+
+## 2026-11-16 — 编辑器 tabbar / gutter 灰底与 gutter 分割线
+
+**作用域**：Editor 文件 tab strip、右侧 split 头、Monaco line-number
+gutter、repository preview、diff 两侧编辑器。
+
+**IDEA 视觉证据**：
+
+- CUA 截图显示 IDEA 的 editor tab bar 为灰色 strip；
+- 行号 gutter 使用同层级灰底；
+- gutter 与正文之间存在一条细竖分割线；
+- 当前 DSH 基线实测：
+  - tab strip `rgb(255,255,255)`；
+  - Monaco margin `rgb(255,255,254)`；
+  - margin `border-right` 为 `0px none`。
+
+**修复**：
+
+- `tabStrip` 和 `editorSplitHeader` 改用
+  `--dsw-alias-interactive-bg-hover-solid` 灰色 surface；
+- inactive tab 背景改为 `transparent`，让整条 tab bar 保持统一灰底，
+  active tab 继续使用 `--dsw-alias-bg-base`；
+- 新增全局 `.monaco-editor .margin` 规则：
+  - 背景使用同一个灰 surface；
+  - `border-right: 1px solid --dsw-alias-border-l3`；
+  - `box-sizing: border-box`，不让边框改变 Monaco 计算的 gutter 宽度；
+- 全局选择器覆盖主编辑器、split、repository preview 与 diff 内层编辑器。
+
+**运行态证据**：
+
+- Ego Browser / 隔离 r526：
+  - tab strip computed background 为 `rgb(241,243,245)`；
+  - active tab 保持 `rgb(255,255,255)`；
+  - Monaco margin background 同为 `rgb(241,243,245)`；
+  - margin computed border 为
+    `1px solid rgba(0,0,0,0.12)`；
+  - margin/content 边界位置相接于 `x=579`，没有横向裂纹；
+  - 无 alert。
+- `data-dsh-editor-gutter-surface="idea"` 可在运行态确认样式标记。
+
+**回归**：
+
+```bash
+node --test tests/round659.test.mjs
+npm test
+node --check lib/client.js
+node --check lib/index.js
+node --check lib/terminal.js
+git diff --check
+```
+
+- RED：round659 初始 **3 fail / 0 pass**；
+- 定向：**3 pass / 0 fail**；
+- 全量：**2190 pass / 0 fail**。
+
+**已排除方案**：
+
+- 不使用 `--dsw-alias-bg-layer-1`，该 token 在当前宿主实际为白色；
+- 不让 inactive tab 以白色块覆盖灰色 tab bar；
+- 不把 gutter 规则限定到单个编辑器实例；
+- 不在 Monaco theme 中写死 light/dark 的 RGB，继续跟随宿主 alias token。
+
+## 2026-11-16 — Find 工具窗左右结果与预览分屏
+
+**作用域**：持久 Find tool window 的 result list、Preview Source、
+单击选择、双击打开和窄 editor dock 布局。
+
+**症状 / 根因**：
+
+- dock 的 `previewOpen` 初始值跟随 `floating`，持久工具窗默认没有预览；
+- listbox 与 Preview Source 是纵向兄弟节点，预览使用 `borderTop`；
+- 行上的 `onMouseDown` 只更新 active index，不主动聚焦；
+- 因此搜索结果进入 Find 工具窗后不能形成“左结果、右预览”，
+  单击也没有明确的聚焦语义。
+
+**修复 / 固化**：
+
+- dock 默认开启 Preview Source；
+- dock 内新增 `data-dsh-find-results-layout="split"` 横向容器；
+- 左侧 `data-dsh-find-results-pane` 独立滚动，右侧 preview 使用左边框；
+- 分屏宽度为结果自适应、预览约 46%，窄 dock 下仍同时保留两侧；
+- 单击结果更新 active 并聚焦该 option，只刷新右侧预览；
+- 双击或 Enter 才调用 `openFindResult()` 打开上方编辑器；
+- popup 保留原纵向 stack，并继续自动预览 active hit。
+
+**运行态证据**：
+
+- Ego Browser / 隔离 r526：
+  - `Scoped` 返回 `1 match in 1 file`，Open in Find Window 后
+    `data-dsh-find-results-layout=split`；
+  - 左侧结果 pane 与右侧 preview pane 同时存在，窄 editor dock 下
+    实测约 `136×147px / 118×147px`；
+  - 打开 dock 时仍为 `No file open`；
+  - 单击 `3:1 Scoped appears here. Second end line.` 后 activeElement
+    是该 option，右侧 Preview 显示 README 第 1–5 行及命中高亮；
+  - 单击后仍为 `No file open`；
+  - 双击同一结果后 README 文件 tab 出现，Find dock 仍保持打开，无 alert。
+- IDEA CUA 对照确认持久 Find 工具窗有独立 Preview Source 控件；
+  查找界面检查后已隐藏。
+
+**回归**：
+
+```bash
+node --test tests/round658.test.mjs tests/round652.test.mjs \
+  tests/round639.test.mjs tests/round638.test.mjs \
+  tests/round586.test.mjs tests/round497.test.mjs \
+  tests/round496.test.mjs
+npm test
+node --check lib/client.js
+node --check lib/index.js
+node --check lib/terminal.js
+git diff --check
+```
+
+- RED：round658 初始 **3 fail / 1 pass**；
+- 定向：**31 pass / 0 fail**；
+- 全量：**2187 pass / 0 fail**。
+
+**已排除方案**：
+
+- 不把 list 与 preview 继续保持为上下堆叠；
+- 不让 Preview Source 固定最小 220px 挤占左侧结果；
+- 不在单次点击时调用 openFindResult；
+- 不为 dock 与 popup 拆出第二套结果导航或预览实现。
+
+## 2026-11-16 — Find 在途请求与 Workspace 切换隔离
+
+**作用域**：Find in Files 异步 `searchText`、workspace 切换、
+Find query history、过期成功/失败响应。
+
+**症状 / 根因**：
+
+- workspace root effect 会关闭 Find 并加载新项目的明确历史；
+- 但 Find 搜索成功后在状态更新之外执行 `rememberCurrentFindQuery()`；
+- root 切换时没有立即递增 `findToolRequestRef`，旧响应仍可通过原有
+  requestId 检查；
+- `setFindTool(current => current === null ? current : ...)` 虽不会重开
+  已关闭 UI，随后 history 写入却使用新的 `rootRef.current`，旧项目 query
+  可能进入新项目历史；
+- 只比较 requestId 不能表达“请求发起后 workspace 已改变”。
+
+**修复 / 固化**：
+
+- 新增 `findToolRequestIsCurrent()`，同时比较 requestId 与 workspace root；
+- Find search 在 I/O 前捕获 `requestRoot`，success/catch 均通过该 helper
+  校验；
+- workspace root effect 在 `setFindTool(null)` 前立即递增
+  `findToolRequestRef.current`；
+- 保持 `dsh-editor.find.query.history:<root>` 与结果、scope 的按 workspace
+  边界不变。
+
+**运行态证据**：
+
+- Ego Browser / 隔离 r526：
+  - 在 r526 workspace 发起 `R657_SLOW` 搜索，并用页面 fetch 延迟 1500ms；
+  - 请求已开始后切换到无会话的 r657 workspace；
+  - 切换后 Find popup 关闭，按钮 workspace 显示 `r657-fixture`；
+  - r526 history 保持 `R657_SLOW`，r657 history 为空；
+  - 没有 alert；
+- 随后在 r657 正常搜索 `R657_ALPHA`：
+  - 返回 `1 match in 1 file`；
+  - r657 history 只新增 `R657_ALPHA`；
+  - r526 history 没有新增该 query；
+- 临时第二 workspace、测试文件和 workspace storage 注入均已清理；
+  r526 fixture 最终仅保留既有 `M README.md`。
+
+**回归**：
+
+```bash
+node --test tests/round657.test.mjs tests/round656.test.mjs \
+  tests/round655.test.mjs tests/round650.test.mjs \
+  tests/round648.test.mjs tests/round627.test.mjs
+npm test
+node --check lib/client.js
+node --check lib/index.js
+node --check lib/terminal.js
+git diff --check
+```
+
+- RED：round657 初始 **3 fail**；
+- 定向：**19 pass / 0 fail**；
+- 全量：**2183 pass / 0 fail**。
+
+**已排除方案**：
+
+- 不只比较 requestId 而忽略 workspace root；
+- 不在 root effect 中等待旧响应自行收敛；
+- 不让旧搜索的 success 路径在任何情况下写入新 workspace history；
+- 不复用 Search Everywhere 的 request ref 或历史键代替 Find 的边界。
+
+## 2026-11-16 — Replacement History 保留空白与多行精确值
+
+**作用域**：Replace in Files / Find dock 的 replacement history、
+空白替换、多行替换、History replay。
+
+**症状 / 根因**：
+
+- Replace 输入本身支持 New Line，且可以直接执行纯空白或首尾带空白的替换；
+- 但 `rememberWorkspaceReplacement()` 使用 `replacement.trim() === ''`
+  作为拒绝条件，`rememberReplacementHistory()` 读取时也丢弃纯空白值；
+- 运行态实际把 `R656_TOKEN` 替换成 `" \n "` 后，文件内容正确更新，
+  但 `dsh-editor.replace.history:<root>` 没有出现该 replacement，
+  History 无法精确重放。
+
+**修复 / 固化**：
+
+- 新增 `normalizeReplacementHistoryEntry()`：只把非字符串和 `''`
+  归一为空；其他值完全保留；
+- `rememberReplacementHistory()` 使用该 helper 过滤、去重和截断；
+- `rememberWorkspaceReplacement()` 只拒绝真正空字符串，不再 trim；
+- Replace All 与单点 Replace 继续在成功后写入同一 workspace history。
+
+**运行态证据**：
+
+- Ego Browser / 隔离 r526：
+  - 查询 `R656_TOKEN` 返回 `1 match in 1 file`；
+  - 开启 Replace New Line 并输入 `" \n "`；
+  - Replace All 后文件字节为 `20 0a 20 0a ...`，替换确实执行；
+  - `dsh-editor.replace.history:<root>` 新增首项 `" \n "`；
+  - Replace History 菜单项文本/aria-label 均为 `" \n "`；
+  - 清空 replacement 后选择该历史项，输入恢复为 `" \n "`；
+  - 临时 fixture 文件已删除，最终仅保留既有 `M README.md`。
+
+**回归**：
+
+```bash
+node --test tests/round656.test.mjs tests/round655.test.mjs \
+  tests/round486.test.mjs tests/round492.test.mjs \
+  tests/round622.test.mjs tests/round654.test.mjs \
+  tests/round653.test.mjs
+npm test
+node --check lib/client.js
+node --check lib/index.js
+node --check lib/terminal.js
+git diff --check
+```
+
+- RED：Ego Browser 运行态空白 replacement 执行成功但 history 未新增；
+- 定向：**23 pass / 0 fail**；
+- 全量：**2180 pass / 0 fail**。
+
+**已排除方案**：
+
+- 不在 replacement history 中 trim 后保存；
+- 不因为 `trim() === ''` 丢弃纯空白替代文本；
+- 不用 query history 代替 replacement history；
+- 不把空字符串也保留成可回放条目，空 replacement 仍由当前输入直接表达。
+
+## 2026-11-16 — Find 历史精确 replay 与 Workspace 隔离
+
+**作用域**：Find in Files / Replace in Files 的查询历史、首尾空白和换行、
+History replay、workspace 切换。
+
+**症状 / 根因**：
+
+- Find 搜索与替换已经按原始 query 匹配，不 trim；
+- 但 Find 历史复用了 Search Everywhere 的 `recentSearches`，
+  `normalizeRecentSearchEntry()` 会删除首尾空格和换行；
+- 因此 `\nScoped appears here.\n` 搜索成功后从 History 选择会变成
+  `Scoped appears here.`，无法重放原搜索条件。
+
+**修复 / 固化**：
+
+- 新增 Find-only 精确历史 `normalizeFindQueryHistoryEntry()` 与
+  `rememberFindQueryHistory()`；
+- 按 workspace 保存到
+  `dsh-editor.find.query.history:<workspace-root>`，newest-first、
+  exact dedupe、最多 20 条，只拒绝真正的空字符串；
+- Find 搜索、Replace All 和单点 Replace 成功后写入该历史；
+  `FindToolWindow.queryHistory` 使用 `recentFindQueries`；
+- workspace root effect 切换时重新加载当前项目的精确历史；
+- Search Everywhere 继续使用
+  `dsh-editor.search.history:<workspace-root>` 的 trim 语义。
+
+**运行态证据**：
+
+- Ego Browser / 隔离 r526，查询
+  `\nScoped appears here. Second end line.\n`；
+- 搜索返回 `1 match in 1 file`；
+- `dsh-editor.find.query.history:<root>` 中保存完整原值；
+- 原 Search Everywhere history 的 20 条记录完全未变化；
+- 清空 query 后 History 菜单显示带首尾换行的原始条目，选择后 query
+  原样恢复并重新搜索，仍为 `1 match in 1 file`；
+- 无 alert，fixture 最终仅保留既有 `M README.md`。
+
+**回归**：
+
+```bash
+node --test tests/round655.test.mjs tests/round654.test.mjs \
+  tests/round650.test.mjs tests/round648.test.mjs \
+  tests/round644.test.mjs tests/round620.test.mjs \
+  tests/round492.test.mjs
+npm test
+node --check lib/client.js
+node --check lib/index.js
+node --check lib/terminal.js
+git diff --check
+```
+
+- RED：round655 初始 **3 fail**；
+- 定向：**20 pass / 0 fail**；
+- 全量：**2177 pass / 0 fail**。
+
+**已排除方案**：
+
+- 不改变 Search Everywhere 既有 trim 历史语义来迁就 Find；
+- 不复用同一个 localStorage key 混存两种不同 query 语义；
+- 不在 History replay 时 trim、规范化或重写 query；
+- 不把 Find 精确历史做成跨 workspace 的全局列表。
+
+## 2026-11-16 — 多 Dirty Model 独立 Undo 与事务提交
+
+**作用域**：Find in Files Replace All 的多个 dirty Monaco models、
+active/inactive tab 切换、openFiles 同步。
+
+**验证前状态**：
+
+- 每个 dirty plan 原先直接在主流程中 push/edit；
+- 单 model undo 已验证，但多个 model 的切换撤销、同步与后续 model
+  应用失败后的回滚边界尚未固化。
+
+**修复 / 固化**：
+
+- 新增 `commitFindToolDirtyPlans()`：
+  - 每个 dirty model 保留独立 `pushStackElement()` undo boundary；
+  - 任一 model 应用失败时逆序恢复已修改 model；
+  - rollback 失败追加到 primary error；
+  - 成功后一次性返回 contents、paths 和 replacement count；
+- `replaceInFindTool()` 只在 host 成功后调用该 helper，并用返回值统一
+  更新 openFiles；
+- round646/647/653 旧断言更新为新事务边界。
+
+**运行态证据**：
+
+- Ego Browser / 隔离 r526：
+  - dirty A/B 都包含两个 `R654_TOKEN`；
+  - Find 返回 `4 matches in 2 files`；
+  - Replace All 后：
+    - A=`R654_DONE A0-live\nR654_DONE A1-live\nUNSAVED_A\n`；
+    - B=`R654_DONE B0-live\nR654_DONE B1-live\nUNSAVED_B\n`；
+  - B 的 `⌘Z` 只恢复 B，A 仍为 DONE；
+  - 切到 A 后 `⌘Z` 再恢复 A；
+  - 两 tab 始终保持 dirty 标记，无 alert；
+  - 临时 fixture 文件已删除，最终仅 `M README.md`。
+
+**回归**：
+
+```bash
+node --test tests/round654.test.mjs tests/round653.test.mjs \
+  tests/round652.test.mjs tests/round651.test.mjs \
+  tests/round650.test.mjs tests/round647.test.mjs \
+  tests/round646.test.mjs
+npm test
+node --check lib/client.js
+node --check lib/index.js
+node --check lib/terminal.js
+git diff --check
+```
+
+- RED：round654 初始 **3 fail**；
+- 定向：**22 pass / 0 fail**；
+- 全量：**2174 pass / 0 fail**。
+
+**已排除方案**：
+
+- 不把所有 dirty models 合并成一个共享 model；
+- 不在一个 undo boundary 中批量修改全部 tabs；
+- 不在 host 失败时应用 dirty plans；
+- 不在 dirty model 部分失败后保留前半批内存修改。
+
+## 2026-11-16 — Replace All clean 写入事务回滚
+
+**作用域**：host `replaceWorkspaceText()`、多 clean-file Replace All、
+dirty/clean 混合写入失败。
+
+**症状 / 风险**：
+
+- client 已保证 host 成功后才应用 dirty model；
+- host 原先逐个写入 clean targets，若第二个文件失败，第一个文件可能已经落盘；
+- 这会形成“dirty 没变，但 clean 只改了一半”的部分事务。
+
+**修复**：
+
+- staged replacement 保存 `originalContent`；
+- 新增 `commitWorkspaceReplacements()`：
+  - 顺序写入所有 staged targets；
+  - 任一写入失败时逆序恢复所有 attempted files；
+  - 若 rollback 自身失败，在 primary error 后追加失败路径并保留
+    `rollbackFailures` 元数据；
+- `replaceWorkspaceText()` 的最终写入统一走该事务 helper；
+- dirty Monaco model 仍只由 client 在 host 成功后应用。
+
+**运行态证据**：
+
+- Ego Browser / 隔离 r526：
+  - 打开 `dirty-r653.txt`，live model 为
+    `R653_TOKEN dirty-live\nUNSAVED_R653_SENTINEL\n`；
+  - clean-a、clean-b、dirty 共 `3 matches in 3 files`；
+  - 搜索后外部修改 clean-b 并推进 mtime；
+  - Replace All 确认后 error 为
+    `the file changed on disk since it was searched: clean-r653-b.txt`；
+  - clean-a 仍为原内容，clean-b 保持外部内容；
+  - dirty model 完全未变化；
+  - query、3 条结果、replacement=`R653_DONE` 和 replacement 焦点保持；
+  - 临时 fixture 文件已删除，最终仅 `M README.md`。
+
+**回归**：
+
+```bash
+node --test tests/round653.test.mjs tests/round652.test.mjs \
+  tests/round651.test.mjs tests/round650.test.mjs \
+  tests/round647.test.mjs tests/round646.test.mjs \
+  tests/git-operations.test.mjs
+npm test
+node --check lib/client.js
+node --check lib/index.js
+node --check lib/terminal.js
+git diff --check
+```
+
+- RED：round653 因缺少 helper 导出初始失败；
+- 定向：**30 pass / 0 fail**；
+- 全量：**2171 pass / 0 fail**。
+
+**已排除方案**：
+
+- 不只依赖“先 host、后 dirty”的顺序而忽略 clean 内部部分写入；
+- 不在失败时删除或重建用户文件；
+- 不让 rollback failure 覆盖 primary failure；
+- 不在 host 失败后应用任何 dirty model plan。
+
+## 2026-11-16 — Find Preview 命中区间高亮
+
+**作用域**：Find in Files Source Preview、单行/跨行 query、Regex、
+Preview 行号与 active line。
+
+**症状 / 根因**：
+
+- IDEA Preview 会标记实际 query 命中；
+- DSH 原先只给 active result 的起始行加整行背景，代码文本仍是单个普通
+  span；
+- Ego Browser 实测 query=`end` 时 `data-dsh-find-preview-match=0`，
+  用户看不出具体命中范围，多行 query 更明显。
+
+**修复**：
+
+- 新增 `findToolTextLineStarts()`：
+  - 在原始 LF 偏移上计算每一物理行起点；
+  - CRLF 只把 `\n` 当作下一行起点，保持绝对 offset 正确；
+- 新增 `findToolPreviewLineParts()`：
+  - 把 match 的绝对 offset 裁成当前行可见交集；
+  - 合并重叠区间；
+  - 零长度 Regex match 不生成不可见高亮；
+- Preview 对当前 401 行 window 调用一次 `editorFindResult()`，
+  复用 Case / Whole Words / Regex；
+- 命中 span 使用 `findToolHighlight`，并暴露
+  `data-dsh-find-preview-match` 供运行态和回归检查；
+- 新增 round652 纯函数与静态契约。
+
+**运行态证据**：
+
+- Ego Browser / 隔离 r526：
+  - query=`end`：Preview 高亮片段为 `['end']`，无 alert；
+  - 跨行 query=`\nR652_ALPHA\nR652_BETA\n`：
+    `1 match in 1 file`，Preview 高亮
+    `['R652_ALPHA','R652_BETA']`；
+  - Regex `R652_(ALPHA|BETA)`：
+    `2 matches in 1 files`，同样高亮两段；
+  - 行号 `1..5`、active line 保持；
+  - 临时 fixture 文件已删除，fixture 仅剩既有 `M README.md`。
+
+**回归**：
+
+```bash
+node --test tests/round652.test.mjs tests/round651.test.mjs \
+  tests/round650.test.mjs tests/round649.test.mjs \
+  tests/round645.test.mjs tests/round639.test.mjs
+npm test
+node --check lib/client.js
+node --check lib/index.js
+node --check lib/terminal.js
+git diff --check
+```
+
+- RED：round652 初始 **3 fail**；
+- 定向：**21 pass / 0 fail**；
+- 全量：**2167 pass / 0 fail**。
+
+**已排除方案**：
+
+- 不复用只支持单行、且会 trim query 的 `highlightParts()`；
+- 不为每一行重复编译/执行 query；
+- 不把跨行 match 只标在起始行；
+- 不为零长度 Regex 伪造可见字符高亮。
+
+## 2026-11-16 — Find scope 键盘与 ARIA 对齐
+
+**作用域**：Find in Files popup/dock 的 scope mode 控件、键盘焦点与
+workspace scope 持久化路径。
+
+**偏差**：
+
+- IDEA CUA 的 scope 区是独立 `Action Toolbar`，四个互斥模式位于同一组；
+- DSH 原先四个按钮都进入 Tab 顺序，没有组名称、roving focus 或方向键；
+- Module 当前 disabled，但键盘用户需要在其它三个模式之间额外绕行。
+
+**修复**：
+
+- scope mode 按钮包进本地化 `role="group"`：
+  - 中文 `搜索范围`；
+  - 英文 `Search scope`；
+- 采用 roving tabIndex，只有当前模式 `tabIndex=0`；
+- 新增 `findToolScopeModeTarget()`：
+  - `ArrowRight`：Project → Directory → Scope → Project；
+  - `ArrowLeft` 反向；
+  - `Home/End` 到 Project/Scope；
+  - Module 不进入可用序列；
+- 键盘移动复用 `selectFindScopeMode()`，因此 scope 持久化、旧 generation
+  失效、host scoped search、Preview 和 active result 生命周期不分叉；
+- 新增 round651 纯函数、ARIA 与实页回归。
+
+**运行态证据**：
+
+- Ego Browser / 隔离 r526：
+  - group 名称=`Search scope`；
+  - Project：`tabIndex=[0,-1,-1,-1]`，Module disabled；
+  - `→` 后焦点和 pressed 均为 Directory；
+  - 再 `→` 为 Scope；
+  - `Home/End` 分别到 Project/Scope；
+  - query=`end` 保持，初始结果 `5 matches in 3 files`；
+  - 无 alert；
+  - 验证后恢复 Project 并关闭弹框。
+
+**回归**：
+
+```bash
+node --test tests/round651.test.mjs tests/round644.test.mjs \
+  tests/round643.test.mjs tests/round639.test.mjs \
+  tests/round634.test.mjs tests/round628.test.mjs
+npm test
+node --check lib/client.js
+node --check lib/index.js
+node --check lib/terminal.js
+git diff --check
+```
+
+- RED：round651 初始 **3 fail**；
+- 定向：**33 pass / 0 fail**；
+- 全量：**2164 pass / 0 fail**。
+
+**已排除方案**：
+
+- 不保留四个 scope 按钮各自进入 Tab 顺序；
+- 不把 disabled Module 设为方向键停靠点；
+- 不在键盘切换时另建 scope 更新或搜索路径；
+- 不用普通 `group` 之外的自定义 ARIA 键盘状态替代原生 button。
+
+## 2026-11-16 — Find in Files 精确保留多行 query
+
+**作用域**：Find in Files Search/Replace textarea、跨行 literal、空白 query、
+host `searchText` / `replaceText`。
+
+**症状 / 根因**：
+
+- round649 已让 popup 使用 New Line textarea，但真实请求仍读取
+  `findTool.query.trim()`；
+- 首尾空格/换行被静默删除，textarea 显示值与实际搜索/替换内容不一致；
+- host 搜索与替换也以 `trim() === ''` 拒绝仅含空白的合法字面 query。
+
+**IDEA 证据**：
+
+- IDEA CUA 的 Find in Files Search 接受包含换行的值；
+- Search 和 Replace 各有一个 New Line checkbox；
+- 搜索字段应作为字面内容保留，而不是在提交前重写用户输入。
+
+**修复**：
+
+- 新增 `findToolContentQuery()` 原样保留字符串；
+- 新增 `hasFindToolContentQuery()`，只把真正空字符串视为空查询；
+- Find 搜索、dirty buffer 合并、Replace All、单点 Replace 和精确
+  occurrence 校验共用未 trim 的 query；
+- host `searchWorkspaceText()` / `replaceWorkspaceText()` 不再 trim query，
+  仅拒绝 `''`；
+- Search Everywhere 的独立 2 字符门禁与 trim 历史语义保持不变；
+- 更新 round491 / round639 / round648 旧断言，新增 round650。
+
+**运行态证据**：
+
+- 隔离 r526 host 使用 `ELECTRON_RUN_AS_NODE=1` 和
+  `/private/tmp/dsh-editor-r526-home` 重启；
+- Ego Browser / `/private/tmp/dsh-editor-r526-fixture`：
+  - Search textarea query=`\nR650_ALPHA\nR650_BETA\n`；
+  - 返回 `1 match in 1 file`，命中 `search-r650.txt`；
+  - Replace 使用同一原样 query 和
+    replacement=`\nR650_LEFT\nR650_RIGHT\n`；
+  - 确认后文件从 `R650_ALPHA\nR650_BETA` 精确变为
+    `R650_LEFT\nR650_RIGHT`，无 alert；
+  - 仅含 `\n` 的 query 返回 `12 matches in 4 files`；
+  - 临时 fixture 文件与隔离 Electron 目录已清理，fixture 恢复为仅
+    既有 `M README.md`。
+
+**回归**：
+
+```bash
+node --test tests/round650.test.mjs tests/round649.test.mjs \
+  tests/round648.test.mjs tests/round647.test.mjs \
+  tests/round646.test.mjs tests/round639.test.mjs \
+  tests/round491.test.mjs
+npm test
+node --check lib/client.js
+node --check lib/index.js
+node --check lib/terminal.js
+git diff --check
+```
+
+- RED：round650 / round639 / round648 初始 **5 fail**；
+- 定向：**24 pass / 0 fail**；
+- 全量：**2161 pass / 0 fail**。
+
+**已排除方案**：
+
+- 不只保留内部换行而继续 trim 首尾；
+- 不让 Search Everywhere 与 Find 共用同一个 query gate；
+- 不在 host 层重新构造或规范化 query；
+- 不为跨行输入另建一套 search/replace API。
+
+## 2026-11-16 — Find in Files 弹框恢复 Search/Replace New Line
+
+**作用域**：Find in Files popup 的 Search 行、Replace 行、多行输入与动作快捷键。
+
+**症状 / 偏差**：
+
+- IDEA CUA 的 `Find in Files` 独立窗口同时显示两个 `New Line`；
+- DSH 只在持久 Find dock 渲染 New Line，`Cmd+Shift+F` / `⇧⌘R`
+  打开的弹框无法输入多行 search/replace 文本。
+
+**根因**：
+
+- round641 依据一次视觉判断把 popup 的 New Line 误判为 dock-only；
+- 后续 IDEA accessibility tree 明确列出 Search 与 Replace 各一个
+  `New Line` checkbox，旧结论不再符合当前实窗证据。
+
+**修复**：
+
+- popup Search 行恢复 `New Line`，Replace toggle 仍保持 dock-only；
+- popup Replace 行恢复独立的 `New Line`；
+- 两个 checkbox 分别使用 `data-dsh-find-search-new-line` /
+  `data-dsh-find-replace-new-line`，并暴露 `aria-label`；
+- 复用已有 `searchNewLine` / `replaceNewLine` 状态与 textarea 切换：
+  普通 Enter 插入换行，`⌘⏎` / `⌥⇧⏎` 仍调用原来的打开/替换动作；
+- 更新 round641 旧断言，新增 round649 回归。
+
+**运行态证据**：
+
+- Ego Browser / 隔离 r526 / `127.0.0.1:63237`：
+  - Find in Files popup 中 Search New Line 可见；
+  - 勾选后 Search control 从 `INPUT` 变为 `TEXTAREA`；
+  - 输入 `end` 后普通 Enter 得到 `end\n`，popup 保持打开且 alerts=[]；
+  - `⇧⌘R` 后 Search/Replace 两条 New Line 同时存在；
+  - 关闭 Search New Line、开启 Replace New Line 后，Search 为
+    `INPUT`、Replace 为 `TEXTAREA`，证明状态独立；
+  - Replace 普通 Enter 得到 `x\n`，未执行替换；
+  - 420px 视口下 popup 396px，业务行无横向溢出；
+  - fixture 仅保留既有 `M README.md`，未产生额外写入。
+
+**回归**：
+
+```bash
+node --test tests/round649.test.mjs tests/round641.test.mjs \
+  tests/round631.test.mjs tests/round639.test.mjs \
+  tests/round648.test.mjs
+npm test
+node --check lib/client.js
+node --check lib/index.js
+node --check lib/terminal.js
+git diff --check
+```
+
+- RED：round649 / round641 初始 **3 fail**；
+- 定向：**18 pass / 0 fail**；
+- 全量：**2158 pass / 0 fail**。
+
+**已排除方案**：
+
+- 不让 Search 与 Replace 共用一个 New Line 状态；
+- 不把 New Line 继续藏在持久 dock；
+- 不让普通 Enter 吞掉 `⌘⏎` / `⌥⇧⏎`；
+- 不为多行支持另建一套 Find 输入或搜索模型。
+
+## 2026-11-16 — Find in Files 单字符查询
+
+**作用域**：Find in Files query gate、empty state、Preview、Rerun。
+
+**IDEA 证据**：
+
+- IDEA Find in Files 接受单字符；
+- Search Everywhere Text provider 与 Find in Files 是两个表面，DSH
+  原有的 2 字符限制只适合 Search Everywhere Text。
+
+**修复**：
+
+- Find tool 的 query gate 从 `< 2` 改为 `< 1`：
+  - host search request；
+  - Rerun disabled；
+  - empty/no-match 分支；
+  - Preview 条件；
+  - live result status。
+- 中英文 `findToolEmptyQuery` 改为至少 1 个字符；
+- `searchTextHint` 与 Search Everywhere Text 的 2 字符阈值保持不变；
+- 更新 round639 / round491 旧断言，新增 round648。
+
+**运行态证据**：
+
+- Ego Browser / 隔离 r526：
+  - Find in Files 输入 `e`；
+  - 16 matches / 3 files；
+  - Source Preview 显示；
+  - 无 alert。
+
+**回归**：
+
+```bash
+node --test tests/round648.test.mjs tests/round647.test.mjs \
+  tests/round646.test.mjs tests/round639.test.mjs \
+  tests/round491.test.mjs
+npm test
+node --check lib/client.js
+node --check lib/index.js
+git diff --check
+```
+
+- RED：round648 初始 **1 fail**；
+- 定向：**18 pass / 0 fail**；
+- 全量：**2155 pass / 0 fail**。
+
+**已排除方案**：
+
+- 不为 Find 与 Search Everywhere Text 共用一个最小长度常量；
+- 不只改搜索结果而保留 empty-state/Preview 的 2 字符门禁；
+- 不把单个字符自动扩展成前缀或模糊查询。
+
+## 2026-11-16 — 混合 Dirty/Clean 与多 Dirty Tab Replace All
+
+**作用域**：Find in Files Replace All 的 dirty/clean 混合事务边界、
+多 dirty tab model 更新。
+
+**约束**：
+
+- clean path 由宿主 guarded disk write 处理；
+- dirty path 只能更新 Monaco model；
+- 确认前所有 dirty rewrite 必须预检；
+- confirm 取消或预检失败不得产生任何 model/disk 部分修改；
+- 状态栏必须合并 clean + dirty 的文件数和替换数。
+
+**运行态证据**：
+
+- 隔离 r526 fixture：
+  - README dirty buffer 2 个 `end`，docs/app clean；
+  - Project 共 5 matches / 3 files；
+  - Replace All `ENDMIX` 后 README model 更新、docs/app 磁盘更新，
+    状态栏 5 occurrences / 3 files；
+- 多 dirty tab：
+  - README 与 docs 各 2 个 `ENDMIX`，app clean 2 个；
+  - Replace All `ALLBOTH` 后 active docs 和 inactive README model
+    均真实更新；
+  - app 磁盘更新，状态栏 6 occurrences / 3 files；
+  - 两个 tab 保持 dirty 标记；
+- 验证后 README/docs/app 从隔离备份恢复。
+
+**回归**：
+
+```bash
+node --test tests/round647.test.mjs tests/round646.test.mjs \
+  tests/round645.test.mjs tests/round584.test.mjs
+npm test
+node --check lib/client.js
+node --check lib/index.js
+git diff --check
+```
+
+- 定向：**15 pass / 0 fail**；
+- 全量：**2153 pass / 0 fail**。
+
+**已排除方案**：
+
+- 不先修改 dirty model 再等待 clean host 写入；
+- 不把 confirm 放到 dirty model mutation 之后；
+- 不用 active editor 只更新当前 tab；
+- 不分别报告 dirty/clean 两个状态栏而不是合并结果。
+
+## 2026-11-16 — Dirty Buffer Replace 与独立 Undo 边界
+
+**作用域**：Find in Files 的 Replace All、单处 Replace、脏 Monaco model。
+
+**IDEA 对照**：
+
+- dirty virtual document 的 Replace 应直接更新内存内容；
+- clean 文件仍使用磁盘写入保护；
+- 每次 Replace / Replace All 应可作为独立编辑撤销。
+
+**修复**：
+
+- Replace All 将 matches 拆成 dirty/clean：
+  - dirty path 先 `editorReplaceAll()` 预检；
+  - host 仅接收 cleanTargets；
+  - dirty/clean 的替换数和文件数合并到状态栏；
+- 单处 Replace 对 dirty occurrence 使用
+  `textOffsetAtLineColumn()` + `editorReplaceAt()`；
+- dirty model 使用 `pushEditOperations()`，并在调用前
+  `pushStackElement()` 建立 undo 边界；
+- clean 文件 mtime、exact occurrence、file-mask 保护不变。
+
+**关键根因**：
+
+- `model.applyEdits()` 对未挂载 editor 的 model 可改文本，但不会形成
+  可用的 undo element；
+- 只同步 openFiles state、不同步 Monaco model 会让搜索与编辑器分叉；
+- 连续 dirty Replace 若不 push undo element boundary 会合并为一个撤销步。
+
+**运行态证据**：
+
+- 隔离 r526 fixture / Open Files scope：
+  - 2 个 `UNSAVED_ONLY_TOKEN` → Replace All `ALL_TOKEN`，
+    model 两处更新，状态栏 2 occurrences / 1 file；
+  - 单处 `ALL_TOKEN` → `SINGLE_TOKEN`，只更新第一处；
+  - 单次 `model.undo()` 恢复单处替换前内容；
+  - Replace All 后单次 undo 完整恢复两个原始 token；
+  - 磁盘 README 未被修改；
+  - 刷新页面后未保存编辑丢弃，fixture 恢复预期状态。
+
+**回归**：
+
+```bash
+node --test tests/round646.test.mjs tests/round645.test.mjs \
+  tests/round644.test.mjs
+npm test
+node --check lib/client.js
+node --check lib/index.js
+git diff --check
+```
+
+- RED：round646 初始 **3 fail**；
+- 定向：**9 pass / 0 fail**；
+- 全量：**2150 pass / 0 fail**。
+
+**已排除方案**：
+
+- 不用 `applyEdits()` 冒充可撤销的 dirty Replace；
+- 不只改 openFiles content 而不改 model；
+- 不让 host 接收 dirty target；
+- 不把 Replace All 和下一次单处 Replace 合并成一个 undo step。
+
+## 2026-11-16 — Find 合并未保存 Buffer 与 Preview 实时内容
+
+**作用域**：Find in Files 搜索、Open Files scope、Source Preview 与
+Replace 的脏文件边界。
+
+**症状 / 根因**：
+
+- 宿主 `searchText` 只读取磁盘，未保存编辑器内容不会出现在 Find；
+- Preview 也会 `callFs read`，即使结果来自内存也无法显示真实内容；
+- 第一版实现把 `openFilesRef`、`modelsRef` 用在 `FindToolWindow` 中但
+  未作为 prop 传入，实页报 `openFilesRef is not defined` /
+  `modelsRef is not defined`。
+
+**修复**：
+
+- 新增 `textSearchFileMatches()`，复用 `editorFindResult()` 的 smart case、
+  Whole Words、Regex 语义；
+- 新增 `mergeFindToolDirtyMatches()`：dirty path 的磁盘命中替换为内存
+  命中，dirty 结果优先占用 200 条上限，scope/mask 继续生效；
+- host 响应后与 `openFilesRef.current` 中 dirty content 合并；
+- Preview 的 dirty 分支直接读取 open file 的实时 content；
+- `FindToolWindow` 显式接收 `openFilesRef`，Preview 不再依赖未传入的
+  `modelsRef`；
+- `Replace in Files` 仍保留脏文件 save-or-close 保护。
+
+**运行态证据**：
+
+- Ego Browser / 隔离 r526 fixture：
+  - README 写入仅存在于未保存 buffer 的 `UNSAVED_ONLY_TOKEN`；
+  - Open Files 返回 `README.md:3:1`；
+  - Preview 显示未保存 4 行 buffer；
+  - 磁盘 README 未变化；
+  - `⌥⇧⏎` 显示
+    `Save or close these modified files before Replace in Files: README.md`；
+  - 刷新页面后内存编辑丢弃，fixture 保持预期状态。
+
+**回归**：
+
+```bash
+node --test tests/round645.test.mjs tests/round644.test.mjs \
+  tests/round643.test.mjs tests/round639.test.mjs
+npm test
+node --check lib/client.js
+node --check lib/index.js
+git diff --check
+```
+
+- RED：round645 初始 **3 fail**；
+- 定向：**16 pass / 0 fail**；
+- 全量：**2147 pass / 0 fail**。
+
+**已排除方案**：
+
+- 不只搜索磁盘再把脏文件当作缺失；
+- 不让 dirty Preview 回落到磁盘；
+- 不在组件内引用未传入的上层 ref；
+- 本轮不伪称已完成 dirty Replace。
+
+## 2026-11-16 — Find Scope 按 Workspace 持久化与 allowedPaths 实页验收
+
+**作用域**：Find in Files 的 Open Files / Changed Files scope、scope 重启
+恢复、窄视口工具状态。
+
+**IDEA 对照**：
+
+- Open/Changed Files scope 会重新生成结果，active result 与 Preview 跟随
+  新范围收敛；
+- Scope 是 Find 配置的一部分，关闭重开或刷新后应保留；
+- Scope 必须按 workspace 隔离。
+
+**修复**：
+
+- 新增 `normalizeFindSearchScope()`，只允许 Project/Directory/Scope 与
+  Project Files/Open Files/Changed Files；
+- Directory 拒绝 absolute、`..` 和空路径段，非法值回退 Project；
+- 以 `dsh-editor.find.scope.v1:<workspace-root>` 持久化 scope；
+- `openFindTool()` 恢复 scope，`changeFindToolScope()` 持久化同一规范化值；
+- 修正 round643 对默认 scope 的静态假设，新增 round644。
+
+**运行态证据**：
+
+- Ego Browser / r526 / `127.0.0.1:63237`：
+  - Project 搜索 `end`：5 matches / 3 files；
+  - Open Files 请求 `allowedPaths=["README.md"]`，2 matches；
+  - 临时修改 docs 后，Changed Files 请求
+    `allowedPaths=["docs/notes.md","README.md"]`，3 matches / 2 files；
+  - Changed Files active 收敛到 `docs/notes.md:3:1`，Preview 显示该文件；
+  - 关闭 Find 后重开、再整页刷新，Scope pressed=true、
+    preset=`changedFiles` 均恢复；
+  - 420px 视口下 popup 宽 398px，`scrollWidth=innerWidth=420`，
+    Scope 按钮同行且无横向溢出；
+  - dock 中 `Settings…` 保持直接动作，同时使用 `More actions` overflow。
+
+**回归**：
+
+```bash
+node --test tests/round644.test.mjs tests/round643.test.mjs \
+  tests/round642.test.mjs tests/round630.test.mjs \
+  tests/round590.test.mjs
+npm test
+node --check lib/client.js
+node --check lib/index.js
+git diff --check
+```
+
+- RED：round644 初始 **3 fail**；
+- 定向：**19 pass / 0 fail**；
+- 全量：**2144 pass / 0 fail**。
+
+**已排除方案**：
+
+- 不把 scope 存在全局 key 下；
+- 不在非法 Directory 时静默当作 workspace root；
+- 不让 scope 依赖 Find surface 是否存活；
+- 不为持久化复制第二套搜索请求或结果模型。
+
+## 2026-11-16 — Find Scope 下沉宿主与 r526 宿主机重启方式
+
+**作用域**：Find in Files 的 Directory / Open Files / Changed Files scope、
+`⇧⌘R` 状态生命周期、隔离 r526 宿主验证。
+
+**症状 / 根因**：
+
+- Directory scope 原先只在浏览器端过滤已返回的全局前 200 条结果；
+  范围外文件先占满 `maxMatches` 时，范围内会错误显示 `No matches`；
+- `⇧⌘R` 使用新的 Find state，清空 query 的同时把 host scope 重置为
+  Project；UI 仍显示旧 Directory，但后续请求不再是 scoped；
+- 只修改 `lib/index.js` 后直接刷新页面仍会运行旧宿主模块，必须重启
+  DSH host。
+
+**修复**：
+
+- 宿主 `searchText` 增加 `directory` 和 `allowedPaths`：
+  - Directory 从目标目录开始扫描；
+  - allowed-path scope 直接搜索选中文件；
+  - scope 在 200 条命中上限之前生效；
+  - 路径拒绝 absolute / `..`。
+- Find tool 将 scope 写入共享 state，搜索请求携带 live scope，
+  scope 变化提升 generation 并清空旧结果；
+- 新增编辑器侧 preserve-scope `⇧⌘R` opener：只清空 query/replacement，
+  保留 Directory/Scope 和搜索选项；
+- round643 覆盖宿主目录/路径 scope、请求转发、generation 和快捷键状态。
+
+**运行态证据**：
+
+- 隔离 r526 fixture 中新增范围外文件，含 260 个 `end`：
+  - Project 返回 200 条并占满上限；
+  - Directory=`docs` 仍返回 `docs/notes.md:3:1` 1 条；
+- `⇧⌘R` 后 query 为空、Directory=`docs`、0 结果；重新输入 `end`
+  仍只返回 docs 的 1 条；
+- `⌥⇧⏎` 确认后只写入 `docs/notes.md`，Replace 后 scope 保持、
+  结果 0、无 alert；README/src 未变化，fixture 已恢复。
+
+**r526 host 重启**：
+
+- 隔离 home：`/private/tmp/dsh-editor-r526-home`；
+- 必须使用包里 CLI，并在持久 PTY 中运行：
+
+```bash
+export DSH_HOME=/private/tmp/dsh-editor-r526-home
+/Applications/Harness.app/Contents/Resources/runtime/cli/bin/dsh \
+  --profile r526 --host 127.0.0.1 --port 63237 --no-open
+```
+
+- 直接启动 `.app/Contents/MacOS/DeepSeek Harness ... cli.js` 在当前环境会
+  静默退出；`nohup` 启动也不保持。使用统一 `dsh` launcher 和持久 PTY，
+  启动日志会打印带 token 的本地 URL。
+
+**回归**：
+
+```bash
+node --test tests/round643.test.mjs tests/round642.test.mjs \
+  tests/round636.test.mjs tests/round630.test.mjs \
+  tests/round506.test.mjs tests/round590.test.mjs \
+  tests/round468.test.mjs
+npm test
+node --check lib/client.js
+node --check lib/index.js
+git diff --check
+```
+
+- 定向：**26 pass / 0 fail**；
+- 全量：**2141 pass / 0 fail**。
+
+**已排除方案**：
+
+- 不在客户端对全局截断结果做 scope 事后过滤；
+- 不为允许路径重新遍历整个 workspace；
+- 不让 `⇧⌘R` 重置 Directory/Scope；
+- 不把 invalid scope path 当成 workspace root。
+
+## 2026-11-16 — Find 工具窗 Settings 与 Directory Replace 边界
+
+**作用域**：持久 Find 工具窗工具栏、Find/Replace 配置弹框状态交接、
+Directory scope 的 Replace All 真实写入。
+
+**IDEA 证据**：
+
+- IDEA 持久 Find 工具栏顺序为 `Rerun / Previous Occurrence /
+  Next Occurrence / Settings… / Group By / Expand All / Collapse All /
+  Preview Source`；
+- `Settings…` 会重新打开当前查询的 Find/Replace 配置弹框；
+- Replace Occurrences 工具窗进入时，弹框保留 Replace 模式与填充文本。
+
+**修复**：
+
+- 仅 dock 增加直接 `Settings…` 动作，popup 继续只保留 Filter/Pin；
+- `openFindToolSettings()` 仅把 surface 切回 popup，明确保留
+  query、replacement、mode、files/matches、active index 与搜索选项；
+- 动作顺序收敛到 IDEA 的 Rerun → Previous → Next → Settings → Group By；
+- 增加 round642 回归，锁定动作存在、顺序与状态交接。
+
+**运行态证据**：
+
+- Ego Browser / r526 / `127.0.0.1:63237`：
+  - dock 直接动作含 `Rerun Search / Settings… / Group Search Results By`；
+  - Find 模式 Settings 往返保留 query=`end`、active=`README.md:3:29`
+    与 4 条结果；
+  - Replace 模式往返保留 title=`Replace in Files`、replacement=`ENDX`、
+    active result 与 4 条结果；
+  - Directory=`docs` 时只显示 `docs/notes.md:3:1`；
+  - 真实 Replace All 仅修改 `docs/notes.md`，`README.md` 与
+    `src/app.js` 未变化；验证后已恢复 fixture。
+
+**回归**：
+
+```bash
+node --test tests/round642.test.mjs tests/round641.test.mjs \
+  tests/round639.test.mjs tests/round640.test.mjs \
+  tests/round636.test.mjs tests/round637.test.mjs \
+  tests/round633.test.mjs tests/round468.test.mjs \
+  tests/round167.test.mjs
+npm test
+node --check lib/client.js
+node --check lib/index.js
+node --check lib/terminal.js
+git diff --check
+```
+
+- 定向：**34 pass / 0 fail**；
+- 全量：**2137 pass / 0 fail**；
+- 三个 `node --check` 与 `git diff --check` 通过。
+
+**已排除方案**：
+
+- 不在 popup 中重复显示 Settings；
+- 不复用 `openFindInFilesFromShortcut()` 强制切回 find 模式；
+- 不为 Settings 复制第二份 query/results 状态；
+- 不绕过 Directory scope 的 allowed-path 集合直接替换整文件。
+
+## 2026-11-16 — Replace in Files 弹框标题与 Replace 行收敛
+
+**作用域**：`⇧⌘R` 打开的 transient Replace in Files popup。
+
+**IDEA 证据**：
+
+- `⇧⌘R` 仍打开约 571×536 的同一 Replace in Files 窗口；
+- 标题从 `Find in Files` 切换为 `Replace in Files`；
+- Replace 行是 replace 图标 + replacement input + history 下拉 +
+  Preserve case；New Line 不在 popup 视觉行中；
+- 底部依次是 Open results in new tab、`⌘⏎`、Open in Find Window、
+  Replace All、Replace。
+
+**修复**：
+
+- floating popup 的 title 按 `state.mode` 选择
+  `editor.replaceInFilesTitle` / `editor.findInFilesTitle`；
+- popup Replace row 的 New Line checkbox 改为只在 dock 渲染；
+- Replace row 左图标改为 `replace`，历史按钮在 popup 使用
+  `chevronDown`，dock 继续使用 `history`；
+- flat results、auto preview、Filter/Pin 标题动作继续复用 round639 的
+  popup contract，不恢复 tree/group header。
+
+**运行态证据**：
+
+- Ego Browser / r526 / `127.0.0.1:63237`：
+  - `⇧⌘R` 后 aria title=`Replace in Files`；
+  - query=`end`：rows=4、groups=0、preview=1、replaceInput=1；
+  - Replace row 按钮仅 `Replace History` / `Preserve case`；
+  - `newLineInReplaceRow=false`；
+  - popup rect 582×538；
+  - 等待 5 秒 workspace/popup 仍存在且无 alert。
+- host 连续移除/重挂 3 次，每次 same host/workspace/Monaco control=true。
+
+**回归**：`tests/round641.test.mjs` 与 round631/639/640。
+
+**已排除方案**：
+
+- 不在 Replace popup 中显示 dock 的 New Line；
+- 不让 Replace 模式退回 Find 标题；
+- 不为 replace mode 复制第二套结果或 preview 实现。
+
+## 2026-11-16 — Find in Files 弹框平铺结果与 Editor host 稳定复用
+
+**作用域**：`Cmd/Ctrl+Shift+F` / 双击 Shift 打开的 Find in Files 弹框、
+Editor React host 在宿主布局重渲染时的生命周期。
+
+**症状**：
+
+- Find in Files 弹框曾表现为 780px 偏宽 sheet，内部沿用持久 Find dock 的
+  directory/file tree；active occurrence 的背景被拉成大块蓝色，匹配文本
+  在约 190px 列内换行，和 IDEA 的平铺结果列表不符。
+- 用户报告 Editor 打开后双击 Shift 弹出 Find，几秒后整个 Editor 区域变
+  空白。诊断日志同期出现 `activeFilePath is not defined` 的
+  `react-render-error`；宿主重建 conversation 布局父节点时，
+  `ensureHost()` 还会销毁并重建整个 React root。
+
+**根因**：
+
+- `styles` 中 `findToolPreview` 定义了两次；第二个 Preview pane 样式覆盖了
+  occurrence row 的文本样式。
+- Transient popup 与 persistent dock 共用了同一套 tree/group rendering，
+  但 IDEA 的 Find in Files 弹框是 flat result list + automatic preview。
+- `ensureHost()` 只在 `host.parentElement === hostParent` 时复用；父节点
+  一旦被宿主替换，就 `destroyHost()`、`createRoot()` 重建整棵树。后台
+  mutation/布局更新会把一次局部 parent 变化放大成全 Editor 卸载。
+
+**修复**：
+
+- 弹框改为 `min(580px, 100vw - 24px) × min(536px, 100vh - 32px)`、
+  双向居中；标题行只保留 Filter/Pin，查询行只保留清空/历史/
+  Match Case/Whole Words/Regex，Scope 行和底部动作继续保持 IDEA 顺序。
+- Popup 使用 flat `popupOccurrences`；每行左侧为高亮匹配，右侧为
+  `文件名 行号`。Dock 继续使用 file/directory tree 和 Group By。
+- 弹框默认自动打开 active text match 的 Source Preview；空查询不显示
+  preview pane。修正重复 style key，Preview pane 改名为
+  `findToolPreviewPane`。
+- `ensureHost()` 在 `host`/`root` 都存在时，仅把同一个 host 节点
+  `appendChild` 到新的稳定父节点，再恢复位置观察；只有 host/root 真正
+  丢失时才销毁重建。清理 stale host 时也排除当前 host。
+- 删除查询行在 popup 中的 Replace/New Line 噪音；Replace row 由
+  Replace 入口或 `⇧⌘R` 的 replace mode 展开，dock 仍保留开关。
+
+**运行态证据**：
+
+- IDEA CUA：Find in Files 空查询窗口为 571×536；有结果时平铺显示
+  `return …  file.py 51`，下方自动显示 Source Preview。
+- Ego Browser / r526 fixture / `127.0.0.1:63237`：
+  - popup rect `{ width: 582, height: 538 }`（含 border）；
+  - query=`end`：4 个 flat rows、0 个 dock group、preview=true；
+  - active row 文本为 `Scoped appears here. Second end line. README.md 3`；
+  - filter/pin 是标题行仅有的 toolbar 动作；
+  - Escape 关闭后双击 Shift 可重新打开；
+  - 主动移除 Editor host 后，下一次 reconciliation 重挂的是同一 host、
+    同一 workspace、同一 Monaco 控件；随后打开 Find 并等待 10 秒，
+    host/workspace/popup 均保持存在且无 alert。
+
+**回归**：
+
+```bash
+node --test tests/round639.test.mjs tests/round640.test.mjs \
+  tests/round167.test.mjs tests/round451.test.mjs \
+  tests/round461.test.mjs tests/round491.test.mjs \
+  tests/round631.test.mjs
+npm test
+node --check lib/client.js
+node --check lib/index.js
+node --check lib/terminal.js
+git diff --check
+```
+
+- 定向：**29 pass / 0 fail**；
+- 全量：**2131 pass / 0 fail**；
+- 三个 `node --check` 与 `git diff --check` 通过。
+
+**已排除方案**：
+
+- 不在 popup 中复用 dock 的 tree/Group By；二者语义不同。
+- 不靠清空 `innerHTML`、重设 `textContent` 或重建 host 来“恢复” Editor。
+- 不在每次 host parent 变化时 remount Monaco/xterm/Project tree。
+- 不重新引入周期性 host 健康检查或 watchdog。
+
+## 2026-11-16 — Find Rerun 状态恢复与 Preview/右侧定位
+
+**作用域**：持久 Find Rerun、Preview Source、Open results in new tab。
+
+**IDEA 证据**：
+
+- Preview Source 是持久 Find 工具窗的直接工具栏动作；
+- Rerun 是同一结果窗口内的刷新，应保留工具窗上下文；
+- 文本结果可在新 tab 中打开到真实行列，同时 Find 工具窗继续存在。
+
+**修复**：
+
+- Rerun 前记录 active rowKey、path、index 和目标 search generation；
+- 只有新 generation 的 `loadedGeneration === searchGeneration` 后才恢复，
+  避免中间空 results 清空选择；
+- 目标在折叠文件中时先展开该组；目标消失时退化到原 index clamp；
+- Rerun loading 期间 Preview 状态不清空；
+- dock header 将 Preview Source 设为直接动作；
+- `Open results in new tab` 持久化到
+  `dsh-editor.find.openInNewTab`，跨 popup/dock remount 保持；
+- 文本结果继续通过 `openInRightSplit(path, {line,column})` 定位，
+  open 动作不关闭 Find dock。
+
+**运行态证据**：
+
+- Ego Browser / r526 fixture / `127.0.0.1:63237`：
+  - Directory/file results 中 active=`README.md:4:1`；
+  - Preview 内容为 README.md 5 行原文；
+  - Rerun 后 active descendant、Preview 文本完全一致；
+  - 折叠 `docs/notes.md` 后 Rerun，aria-expanded 仍为 false；
+  - `dsh-editor.find.openInNewTab=1`；
+  - 双击文本结果后右侧 split 打开 README.md，状态为 Ln 4 Col 1，
+    Find dock 保持打开。
+
+**回归**：
+
+```bash
+node --test tests/round638.test.mjs tests/round636.test.mjs \
+  tests/round635.test.mjs tests/round637.test.mjs \
+  tests/round633.test.mjs tests/round468.test.mjs
+npm test
+node --check lib/client.js
+node --check lib/index.js
+node --check lib/terminal.js
+git diff --check
+```
+
+- 定向：**25 pass / 0 fail**；
+- 全量：**2122 pass / 0 fail**；
+- 三个 `node --check` 与 `git diff --check` 通过。
+
+**已排除方案**：
+
+- 不在 Rerun 前半段就按空 occurrence 修改 index；
+- 不为 Preview 复制另一份文件读取状态；
+- 不让 Open results in new tab 关闭 Find dock；
+- 不让 openInNewTab 在 popup → dock 时退回默认值。
+
+## 2026-11-16 — Find Group By 文件/目录结构
+
+**作用域**：持久 Find 工具窗结果分组、Group By 菜单与键盘切换。
+
+**IDEA 证据**：
+
+- IDEA Find 工具窗 Group By 菜单包含：
+  - Directory Structure `⌃D`；
+  - File Structure `⌃S`；
+  - Module、Flatten Modules、Package、Production/Test、Usage Type、
+    Merge Usages from the Same Line；
+- DSH 文本搜索没有 Module/Package/AST 模型，只能诚实实现前两项。
+
+**修复**：
+
+- 新增 `findGroupBy: 'file'|'directory'`，持久化到
+  `dsh-editor.find.groupBy`；
+- `findToolVisibleRows()` 在 Directory 模式按目录和文件路径稳定排序；
+- 结果列表增加 display-only 目录标题和聚合命中数，不把这些标题塞进
+  occurrence keyboard sequence；
+- dock toolbar 增加 Group By 菜单：
+  - Directory/File 可切换并显示 checked；
+  - 语言级分组项可见但 disabled；
+- 支持 `Ctrl+D / Ctrl+S`，且只在 Find 工具窗非 input/textarea/select/menu
+  区域生效；
+- groupBy 变化后 active index 收敛到新顺序，handoff target 也按当前
+  groupBy 计算。
+
+**运行态证据**：
+
+- Ego Browser / r526 fixture / `127.0.0.1:63237`：
+  - query=`end`、无 File mask 时 4 matches / 3 files；
+  - Directory Structure 显示 `Project root 2 matches / docs 1 match /
+    src 1 match`；
+  - File Structure 下目录标题消失，文件组顺序恢复；
+  - 菜单 Directory checked=true、File checked=false；
+  - `Ctrl+D` 切回 Directory，`dsh-editor.find.groupBy=directory`。
+
+**回归**：
+
+```bash
+node --test tests/round637.test.mjs tests/round635.test.mjs \
+  tests/round636.test.mjs tests/round633.test.mjs \
+  tests/round468.test.mjs tests/round502.test.mjs \
+  tests/round614.test.mjs tests/round634.test.mjs
+npm test
+node --check lib/client.js
+node --check lib/index.js
+node --check lib/terminal.js
+git diff --check
+```
+
+- 定向：**19 pass / 0 fail**；
+- 全量：**2118 pass / 0 fail**；
+- 三个 `node --check` 与 `git diff --check` 通过。
+
+**已排除方案**：
+
+- 不把 Module/Package 分组伪装成目录分组；
+- 不让目录标题进入 aria-activedescendant 或结果替换序列；
+- 不在文本输入框里抢占 Ctrl+D/Ctrl+S；
+- 不复制第二套 Find result state。
+
+## 2026-11-16 — Find 快捷键、Rerun 与目录选择
+
+**作用域**：Find in Files 底部快捷键、持久 Find 工具栏和 Directory scope。
+
+**IDEA 证据**：
+
+- 弹框底部 `⌘⏎` 与 Open in Find Window 同组；
+- Replace All 的 Help 为 `⌥⇧⏎`；
+- 持久 Find 工具窗有独立 Rerun；
+- Directory scope 的 Select Directory 按钮 Help 为 `⇧⏎`；
+- 目录选择列表来自完整工作区目录，而不是 Project 已展开节点。
+
+**修复**：
+
+- query 输入中 `Cmd/Ctrl+Enter` 在有结果时复用
+  `requestOpenInFindWindow()`；按钮同步 `aria-keyshortcuts`;
+- `replaceInputAction()` 新增 IDEA 主快捷键 `Alt+Shift+Enter`；
+  保留 Cmd/Ctrl+Enter 兼容，Shift+Enter / Alt+Enter 单独使用仍不触发；
+- Replace All 按钮增加 `⌥⇧⏎` tooltip 和 ARIA；
+- dock toolbar 增加 Rerun，复用 `onQuery(query)`，不复制搜索状态；
+- 泛化既有 `MoveToPicker` 的 title/placeholder/currentLabel；
+- Directory scope 复用 host `callFs({op:'directories'})`，
+  `Select Directory` 与目录输入框 `Shift+Enter` 打开同一选择器；
+- 选择目录后写回 scope input，并保持 directory scope 激活。
+
+**运行态证据**：
+
+- Ego Browser / r526 fixture / `127.0.0.1:63237`：
+  - query=`end` 后按 `Cmd+Enter` 从 popup 进入 dock；
+  - query 与 active descendant 保留，dock toolbar 显示 Rerun Search；
+  - Rerun 后 surface 仍为 dock、query 仍为 `end`；
+  - Directory 按钮打开 `Select Directory`，placeholder 为
+    `Select a workspace directory…`；
+  - 搜索并选择 `src` 后 Directory=`src`、Directory scope pressed=true，
+    summary 仍为 `1 match in 1 file`；
+  - Directory input `Shift+Enter` 同样打开选择器，Esc 可关闭。
+
+**回归**：
+
+```bash
+node --test tests/round636.test.mjs tests/round635.test.mjs \
+  tests/round634.test.mjs tests/round633.test.mjs \
+  tests/round631.test.mjs tests/round617.test.mjs \
+  tests/round144.test.mjs
+npm test
+node --check lib/client.js
+node --check lib/index.js
+node --check lib/terminal.js
+git diff --check
+```
+
+- 定向包括既有 Find、目录选择器和 replace intent 回归；
+- 全量：**2114 pass / 0 fail**；
+- 三个 `node --check` 与 `git diff --check` 通过。
+
+**已排除方案**：
+
+- 不为 Rerun 复制第二套 query/results；
+- 不用 Project 已展开 rows 冒充目录选择列表；
+- 不让 Alt+Enter 或 Shift+Enter 单独触发 Replace All；
+- 不只显示快捷键文本而不接真实键盘路径。
+
+## 2026-11-16 — Open in Find Window 持久结果面
+
+**作用域**：Find in Files 弹框底部动作、Search Everywhere Find tool handoff、
+底部 Find 工具窗。
+
+**症状 / IDEA 对照**：
+
+- DSH 的 `Open in Find Window` 永久 disabled，并错误声称结果已经在
+  Find in Files 弹框中；
+- IDEA 实窗有结果时该按钮可用；点击后弹框关闭，结果进入底部
+  `Occurrences of 'return' Tool Window`；
+- IDEA 持久窗保留结果树、Preview、Rerun、上一处/下一处、Settings、
+  Group By、Expand/Collapse 和 Hide；
+- IDEA 超过结果阈值时先显示 `Too Many Results` 确认。
+
+**修复**：
+
+- `findTool` 增加 `surface: 'popup' | 'dock'`；
+  `Cmd+Shift+F`、双击 Shift 与普通 Find/Replace handoff 默认仍为 popup；
+- 新增 `openFindToolInDock()`，保留 query/results/options/active
+  descendant，仅切换 surface，并关闭 Terminal dock；
+- 新增 `data-dsh-find-tool-dock` 底部工具窗，复用同一个
+  `FindToolWindow`，高度默认 280px、可在 180–720px 内调整并持久化到
+  `dsh-editor.find.height`；
+- dock 关闭弹框专属的外部点击关闭、Pin 和底部打开结果动作；
+- `Open in Find Window` 有结果时启用；无结果显示 disabled reason；
+  超过既有 200 条阈值时复用 `searchTooManyResults` 确认；
+- Search Everywhere 的 `Open in Find Tool Window`、`Find Tool Window`
+  Action 与 `Show Usages` pin 都改为打开 dock；
+- 在 dock 上再次按 `Cmd+Shift+F` 会恢复 popup，保留同一 query 和 active
+  descendant，保证常用快捷键仍打开轻量弹框。
+
+**运行态证据**：
+
+- Ego Browser / r526 fixture / `127.0.0.1:63237`：
+  - 查询 `end` 后弹框 Open in Find Window 从 disabled 变为 enabled；
+  - 点击后 popup=false、dock=true、surface=dock；
+  - query=`end`，标题为 `Occurrences of 'end'`；
+  - active descendant `text:src/app.js:1:26` 在转换前后保持一致；
+  - dock 高 281px，无弹框底部栏和 Pin；
+  - 点击 Project 后 dock 保持，未因外部点击关闭；
+  - 再按 `Cmd+Shift+F` 后恢复 popup，query 和 active descendant 保留；
+  - 拖动 dock 上沿后高度从 281px 变为 329px，
+    `dsh-editor.find.height=328`，query 保持 `end`。
+
+**回归**：
+
+```bash
+node --test tests/round635.test.mjs tests/round634.test.mjs \
+  tests/round633.test.mjs tests/round632.test.mjs \
+  tests/round631.test.mjs tests/round630.test.mjs \
+  tests/round628.test.mjs tests/round487.test.mjs \
+  tests/round467.test.mjs tests/round494.test.mjs \
+  tests/round495.test.mjs tests/round496.test.mjs \
+  tests/round520.test.mjs
+npm test
+node --check lib/client.js
+node --check lib/index.js
+node --check lib/terminal.js
+git diff --check
+```
+
+- 定向：**61 pass / 0 fail**；
+- 全量：**2109 pass / 0 fail**；
+- 三个 `node --check` 与 `git diff --check` 通过。
+
+**已排除方案**：
+
+- 不把 Open in Find Window 继续当作永久 disabled 的解释性按钮；
+- 不复制第二套 query/results 状态；
+- 不让外部点击关闭 dock；
+- 不让 Cmd+Shift+F 默认直接打开 dock；
+- 不把 Search Everywhere 的显式 Find Tool Window 入口伪装成 transient popup。
+
+## 2026-11-16 — Cmd+Shift+F 查找弹框形态对齐
+
+**作用域**：Find in Files 浮层外壳、Search/Replace 行、标题工具栏、
+Scope 行和底部动作栏。
+
+**症状 / IDEA 对照**：
+
+- DSH 的 `Cmd+Shift+F` 浮层固定为 900×680，空查询时留下大面积空白；
+- 弹框带 `0 0 0 100vmax` 暗色扩散阴影，看起来像全屏模态遮罩；
+- Replace 行常驻，底部 Replace / Replace All 也常驻，与 IDEA 默认的
+  Search-only 查找弹框不符；
+- IDEA CUA 实窗确认 Filter / Pin 位于标题行，AX 中出现的隐藏 Replace
+  控件不能证明 Replace 行可见；
+- IDEA 默认 In Project 只显示四个 scope 入口，不常驻空 `…`。
+
+**修复**：
+
+- `findToolPopup` 改为 `maxHeight` 约束下的自动高度，移除整屏遮罩，
+  只保留普通窗口阴影；
+- 删除独立 `findToolActionBar` 行；Filter / Pin 固定显示在标题行，
+  其余结果动作进入同一标题行 `CompactActionBar` 的 `»` overflow；
+- Replace 行由 `replaceExpanded` 按需展开：默认隐藏，Search 行提供
+  `Show Replace / Hide Replace` toggle；Search Everywhere 和 Replace
+  入口仍会自动展开并复用同一个 replacement input；
+- Scope 行移除多余的 `In` 独立标签，第一项直接显示 `In Project`；
+  Project 模式不再渲染禁用的空 `…`；
+- 底部查找模式只保留 Open results in new tab、`⌘⏎` 与
+  Open in Find Window；Replace / Replace All 仅在 Replace 行展开时出现；
+- 重复 `Cmd+Shift+F` 只回焦 Search，不重置已展开的 Replace 行和查询。
+
+**运行态证据**：
+
+- Ego Browser / r526 fixture / `127.0.0.1:63237`：
+  - 默认弹框高度 186px，Replace input 不存在；
+  - 标题行直接按钮为 Filter Search Results / Pin Window / More actions；
+  - Scope 行 4 个按钮，文本为 In Project / Module / Directory / Scope；
+  - bottom bar 文本只有 Open results in new tab / `⌘⏎` /
+    Open in Find Window；
+  - 点击 Show Replace 后高度 219px，Replace input 可见，
+    bottom bar 追加 Replace All / Replace；
+  - Replace 展开后再次按 `Cmd+Shift+F`，焦点回到 Search，
+    Replace 行保持可见。
+  - `Escape` 关闭弹框后，焦点回编辑器时连续按两次 Shift 仍可重新打开
+    同一 Search-only 弹框。
+
+**回归**：
+
+```bash
+node --test tests/round634.test.mjs tests/round633.test.mjs \
+  tests/round632.test.mjs tests/round631.test.mjs \
+  tests/round630.test.mjs tests/round628.test.mjs \
+  tests/round494.test.mjs tests/round495.test.mjs \
+  tests/round496.test.mjs tests/round520.test.mjs
+npm test
+node --check lib/client.js
+node --check lib/index.js
+node --check lib/terminal.js
+git diff --check
+```
+
+**已排除方案**：
+
+- 不把 IDEA AX 中隐藏的 Replace 控件当成可见 UI；
+- 不为复刻 Search-only 默认形态而删除 Replace 能力；
+- 不保留固定 680px 空白结果区和整屏暗色遮罩；
+- 不把 Filter / Pin 和其余结果动作拆成两套独立状态。
+
+## 2026-11-16 — Find in Files 底部动作栏与 Directory scope
+
+**作用域**：Replace 动作栏、Open results in new tab、Directory scope 输入。
+
+**修复**：
+
+- Replace/Replace All 从 Replace row 移动到独立 bottom bar；
+- bottom bar 还显示 Open results in new tab 与 Open in Find Window；
+- Open in Find Window 因结果已经在 Find in Files 浮层中，保持 disabled；
+- openResultsInNewTab=true 时，结果通过右侧编辑面打开；
+- Directory scope 增加工作区相对路径输入和“使用当前文件目录”按钮；
+- Directory path 支持根目录空值 / `.` 与 `./src/` 归一化。
+
+**运行态证据**：
+
+- bottom bar 标签：
+  Open results in new tab / Open in Find Window / Replace All / Replace；
+- Open in Find Window disabled；
+- Replace/All 根据当前结果启用；
+- Directory=`src` 后结果仅 `src/app.js`，1 match / 1 file。
+
+**回归**：
+
+```bash
+node --test tests/round633.test.mjs tests/round632.test.mjs \
+  tests/round631.test.mjs tests/round630.test.mjs \
+  tests/round494.test.mjs tests/round495.test.mjs \
+  tests/round496.test.mjs tests/round520.test.mjs
+npm test
+node --check lib/client.js
+node --check lib/index.js
+node --check lib/terminal.js
+git diff --check
+```
+
+- 全量：**2098 pass / 0 fail**。
+
+**已排除方案**：
+
+- 不在 Replace row 和 bottom bar 重复放 Replace；
+- 不伪造当前架构不存在的第二个 Open in Find Window 结果面板；
+- 不允许 Directory 路径绕过工作区过滤；
+- 不把 `.` 当成无结果目录。
+
+## 2026-11-16 — Find in Files Filter、Pin 与 Scope 顺序
+
+**作用域**：Find in Files 工具栏、Filter Search Results、Pin Window、
+Scope 行顺序。
+
+**IDEA CUA 证据**：
+
+- Filter Search Results 菜单项：
+  Anywhere / In Comments / In String Literals / Except Comments /
+  Except String Literals / Except Comments and String Literals；
+- Pin Window 是独立 toolbar button；
+- scope 行位于 Search/Replace 输入之后。
+
+**实现**：
+
+- 新增 Filter Search Results toolbar 和 ContextMenu：
+  - Anywhere 选中；
+  - 语言相关 5 项显式 disabled，不伪造 AST；
+- 新增 Pin Window：
+  - `dsh-editor.find.pinned` 持久化；
+  - unpinned 时 window capture mousedown 检查 popup/menu 外部并关闭；
+  - pinned 时保留；
+- Scope 行移动到 Replace 行之后。
+
+**运行态证据**：
+
+- Search/Replace/Scope 的 top 分别为 118/151/184；
+- Filter 菜单按钮 disabled 状态：Anywhere=false，其余 5 项=true；
+- Pin 后点击外部 popup 保持；
+- Unpin 后点击外部 popup 关闭。
+
+**回归**：
+
+```bash
+node --test tests/round632.test.mjs tests/round631.test.mjs \
+  tests/round630.test.mjs tests/round628.test.mjs \
+  tests/round584.test.mjs tests/round487.test.mjs
+npm test
+node --check lib/client.js
+node --check lib/index.js
+node --check lib/terminal.js
+git diff --check
+```
+
+- 全量：**2094 pass / 0 fail**。
+
+**已排除方案**：
+
+- 不伪造 comments/string token 过滤；
+- 不让 Pin 只有视觉状态而无外部点击差异；
+- 不把 Scope 留在 Replace 前；
+- 不让 ContextMenu 点击被 outside-close 逻辑误关闭。
+
+## 2026-11-16 — Find in Files New Line 与双输入常驻
+
+**作用域**：Find in Files Search/Replace 输入、New Line、Preserve case。
+
+**症状 / IDEA 对照**：
+
+- DSH 只在 replace mode 显示 Replace 行；
+- IDEA CUA 的 Find in Files 顶部同时暴露 Search 和 Replace；
+- 两者均有 New Line 复选框，勾选后 Enter 应插入换行。
+
+**修复**：
+
+- Replace 行从 `replaceMode ? ... : null` 改为常驻；
+- 新增 `searchNewLine` / `replaceNewLine`；
+- New Line 开启时 input 切换为 textarea，普通 Enter 放行默认换行；
+- Preserve case 移入 Replace row；
+- 仍然保留 Cmd/Ctrl+Enter 替换执行能力。
+
+**运行态证据**：
+
+- Search/Replace 行同时存在；
+- New Line 标签两个；
+- Preserve case 按钮存在；
+- Search New Line 后 textarea=true；
+- `end↵Value` 实际写入 query（含换行）。
+
+**回归**：
+
+```bash
+node --test tests/round631.test.mjs tests/round630.test.mjs \
+  tests/round628.test.mjs tests/round584.test.mjs \
+  tests/round487.test.mjs tests/round467.test.mjs
+npm test
+node --check lib/client.js
+node --check lib/index.js
+node --check lib/terminal.js
+git diff --check
+```
+
+- 全量：**2090 pass / 0 fail**。
+
+**已排除方案**：
+
+- 不只在 Replace mode 显示 Replace；
+- 不让 New Line 模式下的 Enter 打开结果/触发替换；
+- 不在 Replace 行重复 Preserve case toolbar；
+- 不用 textarea 但继续消费 Enter。
+
+## 2026-11-16 — CmdShiftF 修正为 IDEA 浮层并增加 File mask 历史
+
+**作用域**：Find in Files 呈现形态、File extension 历史、scope 浮层布局。
+
+**症状 / 用户纠正**：
+
+- DSH 把 `Cmd+Shift+F` 实现为 Editor 底部持久 dock；
+- IDEA CUA 实窗显示这是独立 `Find in Files` 浮层窗口，顶部右侧是
+  File mask checkbox/input，查询和替换筛选位于窗口内，scope 行在下方；
+- 用户明确要求搜索使用弹框模式，底部 dock 形态不正确。
+
+**修复**：
+
+- Parent 删除 Find dock wrapper、resize handle 和 stored height；
+- Find in Files 使用 `findToolPopup`：
+  - position fixed；
+  - `min(900px,92vw)` × `min(680px,76vh)`；
+  - 圆角、阴影、四周遮罩；
+- 保留 Combo/input、scope、results 和 replace 状态模型；
+- File extension 历史：
+  - `dsh-editor.find.fileMasks`；
+  - `rememberFileMaskHistory` 去重、newest-first、最多 10；
+  - Enter accept 和 input blur 写入；
+  - dropdown 可选择历史或 Clear。
+
+**IDEA / 运行态证据**：
+
+- IDEA AX：`Find in Files`、File mask checkbox/combobox、Search/Replace、
+  Match case/Words/Regex、In Project/Module/Directory/Scope。
+- DSH：popup=true、dock=false、position=fixed、query 自动聚焦；
+- width≈902px、height≈501px（当前 viewport）；
+- File extension 历史菜单显示 `.js` 和 Clear；
+- `.js` 过滤后仅 `src/app.js`。
+
+**回归**：
+
+```bash
+node --test tests/round630.test.mjs tests/round467.test.mjs \
+  tests/round628.test.mjs tests/round487.test.mjs \
+  tests/round483.test.mjs
+npm test
+node --check lib/client.js
+node --check lib/index.js
+node --check lib/terminal.js
+git diff --check
+```
+
+- 全量：**2086 pass / 0 fail**。
+
+**已排除方案**：
+
+- 不继续使用底部 dock；
+- 不恢复 Find height 拖拽状态；
+- 不在输入每次字符变化时污染 mask history；
+- 不用无历史的下拉箭头占位。
+
+## 2026-11-16 — Find in Files Scope 行与快捷键幂等回焦
+
+**作用域**：Find in Files scope 过滤、Replace All target、双击 Shift 与
+CmdShiftF 重复触发、Editor scope 参数传递。
+
+**症状 / 风险**：
+
+- Find in Files 缺少截图中的 Project/Module/Directory/Scope 行；
+- 重复按快捷键会重新调用 `openFindTool('', 'find')`，清空 query/filter；
+- 首次接入 scope 时父层 shorthand 使用未定义 `activeFilePath`，运行态
+  显示 `Editor failed to load: activeFilePath is not defined`。
+
+**修复**：
+
+- 新增 `findToolPathMatchesScope()`：
+  - Project 全工作区；
+  - Directory 使用活动文件目录前缀；
+  - Scope 使用 Project Files / Open Files / Changed Files 允许集合；
+- FindToolWindow 新增 activeFilePath/openFilePaths/changedFilePaths；
+- 结果 rows、计数、handoff target、Replace All target 全部使用 scoped
+  files/matches；
+- Parent 传参固定为 `activeFilePath: activePath`；
+- shortcut callback 在 Find 已打开时只设置 find mode 并聚焦 query，
+  不重建 findTool 初始状态。
+
+**运行态证据**：
+
+- Scope 行显示 Project / Module(disabled) / Directory / Scope；
+- Presets 为 Project Files / Open Files / Changed Files；
+- Open Files scope 无命中显示 `No matches`；
+- 重复 CmdShiftF 后 query=`end`、scopeMode=`scope`、
+  scopePreset=`openFiles`，query 输入保持焦点；
+- Editor 加载错误消失。
+
+**回归**：
+
+```bash
+node --test tests/round628.test.mjs tests/round502.test.mjs \
+  tests/round520.test.mjs tests/round614.test.mjs \
+  tests/round487.test.mjs tests/round483.test.mjs
+npm test
+node --check lib/client.js
+node --check lib/index.js
+node --check lib/terminal.js
+git diff --check
+```
+
+- 全量：**2081 pass / 0 fail**。
+
+**已排除方案**：
+
+- 不伪造 Module 模型；
+- 不让 scope 只影响显示而漏掉 Replace All；
+- 不在 Find 已打开时用空 query 重置整窗；
+- 不保留运行态 shorthand 变量错误。
+
+## 2026-11-16 — 双 Shift 与 CmdShiftF 统一到 Find in Files
+
+**作用域**：Editor 全局搜索快捷键、Find in Files 顶部筛选布局、
+File extension/Files provider、Action/Files 的 case/whole-word 匹配。
+
+**用户决策**：
+
+- 双击 Shift 保留快捷键注册，但不再打开 Search Everywhere；
+- 双击 Shift 与 `Cmd/Ctrl+Shift+F` 必须调用同一个 Find in Files handler；
+- 大小写、全词、文件后缀是共用筛选条件，按 IDEA `Find in Files`
+  截图放在顶部右侧；查询行右侧为 `Cc / W / .*`。
+
+**修复**：
+
+- 新增 `openFindInFilesFromShortcut()` 作为单入口；
+- 双击 Shift effect 和 Cmd/Ctrl+Shift+F 分支都调用该 callback；
+- Find in Files 顶部右上增加 File mask checkbox + 后缀输入；
+- 删除单独 File Mask 行；
+- Query 行右端增加 Match Case / Whole Words / Regex group；
+- extension `.ts, .md` 规范化为 `*.ts,*.md`；Files provider 和 Text
+  search 都使用该 filter；
+- `fuzzyScore` 支持 caseSensitive/wholeWords，Search Everywhere 的
+  Actions/Files 与 Text 共用条件；
+- Search/Replace handoff 全部发送规范化 mask。
+
+**运行态证据**：
+
+- 双击 Shift：Find in Files 打开，Search Everywhere=false；
+- Cmd+Shift+F：Find in Files 打开，Search Everywhere=false；
+- File mask 距右 8px，Regex 距右 10px，mask 在 query row 上方；
+- `end`：5 matches / 3 files；
+- File extension `.js`：app.js；
+- Whole Words：`end` 从 2 处收敛为 1 处；
+- mask 外 target 在 replace 中被拒绝。
+
+**回归**：
+
+```bash
+node --test tests/round628.test.mjs tests/round627.test.mjs \
+  tests/round626.test.mjs tests/round464.test.mjs \
+  tests/round483.test.mjs tests/round487.test.mjs \
+  tests/round488.test.mjs tests/round508.test.mjs \
+  tests/round616.test.mjs tests/round114.test.mjs
+npm test
+node --check lib/client.js
+node --check lib/index.js
+node --check lib/terminal.js
+git diff --check
+```
+
+- 全量：**2078 pass / 0 fail**。
+
+**已排除方案**：
+
+- 不保留双 Shift 旧 Search Everywhere 调用；
+- 不为两个快捷键复制两套 Find 初始化；
+- 不把 File mask 留在 query 下方独立整行；
+- 不让 extension 只过滤 Text 而漏掉 Files provider。
+
+## 2026-11-16 — 清理 slash provider 死代码与极窄 Search Everywhere
+
+**作用域**：Search Everywhere 输入语义、CompactActionBar 槽位测量、
+极窄视口 tab/toolbar、工作区切换时的双 Shift 状态。
+
+**症状 / 风险**：
+
+- UI 已改为 tab-only，但生产代码仍保留完整 slash provider parser 和
+  provider hint，形成第二套不可达语义；
+- Search Everywhere 工具栏以 26px 槽位测量，实际样式为 24px 按钮 +
+  6px gap；220px 视口下 7 个动作越出 207px 容器但 overflow 未触发；
+- tablist 在极窄视口 scrollWidth 大于 clientWidth，页签可能越出边界；
+- 工作区 root 变化只关闭弹框，没有显式清空半完成的双 Shift 手势。
+
+**修复**：
+
+- 删除 5 个旧 provider parser helper 与 8 条中英文 hint；
+- `CompactActionBar` 新增 `slotWidth` 参数，Search Everywhere 使用 30px；
+  默认 26px 保持其它工具窗口行为；
+- tablist 增加 `overflowX:auto`、`scrollbarWidth:none` 与 WebKit 隐藏
+  滚动条规则；
+- root effect 先清空 `doubleShiftAtRef`，再重置搜索/usage/Find 状态；
+- 旧 provider 测试改为明确断言 helper 和文案已不存在。
+
+**运行态证据**：
+
+- 220×680：
+  - dialog 208px；
+  - tablist client 175px / scroll 192px / overflowX auto；
+  - toolbar client=scroll=207px；
+  - 可见动作：Include non-project、Match Case、Whole Words、Filter、
+    Open in Find Tool Window、More actions；
+  - overflow 菜单入口真实出现。
+- Query Tab：`all → files → text → actions → all`，
+  Shift+Tab 反向到 Actions。
+
+**回归**：
+
+```bash
+node --test tests/round627.test.mjs tests/round626.test.mjs \
+  tests/round178.test.mjs tests/round240.test.mjs \
+  tests/round387.test.mjs tests/round455.test.mjs \
+  tests/round487.test.mjs tests/round488.test.mjs \
+  tests/round611.test.mjs tests/round619.test.mjs \
+  tests/round618.test.mjs tests/round114.test.mjs
+npm test
+node --check lib/client.js
+node --check lib/index.js
+node --check lib/terminal.js
+git diff --check
+```
+
+- 定向：**58 pass / 0 fail**；
+- 全量：**2069 pass / 0 fail**。
+
+**已排除方案**：
+
+- 不为 Search Everywhere 单独复制一个工具栏 overflow 实现；
+- 不缩小按钮或继续压缩 gap 强行容纳全部动作；
+- 不隐藏溢出的 tab 内容，保留横向滚动与完整键盘访问；
+- 不保留仅供测试调用的 slash provider 纯函数。
+
+## 2026-11-16 — Double Shift 稳定性、searchText 重试与 Search Everywhere 布局
+
+**作用域**：Editor 显示期间的双 Shift 全局手势、workspace file API 的
+`searchText` 调用、Search Everywhere 顶部页签/工具栏/查询行布局。
+
+**症状**：
+
+- 只有焦点位于 Editor 内部时双 Shift 才响应；Escape 后焦点通常落在
+  BODY，下一次双 Shift 像“监听器被消费”一样不再打开；
+- Search Everywhere 输入文本时偶发 `unknown operation "searchText"`；
+- 页签行和工具栏被 flex 压缩，四页签、七个工具按钮和查询/File Mask
+  行堆叠得过密。
+
+**根因**：
+
+- 全局 keydown handler 使用
+  `host.contains(document.activeElement)`，把 focus 错当成 Editor 可见性；
+- effect 依赖 `searchEverywhereOpen`，弹框开关会重建监听器；
+- 浏览器 client 与 host hot-reload 期间可能短暂看到旧 operation table；
+- header 子项没有固定 flex basis，dialog 达到 max-height 时 tabs row
+  被压缩到约 19px，原 14px gap 和 12px 字号显得拥挤。
+
+**修复**：
+
+- 新增 `visibleEditorWorkspace()`，只认活动 host 的连接与
+  `getClientRects()`：Editor 可见即可响应，不要求 focus；
+- 双 Shift effect 使用 `searchEverywhereOpenRef`，监听器只注册一次；
+  Escape/关闭/窗口 blur 都清空手势状态；
+- `callFs` 对 `unknown operation "searchText"` 延时 60ms 重试一次；
+- host 对 operation trim，并兼容 `textSearch / search-text` 别名；
+- 三个 text-search 消费者共用 `searchTextFailureMessage()`；
+- 页签行固定 `flex: 0 0 44px`，gap 22、font 13、padding 16；
+  工具栏高度 34、gap 6；查询行 47px；
+- 页面提示从 slash command 改为 tab 语义。
+
+**运行态证据**：
+
+- Editor 可见、焦点在外部按钮：双 Shift 打开；
+- Escape 后 activeElement=`BODY`：双 Shift 再次打开；
+- Editor 隐藏、idle host 存在：双 Shift 不打开；
+- Editor 重开后立即可再次打开；
+- 连续查询 `en / end / scoped / value / end`：8 条结果、无 alert；
+- DOM：tabs row 45px、tablist 44px、toolbar 34px、query row 47px、
+  tab font 13px、tab gap 22px。
+
+**回归**：
+
+```bash
+node --test tests/round626.test.mjs tests/round508.test.mjs \
+  tests/round616.test.mjs tests/round624.test.mjs \
+  tests/round464.test.mjs
+npm test
+node --check lib/client.js
+node --check lib/index.js
+node --check lib/terminal.js
+git diff --check
+```
+
+- 定向：**35 pass / 0 fail**；
+- 全量：**2064 pass / 0 fail**。
+
+**已排除方案**：
+
+- 不以 body/全局 focus 作为双 Shift 条件；
+- 不在每次 Escape 后重新注册全局监听器；
+- 不把 text-search 持续失败静默为空结果；
+- 不靠缩小字号/减少 padding 换取 header 可容纳，改为固定行高并让列表
+  承担剩余高度。
+
+## 2026-11-16 — Search Everywhere 收敛为 tab 驱动并校正 Action category
+
+**作用域**：Search Everywhere 的 `All / Files / Text / Actions` result scope、
+slash 输入行为、recent search、Action category inventory 和 disabled
+Item Info。
+
+**症状 / 决策变化**：
+
+- 旧实现把 `/all`、`/actions`、`/files`、`/text`、唯一前缀补全、
+  provider help row 和帮助下按 Enter 补全混入输入框；
+- 用户明确要求只保留基础 tab 对齐方式：tab 决定 provider，query 只做
+  当前 tab 内的普通文本匹配，不用输入完成 provider/category 选择；
+- 旧 category 把 IDEA 的 `Navigate` 写成 `Navigation`，并把 Find Usages
+  家族错误地默认成 `Edit | Find`；
+- catch-all category 会让新增 Action 在无 IDEA 证据时自动获得分类。
+
+**修复**：
+
+- SearchEverywhere dialog 改为：
+  - `const effectiveTab = state.tab;`
+  - `const effectiveQuery = query;`
+  - 删除 provider command help/suggestion/completion/result 行；
+  - query 输入 `Tab / ⇧Tab` 只循环基础页签；
+  - tab 点击只 `onTab(tab.id)`，不改写 query；
+- `Text…` Action 保留 query 后切到 Text tab；background text search
+  直接使用当前 tab 的 literal query；
+- recent search 的 `normalizeRecentSearchEntry()` 只 trim，slash 文本原样
+  重放，不再推断 provider；
+- 新增 33 项显式 `SEARCH_EVERYWHERE_ACTION_CATEGORY_KEYS`：
+  - Navigate：6 项；
+  - Edit | Find：18 项；
+  - Edit | Find Usages：6 项；
+  - 无 category：Find Tool Window、Incremental Search、Search with Google；
+- disabled Action 的 Item Info meta 由 category 与 disabled reason 组成；
+- category 不进入 `rankSearchActions()` 或 result scope 判定。
+
+**IDEA / 运行态证据**：
+
+- IDEA 2026.2 CUA 实窗：
+  - Search Everywhere 行分类为 `Navigate`；
+  - Find Usages、Show Usages、Find Usages Settings、Find Usages in File、
+    Highlight Usages in File、Recent Find Usages 为 `Edit | Find Usages`；
+  - Occurrence / Replace / Find in Files 家族为 `Edit | Find`；
+  - Tool Window `Find` 与 `Incremental Search` 在 Actions 中无 category。
+- DSH Ego Browser：
+  - Actions + `replace`：7 个 Action；
+  - Files + `README`：1 个文件；
+  - Text + `end`：5 条文本命中；
+  - All + `/actions`：tab 仍为 All，2 个普通 Action 命中，
+    无 provider help/command 行。
+
+**回归**：
+
+```bash
+node --test tests/round624.test.mjs tests/round623.test.mjs \
+  tests/round620.test.mjs tests/round619.test.mjs \
+  tests/round618.test.mjs tests/round612.test.mjs \
+  tests/round579.test.mjs tests/round576.test.mjs \
+  tests/round571.test.mjs tests/round570.test.mjs \
+  tests/round569.test.mjs tests/round474.test.mjs \
+  tests/round466.test.mjs tests/round114.test.mjs
+npm test
+node --check lib/client.js
+node --check lib/index.js
+node --check lib/terminal.js
+git diff --check
+```
+
+- 定向：**50 pass / 0 fail**；
+- 全量：**2058 pass / 0 fail**；
+- fixture README/docs/app SHA-256 与基线一致。
+
+**已排除方案**：
+
+- 不在 query 中实现 `/navigate`、`/find-usages` 等 category/provider 语法；
+- 不让 category 参与 Action 排名、过滤或结果资格；
+- 不为无 IDEA category 的 Tool Window / Incremental Search /
+  Search with Google 伪造默认分类；
+- 不让最近搜索重放时推断或重写 slash provider。
+
+## 2026-11-16 — Search Everywhere Action category 与窄布局
+
+**作用域**：Search Everywhere Actions 行的 IDEA category 展示、tooltip、
+Item Info、响应式布局和本地化。
+
+**症状**：IDEA 2026.2 的 `/replace` Action 结果在快捷键左侧显示
+`Edit | Find`，`Search Everywhere`、`Go to File`、`Text` 等显示
+`Navigation`；DSH 的 Action 行只有名称、描述和快捷键，缺少可对照的分类
+信息，也不能让用户在窄窗口中判断动作归属。
+
+**修复**：
+
+- 新增 `searchEverywhereActionCategory()`，只为有 IDEA 对应语义的
+  Search/Replace Action 返回 category：
+  - Navigation：Search Everywhere、Go to File、Recent Files、Text、
+    Find Action、Show Search History；
+  - Edit | Find：Find/Replace、Structural、Selection、Usages、
+    Occurrence、Find Next/Previous、Search In Changes、Find/Replace in Files。
+- Action row 的 category 放在名称/描述之后、快捷键之前；
+- category 同时写入 tooltip 与 Item Info meta；
+- 不把文件或文本结果标记成 Action category，不伪造 Java/language-only
+  分类；
+- 新增 `searchCategoryNavigation` / `searchCategoryEditFind` 中英文文案；
+- Action row 使用 `container-type: inline-size`，row 小于 460px 时隐藏
+  category；viewport 较窄时再作为 fallback 隐藏，名称、描述、快捷键优先。
+
+**运行态证据**：
+
+- Search Everywhere 查询 `/replace`：7 个结果均显示 `Edit | Find`；
+- 查询 `Search Everywhere`：主动作、Find Action、Text 均显示
+  `Navigation`；
+- 500px viewport、460px row 宽时 category 的 computed style 为
+  `display:none`，主信息与快捷键未被挤出。
+
+**回归**：
+
+```bash
+node --test tests/round623.test.mjs tests/round622.test.mjs \
+  tests/round621.test.mjs tests/round620.test.mjs \
+  tests/round619.test.mjs tests/round618.test.mjs \
+  tests/round617.test.mjs tests/round114.test.mjs
+npm test
+node --check lib/client.js
+node --check lib/index.js
+node --check lib/terminal.js
+git diff --check
+```
+
+- 最终定向：**27 pass / 0 fail**；
+- 全量：**2053 pass / 0 fail**；
+- fixture README/docs/app SHA-256 与基线一致，未留下运行态修改。
+
+**已排除方案**：
+
+- 不给 Action 之外的 File/Text 结果伪造 category；
+- 不把分类放在快捷键之后或挤占名称描述；
+- 不在窄布局隐藏名称、描述或快捷键；
+- 不新增没有 IDEA 证据的语言相关 category。
+
+## 2026-11-16 — Recent search 历史旧 slash 格式迁移
+
+**作用域**：Search Everywhere 工作区 recent search history。
+
+**症状**：旧版本把 `/replace`、`/te`、`/` 等 slash 输入原样写入
+`dsh-editor.search.history:<workspace-root>`。新语义下 `/replace` 是内容
+query，`/te`/`/` 只是 provider 帮助，不应作为可重放搜索项。
+
+**修复**：
+
+- 新增 `normalizeRecentSearchEntry()`：
+  - 未知 slash 内容去前导 `/`；
+  - provider 后缀取内容 query；
+  - provider-only/help 返回空；
+- 新增 `rememberRecentSearchHistory()`，在归一化后按 newest-first 去重；
+- recent search 的 read/write、workspace recorder 和 Editor callback 使用
+  wrapper；
+- Find Usages history 继续使用原 helper，不改变 symbol query；
+- 读取只归一化内存，不写 localStorage；下一次历史写入才持久化。
+
+**运行态证据**：
+
+- 旧值包含 `/replace`、`/te`、`/`；
+- 菜单显示 `replace`，且 `/te`、`/` 消失；
+- 菜单打开前后 localStorage 原值一致。
+- 全量：**2043 pass / 0 fail**。
+
+**回归**：
+
+```bash
+node --test tests/round620.test.mjs tests/round619.test.mjs \
+  tests/round466.test.mjs tests/round537.test.mjs \
+  tests/round609.test.mjs tests/round114.test.mjs
+npm test
+node --check lib/client.js
+node --check lib/index.js
+node --check lib/terminal.js
+git diff --check
+```
+
+**已排除方案**：
+
+- 不在页面加载/读取历史时立即改写存储；
+- 不把 Find Usages history 一并 slash 归一化；
+- 不保留 provider-only 条目作为空 recent search。
+
+## 2026-11-16 — Slash 文本误入 Actions-only 与 Action 菜单对照
+
+**作用域**：Search Everywhere slash query、All 结果混排、background text search。
+
+**症状**：DSH 把任意 `/replace`、`/end` 都当作 Actions command mode：
+
+- 文件与文本结果被隐藏；
+- `searchEverywhereTextQuery.startsWith('/')` 直接跳过 background search；
+- IDEA 2026.2 CUA 实窗 `/replace` 实际仍显示文件结果与 Action 结果。
+
+**修复**：
+
+- 新增 `searchEverywhereContentQuery(query)`：
+  - provider help/唯一前缀返回空；
+  - 已知 provider 返回后缀 query；
+  - 其它 slash 文本去掉前导 `/` 后继续作为 All 跨 provider query；
+- SearchEverywhere 删除 commandMode Actions-only 分支；
+- background text search 与 UI effective query 共用同一 helper；
+- disabled Action 仍保留并由键盘 traversal 跳过。
+
+**运行态证据**：
+
+- `/end` 同时出现 Action 和 README/docs/src 的 5 条文本命中；
+- `/replace` 保持 7 个真实相关 Action；
+- IDEA Action 结果右键无业务菜单，`Shift+F10` 显示 Assign Shortcut；
+  DSH 的只读 Item Info 不扩展 Run/Refactor。
+- 全量：**2037 pass / 0 fail**。
+
+**回归**：
+
+```bash
+node --test tests/round618.test.mjs tests/round617.test.mjs \
+  tests/round466.test.mjs tests/round473.test.mjs \
+  tests/round474.test.mjs tests/round475.test.mjs \
+  tests/round114.test.mjs
+npm test
+node --check lib/client.js
+node --check lib/index.js
+node --check lib/terminal.js
+git diff --check
+```
+
+**已排除方案**：
+
+- 不把所有 slash 输入都取消为普通查询；provider 命令仍保留 scope；
+- 不让 background search 继续接收带 `/` 的 query；
+- 不在 Action 右键中伪造 IDEA 当前没有的 Run/Refactor 菜单项。
+
+## 2026-11-16 — `/replace` Action 噪声与替换 Enter 修饰键
+
+**作用域**：Search Everywhere Actions 过滤、FindNext/FindPrevious 描述、
+Search Everywhere 与 Find 的 replacement input 键盘语义。
+
+**症状**：
+
+- DSH `/replace` 混入 Incremental Search、Previous Occurrence、Find Usages
+  等不含连续 `replace` 词的 Action；
+- 根因是 description/keywords 也使用整段散字母 fuzzy subsequence；
+- Find replacement 只识别 `metaKey`，Windows `Ctrl+Enter` 会错走单处替换；
+- Shift+Enter、Alt+Enter 也会触发 Search Everywhere/Find 替换写入。
+
+**实现**：
+
+- label 继续允许 IDEA 模糊缩写；
+- description/keywords 归一化为词序列，query 每词必须命中目标词前缀；
+- FindNext/FindPrevious/FindInPath/ReplaceInPath 使用 ActionsBundle
+  英文/中文原文 description；
+- 新增 `replaceInputAction(event, plainEnter)`：
+  - 无修饰 Enter 按调用面语义解析；
+  - Meta 或 Ctrl 统一解析为 Replace All；
+  - Shift、Alt、IME composing 返回 null；
+- 两个 replacement input 共用该 helper。
+
+**运行态证据**：
+
+- `/replace` 从 9 条噪声结果收敛到 7 条真实相关 Action；
+- `Replace in Files…` Enter 后 Find replace mode 打开，query 焦点正确；
+- Shift/Alt+Enter `replaceText=0`，Ctrl+Enter 触发 1 次。
+- 全量：**2034 pass / 0 fail**。
+
+**回归**：
+
+```bash
+node --test tests/round617.test.mjs tests/round543.test.mjs \
+  tests/round531.test.mjs tests/round528.test.mjs \
+  tests/round474.test.mjs tests/round473.test.mjs \
+  tests/round472.test.mjs tests/round114.test.mjs \
+  tests/round503.test.mjs
+npm test
+node --check lib/client.js
+node --check lib/index.js
+node --check lib/terminal.js
+git diff --check
+```
+
+**已排除方案**：
+
+- 不移除 label 模糊搜索；
+- 不把 description 的散字母匹配继续保留为弱结果；
+- 不让 Ctrl+Enter 依赖 macOS Meta 专用判断；
+- 不用 Shift/Alt+Enter 猜测上一处替换等未验证语义。
+
+## 2026-11-16 — Monaco 初始化读取未声明 Search Everywhere 的 TDZ
+
+**作用域**：Editor 初次打开、Monaco 搜索回调和 Search Everywhere 初始化顺序。
+
+**症状**：真实 DSH Web 显示 `Editor failed to load`，错误为
+`Cannot access 'openSearchEverywhere' before initialization`。
+
+**根因**：
+
+- Monaco 初始化 `useEffect` 在 JSX 末尾的 `openSearchEverywhere`
+  声明之前执行；
+- effect body 内的回调本身可延后执行，但其 dependency array 在 render
+  时立即读取 `openSearchEverywhere`，因此命中 TDZ；
+- 静态正则测试和 `node --check` 不能发现这类运行时初始化顺序问题。
+
+**修复**：
+
+- 新增 `openSearchEverywhereRef`，Monaco 的 `onSearchText` 只通过
+  ref 调用；
+- 删除两个 Monaco effect dependency array 中的直接变量引用；
+- provider 声明后同步 `openSearchEverywhereRef.current`；
+- round616 增加声明前不得直接引用 `openSearchEverywhere` 的回归。
+
+**运行态证据**：
+
+- 修复前 Editor 启动失败；
+- 修复后 reload 可正常加载 Project、Find 和 Monaco；
+- 双 Shift 打开 Search Everywhere，`end` 查询与 `⌘R` handoff 正常。
+
+## 2026-11-16 — Replace 写入同步守卫与确认路径
+
+**作用域**：Search Everywhere Replace All、Find Replace All、Find 单处 Replace。
+
+**症状**：两个同一 task 内的 `Enter / Meta+Enter` 可以在 React
+`replaceBusy` commit 前同时进入 Replace handler，形成重复确认或重复
+`replaceText` 请求。
+
+**修复**：
+
+- 新增共享 `replaceWriteBusyRef`；
+- `claimReplaceAttempt()` 同步占位，`releaseReplaceAttempt()` 显式释放；
+- 三条替换路径在执行确认/写入前 claim；
+- confirm cancel 立即 release，成功与失败统一在 `finally` 释放；
+- 原有 React busy state 继续只负责 disabled UI 和提示。
+
+**回归**：
+
+```bash
+node --test tests/round616.test.mjs tests/round521.test.mjs \
+  tests/round520.test.mjs tests/round518.test.mjs \
+  tests/round516.test.mjs tests/round513.test.mjs \
+  tests/round467.test.mjs tests/round584.test.mjs
+npm test
+node --check lib/client.js
+node --check lib/index.js
+node --check lib/terminal.js
+git diff --check
+```
+
+- RED：**3 fail**；
+- 定向：**24 pass / 0 fail**；
+- 全量：**2029 pass / 0 fail**；
+- 运行态取消：Find 打开、query/replacement/结果数/替换输入焦点保留；
+- 运行态重入：快速两次 `Meta+Enter` = `confirmCalls:1`,
+  `replaceText:1`；
+- 运行态成功：5 处/3 文件写入，Monaco 和状态栏刷新；
+- fixture 原始 SHA-256 已恢复。
+
+**已排除方案**：
+
+- 不只依赖 React `replaceBusy`（state commit 存在时间窗）；
+- 不在 confirm cancel 后把 ref 永久锁死；
+- 不为三条替换路径各造一个独立 guard；
+- 不把运行态 fixture 的临时替换写入留在磁盘。
+
+## 2026-11-16 — Find tool 根级 Escape 与关闭回焦
+
+**作用域**：持久 Find tool 的 File Mask、预览工具栏、动作栏和窗口关闭焦点。
+
+**症状**：查询、替换和结果行已有局部 `Escape`，但 File Mask、预览按钮和
+工具栏没有统一关闭路径；Find 整个卸载后浏览器可能把焦点落到 `body`，
+当前 Monaco 的全局快捷键随即失效。
+
+**实现**：
+
+- FindToolWindow 根增加 `Escape` 处理器：
+  - `defaultPrevented` 的局部处理器保持优先；
+  - 菜单目标继续交给 `ContextMenu` capture listener；
+  - 其它控件调用窗口统一 `onClose`。
+- replacement input 的 `Escape` 增加 `stopPropagation`，防止根级二次关闭；
+- 新增 `closeFindToolWindow()`：
+  - `setFindTool(null)` 后异步聚焦 `currentCodeEditor()`；
+  - `Hide`、`Escape` 与工具栏 overflow 中的关闭动作共用；
+- 不改 `CompactActionBar`、Search Everywhere handoff 或搜索状态。
+
+**回归**：
+
+```bash
+node --test tests/round615.test.mjs tests/round614.test.mjs \
+  tests/round613.test.mjs tests/round612.test.mjs \
+  tests/round497.test.mjs tests/round487.test.mjs
+npm test
+node --check lib/client.js
+node --check lib/index.js
+node --check lib/terminal.js
+git diff --check
+```
+
+- RED：**3 fail**；
+- 定向：**24 pass / 0 fail**；
+- 全量：**2025 pass / 0 fail**。
+
+**已排除方案**：
+
+- 不在每个工具栏按钮上分别复制关闭逻辑；
+- 不让 replacement input 冒泡触发窗口根二次关闭；
+- 不在卸载前同步 `focus()` 已失效控件；
+- 不为运行态验收接管仍由用户控制的 TaskSpace 133。
+
+## 2026-11-16 — Find tool 菜单回焦 fallback
+
+**作用域**：持久 Find tool 的 Query/Replace History 与 Result ContextMenu。
+
+**实现**：
+
+- FindToolWindow 增加 `queryInputRef`；
+- query history fallback → query input；
+- replace history fallback → replacement input，缺失时 query；
+- result menu fallback → query；
+- opener 有效时继续使用 ContextMenu 原回焦；
+- handoff active descendant 与滚动定位不变。
+
+**回归**：
+
+```bash
+node --test tests/round614.test.mjs tests/round613.test.mjs \
+  tests/round589.test.mjs tests/round533.test.mjs tests/round492.test.mjs
+npm test
+node --check lib/client.js
+git diff --check
+```
+
+- RED：**3 fail**；
+- 定向：**19 pass / 0 fail**。
+
+**已排除方案**：
+
+- 不在结果刷新时强制把焦点从 opener 抢到 query；
+- 不让 replacement history 错回 query；
+- 不允许焦点落到 `body`；
+- 不修改 handoff active descendant 的既有 revision 机制。
+
+## 2026-11-16 — Search Everywhere ContextMenu 回焦 fallback
+
+**作用域**：Search Everywhere History、Filter、Result 菜单关闭后的焦点恢复。
+
+**症状**：ContextMenu 原本只在 opener 仍 `isConnected` 时恢复焦点；过滤或异步刷新导致 opener 卸载后，焦点可能落到 `body`。
+
+**实现**：
+
+- `ContextMenu` menu 元数据新增 `fallbackFocus`：
+- opener 有效时保持原回焦；
+- opener 失效时调用 fallback；
+- Search Everywhere 的 Filter、Query/Find Usages/Replace History、Result menu 全部 fallback 到 query；
+- Item Info 继续独立地从关闭按钮回 query。
+
+**回归**：
+
+```bash
+node --test tests/round613.test.mjs tests/round612.test.mjs \
+  tests/round589.test.mjs tests/round533.test.mjs tests/round492.test.mjs
+npm test
+node --check lib/client.js
+git diff --check
+```
+
+- RED：**2 fail**；
+- 定向：**19 pass / 0 fail**；
+- ContextMenu 兼容回归：**47 pass / 0 fail**；
+- 全量：**2018 pass / 0 fail**。
+
+**已排除方案**：
+
+- 不把 `document.body` 当作回焦目标；
+- 不改变 opener 仍有效时的原有回焦语义；
+- 不让 Item Info 依赖已被关闭的 Result menu opener。
+
+## 2026-11-16 — Search Everywhere 模态焦点循环
+
+**作用域**：Search Everywhere 弹框内非查询控件的 Tab 焦点边界。
+
+**实现**：
+
+- 新增 `searchEverywhereNextFocusIndex()`：
+  - 正向/反向循环；
+  - 空列表返回 null；
+  - 失效 index 收敛到首/尾。
+- dialog root 新增 `trapSearchEverywhereFocus()`：
+  - 过滤 disabled 与不可见 focusable；
+  - 在弹框内部首尾回绕；
+  - 不泄漏焦点到背后 Editor/Chat。
+- query input 的 Tab 处理仍是更高优先级：
+  - provider 唯一前缀补全；
+  - provider tab 正反循环；
+  - stopPropagation 后不进入通用 trap。
+- dialog key 顺序：focus trap → Item Info Escape → History fallback。
+
+**回归**：
+
+```bash
+node --test tests/round612.test.mjs tests/round610.test.mjs \
+  tests/round609.test.mjs tests/round608.test.mjs
+npm test
+node --check lib/client.js
+git diff --check
+```
+
+- RED：**3 fail**；
+- 定向：**17 pass / 0 fail**；
+- 全量：**2014 pass / 0 fail**。
+
+**已排除方案**：
+
+- 不抢查询框的 provider Tab 语义；
+- 不把隐藏/disabled 控件纳入焦点循环；
+- 不在弹框外注册第二套 focus trap。
+
+## 2026-11-16 — Search/Find/Replace ActionsBundle parity 闭环
+
+**作用域**：IDEA 2026.2 搜索/查找/替换相关 ActionsBundle 与本插件入口的最终静态分类。
+
+**实现**：
+
+- 新增 `docs/search-everywhere-parity.md`：
+  - 22 个可见 Action 到 DSH id 的映射；
+  - disabled 的 settings、structural search/replace 边界；
+  - 内部 Search Everywhere 行为；
+  - 不适用于 DSH 的补全、Java 重构、Finder、SpeedSearch 等；
+- round611 测试要求文档、client action id 和内部行为函数保持一致。
+
+**回归**：
+
+```bash
+node --test tests/round611.test.mjs tests/round610.test.mjs tests/round609.test.mjs
+npm test
+node --check lib/client.js
+git diff --check
+```
+
+- RED：**4 fail**；
+- 定向：**13 pass / 0 fail**；
+- 全量：**2010 pass / 0 fail**。
+
+**已排除方案**：
+
+- 不把 Search Everywhere 内部 Tab/Group/SelectItem 伪造成独立 Action；
+- 不为 language AST 或 language-aware usage scope 伪造实现；
+- 不让 parity 只停留在一次聊天结论，必须进入 docs 和回归。
+
+## 2026-11-16 — Item Info 焦点闭环与 shortcut 执行矩阵
+
+**作用域**：Search Everywhere Item Info 的键盘焦点，以及 Action shortcut 到真实执行路径的回归覆盖。
+
+**实现**：
+
+- `resultInfoCloseRef`：
+  - Info 打开后焦点进入关闭按钮；
+  - 关闭时回焦 query。
+- `handleSearchEverywhereDialogKeyDown()`：
+  - resultInfo 存在时在 dialog 层处理 Escape；
+  - 无 Info 时仍调用 Show Search History helper；
+  - 避免 Tab 到关闭按钮后 Escape 误关整个 Search Everywhere。
+- round610 增加 shortcut execution matrix：
+  - 21 个可见 shortcut Action 逐项断言真实执行 API；
+  - disabled Settings 断言 `disabled: true`；
+  - Action ID 保持唯一。
+
+**回归**：
+
+```bash
+node --test tests/round610.test.mjs tests/round609.test.mjs \
+  tests/round608.test.mjs tests/round478.test.mjs
+npm test
+node --check lib/client.js
+git diff --check
+```
+
+- RED：**2 fail**；
+- 定向：**16 pass / 0 fail**；
+- 全量：**2006 pass / 0 fail**。
+
+**已排除方案**：
+
+- 不让 Info 的 Escape 依赖 query/list 当前焦点；
+- 不新增第二套 Search Everywhere key handler；
+- 不把 shortcut 矩阵做成仅文档说明而不进入回归。
+
+## 2026-11-16 — Show Search Everywhere Item Info
+
+**作用域**：Search Everywhere Action、File、Text 三类结果的 Item Info 入口和真实元数据展示。
+
+**证据**：
+
+- IDEA 2026.2 English ActionsBundle：
+  `Show Search Everywhere Item Info`；
+- 中文语言包：
+  `显示“随处搜索”条目信息`；
+- Action 没有默认 keybinding。
+
+**实现**：
+
+- `searchEverywhereItemInfo()` 只生成 DSH 已有数据：
+  - Action：label / description / shortcut / disabled reason；
+  - File：basename + workspace path；
+  - Text：basename + `path:line:column` + preview。
+- Action/File/Text 结果菜单都提供同一入口；
+- Action 行现在也支持右键与 `Shift+F10`；
+- Info panel 使用 `role="status"`、`aria-live="polite"` 和关闭按钮；
+- Escape 收起 Info 并回焦查询框，query/tab 变化清除旧 Info；
+- Find tool 不注册 Info 菜单项，避免有入口无面板。
+
+**回归**：
+
+```bash
+node --test tests/round609.test.mjs tests/round608.test.mjs \
+  tests/round607.test.mjs tests/round477.test.mjs \
+  tests/round478.test.mjs tests/round496.test.mjs \
+  tests/round497.test.mjs tests/round499.test.mjs \
+  tests/round500.test.mjs tests/round588.test.mjs tests/round589.test.mjs
+npm test
+node --check lib/client.js
+git diff --check
+```
+
+- RED：**5 fail**；
+- 定向：**41 pass / 0 fail**；
+- 全量：**2002 pass / 0 fail**。
+
+**已排除方案**：
+
+- 不伪造 class/symbol/module 元数据；
+- 不在 Find tool 中显示无实现的 Info 项；
+- 不复用 hover tooltip 替代可访问的显式入口；
+- 不把无 keybinding 的 IDEA Action 强行绑定快捷键。
+
+## 2026-11-16 — Show Search History 覆盖整个 Search Everywhere
+
+**作用域**：Search Everywhere `Show Search History / ⌥↓` 在弹框内部不同焦点区域的执行一致性。
+
+**症状 / 根因**：
+
+- Action 行展示 `⌥↓`；
+- 旧实现只在 query input 的 `onKeyDown` 中打开查询历史；
+- Results listbox、Tabs、工具栏或其他弹框控件获得焦点后，同一
+  shortcut 无响应。
+
+**实现**：
+
+- 新增 `searchHistoryShortcutMatches()`，严格匹配 alt+ArrowDown；
+- SearchEverywhere dialog root 统一处理该 chord；
+- Query input 保留本地 handler；
+- Replace input 增加 `data-dsh-search-replace-input`，继续使用替换
+  历史；
+- File Mask、Tabs、工具栏与 Listbox 使用查询历史；
+- 菜单锚点继续复用 Search input 的几何位置和现有
+  `openQueryHistoryMenuAt()`。
+
+**回归**：
+
+```bash
+node --test tests/round608.test.mjs tests/round607.test.mjs \
+  tests/round492.test.mjs tests/round533.test.mjs \
+  tests/round582.test.mjs tests/round556.test.mjs
+npm test
+node --check lib/client.js
+git diff --check
+```
+
+- RED：**3 fail**；
+- 定向：**23 pass / 0 fail**；
+- 全量：**1997 pass / 0 fail**。
+
+**已排除方案**：
+
+- 不用 window-level 第二套 Search Everywhere handler；
+- 不让替换输入框 Alt+Down 错开查询历史；
+- 不修改 recentSearches 数据结构；
+- 不在弹框外抢占 Alt+Down。
+
+## 2026-11-16 — Diff surface 独占 Search In Changes
+
+**作用域**：Commit/Compare Diff 内 Cmd/Ctrl+F 与源码编辑器全局 Search 快捷键的上下文边界。
+
+**症状 / 根因**：
+
+- Search Everywhere Action 宣称 `⌘F`，DiffPreview 也提供 Monaco
+  `actions.find`；
+- 但编辑器全局 Cmd/Ctrl+F 捕获器注册更早，可能先打开隐藏源码编辑器
+  的 Find；
+- Diff 工具栏/header 获得焦点时，旧 `insideDiffPane` 判断不会进入
+  Search In Changes；
+- Find Next 的 F3 备用键也可能在 Diff 中操作旧 source editor。
+
+**实现**：
+
+- DiffPreview 根节点增加 `data-dsh-editor-diff-surface`；
+- Cmd/Ctrl+F 使用 `insideDiffSurface`，覆盖 Monaco、side header 与
+  工具栏；
+- 编辑器全局 search family 在 target/activeElement 位于 Diff surface
+  时立即 return；
+- Find step 的 blocked selector 加入 Diff surface；
+- 继续复用 DiffPreview 原 `searchInChanges()` 与 Monaco `actions.find`。
+
+**回归**：
+
+```bash
+node --test tests/round607.test.mjs tests/round606.test.mjs \
+  tests/round205.test.mjs tests/round208.test.mjs \
+  tests/round172.test.mjs tests/round203.test.mjs \
+  tests/round285.test.mjs tests/round292.test.mjs \
+  tests/round507.test.mjs tests/round598.test.mjs
+npm test
+node --check lib/client.js
+git diff --check
+```
+
+- RED：**4 fail**；
+- 定向：**32 pass / 0 fail**；
+- 全量：**1993 pass / 0 fail**。
+
+**已排除方案**：
+
+- 不新增第二个 Diff Find；
+- 不在编辑器全局捕获器里直接调用 Diff runner；
+- 不允许 F3 操作 Diff 后隐藏的源码编辑器；
+- 不改变 Diff 既有 F7、Escape、undo/redo 所有权。
+
+## 2026-11-16 — Find Next/Previous 的 IDEA 备用 chord
+
+**作用域**：Search Everywhere Actions 与编辑器 Find 的上一处/下一处快捷键。
+
+**证据**：IDEA 2026.2 keymap 需要分层读取：
+
+- `$default.xml`；
+- `Mac OS X 10.5+.xml`；
+- `macOS System Shortcuts.xml`。
+
+`Mac OS X 10.5+.xml` 中：
+
+- `FindNext = F3; control L; meta G`；
+- `FindPrevious = shift F3; control shift L; meta shift G`；
+- `GotoFile = meta shift O`；
+- `FindInPath = meta shift F`；
+- `ReplaceInPath = meta shift R`。
+
+**实现**：
+
+- Action 可见主 chord 继续显示 `⌘G / ⇧⌘G`；
+- 新增 `ideaFindStepShortcutAction()`：
+  - `F3 / ⇧F3` 全平台可用；
+  - `Control+L / Control+Shift+L` 仅 macOS；
+- 使用 `editorFindQueryActiveRef`，只有编辑器 Find 有非空 query 时
+  才消费备用键；
+- Terminal、Project、Commit、Find tool 和普通输入框不让路；
+- 复用现有 `editorFindStepRef.current()`，不复制步进算法；
+- 非 macOS 的 `Ctrl+L` 继续由 Monaco Go to Line 使用。
+
+**回归**：
+
+```bash
+node --test tests/round606.test.mjs tests/round605.test.mjs \
+  tests/round509.test.mjs tests/round511.test.mjs \
+  tests/round542.test.mjs tests/round469.test.mjs tests/round146.test.mjs
+npm test
+node --check lib/client.js
+git diff --check
+```
+
+- RED：**3 fail**；
+- 定向：**30 pass / 0 fail**；
+- 全量：**1988 pass / 0 fail**。
+
+**已排除方案**：
+
+- 不用 F3 在无活动 Find 时抢浏览器查找；
+- 不在非 macOS 抢占 `Ctrl+L` Go to Line；
+- 不新增第二套 Find match 算法；
+- 不把 F3 备选 chord 拼进 Action 可见 shortcut。
+
+## 2026-11-16 — Usage 家族 macOS 主 chord 与备用 chord
+
+**作用域**：Search Everywhere Actions 中 Find Usages / Show Usages / Find Usages Settings 的平台键位与执行路径。
+
+**证据**：
+
+- IDEA 2026.2 `$default.xml`：
+  - `FindUsages = alt F7`；
+  - `ShowUsages = control alt F7`；
+  - `ShowSettingsAndFindUsages = control shift alt F7`。
+- `macOS System Shortcuts.xml`：
+  - `FindUsages = ctrl U; alt F7`；
+  - `ShowUsages = ctrl alt U; meta alt F7`；
+  - `ShowSettingsAndFindUsages =
+    control shift alt U; meta shift alt F7`。
+
+**实现**：
+
+- `ideaUsageFamilyShortcut()` 是 Actions 可见 shortcut 的唯一来源：
+  - macOS 主 chord `⌃U / ⌃⌥U / ⌃⇧⌥U`；
+  - 其他平台 `⌥F7 / ⌃⌥F7 / ⌃⇧⌥F7`。
+- `ideaUsageFamilyShortcutAction()` 同时匹配主 chord 与 macOS
+  备用 chord；
+- 真实 dispatch 仅接受 `[data-dsh-editor-file-surface]` 内 Monaco
+  source editor 的焦点；
+- 复用现有 `openFindUsages()` / `openShowUsages()`；
+- Settings 仍 disabled，命中时不会消费事件。
+
+**回归**：
+
+```bash
+node --test tests/round605.test.mjs tests/round604.test.mjs \
+  tests/round603.test.mjs tests/round602.test.mjs \
+  tests/round529.test.mjs tests/round579.test.mjs \
+  tests/round586.test.mjs tests/round587.test.mjs tests/round556.test.mjs
+npm test
+node --check lib/client.js
+git diff --check
+```
+
+- RED：**4 fail**；
+- 定向：**38 pass / 0 fail**；
+- 全量：**1984 pass / 0 fail**。
+
+**已排除方案**：
+
+- 不在 macOS 继续把默认 keymap chord 当作主快捷键；
+- 不从输入框、Terminal、Project、Commit 或 Diff 抢 Usage chord；
+- 不为 disabled Settings 伪造执行路径；
+- 不复制 Find Usages / Show Usages 的搜索或弹框实现。
+
+## 2026-11-16 — Usage Action 的 macOS 备用 chord
+
+**作用域**：源码编辑器中 Find Usages in File / Highlight Usages in File 的 IDEA macOS 备用快捷键。
+
+**证据**：
+
+- `macOS System Shortcuts.xml`：
+  - `FindUsagesInFile = ctrl shift U; meta F7`；
+  - `HighlightUsagesInFile = ctrl meta U; meta shift F7`。
+- Monaco 0.52.2：
+  - `CtrlCmd+U` 是 cursor undo；
+  - `CtrlCmd+K, CtrlCmd+U` 是注释 chord；
+  - 未发现 `Control+Shift+U` / `Control+Meta+U` 默认绑定。
+
+**实现**：
+
+- macOS 的 `dsh-editor.findUsagesInFile.*` 接受：
+  - `Meta+F7`；
+  - `Control+Shift+U`；
+- macOS 的 `dsh-editor.highlightUsagesInFile.*` 接受：
+  - `Shift+Meta+F7`；
+  - `Control+Meta+U`；
+- 非 macOS 保持单个默认 chord；
+- Action 行只展示主 shortcut，不把备用 chord 拼入可见文本；
+- 备用 chord 仍只存在于 Monaco source action，不新增 window listener。
+
+**回归**：
+
+```bash
+node --test tests/round604.test.mjs tests/round603.test.mjs \
+  tests/round602.test.mjs tests/round329.test.mjs tests/round530.test.mjs
+npm test
+node --check lib/client.js
+git diff --check
+```
+
+- RED：**2 fail**；
+- 定向：**19 pass / 0 fail**；
+- 全量：**1979 pass / 0 fail**。
+
+**已排除方案**：
+
+- 不覆盖 Monaco 既有 `CtrlCmd+U` cursor undo；
+- 不在非 macOS 添加 IDEA macOS 专有 U chord；
+- 不把备用 chord 加入 Actions visible metadata；
+- 不新增第二套 window-level usage shortcut handler。
+
+## 2026-11-16 — 搜索 Action 的真实 Monaco keybinding
+
+**作用域**：Search Everywhere 中 5 个可直接执行的搜索/查找 Action 在源码编辑器内的真实快捷键。
+
+**实现**：
+
+- `ideaControlKeyModifier()` 区分 IDEA 物理 Control：
+  - macOS → Monaco `KeyMod.WinCtrl`；
+  - 其他平台 → `KeyMod.CtrlCmd`；
+- 两个源码 Monaco group 注册：
+  - `Text… = Control+Shift+Alt+E`；
+  - `Find Usages in File = Meta+F7`（macOS）/`Control+F7`；
+  - `Highlight Usages in File = Shift+Meta+F7`（macOS）；
+  - 下一处 occurrence `= Control+F3`；
+  - 上一处 occurrence `= Control+Shift+F3`；
+- `Text…` 复用 `openSearchEverywhere('text')`，并延迟回焦
+  `data-dsh-search-query`；
+- 不增加 window-level F7/F3 listener，因此 Terminal、Project tree、
+  Commit Changes/Log、输入框与 Diff 保持原有键盘所有权。
+
+**回归**：
+
+```bash
+node --test tests/round603.test.mjs tests/round602.test.mjs \
+  tests/round329.test.mjs tests/round530.test.mjs \
+  tests/round549.test.mjs tests/round531.test.mjs tests/round529.test.mjs
+npm test
+node --check lib/client.js
+node --check lib/index.js
+git diff --check
+```
+
+- RED：**4 fail**；
+- 定向：**30 pass / 0 fail**；
+- 全量：**1975 pass / 0 fail**。
+
+**已排除方案**：
+
+- 不用 `CtrlCmd` 表示 macOS 的 `⌃F3`，否则会错误变成 `⌘F3`；
+- 不新增全局 F7/F3 捕获；
+- 不在 `Text…` 快捷键里复制第二套 Search Everywhere；
+- 不把快捷键挂到 Diff 或旧 source editor 上。
+
+**环境限制**：Ego TaskSpace `133` 仍是 `agentDelegatedToUser`，权限提示未由用户处理，本轮未做 DSH Web 键盘运行态验收。
+
+## 2026-11-16 — Search Everywhere 搜索动作 keymap 元数据
+
+**作用域**：Search Everywhere Actions 中直接可执行搜索/替换动作的快捷键展示与 ARIA。
+
+**证据**：本机 IDEA 2026.2
+`/Applications/Intellij.app/Contents/lib/intellij.platform.ide.impl.jar`：
+
+- `keymaps/$default.xml`：
+  - `TextSearchAction = control shift alt E`；
+  - `FindUsagesInFile = control F7`；
+  - `HighlightUsagesInFile = control shift F7`；
+  - `FindWordAtCaret = control F3`；
+  - `FindPrevWordAtCaret = control shift F3`；
+- `keymaps/macOS System Shortcuts.xml`：
+  - `FindUsagesInFile` 覆盖为 `ctrl shift U; meta F7`；
+  - `HighlightUsagesInFile` 覆盖为 `ctrl meta U; meta shift F7`；
+  - `TextSearchAction = shift ctrl alt E`。
+
+**实现**：
+
+- `textSearch` 显示 `⌃⇧⌥E`；
+- `findUsagesInFile` 显示 macOS 主 chord `⌘F7`；
+- `highlightUsagesInFile` 显示 macOS 主 chord `⇧⌘F7`；
+- `findNextWordOccurrence` 显示 `⌃F3`；
+- `findPreviousWordOccurrence` 显示 `⌃⇧F3`；
+- 全部复用 `searchEverywhereAriaKeyShortcuts()` 生成 ARIA；
+- `findToolWindow` 不宣称 `Alt+3`，因为 DSH 已把该键用于 Commit。
+
+**回归**：
+
+```bash
+node --test tests/round602.test.mjs tests/round601.test.mjs \
+  tests/round600.test.mjs tests/round556.test.mjs
+npm test
+node --check lib/client.js
+node --check lib/index.js
+git diff --check
+```
+
+- RED：**2 fail**（metadata 缺失、测试函数提取器 SyntaxError）；
+- 定向：**12 pass / 0 fail**。
+
+**已排除方案**：
+
+- 不把默认 keymap 的 `⌃F7 / ⌃⇧F7` 错误显示到 macOS；
+- 不把 Search Everywhere 内部 Tab/Group/SelectItem chord 变成独立 Action；
+- 不让 Find tool window 冒充 `Alt+3`；
+- 不修改 production 逻辑迎合错误的测试函数提取器。
+
+## 2026-11-16 — Find Action 全局工作台 chord
+
+**作用域**：Search Everywhere 外的 Editor 工作台 Find Action 快捷键。
+
+**实现**：
+
+- 复用 `findActionShortcutMatches()`：
+  - macOS Meta+Shift+A / Meta+Shift+P；
+  - 非 macOS Control+Shift+A；
+- `findActionShortcutBlockedByChildContext()` 让路给：
+  - Monaco；
+  - input/textarea/contenteditable；
+  - Terminal；
+  - Commit/Changes panel；
+  - Commit Log；
+  - Project tree；
+- Editor 全局 capture listener：
+  - Search Everywhere 已打开时退出，由弹框内 listener 处理；
+  - 只在 `[data-dsh-editor-workspace]` 含 activeElement 时生效；
+  - 子上下文拥有 chord 时退出；
+  - 空闲上下文调用 `openSearchEverywhere('actions')`；
+  - `preventDefault/stopPropagation`；
+  - 延迟回焦查询框。
+
+**冲突边界**：
+
+- Commit `⌘⇧A` stage 必须优先；
+- Terminal `⌘A`/自有快捷键不被抢占；
+- Monaco 与输入框保留自身行为；
+- Project tree typeahead 与 Log/Changes filter 不被干扰。
+
+**回归**：
+
+```bash
+node --test tests/round601.test.mjs tests/round600.test.mjs \
+  tests/round239.test.mjs tests/round44.test.mjs tests/round205.test.mjs
+npm test
+node --check lib/client.js
+node --check lib/index.js
+git diff --check
+```
+
+- RED：**3 fail**；
+- 定向：**14 pass / 0 fail**；
+- 全量：**1968 pass / 0 fail**。
+
+**已排除方案**：
+
+- 不在全局重定义第二套 Search Everywhere；
+- 不抢 Commit stage / Terminal / tree / filter；
+- 不在 Search Everywhere 已打开时由外部 listener 再处理；
+- 不关闭后重开弹框。
+
+## 2026-11-16 — Find Action keymap 对齐
+
+**作用域**：Search Everywhere 中 `Find Action…` 的快捷键元数据和 chord。
+
+**证据**：
+
+- `intellij.platform.ide.impl.jar!keymaps/$default.xml`：
+  `GotoAction = control shift A`；
+- `keymaps/macOS System Shortcuts.xml`：
+  `GotoAction` 同时包含 `meta shift P` 与 `meta shift A`；
+- ActionsBundle 文案已对齐 `Find Action… / 查找操作…`。
+
+**实现**：
+
+- `findActionShortcutMatches()` 统一平台判断：
+  - macOS Meta+Shift+A / Meta+Shift+P；
+  - 非 macOS Control+Shift+A；
+  - 排除 Alt、无 Shift、IME composing；
+- `findAction` Action 行显示 `⇧⌘A`，现有 ARIA normalizer 生成
+  `Shift+Meta+A`；
+- Search Everywhere 内新增 window capture listener：
+  - preventDefault/stopPropagation；
+  - query 清空；
+  - tab=`actions`；
+  - 回焦查询框；
+  - 弹框保持打开，不写历史。
+
+**回归**：
+
+```bash
+node --test tests/round600.test.mjs tests/round599.test.mjs \
+  tests/round598.test.mjs tests/round597.test.mjs tests/round556.test.mjs
+npm test
+node --check lib/client.js
+node --check lib/index.js
+git diff --check
+```
+
+- RED：**3 fail**；
+- 定向：**14 pass / 0 fail**；
+- 全量：**1965 pass / 0 fail**。
+
+**已排除方案**：
+
+- 不把 macOS `meta shift P` 显示成主 shortcut；
+- 不在非 macOS 接受 Meta+Shift+A；
+- 不让输入法 composing 状态触发；
+- 不关闭 Search Everywhere 后重新打开。
+
+## 2026-11-16 — Search Everywhere 顶层 Actions 入口
+
+**作用域**：Search Everywhere Actions 中的顶层 Search Everywhere action。
+
+**证据**：
+
+- `ActionsBundle`：
+  `action.SearchEverywhere.text=Search Everywhere`；
+- 中文语言包：`随处搜索`；
+- 原 description 宣称搜索 classes/files/tool windows/actions/preferences；
+- DSH 真实的 Search Everywhere 只有 files/text/actions，故 description 使用
+  `Search files, text, and actions / 搜索文件、文本和操作`，不伪造缺失索引。
+
+**实现**：
+
+- Actions 新增第 33 项 `searchEverywhere`；
+- 复用现有 `openSearchEverywhere('all')`，没有复制第二套 opener；
+- keepOpen；
+- query 清空、tab=`all`、index=0；
+- 延迟回焦 `[data-dsh-search-query]`；
+- rememberQuery=false；
+- 双击 Shift 仍是唯一外部 opener。
+
+**回归**：
+
+```bash
+node --test tests/round599.test.mjs tests/round598.test.mjs \
+  tests/round597.test.mjs tests/round553.test.mjs tests/round555.test.mjs \
+  tests/round557.test.mjs
+npm test
+node --check lib/client.js
+node --check lib/index.js
+git diff --check
+```
+
+- RED：**2 fail**；
+- 定向：**21 pass / 0 fail**；
+- 全量：**1962 pass / 0 fail**。
+
+**已排除方案**：
+
+- 不复制 Search Everywhere 初始化逻辑；
+- 不在 action description 中宣称 Classes/Symbols/Preferences；
+- 不关闭弹框后再重开；
+- 不把双击 Shift 定义成普通 keymap chord。
+
+## 2026-11-16 — Search In Changes Actions 入口
+
+**作用域**：Search Everywhere Actions 中的 IDEA Diff 搜索入口。
+
+**证据**：
+
+- `ActionsBundle`：
+  `action.Vcs.Diff.ToggleSearchInChanges.text=Search In Changes`；
+- 中文语言包：`在更改中搜索`；
+- 该 action 是 Diff 编辑器查找，不是 Commit changes path filter。
+
+**实现**：
+
+- DiffPreview 把现有 `searchInChanges` 注册到
+  `searchInChangesRef`，unmount 时只在仍指向自身时清理；
+- Editor 持有稳定 `diffSearchInChangesRef` 并传入 DiffPreview；
+- Search Everywhere Actions 新增 `searchInChanges`：
+  - shortcut `⌘F`；
+  - 仅真实可见 Diff 时启用；
+  - repository-version 只读预览禁用；
+  - 执行后关闭 Search Everywhere、保持 Commit/Diff 可见，延迟调用
+    Diff runner；
+- runner 继续调用 modified Monaco editor 的 `actions.find`；
+- 文案同步 IDEA 原文，并补 disabled reason。
+
+**回归**：
+
+```bash
+node --test tests/round598.test.mjs tests/round205.test.mjs \
+  tests/round553.test.mjs tests/round555.test.mjs tests/round557.test.mjs
+npm test
+node --check lib/client.js
+node --check lib/index.js
+git diff --check
+```
+
+- RED：**3 fail**；
+- 定向：**19 pass + 21 pass / 0 fail**；
+- 全量：**1960 pass / 0 fail**。
+
+**已排除方案**：
+
+- 不把 Search In Changes 错接到 Commit change filter；
+- 不在 repository-version 预览上启用无 runner 的 action；
+- 不复制 Monaco find，只复用 DiffPreview 原 runner；
+- 不修改 diff 模型、选择或 commit selection。
+
+## 2026-11-16 — Search Everywhere ActionsBundle 最终差异审计
+
+**作用域**：Search Everywhere Actions 中搜索/替换入口与 IDEA 2026.2
+`ActionsBundle` 的身份对齐。
+
+**证据**：
+
+- 直接解析
+  `/Applications/Intellij.app/Contents/lib/intellij.platform.ide.impl.jar`
+  的 `messages/ActionsBundle.properties`；
+- 中文文案来自 `localization-zh.jar`；
+- 关键原文：
+  - `GotoAction.text=Find Action… / 查找操作…`；
+  - `ActivateFindToolWindow.text=Find / 查找`；
+  - `FindSelectionInPath.text=Find in Files / 在文件中查找`；
+- 其余 SearchEverywhere 内部 keymap action 已由弹框键盘行为覆盖，
+  不需要伪装成独立 Actions 行。
+
+**实现**：
+
+- Actions 新增 `findAction`（第 31 项）：
+  - keepOpen；
+  - query 清空；
+  - tab 切到 actions；
+  - 回焦查询框；
+  - 不写命令历史；
+- `findToolWindow` label 改为 IDEA `Find / 查找`；
+- `findSelectionInFiles` label 改为 IDEA
+  `Find in Files / 在文件中查找`；
+- 两个旧名称保留为 keywords，仍可搜索到同一 action；
+- 更新 README inventory 与 round555 availability matrix 到 31 项。
+
+**回归**：
+
+```bash
+node --test tests/round597.test.mjs tests/round553.test.mjs \
+  tests/round569.test.mjs tests/round536.test.mjs tests/round557.test.mjs \
+  tests/round583.test.mjs
+node --test tests/round555.test.mjs
+npm test
+node --check lib/client.js
+node --check lib/index.js
+git diff --check
+```
+
+- RED：**3 fail**；
+- 定向：**20 pass + 22 pass / 0 fail**；
+- 全量：**1956 pass / 0 fail**。
+
+**已排除方案**：
+
+- 不把内部 Tab/Group/SelectItem keymap action 变成独立 Actions 行；
+- 不新增第二套 action dialog；
+- 不删除旧名称，而是保留为 keywords；
+- 不改变 Find Tool Window 与 selection Find 的底层执行路径。
+
+## 2026-11-16 — Text 空结果已用搜索选项明细
+
+**作用域**：Search Everywhere Text 页零结果时的 option explanation。
+
+**IDEA 证据**：
+
+- `SeTextTabEmptyResultInfoProvider` 在 Clear all options 前显示
+  “used options”；
+- 顺序为 Match Case、Whole Words、Regex、File Mask；
+- `message.nothingFound.used.options=Search options used:`，中文
+  `搜索已用选项:`；
+- File mask 短标签来自 `find.popup.filemask.label`。
+
+**实现**：
+
+- 新增 `searchEverywhereActiveOptionIds()` 作为唯一 active-option 判定：
+  固定顺序、File Mask trim 后非空；
+- `searchEverywhereOffersClearOptions()` 复用该 helper；
+- Text 空结果摘要使用现有 Match Case / Whole Words / Regex 文案和新增
+  File mask 短标签；
+- 摘要与 Clear all options 共用 `showClearOptionsFallback`，不会出现
+  “有明细但无 clear”或“有 clear 但无明细”；
+- 摘要为次级文本，不修改 query、scope、Preserve case、Filter、历史
+  或 Find tool 状态。
+
+**回归**：
+
+```bash
+node --test tests/round596.test.mjs tests/round595.test.mjs \
+  tests/round594.test.mjs tests/round593.test.mjs tests/round592.test.mjs
+npm test
+node --check lib/client.js
+node --check lib/index.js
+git diff --check
+```
+
+- RED：**3 fail**；
+- 定向：**15 pass / 0 fail**；
+- 全量：**1953 pass / 0 fail**。
+
+**已排除方案**：
+
+- 不复制第二套 option predicate；
+- 不复用 File Mask 的长 placeholder 文案；
+- 不在没有 active option 时显示空摘要；
+- 不把摘要做成可点击的第二套 Clear action。
+
+## 2026-11-16 — All/Text 空结果 scope expansion
+
+**作用域**：Search Everywhere All/Text 空结果中的 workspace scope 扩大入口。
+
+**IDEA 证据**：
+
+- `SeEmptyResultInfoProvider.showResetScope()` 仅在
+  `SearchEverywhereToggleAction` 存在且 `!isEverywhere()` 时显示；
+- reset 只调用 `setEverywhere(!isEverywhere())`；
+- Text 页的 scope reset 与 Clear all options 是两个独立 action；
+- IDEA scope 文案为 `All Places / 所有位置`。
+
+**能力边界**：
+
+- DSH 没有 IDEA 的全局索引和库 scope；
+- 真实可扩大范围仅是当前 workspace 内原本跳过的排除目录；
+- 因此使用 `Search all workspace places / 搜索工作区中的所有位置`，
+  不宣称能搜工作区外任意路径。
+
+**实现**：
+
+- 新增 `searchEverywhereOffersScopeExpansion()`：
+  - All/Text 页；
+  - 非空 query；Text 至少 2 字符，All 至少 1 字符；
+  - 零结果、非 loading；
+  - Include non-project 尚未开启；
+- 空结果区在 Reset filter 前增加 scope action；
+- 点击只调用 `onToggleIncludeNonProject()`；
+- 保留 query、Case、Whole Words、Regex、Preserve case、File Mask、
+  Filter、历史和 Find tool 状态；
+- 复用现有文件候选 scope cache、Text 搜索 effect 和 option
+  persistence；
+- 按钮阻断 Enter/Space 冒泡并回焦查询框。
+
+**回归**：
+
+```bash
+node --test tests/round595.test.mjs tests/round594.test.mjs \
+  tests/round593.test.mjs tests/round592.test.mjs tests/round591.test.mjs \
+  tests/round470.test.mjs
+npm test
+node --check lib/client.js
+node --check lib/index.js
+git diff --check
+```
+
+- RED：**3 fail**；
+- 定向：**19 pass / 0 fail**；
+- 全量：**1950 pass / 0 fail**。
+
+**已排除方案**：
+
+- 不在 Files/Actions 页显示 scope expansion；
+- 不把 Clear all options 与 scope reset 合成一个动作；
+- 不在 Include non-project 已开启时再显示；
+- 不沿用 IDEA “All Places” 文案冒充工作区外搜索能力。
+
+## 2026-11-16 — Text 空结果 Clear all options
+
+**作用域**：Search Everywhere Text 页零结果时的搜索选项恢复入口。
+
+**IDEA 证据**：
+
+- IDEA 2026.2.3 的 `SeTextTabEmptyResultInfoProvider`；
+- 生效选项只看 File Mask、Match Case、Whole Words、Regex；
+- 点击分别执行 resetType/resetCase/resetWords/resetRegexp；
+- scope reset 是独立入口，不包含在 Clear all options 内；
+- 文案 `find.popup.clear.all.options=Clear all options`，中文
+  `清除所有选项`。
+
+**症状**：Text 搜索因 Case/Whole Words/Regex/File Mask 无结果时，DSH
+只显示“没有匹配结果”，用户需要逐项打开工具按钮或清 File Mask。
+
+**实现**：
+
+- 新增 `searchEverywhereOffersClearOptions()` 作为唯一可见性判断：
+  Text 页、query 至少 2 字符、零结果、非 loading，且至少一项搜索选项
+  生效；
+- Text 空结果区增加 `Clear all options`；
+- 点击复用现有 `onToggleCaseSensitive`、`onToggleWholeWords`、
+  `onToggleRegex`、`onFileMaskChange`；
+- 只清除四项，保留 query、Include non-project scope、
+  Preserve case、Filter、历史和 Find tool 状态；
+- 选项变化继续由现有持久化 effect 写入
+  `dsh-editor.search.options.v1`；
+- 按钮阻断 Enter/Space 冒泡并回焦查询框。
+
+**回归**：
+
+```bash
+node --test tests/round594.test.mjs tests/round593.test.mjs \
+  tests/round592.test.mjs tests/round584.test.mjs tests/round585.test.mjs \
+  tests/round470.test.mjs
+npm test
+node --check lib/client.js
+node --check lib/index.js
+git diff --check
+```
+
+- RED：**3 fail**；
+- 定向：**23 pass / 0 fail**；
+- 全量：**1947 pass / 0 fail**。
+
+**已排除方案**：
+
+- 不在 All/Files/Actions 页显示 Text 专属 Clear all options；
+- 不在 query 少于 2 字符时把“请继续输入”误报为选项导致无结果；
+- 不连带清 Include scope 或 Preserve case；
+- 不复制第二套 search option state。
+
+## 2026-11-16 — Files 空结果移交 persistent Find
+
+**作用域**：Search Everywhere Files 页无文件名命中时的 IDE 空结果回退。
+
+**IDEA 证据**：
+
+- IDEA 2026.2.3；
+- `SeFilesTab.canBeShownInFindResults()` 固定返回 true；
+- Files 空结果使用 `SeEmptyResultInfoProvider`，文案
+  `searcheverywhere.try.to.find.in.files=Find in Files`；
+- 中文语言包为 `在文件中查找`；
+- Text 页使用独立的 `SeTextTabEmptyResultInfoProvider`，入口是
+  `Clear all options`，不是 Find in Files。
+
+**症状**：Files 页已有真实 query 但没有文件名命中时，DSH 只显示“没有
+匹配结果”，无法像 IDEA 一样把同一查询移交给全文 Find。
+
+**根因**：
+
+- 现有 handoff 只覆盖“已有结果”与“空白 Replace”；
+- 普通空结果 request 的 `files/matches` 为空，`openFindTool` 会把
+  `loadedGeneration` 设为 0，导致它认为结果已加载，不会重跑搜索。
+
+**实现**：
+
+- 新增 `searchEverywhereOffersFindInFiles()`，仅 Files 页、非空 query、
+  零结果且非 loading 时返回 true；
+- 空结果区增加 `Find in Files` 按钮，复用 `openSearchResultsInFind`；
+- handoff 保留 query、Include scope、Case、Whole Words、Regex、
+  Preserve case 与 File Mask；
+- 空结果回退 request 加 `refresh:true`；
+- `openFindTool` 对 refresh handoff 使用 `loadedGeneration:-1`，让持久
+  Find 真正执行后台 `searchText`；
+- Reset filter 限定到 All 页，避免 Files 页显示一个与当前结果无关的
+  provider filter 重置入口；
+- 按钮阻断 Enter/Space 冒泡，保留 listbox 内原生键盘激活。
+
+**回归**：
+
+```bash
+node --test tests/round593.test.mjs tests/round592.test.mjs \
+  tests/round590.test.mjs tests/round500.test.mjs tests/round557.test.mjs \
+  tests/round465.test.mjs tests/round472.test.mjs tests/round469.test.mjs \
+  tests/round478.test.mjs
+node --test tests/round499.test.mjs tests/round501.test.mjs
+npm test
+node --check lib/client.js
+node --check lib/index.js
+git diff --check
+```
+
+- RED：**3 fail**；
+- 定向：**28 pass + 22 pass / 0 fail**；
+- 全量：**1944 pass / 0 fail**。
+
+**环境边界**：
+
+- Computer Use 仍报告 macOS locked；
+- Ego TaskSpace 133 仍为 `agentDelegatedToUser`；
+- 本轮未接管、未新建 space，DSH Web 运行态留待权限恢复后补验。
+
+**已排除方案**：
+
+- 不在 Text/Actions/All 页伪造同一个 Find in Files 入口；
+- 不把空结果 request 当成已加载结果；
+- 不为空结果回退新增第二套 Find 工具窗口；
+- 不让 Files 页显示只作用于 All 页 provider filter 的 Reset filter。
+
+## 2026-11-16 — Search Everywhere 空结果 Reset filter
+
+**作用域**：Search Everywhere 空结果状态中的 IDEA provider filter 重置入口。
+
+**IDEA 证据**：
+
+- 本机 IDEA 2026.2.3（`IU-262.10968.63`）；
+- `searcheverywhere.reset.filters=Reset filter`；
+- 中文语言包对应 `重置筛选器`；
+- 反编译 `SeEmptyResultInfoProvider` 确认入口仅在
+  `SearchEverywhereFiltersAction.isActive()` 时显示；
+- 点击调用
+  `PersistentSearchEverywhereContributorFilter.setSelectedToAllElements(true)`；
+- 查询文本、Include scope、布尔选项和 File Mask 均保持不变。
+
+**症状**：DSH 的 All 页可以连续关闭 Files/Text/Actions filter，但空结果
+区只显示“没有匹配结果”，用户只能重新打开 Filter 菜单逐项恢复。
+
+**实现**：
+
+- 新增统一的
+  `defaultSearchEverywhereFilters()` /
+  `searchEverywhereFiltersNeedReset()`；
+- 仅在 All 页且一个或多个 provider 被隐藏时显示 Reset filter；
+- 点击原子恢复 `{files:true,text:true,actions:true}`；
+- 保留 query、Include non-project、Match Case、Whole Words、Regex、
+  Preserve case 和 File Mask；
+- 关闭 Filter 菜单并回焦查询框；
+- 按钮位于 listbox 内，Enter/Space 必须 `stopPropagation()`，否则
+  listbox 的导航 handler 会吞掉原生按钮激活。
+
+**回归**：
+
+```bash
+node --test tests/round592.test.mjs tests/round465.test.mjs \
+  tests/round472.test.mjs tests/round469.test.mjs tests/round478.test.mjs
+npm test
+node --check lib/client.js
+node --check lib/index.js
+git diff --check
+```
+
+- RED：**3 fail**；
+- 定向：**15 pass / 0 fail**；
+- 全量：**1941 pass / 0 fail**。
+
+**环境边界**：
+
+- Ego TaskSpace 133 仍为 `agentDelegatedToUser`；
+- 本轮未接管、未新建 space，DSH Web 运行态留待权限恢复后补验。
+
+**已排除方案**：
+
+- 不把 Reset filter 扩展成重置 query/options/mask；
+- 不与 IDEA 的 `Try to reset scope` 合并；
+- 不在结果非空时显示空状态入口；
+- 不让 Enter/Space 冒泡到结果列表导航。
+
+## 2026-11-16 — Include non-project scope 持久化与候选缓存隔离
+
+**作用域**：Search Everywhere / Find 的统一搜索选项持久化，以及
+Search Everywhere 文件候选缓存。
+
+**症状**：Include non-project items 只影响当前弹框，移交 Find 后虽能
+继续搜索，但关闭并重新打开 Search Everywhere / Find 时 scope 丢失；
+若把 scope 直接加入共享存储，默认 scope 下缓存的候选文件又可能被
+包含排除目录的新 scope 错误复用。
+
+**触发条件**：
+
+- 在 Search Everywhere 开启 Include non-project items；
+- 切换到 Find 或关闭后重新打开；
+- 或先以默认 scope 加载文件候选，再恢复 `includeExcluded:true`。
+
+**根因**：
+
+- `normalizeSearchOptions` / `readSearchOptions` 没有 scope 字段；
+- Search Everywhere 的 `includeNonProject` 固定初值 `false`；
+- Find 的显式 handoff 与本地默认值没有清晰优先级；
+- `searchEverywhereFilesRef` 只缓存文件数组，没有记录数组所属 scope。
+
+**最终修复**：
+
+- 统一搜索选项新增规范化布尔 `includeExcluded`；
+- 兼容旧 `includeNonProject` 别名，但当前 UI 布尔值优先，避免
+  `includeExcluded:true` 遗留值把已经关闭的 scope 写回；
+- `searchFindHandoff.request.includeExcluded` 始终是显式布尔值；
+- Search Everywhere 打开时恢复 scope；
+- Find 空打开时恢复本地 scope，显式 handoff 优先；
+- 文件候选缓存增加 `searchEverywhereFilesScopeRef` 和请求序号；
+- 缓存的 scope 不匹配时重新请求；迟到响应、workspace 切换均不能
+  覆盖当前 scope；
+- Search Everywhere / Find 的持久化 effect 依赖 scope 字段。
+
+**回归**：
+
+```bash
+node --test tests/round591.test.mjs tests/round590.test.mjs \
+  tests/round484.test.mjs tests/round500.test.mjs tests/round470.test.mjs
+npm test
+node --check lib/client.js
+node --check lib/index.js
+git diff --check
+```
+
+- RED：**4 fail**；
+- 定向：**18 pass / 0 fail**；
+- 全量：**1938 pass / 0 fail**。
+
+**环境边界**：
+
+- Ego TaskSpace 133 仍为 `agentDelegatedToUser`，原因是上一轮
+  Clipboard 权限提示尚未由用户处理；
+- 本轮未 `takeOverTaskSpace`，也未新建 space 绕过；
+- DSH Web 运行态留待同一 TaskSpace 恢复控制后补验。
+
+**已排除方案**：
+
+- 不把 `includeExcluded` 继续作为“仅 true 时附加”的请求字段；
+- 不共享不同 scope 的文件候选数组；
+- 不用一个未带 scope 身份的空数组判断缓存已失效；
+- 不让旧存储值覆盖 Search Everywhere 的显式 handoff scope。
+
+## 2026-11-16 — Include non-project scope 在 Search Everywhere / Find 间一致
+
+**作用域**：Search Everywhere 把文本结果移交给持久 Find 时的搜索 scope。
+
+**症状**：Search Everywhere 开启 Include non-project items 后，移交 Find
+会丢掉 `includeExcluded`；下一次 Find 刷新又回到默认目录集合。
+
+**实现**：
+
+- `searchFindHandoff` 增加 `includeExcluded`，仅在 true 时写入 request；
+- Search Everywhere 的普通 Find/Replace handoff 和空白 Replace 请求都
+  携带 `state.includeNonProject`；
+- `openFindTool` 用 handoff 初始化 `state.includeExcluded`；
+- Find 工具栏增加 Include non-project items toggle；
+- 切换时清空 files/matches、重置 index、etag generation，并触发重搜；
+- Find searchText 请求转发 `includeExcluded`；
+- 该 scope 使用现有 host 边界：排除 `.git/.hg/.svn`、保持文件/大小/
+  命中上限，只纳入原本被跳过的重目录。
+
+**回归**：
+
+```bash
+node --test tests/round590.test.mjs tests/round470.test.mjs \
+  tests/round500.test.mjs tests/round586.test.mjs
+npm test
+node --check lib/client.js
+node --check lib/index.js
+git diff --check
+```
+
+- RED：**4 fail**；
+- 定向：**16 pass / 0 fail**；
+- 全量：**1934 pass / 0 fail**。
+
+**环境边界**：
+
+- Ego TaskSpace 133 仍被 Clipboard 权限提示占用；
+- 本轮运行态改由 host 既有 includeExcluded 测试与静态/handoff 测试闭环；
+- 未接管用户的 TaskSpace，也未创建新 space 绕过提示。
+
+**已排除方案**：
+
+- 不在 Find 中重新定义“项目目录”集合；
+- 不在 scope 切换后保留旧文件/命中列表；
+- 不把 VCS 元数据纳入 Search Everywhere。
+
+## 2026-11-16 — Show Usages 菜单焦点与 Clipboard 边界
+
+**作用域**：Show Usages 结果菜单关闭后的焦点归还，以及 Clipboard
+权限提示对运行态验收的影响。
+
+**实现**：
+
+- 右键 handler 在打开菜单前调用 `event.currentTarget.focus()`；
+- 共享 `ContextMenu` 已具备通用 opener 恢复：
+  - mount 时记录 `document.activeElement`；
+  - unmount 时仅在 opener 仍 connected 时回焦；
+  - 明确转移焦点的命令可通过 `skipReturnFocusRef` 抑制；
+- 因此右键菜单返回 usage row，键盘从 query 打开时返回 query；
+- 复制动作只 `setResultMenu(null)`，不调用 popup `onClose`；
+- 导航动作仍先关闭 popup 再打开右分屏/Project 定位；
+- `copySearchResultText` 对 missing API、同步异常、Promise reject
+  都只调用 `onNotify`，不关闭 popup。
+
+**回归**：
+
+```bash
+node --test tests/round589.test.mjs tests/round588.test.mjs \
+  tests/round586.test.mjs tests/round497.test.mjs
+npm test
+node --check lib/client.js
+node --check lib/index.js
+git diff --check
+```
+
+- RED：**1 fail**；
+- 定向：**18 pass / 0 fail**；
+- 全量：**1930 pass / 0 fail**。
+
+**环境边界**：
+
+- Ego Browser 在 clipboard 写入时弹出权限提示；
+- TaskSpace ownership 变为 `agentDelegatedToUser`；
+- 在用户明确处理提示前不得 `takeOverTaskSpace`，也不得新建 space 绕过；
+- 权限成功/拒绝的最终运行态留到 round590。
+
+**已排除方案**：
+
+- 不复制 ContextMenu 的 focus restore；
+- 不在右键时依赖 row 的浏览器默认聚焦；
+- 不让 clipboard 失败关闭 popup。
+
+## 2026-11-16 — Show Usages 共享结果菜单
+
+**作用域**：Show Usages transient popup 中的结果行右键、键盘 ContextMenu
+和复制/导航动作生命周期。
+
+**实现**：
+
+- `ShowUsagesPopup` 增加本地 `resultMenu`；
+- `openUsageMenuAt` 把 usage row 映射为 `kind:'text'` 后复用
+  `searchResultContextItems`；
+- 支持鼠标 `contextmenu`、`ContextMenu` 和 `Shift+F10`；
+- 菜单动作：
+  - 导航动作先 `onClose()`，再打开右侧拆分或执行 Project 定位；
+  - 复制动作只关闭菜单，不关闭 popup，不改变 filter/active row；
+- 菜单渲染在 popup dialog 内部，菜单点击不会触发 backdrop 关闭。
+
+**回归**：
+
+```bash
+node --test tests/round588.test.mjs tests/round586.test.mjs \
+  tests/round477.test.mjs
+npm test
+node --check lib/client.js
+node --check lib/index.js
+git diff --check
+```
+
+- RED：**4 fail**；
+- 定向：**13 pass / 0 fail**；
+- 全量：**1926 pass / 0 fail**。
+
+**运行态**：
+
+- Show Usages popup 加载 2 条 usage；
+- 查询框 `Shift+F10` 打开完整共享菜单；
+- 菜单包含 Open in Right Split / Open in editor / Copy relative path /
+  Path with Line Number / Select in Project View。
+
+**环境边界**：
+
+- 执行 Copy relative path 时 Ego Browser 弹出 Clipboard 权限提示，
+  TaskSpace 转用户控制；
+- 这是浏览器权限流程，不是菜单或产品错误；
+- 复制 helper 的 missing API、同步异常、Promise resolve/reject 已有单测；
+- 授权后的成功路径和拒绝路径仍需 round589 运行态收尾。
+
+**已排除方案**：
+
+- 不为 usage popup 复制第三套结果菜单；
+- 不让复制动作关闭瞬态 popup；
+- 不让右键事件先激活/打开 result。
+
+## 2026-11-16 — Find Usages Settings 的真实能力边界
+
+**作用域**：Search Everywhere Actions 中 IDEA `ShowSettingsAndFindUsages`
+入口的可见性、快捷键和 enabled reason。
+
+**IDEA 证据**：
+
+- `action.ShowSettingsAndFindUsages.text=Find Usages Settings…`；
+- 默认 keymap：`control shift alt F7`；
+- macOS System Shortcuts keymap：`meta shift alt F7`；
+- settings 面向 language-aware module/directory/scope 和 usage 选项。
+
+**审计结论**：
+
+- DSH 当前只有文本 workspace search；
+- 没有 module、directory scope、language element、usage option persistence
+  或独立 Find Usages setting 对象；
+- 复用普通 Find options 会制造错误语义，因此不启用。
+
+**实现**：
+
+- Actions 增加 `findUsagesSettings`：
+  - label=`Find Usages Settings…`；
+  - shortcut=`⌃⇧⌥F7`；
+  - keyword=`ShowSettingsAndFindUsages`；
+  - `disabled:true`；
+  - reason 明确说明 text-search 缺少 language-aware scope/settings；
+- action 始终可见，键盘遍历跳过，Enter 不会关闭 Search Everywhere；
+- Actions 总数 29 → 30，README/矩阵同步。
+
+**回归**：
+
+```bash
+node --test tests/round587.test.mjs tests/round114.test.mjs \
+  tests/round553.test.mjs tests/round555.test.mjs \
+  tests/round557.test.mjs tests/round556.test.mjs \
+  tests/round579.test.mjs
+npm test
+node --check lib/client.js
+node --check lib/index.js
+git diff --check
+```
+
+- RED：**2 fail**；
+- 定向：**22 pass / 0 fail**；
+- 全量：**1922 pass / 0 fail**。
+
+**运行态**：DSH Web query=`Find Usages Settings` 命中唯一 disabled action，
+`aria-keyshortcuts=Control+Shift+Alt+F7`，tooltip/description 给出真实原因，
+Enter 后弹框保持打开。
+
+**已排除方案**：
+
+- 不把普通 Find 的 Match Case/Whole Words/File Mask 宣称为 Find Usages
+  Settings；
+- 不伪造 module/directory/language scope；
+- 不因 action disabled 就从 Actions provider 中隐藏。
+
+## 2026-11-16 — Show Usages 独立 transient popup
+
+**作用域**：Search Everywhere Actions、`⌃⌥F7`、workspace usage 浏览和
+Find tool handoff。
+
+**IDEA 证据**：
+
+- `ShowUsages` 是独立 action，默认 `Control+Alt+F7`；
+- 它与持久 `FindUsages` Usage View 不同，是 transient popup；
+- popup 含过滤、结果导航和 pin-to-Find 能力。
+
+**实现**：
+
+- 新增 `filterUsageMatches`、`usageMatchRowKey`、
+  `normalizeUsageMatchIndex`；
+- `ShowUsagesPopup`：
+  - 只过滤已加载结果，不重复扫描 workspace；
+  - ↑/↓ 环形导航，Enter 打开并关闭，Esc 关闭；
+  - combobox/listbox/aria-activedescendant；
+  - `Open in Find Tool Window` 把同一 query、matches 和 truncated
+    状态交给持久 Find；
+- `openShowUsages` 使用现有 `searchText`，最多 200 条；
+- Search Everywhere Actions 增加 `Show Usages` 和
+  `⌃⌥F7`；全局 Control+Alt+F7 与 action 走同一 runner；
+- `Find Usages` 仍保持独立的持久 tool window 路径。
+
+**回归**：
+
+```bash
+node --test tests/round586.test.mjs tests/round553.test.mjs \
+  tests/round555.test.mjs tests/round557.test.mjs \
+  tests/round569.test.mjs tests/round556.test.mjs \
+  tests/round579.test.mjs
+npm test
+node --check lib/client.js
+node --check lib/index.js
+git diff --check
+```
+
+- RED：**5 fail**；
+- 定向：**27 pass / 0 fail**；
+- 全量：**1918 pass / 0 fail**。
+
+**运行态**：
+
+- `dshUsageToken` 在 `usage-a.txt` 与 `usage-b.txt` 中各出现一次；
+- `⌃⌥F7` popup 显示 2 条；
+- filter=`usage-b` 后剩 1 条；
+- Enter 打开 `usage-b.txt:1:8` 并关闭 popup；
+- pin 后 Find 保留 query 与 2 条结果；
+- Search Everywhere 的 `Show Usages` action 显示
+  `aria-keyshortcuts=Control+Alt+F7`，执行走同一 popup。
+
+**已排除方案**：
+
+- 不把 Show Usages 映射成 Find Usages 的别名；
+- 不在 filter 时发起第二次 workspace search；
+- 不让 popup 打开结果后继续留在屏幕上。
+
+## 2026-11-16 — Preserve case 扩展到编辑器内 Find/Replace
+
+**作用域**：Monaco 编辑器自建 Find toolbar 的单处替换、Replace All 与
+selection scope 替换。
+
+**IDEA 证据**：`find.options.replace.preserve.case` 属于 Replace 通用选项，
+不只作用于 Find in Files。
+
+**实现**：
+
+- `editorApplyPreserveCase` 与宿主保持同一语义：
+  - 全大写、全小写、首字母大写分别跟随；
+  - 混合大小写保留输入；
+- `editorRegexReplacementText` 先在单个匹配文本上展开 `$1/$&` 等 native
+  replacement token；
+- `editorReplaceAll` 非 scope 路径使用 `String.replace` 回调逐匹配适配；
+- `editorReplaceAt` 用于单处替换，scope 路径继续逆序调用它，因此三条
+  替换路径复用同一逻辑；
+- 编辑器 replace row 仅在 `withReplace=true` 时显示 `Preserve case`；
+- 该状态复用 `dsh-editor.search.options.v1`，刷新后恢复。
+
+**回归**：
+
+```bash
+node --test tests/round585.test.mjs tests/round485.test.mjs \
+  tests/round535.test.mjs tests/round532.test.mjs \
+  tests/round551.test.mjs tests/round550.test.mjs \
+  tests/round552.test.mjs tests/round484.test.mjs
+npm test
+node --check lib/client.js
+node --check lib/index.js
+git diff --check
+```
+
+- RED：**5 fail**；
+- 定向：**33 pass / 0 fail**；
+- 全量：**1913 pass / 0 fail**。
+
+**运行态**：DSH Web 打开 `case-editor.txt`，编辑器 `⌘R` 后
+`Preserve case` 为 checked；`foo FOO Foo fOo` Replace All 为
+`bar BAR Bar bar`，保存后磁盘一致。
+
+**已排除方案**：
+
+- 不在 find-only 模式显示无效 Replace 选项；
+- 不先适配整个 replacement template 再展开捕获组；
+- 不为 scope 路径复制第二套替换实现。
+
+## 2026-11-16 — Replace Preserve case 与宿主重载边界
+
+**作用域**：Search Everywhere / Find in Files 的 Replace 大小写保持，以及
+`lib/client.js` 与 `lib/index.js` 的不同热更新生命周期。
+
+**IDEA 证据**：`FindBundle.properties`：
+
+- `find.options.replace.preserve.case=Pr&eserve case`；
+- 该选项属于 Replace，而不是搜索匹配条件。
+
+**实现**：
+
+- `normalizeSearchOptions`、Search Everywhere→Find handoff 和三条 workspace
+  replace 请求都携带单一 `preserveCase`；
+- Search Everywhere 的 Replace 行和持久 Find 的 replace mode 提供
+  `Preserve case` action；
+- 宿主新增 `applyPreserveCase`：
+  - 全大写 → 大写替换；
+  - 全小写 → 小写替换；
+  - 首字母大写 → 首字母大写替换；
+  - 混合大小写 → 保留输入；
+- Regex 先在每个匹配上展开捕获组，再适配该匹配的大小写；
+- literal Replace All、Regex Replace All 和单处 occurrence Replace
+  共用同一规则。
+
+**症状/根因**：
+
+- 第一次 DSH Web 运行态仍把 `foo FOO Foo fOo` 写成 `bar bar bar bar`；
+- 原因是 DSH Web 进程在修改 `lib/index.js` 之前已经启动，浏览器刷新只加载
+  新 `client.js`，宿主模块仍执行旧代码；
+- profile 的 `link:` 依赖只保证路径指向源码，不提供宿主模块热重载。
+
+**修复/验证**：
+
+- 修改宿主 `lib/index.js` 后必须停止并重启同一 DSH profile；
+- 重启后 Preserve case toggle 为 checked，Replace All 得到
+  `bar BAR Bar bar`；
+- Regex 捕获样本得到
+  `id-12 ID-34 Id-56 id-78`。
+
+**回归**：
+
+```bash
+node --test tests/round584.test.mjs tests/round500.test.mjs \
+  tests/round484.test.mjs tests/round479.test.mjs \
+  tests/round480.test.mjs tests/round481.test.mjs \
+  tests/round482.test.mjs tests/round483.test.mjs \
+  tests/round532.test.mjs tests/round553.test.mjs \
+  tests/round555.test.mjs
+npm test
+node --check lib/client.js
+node --check lib/index.js
+git diff --check
+```
+
+- RED：**6 fail**；
+- 定向：**45 pass / 0 fail**；
+- 全量：**1908 pass / 0 fail**。
+
+## 2026-11-16 — Search Everywhere IDEA Action 文案与旧别名
+
+**作用域**：双击 Shift 后 Search Everywhere Actions 的动作可发现性与 IDEA 2026.2 文案。
+
+**IDEA 证据**：安装包 `ActionsBundle.properties`：
+
+- `SearchStructurally…`；
+- `ReplaceStructurally…`；
+- `Search with Google`；
+- `Next Occurrence of the Word at Caret`；
+- `Add Selection for Next Occurrence`；
+- `Unselect Occurrence`。
+
+**症状/根因**：插件使用旧的自定义名称作为 action label，用户按 IDEA
+Action 原名搜索时虽然执行逻辑存在，却无法按原文命中。
+
+**修复**：
+
+- label 改为 IDEA 2026.2 原文；
+- 旧名保留在 `keywords`：
+  `Structural Search`、`Structural Replace`、`Search Web`、
+  `Find Word at Caret`、`Select Next Occurrence`、
+  `Unselect Previous Occurrence`；
+- Monaco 右键菜单继续复用同一 localization key；
+- 中文使用 IDEA 简体中文资源对应文案。
+
+**回归**：
+
+```bash
+node --test tests/round583.test.mjs tests/round531.test.mjs \
+  tests/round541.test.mjs tests/round543.test.mjs \
+  tests/round544.test.mjs tests/round546.test.mjs \
+  tests/round549.test.mjs tests/round553.test.mjs \
+  tests/round554.test.mjs tests/round557.test.mjs
+npm test
+node --check lib/client.js
+node --check lib/index.js
+git diff --check
+```
+
+- RED：**3 fail**；
+- 定向：**34 pass / 0 fail**；
+- 全量：**1902 pass / 0 fail**。
+
+**运行态**：DSH Web `r526` profile 中，IDEA 原名与旧别名均落到同一
+`action:*` option id。Computer Use 仍被 macOS 锁屏阻断。
+
+## 2026-11-16 — Search Everywhere macOS 分组导航与 ARIA 方向键
+
+**作用域**：Search Everywhere 的 Provider 分组导航快捷键和快捷键
+辅助技术元数据。
+
+**IDEA 证据**：`Mac OS X 10.5+.xml`：
+
+- `SearchEverywhere.NavigateToNextGroup = PAGE_DOWN / meta DOWN`；
+- `SearchEverywhere.NavigateToPrevGroup = PAGE_UP / meta UP`；
+- `ShowSearchHistory = alt down`。
+
+**症状/根因**：
+
+- 插件只识别 `Control+Arrow`，macOS 上 IDEA 默认的 `Meta+Arrow` 无效；
+- 新增方向键 shortcut 后，ARIA 元数据曾输出 `Alt+↓`，不是合法的
+  WAI-ARIA `ArrowDown` 名称。
+
+**修复**：
+
+- 新增 `searchEverywhereGroupNavigationDirection(event, mac)`；
+- macOS 使用 Meta+Arrow，其他平台保留 Control+Arrow；
+- PageUp/PageDown 共用；
+- Alt/Shift 或额外主修饰键不抢占；
+- `Show Search History` 增加 `⌥↓`；
+- 方向 glyph 规范化为 `ArrowUp/ArrowDown/ArrowLeft/ArrowRight`。
+
+**回归**：
+
+```bash
+node --test tests/round582.test.mjs tests/round575.test.mjs \
+  tests/round576.test.mjs tests/round556.test.mjs
+npm test
+node --check lib/client.js
+node --check lib/index.js
+git diff --check
+```
+
+- RED：**3 fail**；
+- 定向：**12 pass / 0 fail**；
+- 全量：**1898 pass / 0 fail**。
+
+**运行态**：query=`read` 时 `Meta+ArrowDown` 从 Actions 组进入
+`README.md` Files 组，`Meta+ArrowUp` 返回 Actions；Show Search History
+的 `aria-keyshortcuts=Alt+ArrowDown`。
+
+## 2026-11-16 — Terminal Block Keyboard Navigation
+
+**作用域**：Terminal block selection 的 Up/Down 与 Shift+Up/Down 键盘模式。
+
+**IDEA 证据**：
+
+- Select Block Above/Below 支持 Up/Down block-mode 键位；
+- Expand Block Selection Above/Below 使用 EditorUp/DownWithSelection；
+- shell prompt 的普通 Up/Down 仍用于 command history。
+
+**实现**：
+
+- `terminalBlockKeyboardAction(event, hasSelection, findOpen)`：
+  - 无 selection 或 Find 打开 → null；
+  - ArrowUp/Down → selectAbove/Below；
+  - Shift+ArrowUp/Down → expandAbove/Below；
+  - Meta/Ctrl/Alt 组合 → null。
+- terminal keydown：
+  - 当前 selection position 解析 block range；
+  - select 用 `terminalAdjacentBlockRange`；
+  - expand 用 `terminalExpandBlockRange`；
+  - 上限限制到当前 prompt 前；
+  - selectLines 后回焦 terminal。
+
+**回归**：
+
+```bash
+node --test tests/round581.test.mjs tests/round580.test.mjs \
+  tests/round579.test.mjs tests/round573.test.mjs \
+  tests/round574.test.mjs tests/round572.test.mjs \
+  tests/round344.test.mjs tests/round300.test.mjs \
+  tests/static-order.test.mjs
+npm test
+node --check lib/client.js
+node --check lib/index.js
+git diff --check
+```
+
+- RED：**2 fail**；
+- 定向：**30 pass / 0 fail**。
+
+**运行态**：
+
+- 手动选择 `BLOCK-ONE-A/B`；
+- ArrowDown 进入下方 block；
+- Shift+ArrowUp 扩展到两个完整输出块；
+- 清除 selection 后 ArrowUp 不再建立 block selection。
+
+**已排除方案**：
+
+- 不在无 selection 时抢占 shell history；
+- 不在 Terminal Find 打开时抢占箭头；
+- 不将 Meta/Ctrl 组合误当作 block navigation。
+
+## 2026-11-16 — Terminal Adjacent Block Selection
+
+**作用域**：Terminal IDE block 相邻选择、扩展选择和右键 selection 保持。
+
+**IDEA 证据**：
+
+- `Terminal.SelectBlockAbove/Below` 存在独立 action；
+- `Terminal.ExpandBlockSelectionAbove/Below` 使用 EditorUp/DownWithSelection；
+- block 模式支持 Up/Down、Meta/Ctrl+Up 等导航键。
+
+**实现**：
+
+- 新增：
+  - `terminalBlockRangeAt`
+  - `terminalSelectionBlockRange`
+  - `terminalAdjacentBlockRange`
+  - `terminalExpandBlockRange`
+- 相邻块只搜索当前 prompt 之前的连续非空行；
+- Terminal 菜单增加 Select Block Above/Below 与 Expand Block Selection Above/Below；
+- disabled 状态由真实相邻块和 `selectLines` 能力决定；
+- `screenSelectionPositionRef` 在 right mousedown 时保存每个 pane 的
+  `getSelectionPosition()`，contextmenu 传入菜单，避免右键清空 selection；
+- 本轮不抢普通 Up/Down，避免破坏 shell history。
+
+**回归**：
+
+```bash
+node --test tests/round580.test.mjs tests/round579.test.mjs \
+  tests/round573.test.mjs tests/round574.test.mjs \
+  tests/round572.test.mjs tests/round344.test.mjs \
+  tests/round300.test.mjs tests/static-order.test.mjs
+npm test
+node --check lib/client.js
+node --check lib/index.js
+git diff --check
+```
+
+- RED：**3 fail**；
+- 定向：**28 pass / 0 fail**。
+- 全量：**1892 pass / 0 fail**。
+
+**运行态**：
+
+- 两个空行分隔的输出块；
+- 右键 Select Block Above 选最近块；
+- 再右键 Select Block Above 选中 `BLOCK-ONE-A/B`；
+- Expand Block Selection Above 最终覆盖两个完整块；
+- right-mousedown selection position 保留修复生效。
+
+**已排除方案**：
+
+- 不用 Up/Down 无条件覆盖 shell history；
+- 不跨 prompt 选相邻块；
+- 不解析 shell-integration 私有序列。
+
+## 2026-11-16 — Show Usages 审计与 Provider Suggestions
+
+**作用域**：Search Everywhere 的 ShowUsages 入口审计与 provider command 建议。
+
+**IDEA 证据**：
+
+- `FindUsages` = `Alt+F7`，进入持久 Usage View；
+- `ShowUsages` = `Control+Alt+F7`，是独立 transient usages popup；
+- `ShowUsagesAction` 自带 table/filter/pin/settings 导航模型；
+- 另有 `ShowSettingsAndFindUsages` action。
+
+**结论**：
+
+- DSH 没有独立 usage popup 模型；
+- 将 ShowUsages 映射为 Find Usages 会制造伪重复入口；
+- 本轮不新增 `showUsages`，并在 Actions 代码旁记录原因。
+
+**实现**：
+
+- 新增 `searchEverywhereProviderCommandSuggestions`：
+  - 仅接受单个未完成 `/provider-prefix`；
+  - 返回匹配的 provider tab id；
+  - `/te` → text、`/fil` → files、`/act` → actions、`/al` → all；
+  - `/` → 全部；`/find`、参数 query、普通 query → 空。
+- `providerCommandResults` 按建议集过滤；
+- `showProviderCommands` 在 `/` 或 provider 建议存在时启用；
+- 精确别名 `/t /f /a` 仍优先走 providerCommand，不显示帮助；
+- `/find` 等不匹配 provider 的 slash 输入继续走 action command search。
+
+**回归**：
+
+```bash
+node --test tests/round579.test.mjs tests/round570.test.mjs \
+  tests/round571.test.mjs tests/round576.test.mjs \
+  tests/static-order.test.mjs
+npm test
+node --check lib/client.js
+node --check lib/index.js
+git diff --check
+```
+
+- RED：**3 fail**；
+- 定向：**17 pass / 0 fail**。
+- 全量：**1888 pass / 0 fail**。
+
+**运行态**：
+
+- `/te` 首项 `/text` 建议；
+- Enter 后 `/text `、Text tab；
+- `/find` 首项仍是 Find action。
+
+**已排除方案**：
+
+- 不增加重复 ShowUsages；
+- 不让 provider suggestion 劫持所有 slash action query；
+- 不复制第三方 usage popup UI。
+
+## 2026-11-16 — Toggle Find in Selection Action Metadata
+
+**作用域**：Search Everywhere Actions 中 `Search in Selection Only` 的 IDEA 同义词。
+
+**IDEA 证据**：
+
+- IDEA action 名称为 `ToggleFindInSelection`；
+- 默认 keymap 为 `control alt E`；
+- Search Everywhere Actions 会索引 action 名称和快捷键。
+
+**实现**：
+
+- 复用已有 `searchInSelectionOnly` 执行路径；
+- 增加：
+  - `shortcut: '⌃⌥E'`；
+  - `keywords: t('editor.toggleFindInSelectionSynonym')`；
+- 本地化：
+  - zh：`切换仅在选区内查找`；
+  - en：`Toggle Find in Selection`；
+- ARIA 快捷键继续由共享 `searchEverywhereAriaKeyShortcuts` 生成 `Control+Alt+E`。
+
+**回归**：
+
+```bash
+node --test tests/round578.test.mjs tests/round535.test.mjs \
+  tests/round552.test.mjs tests/round553.test.mjs \
+  tests/round555.test.mjs tests/round556.test.mjs \
+  tests/round557.test.mjs tests/static-order.test.mjs
+npm test
+node --check lib/client.js
+node --check lib/index.js
+git diff --check
+```
+
+- RED：**2 fail**；
+- 定向：**34 pass / 0 fail**。
+- 全量：**1885 pass / 0 fail**。
+
+**运行态**：
+
+- README 在 Monaco 中全选；
+- 双击 Shift 后查询 `Toggle Find in Selection`；
+- 首项为 `searchInSelectionOnly`；
+- 可见文本含 `⌃⌥E`，`aria-keyshortcuts=Control+Alt+E`；
+- `aria-disabled=false`。
+
+**已排除方案**：
+
+- 不新增第二个 selection-scope action；
+- 不伪造 Show Usages 语义；
+- 不改动 selection scope 的匹配/替换链路。
+
+## 2026-11-16 — Toggle Find in Selection
+
+**作用域**：编辑器 Find/Replace 的 selection scope 快捷键与状态切换。
+
+**IDEA 证据**：
+
+- 默认 keymap：`ToggleFindInSelection` = `control alt E`；
+- `find.selection.only=Search In Selection`；
+- IDEA scope 是 Find toolbar 的 toggle，同时约束 Find 与 Replace。
+
+**实现**：
+
+- 新增 `editorFindSelectionShortcutAction`：
+  - Find 已开 → `toggle`；
+  - Find 未开但存在非空 Monaco 选区 → `open`；
+  - 其他 → null。
+- 新增 `Control+Alt+E` keydown：
+  - 只在大 workspace 内且 target 位于 Monaco/编辑器 Find 输入框时接管；
+  - 排除 Search Everywhere、persistent Find tool 与 Terminal；
+  - open 复用 `openEditorFindInSelection`；
+  - toggle 复用现有 `toggleFindSelectionScope`。
+
+**回归**：
+
+```bash
+node --test tests/round577.test.mjs tests/round535.test.mjs \
+  tests/round538.test.mjs tests/round552.test.mjs \
+  tests/round555.test.mjs tests/round557.test.mjs \
+  tests/static-order.test.mjs
+npm test
+node --check lib/client.js
+node --check lib/index.js
+git diff --check
+```
+
+- RED：**2 fail**；
+- 定向：**28 pass / 0 fail**。
+- 全量：**1881 pass / 0 fail**。
+
+**运行态**：
+
+- README 在 Monaco 中全选；
+- 第一次 `Control+Alt+E` 打开 Find，scope button `aria-pressed=true`；
+- 第二次保持 Find 打开，scope button 变为 `false`；
+- active element 始终是 `[data-dsh-editor-find-input]`。
+
+**已排除方案**：
+
+- 不另写 selection 匹配器；
+- 不在 Project/Commit 树或 Terminal 内抢占该键；
+- 不在 Search Everywhere 或 persistent Find 中输入时误触发编辑器 scope。
+
+## 2026-11-16 — Search Everywhere CompleteCommand
+
+**作用域**：Search Everywhere `/` provider command 的 Tab 补全。
+
+**IDEA 证据**：
+
+- `SearchEverywhere.CompleteCommand` 默认键位为 `Tab`；
+- `SearchEverywhere.NextTab / PrevTab` 也复用 `Tab / Shift+Tab`；
+- IDEA 根据 query 是否处于 command completion 状态分派这两个动作。
+
+**实现**：
+
+- `searchEverywhereProviderCompletion`：
+  - 只匹配单个 `/provider-prefix` token；
+  - 在 `all/actions/files/text` 全名中找唯一前缀；
+  - 返回带尾随空格的 completion，例如 `/te` → `/text `；
+  - `/a`、`/`、带参数、未知命令返回 null。
+- Search Everywhere query keydown：
+  - 无修饰键 Tab 先尝试 completion；
+  - 成功时 onQuery 并下一帧恢复 focus/caret；
+  - 失败时继续现有 NextTab/PrevTab。
+
+**回归**：
+
+```bash
+node --test tests/round576.test.mjs tests/round570.test.mjs \
+  tests/round571.test.mjs tests/round569.test.mjs \
+  tests/round575.test.mjs tests/static-order.test.mjs
+npm test
+node --check lib/client.js
+node --check lib/index.js
+git diff --check
+```
+
+- RED：**2 fail**；
+- 定向：**21 pass / 0 fail**。
+- 全量：**1879 pass / 0 fail**。
+
+**运行态**：
+
+- DSH Web Search Everywhere 输入 `/te`；
+- Tab 后 query 变为 `/text `、caret=6、Text tab 激活；
+- 补全过程没有 `searchText` 或文件扫描请求；
+- 普通 query=`read` 的 Tab 仍只切换 All→Files。
+
+**已排除方案**：
+
+- 不把 Tab 在所有输入情况下都改成补全；
+- 不在 `/a` 的 All/Actions 歧义中擅自选择；
+- 不执行命令或搜索来“顺便验证”补全。
+
+## 2026-11-16 — Search Everywhere Group Navigation
+
+**作用域**：双击 Shift 打开的 Search Everywhere 结果组键盘导航。
+
+**IDEA 证据**：
+
+- 默认 keymap：
+  - `SearchEverywhere.NavigateToNextGroup` = `PAGE_DOWN` / `control DOWN`；
+  - `SearchEverywhere.NavigateToPrevGroup` = `PAGE_UP` / `control UP`；
+- 同一 Search Everywhere keymap 还定义 NextTab、PrevTab、CompleteCommand、SelectItem。
+
+**实现**：
+
+- `searchEverywhereResultGroupKey`：
+  - `history:true` → `recent`；
+  - 普通 action/file/text 按 kind 分组；
+  - 未知行 → `other`。
+- `searchEverywhereGroupTargetIndex`：
+  - 先找当前连续组边界；
+  - Next/Previous 只进入相邻组；
+  - 目标组内跳过 disabled Action；
+  - 无相邻组返回 null，不从列表尾回绕到列表头。
+- `handleSearchResultKeyDown`：
+  - `PageDown` 或 `Ctrl+ArrowDown` → 下一组；
+  - `PageUp` 或 `Ctrl+ArrowUp` → 上一组；
+  - 分组判断位于普通 ArrowUp/Down 之前。
+
+**回归**：
+
+```bash
+node --test tests/round575.test.mjs tests/round475.test.mjs \
+  tests/round487.test.mjs tests/round553.test.mjs \
+  tests/round555.test.mjs tests/round557.test.mjs \
+  tests/static-order.test.mjs
+npm test
+node --check lib/client.js
+node --check lib/index.js
+git diff --check
+```
+
+- RED：**3 fail**；
+- 定向：**27 pass / 0 fail**。
+- 全量：**1877 pass / 0 fail**。
+
+**运行态**：
+
+- DSH Web 在 Editor Project 树内聚焦后双击 Shift，Search Everywhere 正常打开；
+- query=`read` 时 PageDown 从 Actions 组跳到当前文件结果 `README.md`；
+- PageUp 回到 Actions 首个 enabled 项；
+- Control+Down 也进入 Files 组。
+
+**已排除方案**：
+
+- 不为 `Show Usages` 增加与 Find Usages 完全相同的伪入口；
+- 不把 disabled Action 当成组跳转停点；
+- 不实现跨首尾回绕，避免与 IDEA 的组边界语义混淆。
+
+## 2026-11-16 — Terminal Copy Block 与 Wrapped Prompt Shortcuts
+
+**作用域**：Terminal block/prompt 快捷键、Copy Block 与 wrapped prompt 选择。
+
+**IDEA 证据**：
+
+- `Terminal.CopyBlock.text=Copy Block`；
+- `Terminal.SelectLastBlock` 使用 macOS `Meta+Up`；
+- `Terminal.SelectPrompt` 使用 macOS `Meta+Down`；
+- `Terminal.CopyBlock` 使用 `Meta+C`；
+- 同组还有 `Select Block Above/Below`、`Expand Block Selection Above/Below`。
+
+**实现**：
+
+- `directTerminalShortcut`：
+  - 有选区 `⌘C` → `copy`；
+  - 无选区 `⌘C` → `copyBlock`；
+- `terminalMenuModel` 新增 `Copy Block`，复用 `terminalLastBlockSelection`；
+- terminal keydown：
+  - `Meta/Ctrl+Up` → Select Last Block；
+  - `Meta/Ctrl+Down` → Select Prompt；
+  - 只在 terminal pane 持焦时接管，动作后回焦 xterm；
+- `terminalPromptStartRow` 沿 `line.isWrapped` 回溯逻辑 prompt 首行；
+- 多行 prompt 用 `selectLines(firstRow,cursorRow)`；
+- `terminalLastBlockSelection` 从完整逻辑 prompt 上方开始找块，
+  防止 wrapped prompt 上半行被误认为单独输出块。
+
+**回归**：
+
+```bash
+node --test tests/round574.test.mjs tests/round573.test.mjs \
+  tests/round572.test.mjs tests/round344.test.mjs \
+  tests/round300.test.mjs tests/static-order.test.mjs
+npm test
+node --check lib/client.js
+node --check lib/index.js
+git diff --check
+```
+
+- RED：round574/round344 **5 fail**；
+- 定向：**21 pass / 0 fail**。
+- 全量：**1874 pass / 0 fail**。
+
+**运行态**：
+
+- DSH Web 新 Terminal 执行 `printf 'ROUND574-A\nROUND574-B\n\n'`；
+- `Meta+Down` 选中两行逻辑 prompt；
+- `Meta+Up` 选中命令回显与两行输出；
+- 清除选区后 `Meta+C` Copy Block 的截获文本与 Meta+Up 选区完全一致；
+- `Copy Block / Select Last Block / Select Prompt` 三项同时出现在屏幕菜单；
+- 关注点始终回到 `xterm-helper-textarea`。
+
+**已排除方案**：
+
+- 不解析 shell prompt 私有序列；
+- 不用正则猜 prompt；
+- 不把 `isWrapped` 视行当作独立逻辑行；
+- 不另造 block 执行器。
+
+## 2026-11-16 — Terminal Select Last Block / Select Prompt
+
+**作用域**：Terminal 屏幕菜单的 IDEA block/prompt 选择动作。
+
+**IDEA 证据**：
+
+- `TerminalBundle.properties`：
+  - `action.Terminal.SelectLastBlock.text=Select Last Block`；
+  - `action.Terminal.SelectPrompt.text=Select Prompt`；
+  - `action.Terminal.CopyBlock.text=Copy Block`；
+- `Terminal.SelectPrompt` 对应 macOS `Meta+Down`。
+
+**实现**：
+
+- `terminalPromptSelection(buffer, cursorY, cursorX)`：
+  - 选择 cursor 所在行从 0 到 `cursorX`；
+  - 无 buffer 或非法坐标返回 `null`。
+- `terminalLastBlockSelection(buffer, cursorY)`：
+  - 从 cursor 上一行开始；
+  - 跳过尾部空行；
+  - 收集最近连续非空行，返回 inclusive `{start,end}`；
+  - cursor 在第 0 行且上方没有内容时返回 `null`。
+- `terminalMenuModel` 在 Select All 后增加两项：
+  - `selectLastBlock` → `selectLines(start,end)`；
+  - `selectPrompt` → `select(column,row,length)`；
+  - 执行后 `focus()` 回 xterm；
+  - disabled 判定不直接调用外部 helper，兼容旧测试单独抽取菜单函数。
+- 中英文 `Select Last Block / Select Prompt` 与中文 `选择上一命令块 / 选择命令行` 已同步。
+
+**回归**：
+
+```bash
+node --test tests/round573.test.mjs tests/round572.test.mjs \
+  tests/round300.test.mjs tests/round344.test.mjs tests/static-order.test.mjs
+npm test
+node --check lib/client.js
+node --check lib/index.js
+git diff --check
+```
+
+- RED：round573 初始 **4 fail**；
+- 定向：**17 pass / 0 fail**；
+- 全量：**1870 pass / 0 fail**；
+- round573 内的菜单夹具曾把相邻非空行误写成只选一行，按计划语义修正为 `selectLines(0,1)`。
+
+**运行态**：
+
+- DSH Web 新 Terminal 执行 `printf 'ALPHA\nBETA\n'`；
+- 右键菜单出现 `Select Last Block` / `Select Prompt`；
+- 从 xterm 内部实例读取：
+  - block selection 覆盖当前命令块；
+  - prompt selection 覆盖当前 wrapped prompt 末行到 caret；
+  - 两次执行后焦点都回到 `xterm-helper-textarea`。
+- 宽字符和换行 prompt 可跨 buffer 行，当前实现只取 cursor 所在末行；
+  下一轮应结合 xterm `isWrapped` 扩展完整 prompt 选择。
+
+**已排除方案**：
+
+- 不根据 shell 文本猜测 prompt 正则；
+- 不新增命令执行/块解析器；
+- 不读取 PTY 私有 shell-integration 序列。
+
+## 2026-11-16 — Terminal Page/Line Scrolling
+
+**作用域**：Terminal 屏幕菜单滚动动作与 focused-pane 键位。
+
+**IDEA 证据**：
+
+- `TerminalBundle.properties`：
+  - `Terminal.PageUp = Page Up`；
+  - `Terminal.PageDown = Page Down`；
+  - `Terminal.LineUp = Line Up`；
+  - `Terminal.LineDown = Line Down`；
+- `Terminal.ReworkedTerminalContextMenu` 在 Clear 后排列
+  Page Up/Down，再分隔排列 Line Up/Down；
+- Page Up/Down keymap 为 `Shift+PageUp / Shift+PageDown`。
+
+**实现**：
+
+- `terminalMenuModel` 增加：
+  - `pageUp/pageDown` 调用 xterm `scrollPages(-1/1)`；
+  - `lineUp/lineDown` 调用 `scrollLines(-1/1)`；
+  - 方法缺失时保持可见但 disabled；
+  - 执行后回焦 terminal；
+- Terminal capture keydown：
+  - focused pane 内 `Shift+PageUp/PageDown`；
+  - 调用同一 `scrollPages`；
+  - preventDefault/stopPropagation，不写入 PTY；
+- 中英文案补齐。
+
+**回归**：
+
+```bash
+node --test tests/round572.test.mjs tests/round300.test.mjs \
+  tests/round344.test.mjs tests/static-order.test.mjs
+npm test
+node --check lib/client.js
+node --check lib/index.js
+git diff --check
+```
+
+- RED：round572 初始 **3 fail**；
+- 定向 round572/300/344/static-order **13 pass / 0 fail**；
+- 全量 `npm test` = **1866 pass / 0 fail**。
+
+**运行态**：
+
+- 在首个 terminal 执行 `seq 1 200`；
+- 屏幕菜单出现 Page Up/Down、Line Up/Down；
+- 点击 Page Up 后可见末行从 `200` 变为 `193`；
+- 聚焦 terminal 按 `Shift+PageDown` 后回到 `193..200` 与当前 prompt；
+- 菜单关闭后 focus 仍回 terminal；
+- Computer Use 仍因 macOS 锁屏无法读取 IDEA 实窗。
+
+**下一轮计划**：继续 Terminal 的 IDEA block 选择动作，
+优先实现 Select Last Block/Select Prompt，并复用 xterm buffer API，
+不引入独立命令执行解析器。
+
+## 2026-11-16 — Provider Command Help 与 Short Aliases
+
+**作用域**：Search Everywhere `/` provider 命令发现、短别名和 command history。
+
+**实现**：
+
+- `searchEverywhereProviderCommand` 增加：
+  - `/t` → Text；
+  - `/f` → Files；
+  - `/a` → Actions；
+  - 完整命令 `/text /files /actions /all` 保持不变；
+- query 严格等于 `/` 时：
+  - 不进入普通 action command mode；
+  - 不请求 Text 正文搜索；
+  - 显示四条 provider command row：
+    `/all`、`/text`、`/files`、`/actions`；
+- command row：
+  - `keepOpen: true`；
+  - `rememberCommand: false`；
+  - 执行后补全为 `<command> `，并回焦 query；
+  - 不立即发起内容搜索；
+- result activation 现在尊重 `rememberCommand`，帮助项不污染最近 Action 历史；
+- zh/en provider descriptions 完整覆盖。
+
+**回归**：
+
+```bash
+node --test tests/round571.test.mjs tests/round570.test.mjs \
+  tests/round569.test.mjs tests/round466.test.mjs \
+  tests/static-order.test.mjs
+npm test
+node --check lib/client.js
+node --check lib/index.js
+git diff --check
+```
+
+- 定向 round571/570/569/466/static-order **20 pass / 0 fail**；
+- 全量 `npm test` = **1863 pass / 0 fail**。
+
+**运行态**：
+
+- 输入 `/`：显示 4 条 provider command，状态为 4 results，
+  未扫描文件/正文；
+- 点击 `/text`：query 补全为 `/text ` 且焦点留在 query；
+- 继续输入 `end`：Text tab 选中，状态 5 results；
+- `/a Find Tool Window`：Actions tab 选中，活动项正确；
+- Computer Use 仍因 macOS 锁屏无法读取 IDEA 实窗。
+
+**下一轮计划**：暂停继续扩展 Search Everywhere，转向 Terminal tab，
+用 IDEA Terminal 工具窗口的现有 action/键位做只读差异审计，
+选择仍缺失且可复用 PTY/session 实现的交互补齐。
+
+## 2026-11-16 — Search Everywhere Provider Commands
+
+**作用域**：Search Everywhere 命令前缀、provider 页签定位、Text action 焦点。
+
+**IDEA 语义**：
+
+- Search Everywhere 的 All/Files/Text/Actions 是不同 provider；
+- IDEA 对话框支持在查询中限定当前 provider；
+- Text tab 只显示文本出现项，Find tool window 则是独立持久搜索面。
+
+**实现**：
+
+- 新增纯函数 `searchEverywhereProviderCommand`：
+  - `/text query` → Text；
+  - `/files query` → Files；
+  - `/actions query` → Actions；
+  - `/all query` → All；
+  - 前缀保留在 input 中，实际 result query 使用后缀；
+- `SearchEverywhere`：
+  - 使用 `effectiveTab/effectiveQuery` 生成 action/file/text results；
+  - tab `aria-selected` 跟随 effective provider；
+  - 点击页签时先去掉 provider 前缀，再保留内容 query；
+  - Find handoff 使用 effective query；
+- 背景 Text 搜索同样消费 provider 后缀，不再把 `/text` 当搜索内容；
+- Text action：
+  - 如果当前 query 是 provider command，先剥离前缀；
+  - 再切到 Text、聚焦 `[data-dsh-search-query]`；
+  - 普通 query 保持原值。
+
+**回归**：
+
+```bash
+node --test tests/round570.test.mjs tests/round569.test.mjs \
+  tests/round553.test.mjs tests/round555.test.mjs \
+  tests/round557.test.mjs tests/static-order.test.mjs
+npm test
+node --check lib/client.js
+node --check lib/index.js
+git diff --check
+```
+
+- 定向 round570/569/553/555/557/static-order **24 pass / 0 fail**；
+- 全量 `npm test` = **1859 pass / 0 fail**。
+
+**运行态**：
+
+- `/text end`：Text tab 选中，input 保留 `/text end`，状态显示 5 results；
+- `/files README`：Files tab 选中，显示 README.md；
+- `/actions Find Tool Window`：Actions tab 选中，active row 为
+  `Find Tool Window`；
+- 执行 Text action（query `/actions Text`）后：
+  - Text tab 选中；
+  - input 去除命令前缀并变为 `Text`；
+  - active element 是 Search Everywhere query input；
+- Computer Use 仍因 macOS 锁屏无法读取 IDEA 实窗。
+
+**下一轮计划**：补 Search Everywhere 的 `/` 命令帮助和常用短别名，
+让 provider 前缀在不记忆完整命令时也可发现；继续复用现有 provider
+routing，不新增搜索实现。
+
+## 2026-11-16 — Text Search 与 Find Tool Window Entries
+
+**作用域**：Search Everywhere Actions 的 Text provider 与持久 Find 入口。
+
+**IDEA 证据**：
+
+- `action.TextSearchAction.text=Text…`；
+- `action.TextSearchAction.description=Show text occurrences in Search Everywhere`；
+- `action.ActivateFindToolWindow.text=Find`；
+- IDEA 将 Text provider 的页内切换和持久 Find tool window 作为两个不同入口。
+
+**实现**：
+
+- searchEverywhereActions 从 26 项扩展到 28 项：
+  - `textSearch`：
+    - label `Text…`；
+    - `keepOpen: true`、`rememberQuery: false`；
+    - 只把当前弹框 tab 切到 `text` 并重置索引；
+    - 不清空 query，不关闭 Search Everywhere；
+  - `findToolWindow`：
+    - label `Find Tool Window`；
+    - 先关闭瞬时 Search Everywhere；
+    - 复用 `openFindTool('', 'find')` 打开空白持久 Find；
+- 双语 label/description；
+- 更新 action matrix、README inventory 和测试约束为 28 项。
+
+**回归**：
+
+```bash
+node --test tests/round569.test.mjs tests/round553.test.mjs \
+  tests/round555.test.mjs tests/round557.test.mjs \
+  tests/static-order.test.mjs
+npm test
+node --check lib/client.js
+node --check lib/index.js
+git diff --check
+```
+
+- RED：README 28-entry contract 初始失败，其他新增行为测试先锁为红；
+- 定向 round569/553/555/557/static-order **20 pass / 0 fail**；
+- 全量 `npm test` = **1855 pass / 0 fail**。
+
+**运行态**：
+
+- 双击 Shift 打开 Search Everywhere；
+- 空查询 Actions 列表出现 `Text…` 与 `Find Tool Window`；
+- 点击 `Text…` 后弹框保持打开、query 保持为空、Text tab
+  `aria-selected=true`，切换到 Text provider 的空查询提示；
+- Actions 中查询 `Find Tool Window` 并执行后：
+  - Search Everywhere 关闭；
+  - 持久 `Find in Files…` 面板打开；
+  - 查询为空并显示 `Type at least 2 characters to search file contents`；
+- Computer Use 仍因 macOS 锁屏无法读取 IDEA 实窗；文案来自
+  `ActionsBundle.properties`。
+
+**下一轮计划**：审计 Search Everywhere 的命令/provider 前缀
+（如 `/text`、`/files`、`/actions`）与 Text action 的 query 聚焦，
+补与 IDEA 页签/provider 切换一致的命令模式行为。
+
+## 2026-11-16 — Open Repository Version
+
+**作用域**：Commit 详情文件菜单、只读 revision 标签、Git blob 读取。
+
+**IDEA 证据**：
+
+- `action.Vcs.Log.OpenRepositoryVersion.text=按修订显示文件`；
+- `OpenRepositoryVersionFromHistoryAction` 使用
+  `FileHistoryUtil.createVcsVirtualFile(model.createRevision(detail))`
+  创建 VCS virtual file，再通过 `OpenFileDescriptor` 打开；
+- revision 中不存在该文件时 action disabled。
+
+**实现**：
+
+- 宿主新增 `gitRepositoryVersion`：
+  - `requireRevision` 校验 commit；
+  - `resolveInside` 校验 workspace path；
+  - `gitBlobMaybe` 读取 revision/path；
+  - 缺失文件返回 `that revision does not contain this file`；
+  - 超过 4 MiB 拒绝；
+  - 返回 `{ path, hash, content, binary }`；
+- Git 路由增加 `repositoryVersion`；
+- Commit 文件菜单增加 `Open Repository Version / 按修订显示文件`；
+- Client 新增 `RepositoryVersionPreview`：
+  - Monaco `readOnly: true`；
+  - 只渲染宿主返回的 blob，不写入 `openFiles`/磁盘；
+  - toolbar 显示路径、短哈希、只读提示；
+  - 提供 Open Local Version 与 Close；
+  - 二进制文件显示明确占位；
+- 复用 `DIFF_TAB_KEY` inspection tab：
+  - tab 标题 `Version: <name> (<hash>)`；
+  - diff 和 version 不会同时占用代码区；
+  - Esc/关闭按钮/中键继续走现有 closeDiff 链。
+
+**回归**：
+
+```bash
+node --test tests/round568.test.mjs tests/round295.test.mjs \
+  tests/round321.test.mjs tests/round66.test.mjs \
+  tests/round25.test.mjs tests/round567.test.mjs \
+  tests/static-order.test.mjs
+npm test
+node --check lib/client.js
+node --check lib/index.js
+git diff --check
+```
+
+- RED：round568 初始 **1 fail**（宿主函数未导出）；
+- 定向 round568/295/321/66/25/567/static-order
+  **26 pass / 0 fail**；
+- 全量 `npm test` = **1851 pass / 0 fail**。
+
+**运行态**：
+
+- baseline 的 README 文件行右键出现 `Open Repository Version`；
+- 点击后打开 `Version: README.md (8d5451a)` 标签；
+- toolbar 显示 `Version in commit 8d5451a (read-only)`；
+- Monaco model 内容为提交版本：
+  `# r526 fixture / End appears here. Second end line.`；
+- Monaco API 返回 `readOnly=true`，键盘输入不修改 model；
+- 工作区原 `M README.md` 与 HEAD 均未变化；
+- Computer Use 仍因 macOS 锁屏无法读取 IDEA 实窗；动作语义由安装包
+  ActionsBundle 与 decompiled `OpenRepositoryVersionFromHistoryAction` 核对。
+
+**下一轮计划**：回到用户重点的 Search Everywhere 搜索/替换入口，
+用 IDEA 安装包 ActionsBundle 对现有 26 项 action matrix 做反向审计，
+补仍缺失且能在 Monaco/workspace 搜索链上真实落地的入口。
+
+## 2026-11-16 — Compare Revisions
+
+**作用域**：Commit Log 多提交选择、双提交聚合差异、Graph/flat 选择一致性。
+
+**IDEA 证据**：
+
+- `action.Vcs.Log.CompareRevisions.text=比较版本`；
+- `Vcs.Log.ContextMenu` 的首组声明 `Vcs.Log.CompareRevisions`；
+- `CompareRevisionsFromLogAction`：
+  - 仅在恰好选择 2 个 commit 时可见；
+  - 两个 commit 必须属于同一 repository root；
+  - 调用 `showDiffForPaths(root, affectedPaths, commits[1], commits[0])`；
+  - 文件范围是两个提交 affected paths 的并集。
+
+**实现**：
+
+- 新增纯函数 `commitSelectionAfterClick`：
+  - 普通点击替换选择；
+  - Meta/Ctrl toggle；
+  - Shift 从 anchor 到目标做 inclusive range；
+  - 选择顺序始终来自当前可见 Log 顺序；
+- flat Log 与 Graph 都接入同一选择模型；
+- 支持 `⌘/Ctrl+A` 选择当前可见全部提交；
+- 右键未选行收敛为单行，右键已选行保留当前多选；
+- 新增 `orderedRevisionPair`：
+  - 只有两个已加载 hash 时返回；
+  - 返回 `newer, older`，用于右侧/左侧方向；
+- 新增 `compareCommitRevisions`：
+  - 拉取两个 commit detail；
+  - 合并 affected paths；
+  - entry 携带 `originalRevision` + `modifiedRevision`；
+- `gitCombinedDiff` 支持双 revision：
+  - 复用 `gitBlobMaybe`；
+  - 新增/删除路径允许一侧为 `''`；
+  - files 保留 `missing/headExists`；
+- diff 标题/提示/tab 标题显示 `Compare Revisions · N files`；
+- 左右标题与文件 heading 显示 `older → newer`。
+
+**回归**：
+
+```bash
+node --test tests/round567.test.mjs tests/round566.test.mjs \
+  tests/round565.test.mjs tests/round46.test.mjs \
+  tests/round295.test.mjs tests/static-order.test.mjs
+npm test
+node --check lib/client.js
+node --check lib/index.js
+git diff --check
+```
+
+- RED：round567 初始 **4 fail**；
+- 定向 round567/566/565/46/295/static-order
+  **25 pass / 0 fail**；
+- 全量 `npm test` = **1848 pass / 0 fail**。
+
+**运行态**：
+
+- 临时提交 `r567 older revision` 与 `r567 newer revision`；
+- Meta 点击后 DOM 中两个 Log row 同时 `aria-selected=true`；
+- Shift 点击可从 newer 区间扩展到 baseline，三行同时选中；
+- 双选后右键菜单首项为 `Compare Revisions`；
+- 打开 `Compare Revisions · 1 files`；
+- 左右标题为 `08addef / e890a09`；
+- Monaco 左侧为 `one`，右侧为 `two`；
+- 验证后 `git reset --mixed` 回原 baseline，并删除临时文件；
+  fixture 恢复为 HEAD `8d5451a`、`M README.md`；
+- Computer Use 仍因 macOS 锁屏无法读取 IDEA 实窗；本轮语义由
+  `ActionsBundle.properties`、`Vcs.Log.ContextMenu` 与 decompiled
+  `CompareRevisionsFromLogAction` 交叉核对。
+
+**下一轮计划**：补齐 Commit 详情文件菜单的 IDEA
+`Vcs.OpenRepositoryVersion`，用只读标签打开所选提交中的文件版本，
+复用现有 Monaco model 与 Git blob 数据源。
+
+## 2026-11-16 — Compare Commit with Local
+
+**作用域**：Commit Log 的单提交本地比较、aggregate diff 的 revision side。
+
+**IDEA 证据**：
+
+- `action.Vcs.ShowDiffWithLocal.text=与本地比较`；
+- `action.Vcs.ShowDiffWithLocal.description=将所选修订中的版本与当前版本进行比较`；
+- `Vcs.Log.ContextMenu` 在 Compare Revisions 后声明 `Vcs.ShowDiffWithLocal`；
+- `ShowDiffAfterWithLocalFromLogActionProvider` 只允许单选 commit，
+  并调用 `showDiffForPaths(root, affectedPaths, commitHash, null)`。
+
+**实现**：
+
+- Client 新增 `commitLocalDiffEntries`：
+  - 只使用 `gitShowCommit` 返回的 affected paths；
+  - 每项携带 `path/revision/heading`，不扫描无关工作区文件；
+- `gitCombinedDiff` 的 entry 支持 `revision`：
+  - 复用单文件 revision/local 读取；
+  - 抽出 `gitDiffAtRevisionAgainstWorkingCopy`；
+  - 单文件 Compare with Revision 仍拒绝 revision 中不存在的路径；
+  - 提交聚合允许缺文件侧为 `''`，因此删除提交不会中断整个 diff；
+- Commit Log 菜单增加 `Compare with Local`；
+- 操作打开只读 combined diff：
+  - 标题 `Compare with Local · N files`；
+  - 左右标题为 `短哈希 / Current version`；
+  - 提示 `Commit <hash> against the current working tree (read-only)`；
+  - 复用现有文件级 Previous/Next、hunk、搜索和折叠控制。
+
+**回归**：
+
+```bash
+node --test tests/round566.test.mjs tests/round25.test.mjs \
+  tests/round321.test.mjs tests/round565.test.mjs \
+  tests/round564.test.mjs tests/round66.test.mjs \
+  tests/static-order.test.mjs
+npm test
+node --check lib/client.js
+node --check lib/index.js
+git diff --check
+```
+
+- RED：round566 初始 **3 fail**；
+- 定向 round566/25/321/565/564/66/static-order
+  **30 pass / 0 fail**；
+- 全量 `npm test` = **1844 pass / 0 fail**。
+
+**运行态**：
+
+- baseline Commit 右键出现 `Compare with Local`；
+- 执行后打开 `Compare with Local · 3 files` 只读聚合 diff；
+- 左侧README为提交内容 `End appears here...`；
+- 右侧README为当前工作区内容 `Scoped appears here... End again.`；
+- 文件导航显示 `1/3`，可切换到提交影响的 docs/src 路径；
+- 操作前后 HEAD 仍为 `8d5451a`，原有 `M README.md` 未变化；
+- Computer Use 仍因 macOS 锁屏无法读取 IDEA 实窗；动作语义由安装包
+  `ActionsBundle.properties`、`intellij.platform.vcs.log.impl.xml` 与
+  decompiled `ShowDiffAfterWithLocalFromLogActionProvider` 交叉核对。
+
+**下一轮计划**：补齐 Commit Log 多选与 IDEA `Compare Revisions`，
+复用当前 aggregate diff 的文件/方向模型，不新增第二套比较引擎。
+
+## 2026-11-16 — Go to Parent / Child Commit
+
+**作用域**：Commit Log 的父子提交导航、提交图键盘交互。
+
+**IDEA 证据**：
+
+- `intellij.platform.vcs.log.impl.xml` 的 `Vcs.Log.ContextMenu`
+  在 Compare/Diff 动作后依次声明 `Vcs.Log.GoToChild`、
+  `Vcs.Log.GoToParent`；
+- `VcsLogBundle.properties`：
+  - `action.Vcs.Log.GoToChild.text=转到子提交`；
+  - `action.Vcs.Log.GoToParent.text=转到父提交`；
+- 默认 keymap：`GoToParent=RIGHT`，`GoToChild=LEFT`。
+
+**实现**：
+
+- `gitLog` format 增加 `%P`，返回完整 `parents`；
+- Client 新增 `commitRelationTargets` / `commitRelationTarget`：
+  - parent 只取当前 commit 已记录的父 hash；
+  - child 从当前已加载 entries 中反查 parent 指向；
+  - 不把上下相邻行误当父子关系；
+- Commit Log 菜单增加：
+  - `Go to Child Commit`，快捷键显示 `←`；
+  - `Go to Parent Commit`，快捷键显示 `→`；
+  - 单目标直接导航；merge 多父/多子生成真实候选子菜单；
+  - 未加载目标时 disabled；
+- flat log 与 Graph listbox 都接管 `← / →`；
+- 菜单/键盘导航复用 `showCommit`，同步 selected row、详情和滚动位置；
+- Graph mode 下 selected 变化会同步 graph cursor，避免下一次方向键从旧提交出发。
+
+**回归**：
+
+```bash
+node --test tests/round565.test.mjs tests/round18.test.mjs \
+  tests/round47.test.mjs tests/round65.test.mjs tests/round67.test.mjs \
+  tests/round295.test.mjs tests/round560.test.mjs \
+  tests/round561.test.mjs tests/round564.test.mjs \
+  tests/static-order.test.mjs
+npm test
+node --check lib/client.js
+node --check lib/index.js
+git diff --check
+```
+
+- RED：round565 初始 **4 fail**；
+- 定向 round565/18/47/65/67/295/560/561/564/static-order
+  **45 pass / 0 fail**；
+- 全量 `npm test` = **1841 pass / 0 fail**；
+
+**运行态**：
+
+- fixture 临时创建两个 empty commits，工作区仍只有原有 `M README.md`；
+- Log 菜单显示 `Go to Child Commit ←` 与 `Go to Parent Commit →`；
+- 从第二个提交点击 Parent 后，详情切到第一个提交；
+- flat log 聚焦后 `←` 切到子提交，`→` 切回父提交；
+- 验证后 `git reset --mixed` 回到原 baseline，HEAD 和
+  `M README.md` 状态均恢复；
+- Computer Use 仍因 macOS 锁屏无法读取 IDEA 实窗，文案与 keymap
+  使用安装包 XML/properties 静态证据。
+
+**下一轮计划**：实现 IDEA `Vcs.ShowDiffWithLocal` 的提交级本地差异入口，
+复用现有 commit diff 与聚合 diff 数据源，不另造比较模型。
+
+## 2026-11-16 — Create Patch from Commit
+
+**作用域**：Commit Log 单提交补丁导出、宿主 Git 路由、浏览器下载。
+
+**IDEA 证据**：
+
+- `action.name.create.patch=创建补丁…`；
+- `action.description.create.patch.for.selected.revisions=为所选修订创建补丁`；
+- `create.patch.commit.action.progress=正在创建补丁…`。
+
+**实现**：
+
+- 宿主新增 `gitCommitPatch`，先 `rev-parse --verify <rev>^{commit}`；
+- 使用 `git format-patch -1 --stdout --binary --no-signature --no-color`；
+- 返回 `{ patch, hash, subject }`，全程只读，不移动 HEAD/index/工作区；
+- Git 路由增加 `commitPatch`；
+- Client 提取 `downloadPatchBlob`，本地更改与提交补丁共用 Blob/download/revoke 链；
+- 文件名 `dsh-editor-<short-hash>-<safe-subject>.patch`：
+  - subject 的控制字符与 `/ : * ? " < > | \` 等替换为 `-`；
+  - 空白折叠，最多 48 个字符；
+  - 不同提交至少由短哈希区分；
+- Commit Log 菜单新增 `Create Patch from Commit…`，成功/失败复用 Commit notice/error。
+
+**回归**：
+
+```bash
+node --test tests/round564.test.mjs tests/round322.test.mjs \
+  tests/round321.test.mjs tests/round560.test.mjs \
+  tests/round561.test.mjs tests/static-order.test.mjs
+npm test
+node --check lib/client.js
+node --check lib/index.js
+git diff --check
+```
+
+- RED：`tests/round564.test.mjs` 因 `gitCommitPatch` 未导出而 **1 fail**；
+- 定向 round564/322/321/560/561/65/67/18/static-order
+  **42 pass / 0 fail**；
+- 全量 `npm test` = **1837 pass / 0 fail**；
+- `node --check lib/client.js`、`node --check lib/index.js`、
+  `git diff --check` 均通过。
+
+**运行态**：
+
+- Ego Browser 实际右键 `8d5451a baseline`，菜单出现
+  `Create Patch from Commit…`；
+- 浏览器 download 事件返回
+  `dsh-editor-8d5451a-baseline.patch`，保存为
+  `/private/tmp/dsh-editor-r564-baseline.patch`；
+- 文件含完整 `From/Subject/diff --git` 与三个新增文件 hunk；
+- Commit 工具栏显示 `Created a patch for commit 8d5451a`；
+- 生成后 fixture 仍为同一 `HEAD` 且原有 `M README.md` 未变化；
+- `Shift+F10` 从 Log listbox 打开同一菜单，入口可键盘到达；
+- Computer Use 因 macOS 锁屏无法读取 IDEA 实窗，本轮 IDEA 文案采用安装包
+  `localization-zh.jar` 的 `VcsBundle.properties` 静态证据。
+
+**下一轮计划**：审计 Commit Log 的本地/远程分支与提交详情操作，优先补齐
+IDEA 中仍缺失且可运行态验证的单提交动作。
+
+## 2026-11-16 — Manual Order Keyboard 与 Reset
+
+**作用域**：Project Manual Order 键盘重排与顺序重置。
+
+**实现**：
+
+- `⌥↑ / ⌥↓` 仅 manual 模式接管；
+- 同父 sibling 选择块按 adjacent boundary 移动；
+- 移动后保持 selected row 并滚入视野；
+- Sort By 增加 Reset Manual Order；
+- reset 只清空 manual map，保持 manual 模式；
+- 焦点回 Project tree。
+
+**验证**：
+
+- 定向 round563/562/199/207/static-order
+  **21 pass / 0 fail**；
+- 全量 `npm test` = **1832 pass / 0 fail**；
+- DSH Web 验证上下移动、selected row、focus、localStorage 与 reset。
+
+**下一轮计划**：Commit Log `Create Patch from Commit…`。
+
+## 2026-11-16 — Project Manual Order
+
+**作用域**：Project 树 Manual Order 视图排序。
+
+**实现**：
+
+- Sort By 增加 Manual Order；
+- per-workspace 保存 parent → child path 顺序；
+- 未知新条目保持 host 顺序并排在已知项之后；
+- flattenRows 逐层应用手动顺序；
+- 拖拽仅重排同父目录 siblings，多选作为连续块；
+- 提供 before/after 插入指示；
+- manual 拖拽不调用磁盘 moveEntry；
+- 跨目录拖拽给出明确提示。
+
+**验证**：
+
+- 定向 round562/199/201/207/project-round13/static-order
+  **27 pass / 0 fail**；
+- 全量 `npm test` = **1829 pass / 0 fail**；
+- DSH Web 拖拽 README 到 docs 前并刷新保持；
+- 磁盘目录顺序/文件位置未变化。
+
+**下一轮计划**：增加 keyboard reorder 与 Reset Manual Order。
+
+## 2026-11-16 — Reset Current Branch to Here
+
+**作用域**：Commit Log 的 branch reset。
+
+**实现**：
+
+- `gitResetToRevision` 只接受 soft/mixed/hard；
+- 验证 commit 后执行对应 `git reset`；
+- Commit Log 增加三模式子菜单；
+- detached HEAD disabled；
+- Hard 确认显示短哈希与未保存标签数；
+- Hard 后重载打开文件，Soft/Mixed 保留工作区；
+- 刷新 tree/log/changes/external state。
+
+**验证**：
+
+- 定向 round561/560/65/67/18/static-order
+  **31 pass / 0 fail**；
+- 全量 `npm test` = **1824 pass / 0 fail**；
+- DSH Web 验证三模式菜单、Hard 强确认取消路径、Soft 执行路径。
+
+**下一轮计划**：实现 Project Manual Order 视图排序。
+
+## 2026-11-16 — New Branch from Commit
+
+**作用域**：Commit Log 从任意提交创建分支。
+
+**实现**：
+
+- `gitCreateBranch` 增加 `startPoint`；
+- `rev-parse --verify <rev>^{commit}` 先验证历史提交；
+- checkout 与不 checkout 两种模式都支持指定 start point；
+- Commit Log 增加 `New Branch from {hash}…`；
+- 复用 branch name prompt，携带目标 hash；
+- `submitNamePrompt` 转发 `startPoint` 并刷新现有视图。
+
+**验证**：
+
+- 定向 round560/65/67/static-order **15 pass / 0 fail**；
+- 全量 `npm test` = **1818 pass / 0 fail**；
+- DSH Web 创建并切换到测试分支，随后切回 main 并删除。
+
+**下一轮计划**：实现 Reset Current Branch to Here 的三种 reset 模式。
+
+## 2026-11-16 — Terminal Scrollback Recovery
+
+**作用域**：Terminal host 重启后的 tab/scrollback 恢复。
+
+**实现**：
+
+- TerminalScreen 累计 snapshot/data 到 bounded buffer；
+- 每 tab 最多 64 KiB 字符、最多 4 tab；
+- 仅写当前浏览器 tab 的 sessionStorage，不写 workspace/磁盘；
+- 恢复时按 profile 顺序绑定新 PTY；
+- seed 只消费一次，避免 reconnect 重复回放；
+- Clear screen and scrollback 同步清除 sessionStorage；
+- 关闭最后一个终端清空 scope；
+- 首次挂载空列表不再覆盖已有快照。
+
+**验证**：
+
+- 定向 round559/terminal-round15/terminal-links/static-order
+  **19 pass / 0 fail**；
+- 全量 `npm test` = **1814 pass / 0 fail**；
+- 宿主同端口重启后 xterm 恢复唯一 marker；
+- clear-buffer 后 xterm 与 sessionStorage 同时无 marker。
+
+**边界**：浏览器 tab 关闭后 sessionStorage 由浏览器清除；输出可能含敏感信息，
+因此不入 shared workspace/localStorage。
+
+**下一轮计划**：审计 Commit/Project 的下一项可验证 IDEA 差异。
+
+## 2026-11-16 — Atomic File Write
+
+**作用域**：Editor/Project 文本保存与跨文件 Replace 写入。
+
+**实现**：
+
+- `atomicWriteTextFile` 在目标同目录创建 `wx` 临时文件；
+- 写入后 `fsync`、关闭、rename；
+- 保留原权限位；
+- symlink 解析真实目标，保留链接；
+- 失败时关闭 handle 并删除临时文件；
+- guarded write、create 与 replace 全部复用该路径。
+
+**验证**：
+
+- 定向 round558/write-guard/154/480/483 **26 pass / 0 fail**；
+- 全量 `npm test` = **1809 pass / 0 fail**；
+- DSH Web 保存后 inode 变化、权限 0644 保持、无临时文件残留；
+- fixture 测试后恢复。
+
+**下一轮计划**：审计并实现 bounded terminal scrollback 恢复。
+
+## 2026-11-16 — Search Acceptance 与 IDE 缺口审计
+
+**作用域**：搜索/替换最终验收与后续 IDE 缺口排序。
+
+**验收结果**：
+
+- 26 项 Search Everywhere action 已锁定 ID、状态、双语文案、
+  disabled reason 与 `aria-keyshortcuts`；
+- Monaco 右键搜索链已覆盖 usage、occurrence、selection-only、
+  Find/Replace、Files 与 Search Web；
+- Structural Search/Replace 明确作为 AST unavailable 边界；
+- README 旧 action 名称与漏列项已修正，并新增 round557 文档一致性测试。
+
+**剩余缺口**：
+
+- Terminal PTY 依赖宿主 provider；宿主重启不恢复 scrollback；
+- Editor/Project 写入仍为非原子覆盖；
+- Monaco TypeScript Worker 可能受代理限制；
+- Structural Search/Replace 缺 language AST。
+
+**验证**：
+
+- 定向 round557/556/555/553/114/static-order
+  **22 pass / 0 fail**；
+- 全量 `npm test` = **1806 pass / 0 fail**；
+- 语法和 whitespace gate 通过。
+
+**下一轮计划**：实现同目录临时文件 + atomic rename 的安全写入。
+
+## 2026-11-16 — Search Action Shortcut Accessibility
+
+**作用域**：Search Everywhere Actions 的快捷键辅助元数据。
+
+**实现**：
+
+- 新增 `searchEverywhereAriaKeyShortcuts`：
+  - glyph 映射到 ARIA modifier；
+  - 保留 glyph 顺序；
+  - 单字符键转大写；
+- action 行增加 `aria-keyshortcuts`；
+- 视觉 shortcut、tooltip 与辅助属性保持同源。
+
+**验证**：
+
+- 定向 round556/555/553/542/489/447/static-order
+  **28 pass / 0 fail**；
+- 全量 `npm test` = **1804 pass / 0 fail**；
+- DSH Web：
+  - `⌘R` → `Meta+R`；
+  - `⇧⌘R` → `Shift+Meta+R`；
+  - `⌃⌘G` → `Control+Meta+G`；
+  - `⌥F7` → `Alt+F7`。
+
+**下一轮计划**：完成搜索/替换最终验收，并转向剩余 IDE tab 差异。
+
+## 2026-11-16 — Search Action State Matrix
+
+**作用域**：26 项 Search Everywhere search/replace actions 的可用性矩阵。
+
+**实现**：
+
+- 新增 round555 矩阵测试，覆盖：
+  - editor-only；
+  - selection-only；
+  - symbol actions；
+  - find-step；
+  - Structural disabled；
+  - workspace always enabled。
+
+**验证**：
+
+- 定向 round555/554/553/528/114/static-order
+  **23 pass / 0 fail**；
+- 全量 `npm test` = **1801 pass / 0 fail**；
+- DSH Web：
+  - 无文件：Incremental disabled、Find in Files enabled、
+    Structural disabled；
+  - 普通光标：selection-only disabled、word-at-caret enabled；
+  - 真实选区：selection-only Find/Replace enabled。
+
+**下一轮计划**：审计 Search Everywhere action 辅助功能元数据。
+
+## 2026-11-16 — Structural Search/Replace Boundary
+
+**作用域**：Search Everywhere Actions 的 Structural Search/Replace。
+
+**实现**：
+
+- 增加 `Structural Search…` 与 `Structural Replace…`；
+- Monaco 无 language AST，两项固定 disabled；
+- disabled reason 明示 AST 要求；
+- run 为 no-op，且不写 command history；
+- round553 覆盖清单更新为 26 项。
+
+**验证**：
+
+- 定向 round554/553/552/528/472/114/static-order
+  **25 pass / 0 fail**；
+- 全量 `npm test` = **1795 pass / 0 fail**；
+- DSH Web：query=`Structural`：
+  - 两项可见、`aria-disabled=true`；
+  - disabled reason 可通过 `aria-description` 读取；
+  - ArrowDown 不进入下一禁用项；
+  - Enter 不关闭 Search Everywhere。
+
+**下一轮计划**：完成 26 项 action 的最终状态矩阵审计。
+
+## 2026-11-16 — Search Action Coverage Audit
+
+**作用域**：Search Everywhere Actions 的搜索/替换功能清单。
+
+**实现**：
+
+- round553 锁定 24 个搜索/替换 action ID；
+- 校验 ID 唯一、label/description 完整；
+- `disabled` 与 `disabledReason` 数量一致；
+- action 引用的双语 key 必须同时存在于 zh/en。
+
+**验证**：
+
+- 定向 round553/552/550/545/114/488/528/static-order
+  **31 pass / 0 fail**；
+- 全量 `npm test` = **1793 pass / 0 fail**；
+- DSH Web（700×900）：
+  - Actions 对话框 646px；
+  - query=`Replace` 有 8 个结果，行宽 644px；
+  - ArrowDown 顺序移动且 `aria-activedescendant` 同步。
+
+**下一轮计划**：显式暴露 Structural Search/Replace 的 unsupported 边界。
+
+## 2026-11-16 — Selection-only Context Menu
+
+**作用域**：Monaco 右键菜单的 selection-scoped editor Find/Replace。
+
+**实现**：
+
+- `navigation` 菜单增加 `Search in Selection Only`（2.4）与
+  `Replace in Selection Only`（2.5）；
+- 独立 precondition 要求真实选区与非空 symbol query；
+- 新增 `selectionFindContextRunnerRef`，复用
+  `editorFindSelectionScope`、`findUsagesSearchTarget`、
+  `openEditorFindInSelection`；
+- selection Find 支持显式 query 与 `query|replace` focus target；
+- 两个编辑组传入本地化标题和模式 handler。
+
+**验证**：
+
+- 定向 round552/551/550/549/548/545/538/535/static-order
+  **35 pass / 0 fail**；
+- 全量 `npm test` = **1789 pass / 0 fail**；
+- DSH Web：
+  - Search in Selection Only：query=`Scoped`、scope active、`1/1`；
+  - query 改为 `e` 后仍 `1/1`，未统计文件其他 8 个 `e`；
+  - Replace in Selection Only：scope active、replacement input 聚焦；
+    选区内 `Scoped → ScopEd`，其他 `e` 不变；
+  - 只有光标、无选区时两项隐藏。
+
+**下一轮计划**：补 Search Everywhere 搜索/替换 action 覆盖清单测试。
+
+## 2026-11-16 — Editor Replace Enter
+
+**作用域**：编辑器 Find 的 replacement input 键盘交互。
+
+**实现**：
+
+- replacement input 的 Enter 在
+  `error === null && total > 0` 时调用现有 `replaceCurrent()`；
+- Escape 关闭编辑器 Find；
+- 输入法组合态不拦截 Enter/Escape；
+- 单处替换继续复用 `replaceCurrent` / `editorReplaceAt`，
+  不新增写入路径；
+- 编辑器单处替换是同步操作，没有 workspace Find 的 replaceBusy 状态。
+
+**验证**：
+
+- 定向 round551/550/549/548/545/485/518/521/static-order
+  **29 pass / 0 fail**；
+- 全量 `npm test` = **1784 pass / 0 fail**；
+- DSH Web：
+  - `Scoped → Range`，Enter 后模型更新，replacement input 保持焦点，
+    Find 变为 `No matches`，文件标记 Unsaved 且未写盘；
+  - 零匹配时 Enter 不修改模型。
+
+**下一轮计划**：增加 selection-only Find/Replace 上下文入口。
+
+## 2026-11-16 — Replace 与 Incremental Search Context Menu
+
+**作用域**：Monaco 右键菜单到编辑器 Find/Replace 的交接。
+
+**实现**：
+
+- `navigation` 菜单增加 `Replace…`（2.2）与
+  `Incremental Search`（2.3）；
+- 泛化 `editorFindContextRunnerRef` 与 `openEditorFind`：
+  - 支持 `withReplace`；
+  - 支持 `focusTarget = query | replace`；
+- 编辑器 replacement input 增加
+  `data-dsh-editor-find-replace-input`；
+- 两个编辑组传入本地化标题和模式 handler。
+
+**验证**：
+
+- 定向 round550/549/548/547/545/540/532/static-order
+  **29 pass / 0 fail**；
+- 全量 `npm test` = **1781 pass / 0 fail**；
+- DSH Web：
+  - Replace：query=`Scoped`，replace 行显示，
+    replacement input 聚焦，`1/1`；
+  - Incremental Search：query=`Scoped`，query 聚焦，
+    不显示 replace 行，`1/1`；
+  - 选区保持 `[3,1 -> 3,7]`；
+  - 空白行无符号时两项隐藏。
+
+**下一轮计划**：实现编辑器 Replace 输入框的 Enter 替换行为。
+
+## 2026-11-16 — Word Occurrence Context Menu
+
+**作用域**：Monaco 右键菜单的 next/previous word occurrence。
+
+**实现**：
+
+- `navigation` 菜单增加 `Find Word at Caret`（2.0）与
+  `Previous Occurrence of the Word at Caret`（2.1）；
+- 复用 selection/caret context key 和 `runSearchCommand`；
+- 分别调用 `editor.action.nextSelectionMatchFindAction` 与
+  `editor.action.previousSelectionMatchFindAction`；
+- 两个编辑组传入本地化标题。
+
+**验证**：
+
+- 定向 round549/548/547/546/545/531/static-order
+  **27 pass / 0 fail**；
+- 全量 `npm test` = **1778 pass / 0 fail**；
+- DSH Web：
+  - 选区 `e` 从 `[3,5]` 前进到 `[3,11]`，Previous 回到 `[3,5]`；
+  - 焦点保持在 Monaco；
+  - 空白行无符号时两项隐藏。
+
+**下一轮计划**：增加 Replace 与 Incremental Search 上下文入口。
+
+## 2026-11-16 — In-file Usages Context Menu
+
+**作用域**：Monaco 右键菜单的 in-file usage search/highlight。
+
+**实现**：
+
+- `navigation` 菜单增加 `Find Usages in File`（1.8）与
+  `Highlight Usages in File`（1.9）；
+- Find Usages in File 新增 `editorFindContextRunnerRef`，
+  调用现有 `openEditorFind(false, query)`；
+- Highlight Usages in File 复用
+  `editor.action.wordHighlight.trigger`；
+- 两个编辑组传入本地化标题与 handler；
+- 编辑器 Find 聚焦同样延后 40ms，避开 Monaco 菜单焦点恢复。
+
+**验证**：
+
+- 定向 round548/547/546/545/540/539/530/static-order
+  **29 pass / 0 fail**；
+- 全量 `npm test` = **1775 pass / 0 fail**；
+- DSH Web：
+  - Find Usages in File：query=`Scoped`，输入聚焦，`1/1`；
+  - Highlight Usages in File：模型出现 `wordHighlightText` 装饰，
+    焦点回 Monaco，编辑器 Find 未打开；
+  - 选区保持 `[3,1 -> 3,7]`；
+  - 空白行无符号时两项隐藏。
+
+**下一轮计划**：增加 Find/Previous Word at Caret 上下文入口。
+
+## 2026-11-16 — Find/Replace in Files Context Menu
+
+**作用域**：Monaco 编辑器右键菜单到 workspace Find 工具窗口的交接。
+
+**实现**：
+
+- `navigation` 菜单增加 `Find in Files…`（1.6）与
+  `Replace in Files…`（1.7）；
+- 复用 selection/caret context key；
+- 新增 `findToolContextRunnerRef`，在 `openFindTool` 声明后注入；
+- Find 模式聚焦 query，Replace 模式聚焦 replacement input；
+- 发现并修复 Monaco 菜单关闭后抢回编辑器焦点的问题：
+  Find 工具聚焦延后到 40ms。
+
+**验证**：
+
+- 定向 round547/546/545/544/539/530/static-order
+  **25 pass / 0 fail**；
+- 全量 `npm test` = **1771 pass / 0 fail**；
+- DSH Web：
+  - Find in Files：query=`Scoped`，query 聚焦，`1 match in 1 file`；
+  - Replace in Files：query=`Scoped`，replace 行显示，
+    replacement input 聚焦；
+  - 选区始终为 `[3,1 -> 3,7]`；
+  - 空白行无符号时两项隐藏。
+
+**下一轮计划**：增加 Find Usages in File 与 Highlight Usages in File
+上下文入口。
+
+## 2026-11-16 — Search Web Context Menu
+
+**作用域**：Monaco 编辑器右键菜单的 IDEA `Search Web`。
+
+**实现**：
+
+- `navigation` 菜单增加 `Search Web`，order `1.5`；
+- 复用 selection/caret context key 与 `findUsagesSearchTarget`；
+- 两个编辑组传入本地化标题；
+- 新标签使用编码 URL、`_blank`、`noopener,noreferrer`。
+
+**验证**：
+
+- 定向 round546 系列 **18 pass / 0 fail**；
+- 全量 `npm test` = **1767 pass / 0 fail**；
+- DSH Web：选区 `Scoped` 右键后保持 `[3,1 -> 3,7]`；
+  - 菜单包含 `Search Web`；
+  - 调用 URL=`https://www.google.com/search?q=Scoped`；
+  - Search Everywhere 未打开；
+  - 空白行无符号时菜单隐藏该项。
+
+**下一轮计划**：在 Monaco 右键菜单增加 Find/Replace in Files。
+
+## 2026-11-16 — Multiple-caret Context Menu
+
+**作用域**：Monaco 编辑器右键菜单的 multiple-caret 搜索。
+
+**实现**：
+
+- `createCodeEditorGroup` 增加 `runSearchCommand`；
+- `navigation` 菜单增加：
+  - `Select All Occurrences` → `editor.action.selectHighlights`；
+  - `Select Next Occurrence` → `editor.action.addSelectionToNextFindMatch`；
+  - `Unselect Previous Occurrence` → `cursorUndo`；
+- 与 `Find Usages` 共用 selection/caret context key；
+- 两个编辑组分别传入本地化标题。
+
+**验证**：
+
+- 定向 round546/545/544/530/static-order **18 pass / 0 fail**；
+- 全量 `npm test` = **1767 pass / 0 fail**；
+- DSH Web：
+  - 选区内部右键不清除选区；
+  - Select All 1→9，Select Next 1→2，Unselect Previous 2→1；
+  - 空白行无符号时三项隐藏；
+  - 右键和动作均不打开 Search Everywhere。
+
+**下一轮计划**：将 `Search Web` 加入 Monaco 右键菜单。
+
+## 2026-11-16 — Search Web
+
+**作用域**：Search Everywhere Actions 的 IDEA `Search Web`。
+
+**实现**：
+
+- 复用 selection/caret resolver；无编辑器或无符号时 disabled；
+- 关闭 Search Everywhere 后打开 Google 搜索；
+- query 经 `encodeURIComponent`；
+- 新标签使用 `_blank` + `noopener,noreferrer`。
+
+**验证**：
+
+- 定向 round544 系列 **25 pass / 0 fail**；
+- 全量 `npm test` = **1760 pass / 0 fail**；
+- DSH Web：选区 `Scoped`：
+  - 调用 `https://www.google.com/search?q=Scoped`；
+  - target=`_blank`，features=`noopener,noreferrer`；
+  - Search Everywhere 关闭。
+
+**下一轮计划**：将 multiple-caret 搜索动作加入 Monaco 右键菜单。
+
+## 2026-11-16 — Find/Replace in Path Synonyms 与 Find Word at Caret
+
+**作用域**：Search Everywhere Actions 的排序同义词与 word-at-caret 文案。
+
+**实现**：
+
+- `rankSearchActions` 将 `keywords` 纳入 fuzzy match；
+- Find in Files：`Find in Path / 在路径中查找`；
+- Replace in Files：`Replace in Path / 在路径中替换`；
+- 下一个 word 动作改为 IDEA `Find Word at Caret / 查找文本光标处的字`；
+- 使用专用 `findWordAtCaretHint`。
+
+**验证**：
+
+- 定向 round543 系列 **32 pass / 0 fail**；
+- 全量 `npm test` = **1757 pass / 0 fail**；
+- DSH Web：两个 Path synonym 分别命中 Find/Replace in Files；
+  `Find Word at Caret` 显示 IDEA 文案。
+
+**下一轮计划**：增加 IDEA `Search Web`。
+
+## 2026-11-16 — IDEA macOS Multiple-caret Shortcuts
+
+**作用域**：编辑器 macOS 快捷键与 Search Everywhere multiple-caret actions。
+
+**对照**：IntelliJ IDEA 2026.2 `keymaps/Mac OS X 10.5+.xml`：
+
+- `SelectNextOccurrence`=`control G`；
+- `UnselectPreviousOccurrence`=`control shift G`；
+- `SelectAllOccurrences`=`meta control G`。
+
+**实现**：
+
+- 纯函数 `isMacPlatform` 识别 macOS；
+- 通用 Find Next 处理器先放行 Control+G 家族；
+- 专用监听器复用 `runWordOccurrence`：
+  - `editor.action.addSelectionToNextFindMatch`；
+  - `cursorUndo`；
+  - `editor.action.selectHighlights`；
+- Action 行显示对应快捷键。
+
+**验证**：
+
+- 定向 round542 系列 **18 pass / 0 fail**；
+- 全量 `npm test` = **1753 pass / 0 fail**；
+- DSH Web：`⌃G` 1→2、`⌃⇧G` 2→1、`⌃⌘G` 1→9，
+  Monaco 保持焦点。
+
+**下一轮计划**：补 Find/Replace in Path 同义词与 IDEA word 文案。
+
+## 2026-11-16 — Multiple-caret Search Actions
+
+**作用域**：Search Everywhere Actions 的 multiple-caret 搜索。
+
+**实现**：
+
+- `Select All Occurrences` → `editor.action.selectHighlights`；
+- `Select Next Occurrence` → `editor.action.addSelectionToNextFindMatch`；
+- `Unselect Previous Occurrence` → `cursorUndo`；
+- 全部复用 selection/caret resolver、disabled reason 和
+  `runWordOccurrence` 焦点归还链。
+
+**验证**：
+
+- 定向 round544/543/542/541/540/114/static-order
+  **25 pass / 0 fail**；
+- 全量 `npm test` = **1753 pass / 0 fail**；
+- DSH Web：1→9、9→2、2→1 个选区，焦点保持在 Monaco。
+
+**下一轮计划**：对齐 IDEA macOS multiple-caret 快捷键。
+
+## 2026-11-16 — Incremental Search
+
+**作用域**：Search Everywhere Actions 的 IDEA `Incremental Search` 入口与
+当前编辑器 Find 交接。
+
+**实现**：
+
+- 新增 `incrementalSearch` Action；无 Monaco model 时 disabled；
+- query 复用选区或光标处标识符，无标识符时允许空查询；
+- `openEditorFind` 区分显式 query：
+  - 显式 query 覆盖已有 Find 草稿；
+  - index 归零并清除旧 selection scope；
+  - 保留搜索选项和替换文本；
+- Find 查询输入增加 `data-dsh-editor-find-input`；
+- Action 关闭 Search Everywhere 后聚焦 Find 查询输入。
+
+**验证**：
+
+- RED：round540 **0 pass / 3 fail**；
+- 定向 **89 pass / 0 fail**；
+- 全量 `npm test` = **1745 pass / 0 fail**；
+- `git diff --check` 通过；
+- DSH Web：
+  - 无活动文件时 disabled，原因显示先打开文件；
+  - README 打开后 enabled；
+  - 选区 `Scoped`、原 Find 草稿 `End`；
+  - 执行后 Search Everywhere 关闭，Find query=`Scoped`，scope 关闭，
+    输入聚焦，结果 `1/1`。
+
+**IDEA 对照**：IntelliJ IDEA 2026.2 `ActionsBundle.properties` 中
+`action.IncrementalSearch.text=增量搜索`，描述为输入时搜索字符串。当前
+macOS 锁屏，Computer Use 无法读取 IDEA 原生窗口；本轮使用安装包文案与
+DSH Web 运行态交叉验证。
+
+**下一轮计划**：对齐 `Select All Occurrences`、`Select Next Occurrence`、
+`Unselect Previous Occurrence`，复用 Monaco 原生 multiple-caret 搜索命令。
+
+## 2026-11-16 — Replace Selection in Files
+
+**作用域**：Search Everywhere Actions 的 workspace replace handoff。
+
+**实现**：
+
+- 增加 `Replace Selection in Files`；
+- selection/caret resolver 提供初始 query；
+- `openFindTool` 增加 `focusTarget`：
+  - query 默认；
+  - replace 使用 `data-dsh-find-replace-input`；
+- Action 直接打开 replace mode，复用现有确认和写入链。
+
+**验证**：
+
+- RED：round539 **0 pass / 3 fail**；
+- 定向 **64 pass / 0 fail**；
+- 全量 `npm test` = **1742 pass / 0 fail**；
+- 语法检查和 `git diff --check` 通过；
+- DSH Web：
+  - selection=`Range` 时 action enabled；
+  - workspace Find query=`Range`、replace mode、replace input 聚焦；
+  - 真实 1 match / 1 file；
+  - replacement=`Scoped`，确认 Replace All 后结果 No matches；
+  - 编辑器与磁盘第 3 行均更新，第 4 行不变。
+
+**自动化限制**：复用 r535 host 时 SearchText 曾卡 Loading；干净的 r526 host
+完成真实结果和写入闭环。
+
+**下一轮计划**：增加 IDEA `Incremental Search` Action，复用编辑器 Find。
+
+## 2026-11-16 — Replace in Selection Only
+
+**作用域**：Search Everywhere Actions 的 selection-scoped editor Replace。
+
+**实现**：
+
+- 增加 `Replace in Selection Only`；
+- `openEditorFindInSelection(scope, withReplace = null)`：
+  - 默认保留当前 replace-row 状态；
+  - Replace Action 显式传入 true；
+- 无选区时 disabled；
+- 查询、导航和两条替换路径继续复用 selection scope。
+
+**验证**：
+
+- RED：round538 **0 pass / 3 fail**；
+- 定向 **80 pass / 0 fail**；
+- 全量 `npm test` = **1739 pass / 0 fail**；
+- 语法检查和 `git diff --check` 通过；
+- DSH Web：
+  - selection 为 README 第 3 行；
+  - Action 打开 Find + Replace，scope active；
+  - Scoped→Range Replace All 只修改第 3 行；
+  - 第 4 行 `End again.` 不变；
+  - `⌘S` 后磁盘同步。
+
+**下一轮计划**：增加 `Replace Selection in Files`，将选区 query
+直接带入 workspace Replace。
+
+## 2026-11-16 — Recent Find Usages 与动作起点排序
+
+**作用域**：Find Usages workspace history、Actions history menu 和
+同名前缀 Action 排序。
+
+**实现**：
+
+- 新增 `dsh-editor.findUsages.history:<root>` 独立 workspace history；
+- `openFindUsages()` 统一记录 query 后复用 workspace Find；
+- Search Everywhere、`⌥F7`、Monaco 右键和历史重跑全部走该 runner；
+- 增加 keep-open `Recent Find Usages` Action 和专用 history ContextMenu；
+- ranking 对 label 前缀命中给予高于中段/后缀命中的权重。
+
+**问题证据**：
+
+- 初始 RED：round537 **0 pass / 5 fail**；
+- 运行态 query=`Find Usages` 时 Recent Find Usages 排在 Find Usages 前；
+- 原因是两条 label 的 direct substring score 相同，原顺序把 Recent
+  排前；
+- 新增排序回归后 RED：**5 pass / 1 fail**。
+
+**修复**：label 起点命中 rank=3，中段命中 rank=2，仅 fuzzy label=1，
+描述 fallback=0。
+
+**验证**：
+
+- 定向 **66 pass / 0 fail**；
+- 全量 `npm test` = **1736 pass / 0 fail**；
+- 语法检查和 `git diff --check` 通过；
+- DSH Web：
+  - Find Usages 记录 `[\"Scoped\"]` 并打开真实 workspace Find；
+  - Recent Find Usages 菜单显示 Scoped；
+  - 选择后 workspace Find query=`Scoped`、1 match / 1 file。
+
+**下一轮计划**：增加 `Replace in Selection Only` Action，
+直接打开 selection-scoped Replace。
+
+## 2026-11-16 — Find Selection in Files
+
+**作用域**：Search Everywhere Actions 的所选文本 workspace 搜索。
+
+**实现**：
+
+- 增加 `Find Selection in Files`；
+- 复用 `findUsagesSearchTarget()` 的 selection/caret query 和 disabled reason；
+- Action 标记 `rememberQuery: false`；
+- 执行复用 `openFindTool(query, 'find')`，不打开 editor Find。
+
+**验证**：
+
+- RED：round536 **0 pass / 3 fail**；
+- 定向 **72 pass / 0 fail**；
+- 全量 `npm test` = **1730 pass / 0 fail**；
+- 语法检查和 `git diff --check` 通过；
+- DSH Web：
+  - selection=`Scoped` 时 action enabled；
+  - Enter 后 workspace Find query=`Scoped`；
+  - 真实结果 1 match / 1 file，位置 `README.md:3:1`；
+  - editor Find 不存在，焦点在 workspace Find 输入框。
+
+**下一轮计划**：增加独立 workspace Find Usages 历史与
+`Recent Find Usages` Actions 入口。
+
+## 2026-11-16 — Search in Selection Only
+
+**作用域**：编辑器 Find 的 selection scope、导航和替换。
+
+**实现**：
+
+- `editorFindSelectionScope()` 将非空 Monaco selection 转为 model offsets；
+- `editorFindResult()` 在全部 literal/regex matches 上统一过滤 scope；
+- Find state 增加 `scope`，toolbar target 按钮可开/关；
+- Search Everywhere Actions 增加 `Search in Selection Only`；
+- scoped Replace All 对已过滤 matches 从后向前执行；
+- single/all replace 后按 replacement delta 调整 scope end。
+
+**验证**：
+
+- RED：round535 **0 pass / 6 fail**；
+- 定向 **83 pass / 0 fail**；
+- 全量 `npm test` = **1727 pass / 0 fail**；
+- 语法检查和 `git diff --check` 通过；
+- DSH Web：
+  - 选择 README 第 3 行后 Action 打开 scope Find；
+  - query=`End` 仅 1/1，第 4 行同词被排除；
+  - `⌘R` 后 scope 保持；
+  - Replace All=`Scoped` 只改第 3 行；
+  - 第 4 行保持 `End again.`；
+  - `⌘S` 后磁盘内容与编辑器一致。
+
+**下一轮计划**：增加 IDEA `Find Selection in Files` Action，
+复用同一 selection/caret query 但进入 workspace Find。
+
+## 2026-11-16 — Highlight Usages in File
+
+**作用域**：Search Everywhere Actions 的活动文件 usage highlight。
+
+**实现**：
+
+- 增加 `Highlight Usages in File`；
+- 复用 `findUsagesSearchTarget()` 的 selection/caret availability；
+- Action 关闭 Search Everywhere 后回焦 Monaco，调用
+  `editor.action.wordHighlight.trigger`；
+- 标记 `rememberQuery: false`，不污染搜索历史；
+- 不打开编辑器 Find 或 workspace Find。
+
+**验证**：
+
+- RED：round534 **0 pass / 4 fail**；
+- 定向 **60 pass / 0 fail**；
+- 全量 `npm test` = **1721 pass / 0 fail**；
+- 语法检查和 `git diff --check` 通过；
+- DSH Web：
+  - cursor=`End` 时 action enabled；
+  - Enter 后 Search Everywhere 关闭，焦点回 Monaco；
+  - 生成两处 `wordHighlightText`；
+  - trace 确认执行了 `editor.action.wordHighlight.trigger`。
+
+**下一轮计划**：实现 IDEA `Search in Selection Only`，让编辑器 Find
+的匹配、导航与替换共享 selection scope。
+
+## 2026-11-16 — Show Search History keep-open Action
+
+**作用域**：Search Everywhere Actions 的 IDEA `Show Search History` 入口、
+history menu 复用和 action 激活语义。
+
+**实现**：
+
+- 引入 `keepOpen` action 标记，激活 action 时只在未标记 keepOpen 时关闭
+  Search Everywhere；
+- 新增 `searchHistoryRequest` 计数器和 `handledHistoryRequestRef`；
+- Action 切到 All 页后请求打开现有 query-history `ContextMenu`；
+- 菜单打开不修改 draft，Esc 回焦查询框；
+- Show Search History action 标记 `rememberQuery: false`，不污染搜索历史。
+
+**问题边界**：
+
+- Search Everywhere query history opener 是 inline callback，每次 render
+  身份都会变化；如果只看 callback dependency，菜单会重复打开；
+- 用已处理 request 编号收敛，保证一个 Action 请求只打开一次菜单。
+
+**验证**：
+
+- RED：round533 **0 pass / 4 fail**；
+- 定向 **56 pass / 0 fail**；
+- 全量 `npm test` = **1717 pass / 0 fail**；
+- 语法检查和 `git diff --check` 通过；
+- DSH Web：
+  - Show Search History 后弹框与 query draft 保持；
+  - history menu 打开并聚焦首项；
+  - Esc 后菜单关闭、焦点回查询框；
+  - 键盘选择 `End` 后 All 页显示 README 两处真实结果；
+  - `Show Search History` 未写入 localStorage 历史。
+
+**下一轮计划**：增加 `Highlight Usages in File`，复用同一 selection/caret
+resolver 和 Monaco occurrence highlight。
+
+## 2026-11-16 — Find Usages in File 复用编辑器 Find
+
+**作用域**：Search Everywhere Actions 的 file-scoped usage search。
+
+**实现**：
+
+- 增加 `Find Usages in File`；
+- 复用 `findUsagesSearchTarget()` 的 selection/caret query；
+- `openEditorFind()` 增加 optional `initialQuery`，显式 query 优先于选区；
+- action 关闭 Search Everywhere 后只打开 Monaco Find，不调用 workspace
+  Find。
+
+**验证**：
+
+- RED：round532 **0 pass / 4 fail**；
+- 同步 round464 的 `selectedFind` 静态断言；
+- 定向 **45 pass / 0 fail**；
+- 全量 `npm test` = **1713 pass / 0 fail**；
+- 语法检查和 `git diff --check` 通过；
+- DSH Web：
+  - query=`Find Usages in File` 时唯一 action enabled；
+  - Enter 后 workspace Find 不存在；
+  - 编辑器 Find query=`End`，计数 `1/2`；
+  - 焦点进入编辑器 Find 输入框。
+
+**下一轮计划**：审计 IDEA `Show Search History` Action，
+复用现有 query history 菜单和 workspace 存储。
+
+## 2026-11-16 — Word at Caret occurrence 与 Action label 排序
+
+**作用域**：Search Everywhere Actions 的 next/previous word occurrence
+及命令排序。
+
+**实现**：
+
+- 增加 `Next Occurrence of the Word at Caret` /
+  `Previous Occurrence of the Word at Caret`；
+- 复用 `findUsagesSearchTarget()` 的 selection/caret query；
+- 执行时关闭弹框并调用 Monaco `nextSelectionMatchFindAction` /
+  `previousSelectionMatchFindAction`，完成后回焦编辑器；
+- `rankSearchActions` 优先 label 命中，description 仅作 fallback。
+
+**问题证据**：
+
+- 初始 RED：round531 **0 pass / 4 fail**；
+- 真实 query=`Previous Occurrence` 时，Next action 排在 Previous 前；
+- 原因：两条 action 的 description 都含
+  `next or previous occurrence`，`fuzzyScore` 的 combined-string 分数让
+  Next 错排；
+- 新增排序回归后 RED：**4 pass / 1 fail**。
+
+**修复**：label 有匹配时使用 `2000 + labelScore`，只有 label 不匹配时才
+使用 `label + description` 分数。
+
+**验证**：
+
+- 定向 round531/530/529/528/527/464/469/471/472/488：
+  **41 pass / 0 fail**；
+- 全量：`npm test` = **1709 pass / 0 fail**；
+- 语法检查和 `git diff --check` 通过；
+- DSH Web：
+  - Next occurrence 执行后选中下一处匹配并回焦 Monaco；
+  - Previous 查询 active row 正确，执行后反向回绕到末个 occurrence；
+  - Search Everywhere 关闭且无残留；
+  - Monaco selection-match 实测大小写不敏感。
+
+**下一轮计划**：增加 `Find Usages in File`，复用当前编辑器 Find，
+不打开 workspace Find。
+
+## 2026-11-16 — Monaco 右键 Find Usages、context key 与 TDZ
+
+**作用域**：Monaco editor context menu 的自定义 action、per-editor
+precondition、Find Usages 处理器和 editor group 生命周期。
+
+**原始错误**：
+
+- 打开 Editor 后出现：
+  `Cannot access 'openFindTool' before initialization`；
+- 首版右键菜单完全不出现 `Find Usages…`；
+- 运行态发现 `monaco.editor.createContextKey` 为 `undefined`。
+
+**根因**：
+
+1. editor group 的创建 effect 声明在 `openFindTool` 之前，dependency array
+   在 render 阶段直接读取 `openFindTool`，触发 const TDZ；
+2. Monaco 0.52.2 的 context-key factory 在 editor instance 上，即
+   `editor.createContextKey()`，不在 `monaco.editor` namespace；
+3. custom action precondition=false 时，Monaco 原生右键菜单会省略该项，
+   不提供 disabled 行或 disabled tooltip。
+
+**修复**：
+
+- 新增 `findUsagesRunnerRef`，在 `openFindTool` 就绪后的 effect 中赋值；
+- 两个 editor group 只转发 `editor` 到 runner，effect 不再读取 TDZ 变量；
+- 每个 group 使用唯一的 `editor.createContextKey()` precondition；
+- precondition 统一由 `findUsagesSearchTarget(editor)` 更新；
+- action 放入 Monaco `navigation` menu group，右键执行不修改 selection。
+
+**回归**：
+
+- round530 初始 RED **0 pass / 3 fail**；
+- round329/530 定向 **8 pass / 0 fail**；
+- 搜索链路 **33 pass / 0 fail**；
+- 全量 `npm test` = **1704 pass / 0 fail**；
+- 语法检查和 `git diff --check` 通过。
+
+**运行态**：
+
+- README 光标在 `End` 时右键，菜单首项为 `Find Usages…`；
+- 点击后 Find query=`End`，真实 1 match / 1 file；
+- 空行无符号时原生菜单不显示该项。
+
+**下一轮计划**：增加 word-at-caret 的 next/previous occurrence
+Actions，复用 Monaco `nextSelectionMatchFindAction` /
+`previousSelectionMatchFindAction`。
+
+## 2026-11-16 — Find Usages 复用工作区 Find
+
+**作用域**：Search Everywhere Actions、编辑器 `⌥F7`、当前选区/光标符号
+到 workspace Find 的查询派生。
+
+**实现**：
+
+- `findUsagesSearchTarget(editor)` 是唯一 query 派生入口：
+  - editor/model 缺失 -> `reason='editor'`；
+  - 非空单行选区 -> trim 后作为 query；
+  - 多行/空选区 -> 回退到 `getWordAtPosition()`；
+  - 无 word -> `reason='symbol'`；
+- Actions 增加 `Find Usages… ⌥F7`，执行时调用现有
+  `openFindTool(query, 'find')`；
+- 工作区 `⌥F7` 共用同一 resolver；
+- 中英文补 action、hint、missing-symbol 文案。
+
+**问题证据**：
+
+- 初始 RED：round529 **0 pass / 6 fail**；
+- 首版实现把多行选区 `\\nEn` 先 trim 成 `En`，真实 Find query 也错误为
+  `En`；
+- 新增边界测试后 RED：**6 pass / 1 fail**；
+- 根因是换行校验发生在 trim 之后。
+
+**修复**：先拒绝原始值中的 `\\r/\\n`，再 trim 和做长度校验。
+
+**验证**：
+
+- 定向 round529/527/528/472/488：**21 pass / 0 fail**；
+- 搜索链路 round529/527/528/464/469/472/488：
+  **29 pass / 0 fail**；
+- 全量：`npm test` = **1700 pass / 0 fail**；
+- 语法检查和 `git diff --check` 通过；
+- DSH Web：
+  - 光标所在 word=`End` 时 Actions enabled；
+  - Enter 打开 Find，query=`End`，真实 1 match / 1 file；
+  - `⌥F7` 得到同一结果；
+  - 空行无符号时 disabled，tooltip 为
+    `Select text or place the caret on a symbol`。
+
+**下一轮计划**：在编辑器右键菜单复用
+`findUsagesSearchTarget()`，保持选区/光标不变，并与 Actions、`⌥F7`
+使用同一 Find 交接。
+
+## 2026-11-16 — Search Everywhere 禁用提示与窄动作条复核
+
+**作用域**：双击 Shift Actions 中 Find/Replace family 的可用状态、
+disabled tooltip、键盘遍历，以及 Search Everywhere 头部动作 overflow。
+
+**运行态证据**：
+
+- 打开 README 并执行编辑器 Find `end` 后：
+  - Find/Replace enabled；
+  - Find Next/Previous 在存在活动 query 后 enabled；
+- 关闭最后一个文件后：
+  - Find/Replace、Find Next/Previous disabled；
+  - Find in Files/Replace in Files 保持 enabled；
+  - Find tooltip 为 `Open a file in the editor first`；
+  - 无活动 Find query 时 Find Next tooltip 为
+    `Open Find and enter a query first`；
+- ArrowUp/ArrowDown 跳过 disabled action，并在 enabled 项间闭环；
+- 360px 视口仍直接显示全部 7 个头部动作；
+- 强制动作条 140px 后：
+  - 直接动作是 Include non-project/Match Case/Filter/Open Find + `»`；
+  - overflow 含 Whole Words/Regex/Preview；
+  - Esc 后焦点回到 `»`。
+
+**结论**：第 527 轮的可用性和第 488 轮的响应式 overflow 在真实页面中
+均成立，本轮无需修改产品代码。
+
+**回归**：`tests/round528.test.mjs`；定向 **14 pass / 0 fail**；
+全量 `npm test` = **1693 pass / 0 fail**。
+
+**下一轮计划**：对照 IDEA Actions 增加 `Find Usages…`，复用当前
+workspace Find；选区优先，否则读取光标单词。
+
+## 2026-11-16 — Search Everywhere 编辑器动作可用性
+
+**作用域**：双击 Shift Actions 中的 Find/Replace、Find Next/Previous、
+Find in Files/Replace in Files，以及没有活动 Monaco model 时的状态。
+
+**问题证据**：
+
+- Find/Replace 与 Find Next/Previous 依赖当前编辑器；
+- 无打开文件时仍可执行 Find/Replace，会打开没有模型的查找条；
+- Find in Files/Replace in Files 属于 workspace 搜索，不依赖编辑器；
+- 两类动作不能共用同一个 disabled 条件。
+
+**实现**：
+
+- Editor 渲染时读取 `currentCodeEditor()?.getModel?.()`；
+- Find/Replace/Find Next/Previous 在没有 model 时 disabled；
+- disabled reason 使用新增 `findEditorRequired` 本地化文案；
+- Find in Files/Replace in Files 保持可用；
+- Actions memo 依赖 `hasEditorModel`，打开/关闭文件后立即刷新。
+
+**验证**：
+
+- RED：`tests/round527.test.mjs` 初始 **1 pass / 2 fail**；
+- GREEN：round527/464/469/520/521/523/dictionaries/static-order
+  定向 **21 pass / 0 fail**；
+- 全量：`npm test` = **1689 pass / 0 fail**。
+- DSH Web（无文件）：
+  - Actions query=Find：Find 和 Next/Previous disabled，
+    Find in Files enabled；
+  - Actions query=Replace：Replace disabled，Replace in Files enabled。
+
+**下一轮计划**：
+
+1. 用真实 workspace row 打开已加载文件树并验证动作恢复 enabled；
+2. 在 700px 视口验证 Search Everywhere 头部动作 overflow；
+3. 验证 disabled Action tooltip 和键盘跳过；
+4. 补 round528 和全量回归。
+
+## 2026-11-16 — 干净 host 下 busy mask 成功结果
+
+**作用域**：真实 SearchText、Replace All busy、File Mask 修改和成功结果刷新。
+
+**环境**：
+
+- fixture：`/private/tmp/dsh-editor-r526-fixture`；
+- home/profile：`/private/tmp/dsh-editor-r526-home` / `r526`；
+- DSH Web：`127.0.0.1:63210`。
+
+**运行态证据**：
+
+- 真实 Search Everywhere：query=`end`、mask 空、5 个结果；
+- Find 打开后 mask 仍为空；
+- replaceText 延迟 1000ms 成功；
+- busy 中 mask 改为 `*.md`；
+- 响应完成后：
+  - replaceText 只启动 1 次；
+  - query 保持 end；
+  - mask 保持 `*.md`；
+  - 真实结果收敛为 README 两处和 docs/notes 一处；
+  - alert 为空；
+  - 焦点在 File Mask 输入。
+
+**结论**：干净 host 下，成功替换响应不会覆盖 busy 中修改的 mask，
+后续搜索按新 mask 返回真实 3 个 Markdown 结果。
+
+**下一轮计划**：
+
+1. 回到双击 Shift 的主链路，审计 Actions 搜索/替换入口；
+2. 检查无活动编辑器时 Find/Replace Action 的禁用与提示；
+3. 检查窄视口下搜索/替换动作条；
+4. 补 round527 和全量回归。
+
+## 2026-11-16 — busy 中 mask 修改与成功响应状态保持
+
+**作用域**：Replace All busy、File Mask 修改、成功响应后的 query/mask 与焦点。
+
+**运行态证据**：
+
+- 延迟 1000ms 的 replaceText 成功响应；
+- busy 中将 File Mask 从空改为 `*.md`；
+- busy 中 replaceText 只启动 1 次；
+- 响应完成后：
+  - query 保持当前值；
+  - mask 保持 `*.md`；
+  - alert 为空；
+  - 焦点留在 File Mask 输入。
+
+**自动化限制**：
+
+- 复用 r520 host 时真实 SearchText 再次卡在 Loading；
+- 为继续验证 client generation 行为，临时注入固定 searchText 结果；
+- 固定响应不遵守 mask，因此 5 条结果数量只证明状态未被覆盖，
+  不证明新 mask 的真实结果集合。
+
+**结论**：成功响应不会覆盖 busy 期间的新 query/mask，也不会抢走 mask 焦点；
+mask 对应的真实结果集合仍需干净 host 复测。
+
+**下一轮计划**：
+
+1. 新建干净 profile/home，避免复用 r520 host；
+2. 真实搜索 query=end、mask=空，再 busy 中改 `*.md`；
+3. 验证成功后真实结果从 5 收敛为 3；
+4. 补 round526 和全量回归。
+
+## 2026-11-16 — busy 期间修改 File Mask 不接收过期失败
+
+**作用域**：Replace All busy、File Mask 修改、searchGeneration 和旧请求失败。
+
+**运行态证据**：
+
+- Find 初始 query=`end`、mask 为空、5 个结果；
+- 延迟 1000ms 的 replaceText 随后失败；
+- busy 中将 File Mask 改为 `*.md`；
+- busy 中 replaceText 只启动 1 次；
+- 旧请求失败后：
+  - query 仍为 end；
+  - mask 仍为 `*.md`；
+  - 新结果为 3 个 Markdown occurrence；
+  - alert 为空；
+  - 焦点留在 File Mask 输入；
+  - `stale option failure` 没有污染新选项结果。
+
+**结论**：选项变化触发的 searchGeneration 已被 `replaceFailureState()` 正确识别，
+旧替换失败只解除 busy，不覆盖当前结果或抢焦点。
+
+**下一轮计划**：
+
+1. 用成功响应复测 busy 中 File Mask 修改；
+2. 验证成功后仍按新 mask 刷新结果；
+3. 检查 replacement 和 active row 收敛；
+4. 补 round525 和全量回归。
+
+## 2026-11-16 — 过期 Replace 失败不污染新查询
+
+**作用域**：替换请求进行中修改 query/options、旧请求失败后的错误归属和焦点。
+
+**问题证据**：
+
+- 替换请求开始时捕获旧 query；
+- 用户在 busy 期间修改 query 会递增 searchGeneration；
+- 旧 replaceText 失败后的 catch 仍无条件把错误和替换焦点写回当前 state；
+- 新查询结果会被一个属于旧请求的 alert 污染。
+
+**实现**：
+
+- 新增纯函数 `replaceFailureState(current, requestGeneration, message)`：
+  - generation 相同：设置 error、结束 busy、请求替换焦点；
+  - generation 已变化：只结束 busy，不设置 error，不抢焦点；
+- Replace All 与单处 Replace 在发请求前捕获 requestGeneration；
+- 两条 catch 共用该 helper，并通过现有状态栏报告失败文本。
+
+**验证**：
+
+- RED：`tests/round523.test.mjs` 初始 **0 pass / 3 fail**；
+- GREEN：round523/521/520/518/516/513/static-order 定向
+  **17 pass / 0 fail**；
+- 全量：`npm test` = **1686 pass / 0 fail**。
+- DSH Web：
+  - busy 期间 query `end` → `Value`，旧请求延迟失败；
+  - 新查询保持 `Value`、1 个结果、alert 为空；
+  - 焦点留在新查询；
+  - 同一 query 的延迟失败仍显示 alert，并恢复到替换输入焦点。
+
+**下一轮计划**：
+
+1. busy 期间切换 Match Case/Whole Words/Regex/File Mask；
+2. 验证旧失败不会污染新选项结果；
+3. 验证成功响应与选项变化的 generation 一致性；
+4. 补 round524 和全量回归。
+
+## 2026-11-16 — busy 期间修改查询不丢新结果
+
+**作用域**：延迟 Replace All 成功响应、busy 中 query 修改和结果刷新。
+
+**运行态证据**：
+
+- 受控 replaceText 延迟 1000ms；
+- 请求期间 query 从 `end` 改成 `Value`；
+- busy 时按钮保持 Loading/disabled；
+- 旧请求完成后 query 仍为 `Value`；
+- 新查询结果正确为 `app.js:1:17`，1 match；
+- alert 为空，replaceText 只启动 1 次。
+
+**结论**：成功响应使用当前 state spread 并触发新 generation 搜索，
+没有覆盖 busy 期间的新 query。
+
+**下一轮计划**：
+
+1. 用延迟失败复测 query 变化；
+2. 检查旧失败 alert 是否污染新查询；
+3. 检查焦点归属；
+4. 补 round523。
+
+## 2026-11-16 — Replace busy 期间保持替换输入焦点
+
+**作用域**：Replace All/单处 Replace 的 busy 起始状态、confirmation 关闭后的
+焦点和延迟失败恢复。
+
+**问题证据**：
+
+- 接受 confirmation 后 `replaceBusy` 正确阻止再次提交；
+- 但 busy 起始 state 只设置 `replaceBusy` 和 `error`，没有焦点请求；
+- Ego 实测 busy 期间焦点从替换输入回到 `Find in files…` query，
+  连续键盘替换被打断。
+
+**实现**：
+
+- Replace All 与单处 Replace 的 busy 起始 patch 同时递增
+  `replaceFocusRequest`；
+- 复用已有 FindToolWindow 焦点 effect，立即聚焦
+  `Replace in files with…`；
+- 不改变 confirmation、busy guard、写入或结果更新。
+
+**验证**：
+
+- RED：`tests/round521.test.mjs` 初始 **0 pass / 2 fail**；
+- GREEN：round521/520/518/516/513/static-order 定向 **14 pass / 0 fail**；
+- 全量：`npm test` = **1683 pass / 0 fail**。
+- DSH Web（延迟后失败）：
+  - `replaceText` 启动 1 次；
+  - busy 时按钮 Loading/disabled；
+  - query=`end`、replacement=`done`、5 个结果保持；
+  - busy 和失败后焦点均为 `Replace in files with…`；
+  - 失败 alert=`simulated replace failure`，按钮恢复 enabled；
+  - fixture 未发生 done 写入。
+
+**下一轮计划**：
+
+1. busy 期间修改 query/options；
+2. 验证旧请求完成后不会覆盖新查询结果；
+3. 验证 busy 期间导航和 active row 一致；
+4. 补 round522 和全量回归。
+
+## 2026-11-16 — Replace All busy 状态与单次提交运行态
+
+**作用域**：clean fixture 的真实 Replace All、受控延迟下的 `replaceBusy`
+UI、确认幂等和焦点。
+
+**环境**：
+
+- fixture：`/private/tmp/dsh-editor-r520-fixture`；
+- home/profile：`/private/tmp/dsh-editor-r520-home` / `r520`；
+- DSH Web：`127.0.0.1:63199`。
+
+**真实写入**：
+
+- 只派发一次 `⌘Enter`；
+- confirmation：`Replace 5 occurrence(s) in 3 file(s)?`；
+- 接受后 5 处全部变为 `end`；
+- Find 结果 0，alert 为空；
+- 没有出现 stale 页面或 `Failed to fetch`。
+
+**受控 busy 状态**：
+
+- 临时拦截 `replaceText` fetch，延迟 600ms；
+- 接受 confirmation 后立即：
+  - `replaceText` 只启动 1 次；
+  - Replace All 按钮显示 `Loading…` 且 disabled；
+  - query=`end`、replacement=`done`、5 个结果保持；
+  - 焦点仍在替换输入；
+- 延迟完成后：
+  - fetch 启动次数仍为 1；
+  - alert 为空；
+  - Replace All 恢复 enabled。
+
+**回归**：
+
+- `tests/round520.test.mjs` 锁定 busy 时 `Loading…` 与 disabled；
+- 定向 round520/518/516/513：**8 pass / 0 fail**。
+- 全量：`npm test` = **1681 pass / 0 fail**。
+
+**下一轮计划**：
+
+1. 模拟 `replaceText` 延迟后失败，验证 loading 解除和错误恢复；
+2. 验证失败时 query/results/replacement/focus 保持；
+3. 验证 busy 期间导航/query 编辑不会造成陈旧响应覆盖；
+4. 补 round521 和全量回归。
+
+## 2026-11-16 — Replace All 快速 ⌘Enter 的确认幂等边界
+
+**作用域**：Find 替换输入框快速重复 `⌘Enter`、原生 confirmation、
+Replace All busy guard 和批量写入。
+
+**运行态证据**：
+
+- 复用 r517 fixture/home，剩余 2 处 `needle`；
+- 快速连续提交两次 `⌘Enter`：
+  - 第一次打开唯一 confirmation：
+    `Replace 2 occurrence(s) in 1 file(s)?`；
+  - 第二次在 confirmation 打开期间被浏览器对话框机制阻止，
+    没有出现第二个确认；
+- 接受后 `src/app.js` 两处 `needle` 均变为 `end`；
+- 没有发生第二批重复写入。
+
+**自动化限制**：
+
+- 第二次按键在 JS confirm 打开时触发 Ego `PageDialogOpenedError`，
+  随后短时间页面 evaluate 超时；
+- 通过 `acceptDialog()` 恢复后磁盘写入正确，但自动化造成一次临时
+  `Failed to fetch` 和 stale Find 列表，未作为产品运行态结论。
+
+**结论**：快速重复 `⌘Enter` 只产生一个确认和一批写入；失败后的
+query/results/focus 仍需要在更洁净的自动化路径中复测。
+
+**下一轮计划**：
+
+1. 新建干净 fixture，避免复用已修改文件和 stale 页面；
+2. 每次只派发一次 `⌘Enter`，接受确认后再检查 busy/结果/焦点；
+3. 用受控延迟或并发请求验证 busy guard 的 UI 状态；
+4. 补 round520 和全量回归。
+
+## 2026-11-16 — 快速连续 Enter 的单处替换幂等门禁
+
+**作用域**：Find 替换输入框快速重复 Enter、`replaceBusy` 并发保护和结果推进。
+
+**运行态证据**：
+
+- 同一替换输入框连续发送两次 Enter：
+  - 结果 4 → 3；
+  - 只推进一个 occurrence；
+  - 焦点仍在替换输入；
+- 同一 JavaScript task 内同步派发两次 keydown Enter：
+  - 仍只替换 docs/notes 一处；
+  - 结果 3 → 2；
+  - active 推进到 src/app.js；
+- 磁盘只发生一次 `needle → zip`，没有双写。
+
+**回归**：
+
+- `findTool.replaceBusy === true` 在 Replace All 与单处 Replace 入口
+  均短路第二次提交；
+- `tests/round518.test.mjs` 锁定两条入口的 busy guard；
+- 定向 round518/516/513/480：**11 pass / 0 fail**。
+- 全量：`npm test` = **1680 pass / 0 fail**。
+
+**下一轮计划**：
+
+1. 快速重复 `⌘Enter` 验证 Replace All 只产生一批写入；
+2. 验证 Replace All 的 confirmation 不会重复弹出；
+3. 验证并发保护失败后 query/results/focus 保持；
+4. 补 round519 和全量回归。
+
+## 2026-11-16 — 单处 Replace 键盘路径运行态
+
+**作用域**：Find 替换输入框 `Enter`、dirty/mtime guard、成功推进和焦点连续替换。
+
+**环境**：
+
+- fixture：`/private/tmp/dsh-editor-r517-fixture`；
+- home/profile：`/private/tmp/dsh-editor-r517-home` / `r517`；
+- DSH Web：`127.0.0.1:63188`。
+
+**运行态证据**：
+
+- dirty README 命中：
+  - 在替换输入框按 Enter；
+  - dirty guard 生效，结果数 5、activeDesc 和 replacement 保持；
+  - alert 为 dirty-file 原因，焦点仍在
+    `Replace in files with…`；
+- 保存并重新搜索后：
+  - active 为 `README.md:3:1`，5 个结果；
+  - 在替换输入框按 Enter；
+  - README 当前命中写为 `pin`；
+  - 结果缩为 4；
+  - active 自动推进到 `README.md:3:26`；
+  - alert 为空，焦点保持在替换输入。
+
+**结论**：键盘 Enter 与按钮路径在 dirty guard、成功写入、结果推进和
+连续替换焦点上保持一致。
+
+**下一轮计划**：
+
+1. 连续快速按 Enter，验证 `replaceBusy` 阻止并发双写；
+2. 验证只产生一次磁盘替换和一个结果推进；
+3. 快速 Enter 与 query 变化交错时保持 active 一致；
+4. 补 round518 和全量回归。
+
+## 2026-11-16 — 单处 Replace 后保持连续替换上下文
+
+**作用域**：Find 工具窗口单处 Replace 成功后的结果推进、焦点和键盘连续性。
+
+**问题证据**：
+
+- 单处 Replace 成功后会刷新搜索结果并推进 active occurrence；
+- 点击 Replace 按钮的成功路径没有明确焦点 owner，最终焦点落到 `<body>`；
+- 用户要进行下一处替换时必须重新点回替换输入。
+
+**实现**：
+
+- 单处 Replace 成功 state patch 继续保留
+  `index: activeIndex + searchGeneration/loadedGeneration` 的结果推进；
+- 同时递增 `replaceFocusRequest`；
+- 既有 FindToolWindow focus effect 把焦点恢复到
+  `Replace in files with…`；
+- 不改变磁盘写入、mtime/occurrence 校验或结果数量。
+
+**验证**：
+
+- RED：`tests/round516.test.mjs` 初始 **0 pass / 2 fail**；
+- GREEN：round516/513/514/480/static-order 定向 **15 pass / 0 fail**；
+- 全量：`npm test` = **1678 pass / 0 fail**；
+- DSH Web：
+  - 搜索剩余 2 个 `needle`，active=`README.md`；
+  - 单处 Replace 后结果缩为 1，active 自动推进到 `src/app.js`；
+  - README 当前命中写为 `pin`；
+  - 焦点保持在 `Replace in files with…`，alert 为空。
+
+**下一轮计划**：
+
+1. 用替换输入框 `Enter` 触发单处 Replace，而不是点击按钮；
+2. 验证成功推进和焦点连续替换；
+3. 验证 dirty/mtime 失败时 Enter 路径同样保留 active row；
+4. 补 round517 和全量回归。
+
+## 2026-11-16 — 单处 Replace 的安全与推进运行态
+
+**作用域**：Find 单处 Replace 的脏文件保护、mtime conflict、
+active occurrence、结果数量和成功推进。
+
+**运行态证据**：
+
+- fixture/home：`/private/tmp/dsh-editor-r515-fixture`、
+  `/private/tmp/dsh-editor-r515-home`，DSH Web `63177`；
+- 先对 clean `docs/notes.md` 单处替换：
+  - 替换成功，证明 dirty README 不会误伤其他 clean 文件；
+  - active 推进到下一个 file/occurrence；
+- 选中 dirty README 的单处命中：
+  - 显示 `Save or close these modified files...`；
+  - active descendant、3 个结果和 replace 焦点全部保留；
+- 保存并重新搜索后，外部修改 README：
+  - 单处 Replace 被宿主 mtime 校验拒绝；
+  - active descendant、3 个结果和 replace 焦点保留；
+  - README 未写入；
+- 再次重新搜索后执行成功单处 Replace：
+  - README 当前命中变为 `pin`；
+  - 结果由 3 减为 2；
+  - active 推进到 README 下一命中；
+  - alert 为空。
+
+**结论**：单处 Replace 的 clean-file 精确写入、dirty/mtime 拒绝、
+active 推进和连续替换上下文均真实工作。
+
+**下一轮计划**：
+
+1. 用 `Enter` 键触发单处 Replace；
+2. 验证键盘路径与按钮路径结果/焦点一致；
+3. 验证失败后 Enter 不会误触发下一处；
+4. 补 round517 和全量回归。
+
+## 2026-11-16 — Find 替换错误随查询或选项变化清除
+
+**作用域**：Find 工具窗口的 query、Match Case、Whole Words、Regex、
+File Mask 与旧替换错误生命周期。
+
+**问题证据**：
+
+- Replace All 因脏文件或 mtime 冲突失败后，`state.error` 显示 alert；
+- 只改 query/options 时旧 state patch 没有清 `error`；
+- 用户下一次输入已经改变了搜索条件，但旧错误仍可能留在工具窗口。
+
+**实现**：
+
+- query 变化时立即写入 `error: null`；
+- Match Case、Whole Words、Regex、File Mask 变化也立即清错；
+- 继续递增 search generation、清空旧 files/matches，不改变查询/替换历史。
+
+**验证**：
+
+- RED：`tests/round514.test.mjs` 初始 **0 pass / 2 fail**；
+- GREEN：round514/513/508/480/static-order 定向 **16 pass / 0 fail**；
+- 全量：`npm test` = **1676 pass / 0 fail**；
+- DSH Web：
+  - 脏文件失败后 alert 保留，replace 输入仍聚焦；
+  - query 从 `needle` 改为 `need` 后 alert 立即消失；
+  - replacement=`pin` 保留。
+
+**下一轮计划**：
+
+1. 运行态复测单处 Replace 的脏文件和 mtime 冲突；
+2. 验证单处失败后 active row、结果集与 replace 焦点保持；
+3. 区分 Replace All 与单处 Replace 的错误文案/恢复路径；
+4. 补 round515 和全量回归。
+
+## 2026-11-16 — Find 替换失败保留替换输入焦点
+
+**作用域**：Replace All/单处 Replace 的脏文件保护、mtime conflict、
+错误恢复和替换输入焦点。
+
+**问题证据**：
+
+- 失败分支只设置 `replaceBusy=false` 与 `error`；
+- 点击 Replace All 失败后 alert 虽然出现，但焦点落到 `<body>`；
+- 用户需要重新点击替换输入，键盘连续操作被中断。
+
+**实现**：
+
+- Replace All 和单处 Replace 的 dirty/catch 分支递增
+  `replaceFocusRequest`；
+- FindToolWindow 监听该 revision，在 replace mode 下把焦点恢复到
+  `Replace in files with…`；
+- revision 只控制焦点，不重建 query、结果或替换草稿。
+
+**验证**：
+
+- RED：`tests/round513.test.mjs` 初始 **0 pass / 3 fail**；
+- GREEN：round513/508/480/467/static-order 定向 **18 pass / 0 fail**；
+- DSH Web：
+  - 脏文件 Replace All 失败；
+  - alert 显示 dirty-file 原因；
+  - query=`needle`、5 个结果保留；
+  - 焦点为 `Replace in files with…`；
+  - mtime conflict 同样保留 alert、query、5 个结果和替换焦点，
+    三个 fixture 文件均未被写入。
+
+**下一轮计划**：
+
+1. 运行态复测单处 Replace 的失败路径；
+2. 检查失败后当前 active occurrence 是否保持；
+3. 检查成功单处替换后仍推进到下一处；
+4. 补 round515 和全量回归。
+
+## 2026-11-16 — Replace in Files 脏文件与 mtime 冲突门禁
+
+**作用域**：Find/Replace in Files 的未保存标签保护、外部修改冲突、
+错误提示、结果保留和写入安全。
+
+**运行态证据**：
+
+- 新隔离 fixture/home：`/private/tmp/dsh-editor-r512-fixture`、
+  `/private/tmp/dsh-editor-r512-home`，DSH Web `63166`；
+- README 在 Monaco 中改成未保存状态：
+  - Replace All 不弹确认框；
+  - Find 保留 query=`needle`、replace=`pin`、5 个结果；
+  - `role="alert"` 显示
+    `Save or close these modified files before Replace in Files: README.md`；
+- 保存后重新搜索，Find 再次得到 5 个结果；
+- 在外部 shell 向 README 追加内容后点击 Replace All：
+  - 先出现正常的 `Replace 5 occurrence(s) in 3 file(s)?` 确认；
+  - 接受后宿主按 mtime 拒绝；
+  - Find 保留 query、replacement 和 5 个结果；
+  - alert 显示
+    `the file changed on disk since it was searched: README.md`；
+  - 三个 fixture 文件均未发生 `needle` 写入。
+
+**结论**：
+
+- 脏文件保护在确认框之前执行；
+- mtime 冲突在宿主 preflight 拒绝，不会只写部分文件；
+- 两类失败都保留当前 Find 上下文，用户仍可调整 query 后重新搜索。
+
+**下一轮计划**：
+
+1. 审计失败后的键盘焦点归属，避免 alert 出现后焦点落到 `<body>`；
+2. 区分用户点击 Replace All 与替换输入框 `⌘Enter` 的焦点恢复；
+3. 检查错误清除时机，确保下一次有效查询不会遗留旧 alert；
+4. 补 round513、全量回归和隔离 DSH Web 门禁。
+
+## 2026-11-16 — Search Everywhere Find Next 恢复编辑器焦点
+
+**作用域**：Search Everywhere 打开时的 `⌘G / ⇧⌘G`、编辑器 Find 步进和焦点归属。
+
+**问题证据**：
+
+- `editorFindStepRef` 已有 Find Next/Previous 实现，但只由 Search Everywhere Actions 调用；
+- 弹框内按 `⌘G` 没有全局入口，不能像 IDEA 一样直接跳到下一处；
+- 即使补上步进，弹框卸载后焦点会落到 `<body>`，用户还需要再点编辑器。
+
+**实现**：
+
+- Editor 搜索快捷键扩展为 `f / r / g`；
+- `⌘G / ⇧⌘G` 在 workspace 内调用 `editorFindStepRef.current(±1)`；
+- 从 Search Everywhere 触发时先关闭弹框，再步进，并在下一任务把焦点还给
+  `currentCodeEditor()`；
+- Terminal、Project/Changes/Log、Persistent Find 继续拥有各自输入框的按键。
+
+**验证**：
+
+- RED：`tests/round511.test.mjs` 初始 **1 pass / 1 fail**；
+- GREEN：round511/509/508/507/506/504/493/static-order 定向
+  **25 pass / 0 fail**；
+- 全量：`npm test` = **1671 pass / 0 fail**；
+- 隔离 DSH Web：README 中 `pin` 为 `1/2`，打开 Search Everywhere 后按
+  `⌘G`，弹框关闭、计数变为 `2/2`，焦点为 `编辑器内容`。
+
+**下一轮计划**：
+
+1. 复测 Replace in Files 对打开且未保存文件的拒绝路径；
+2. 复测搜索后文件被外部修改时的 mtime 冲突；
+3. 检查失败后 Find 结果、query 和焦点是否保持；
+4. 补 round512 和全量回归。
+
+## 2026-11-16 — Replace in Files 真实宿主写入闭环
+
+**作用域**：Search Everywhere → Find 的 Replace All、确认框、宿主写入、
+结果刷新和 Git 状态。
+
+**运行态证据**：
+
+- fixture Search 返回 `5 matches in 3 files`；
+- 替换输入设为 `pin` 后 `⌘Enter` 打开原生 confirmation：
+  `Replace 5 occurrence(s) in 3 file(s)?`；
+- 接受后状态栏显示 `Replaced 5 occurrence(s) in 3 file(s)`；
+- Find 结果刷新为 `No matches`；
+- 磁盘内容：
+  - README 两处 `needle` 变为 `pin`；
+  - docs/notes 一处变为 `pin`；
+  - src/app.js 两处变为 `pin`；
+- `git status` 只出现预期的三个修改文件，没有额外写入。
+
+**结论**：client Replace All、confirmation、宿主 guarded replace、
+打开文件重载和 Git 刷新链路均真实通过。
+
+## 2026-11-16 — Search Everywhere 全局 Find Next/Previous
+
+**作用域**：Search Everywhere 的 `⌘G / ⇧⌘G`、编辑器 Find 匹配步进。
+
+**问题证据**：
+
+- Search Everywhere Actions 已列出 Find Next/Previous；
+- 弹框打开时没有对应全局快捷键，浏览器默认 Find Next 可能接管；
+- Actions 的 `editorFindStepRef` 只在执行 Action 时调用。
+
+**实现**：
+
+- 搜索快捷键范围扩展为 `f / r / g`；
+- 统一 host containment 和输入区域排除；
+- `⌘G` 调用 `editorFindStepRef.current(1)`，`⇧⌘G` 调用 `-1`；
+- 从 Search Everywhere 触发时关闭弹框，再执行步进。
+
+**验证**：
+
+- RED：`tests/round509.test.mjs` 初始 **0 pass / 3 fail**；
+- GREEN：round509/508/507/506/504/493 定向 **19 pass / 0 fail**；
+- 隔离 DSH Web：编辑器 Find 为 `1/2`，Search Everywhere 中按 `⌘G`
+  后弹框关闭且变为 `2/2`；随后聚焦编辑器按 `⇧⌘G` 回到 `1/2`。
+
+## 2026-11-16 — 打开 Find 工具窗口时恢复查询焦点
+
+**作用域**：`openFindTool()`、Shift+Cmd+F、Search Everywhere Actions
+和 Project tree 的 Focus Text Filter 竞争。
+
+**问题证据**：
+
+- Find 工具打开后输入框依赖 React `autoFocus`；
+- 从 Search Everywhere/Project 快捷键打开时，宿主 Project speed search
+  可能在随后抢走焦点，最终活动元素为 `Search in Project`；
+- 工具窗口已显示，但键盘输入会进入错误的搜索框。
+
+**实现**：
+
+- `openFindTool()` 设置 state 后，以 0ms 任务显式聚焦
+  `[data-dsh-find-tool-window] input[role="combobox"]`；
+- 不改搜索 query、结果、handoff revision 或 mode；
+- 不新增第二套搜索生命周期。
+
+**验证**：
+
+- RED：`tests/round508.test.mjs` 初始 **1 pass / 2 fail**；
+- GREEN：round508/507/506/504/503/502/501/499 定向 **26 pass / 0 fail**；
+- 隔离 DSH Web：Search Everywhere 中 `⇧⌘F` 后 Find 打开，
+  焦点为 `Find in files…`，Project speed search 未打开。
+
+## 2026-11-16 — Search Everywhere 保留 Cmd/Ctrl+F
+
+**作用域**：Search Everywhere 内的 `⌘F / ⇧⌘F` 与全局编辑器 Find 竞争。
+
+**问题证据**：
+
+- 第 504 轮为 Replace 快捷键加了 `searchEverywhereOpen` 全局提前返回；
+- 该返回同时挡住了 `⌘F / ⇧⌘F`，使 Actions 展示的 Find 快捷键失效；
+- 普通 `⌘F` 还需要先关闭 Search Everywhere，不能把弹框留在编辑器 Find 上方。
+
+**实现**：
+
+- 全局搜索 handler 只把 `r` 让给 Search Everywhere；
+- `⌘F` 关闭 Search Everywhere 后打开当前 Monaco Find；
+- `⇧⌘F` 继续打开持久 Find in Files；
+- host containment 和 Terminal/Project/Changes/Log/Persistent Find
+  的输入所有权保持不变。
+
+**验证**：
+
+- RED：逐步确认 guard 抢键 1 fail、弹框未关闭 1 fail；
+- GREEN：round507/506/504/503/502/499/493 定向 **24 pass / 0 fail**；
+- 隔离 DSH Web：
+  - Search Everywhere 中 `⌘F` 后弹框关闭，焦点进入 Monaco
+    `Find` 输入；
+  - `⇧⌘F` 打开持久 Find，并在第 508 轮修复焦点归属。
+
+## 2026-11-16 — Search Everywhere Shift+Replace in Files
+
+**作用域**：Search Everywhere 内 `⇧⌘R / Ctrl+Shift+R` 与普通 Replace 的分流。
+
+**问题证据**：
+
+- 第 504 轮的 Replace key handler 没有区分 Shift；
+- `⇧⌘R` 被当作普通 Replace，错误执行 active-result handoff；
+- Actions 的 `Replace in Files… ⇧⌘R` 应打开空白内容替换工具。
+
+**实现**：
+
+- 抽出唯一 `openBlankReplaceInFiles()` 请求构造；
+- `⇧⌘R` 优先执行空白 Replace in Files；
+- 普通 `⌘R` 继续保留 active content result、query 和搜索选项移交。
+
+**验证**：
+
+- RED：`tests/round506.test.mjs` 初始 **1 pass / 2 fail**；
+- GREEN：round506/504/503/502/501/500/499 定向 **25 pass / 0 fail**；
+- 隔离 DSH Web：
+  - 选中 docs/notes 后 `⇧⌘R`，Find query 为空、0 结果、replace mode；
+  - 同一路径普通 `⌘R`，Find query=`needle`，且 docs/notes active。
+
+## 2026-11-16 — Search Everywhere 接管 Replace 快捷键
+
+**作用域**：Search Everywhere 打开时的 `⌘R / Ctrl+R`、Actions 的
+`Replace… ⌘R`、全局编辑器 Find/Replace handler 和内容结果移交。
+
+**问题证据**：
+
+- Search Everywhere Actions 向用户展示 `Replace… ⌘R`；
+- Search Everywhere 自身未消费 Meta/Ctrl+R，Editor 捕获阶段的
+  全局 Find handler 会先执行，打开当前 Monaco 的 Replace；
+- 因此对话框里按 ⌘R 既没有执行 Search Everywhere Replace，
+  还会把键盘上下文切到编辑器；
+- 文本结果应继续走 active-result handoff；动作查询等非内容查询
+  则应该打开空白 Replace in Files，不能把动作过滤词带入内容输入。
+
+**实现**：
+
+- Search Everywhere 增加 window capture keydown：
+  - 仅处理 Meta/Ctrl+R；
+  - preventDefault + stopPropagation；
+  - 有 Files/Text 内容结果时调用
+    `openSearchResultsInFind('replace', activeResult)`；
+  - 无内容结果时打开空 query 的 Replace in Files；
+- Editor 全局 Find/Replace handler 在 `searchEverywhereOpen` 时直接返回，
+  不再抢 Search Everywhere 的快捷键；
+- 大结果 confirmation 和现有 handoff 模型保持不变。
+
+**验证**：
+
+- RED：`tests/round504.test.mjs` 初始 **0 pass / 3 fail**；
+- GREEN：round504/503/502/501/500/499/495/493 定向
+  **31 pass / 0 fail**；
+- 全量：`npm test` = **1658 pass / 0 fail**；
+- `node --check lib/client.js`、`lib/index.js`、`lib/terminal.js` 与
+  `git diff --check` 通过；
+- 运行态限制：多次重建同一隔离 DSH host 后，后续页面导航被宿主
+  既有 `/api/dsh-editor/fs|git` 请求死锁阻塞；本轮未能取得
+  `⌘R` 的最终浏览器证据，未把静态测试冒充运行态通过。
+- CUA `getState()` 仍返回 Mac 锁屏；IDEA 对照使用 2026.2.3 安装包契约。
+
+**下一轮计划**：
+
+1. 用纯 Node 静态 fixture 启动新的隔离 DSH home，避开复用 host 的请求死锁；
+2. 复测 Search Everywhere 文本结果 `⌘R`：Find replace mode、query、
+   active descendant 与结果保持；
+3. 复测 Actions 的 Replace 快捷键在无内容结果时打开空白替换工具；
+4. 补 round505 运行态门禁，并继续审计 Find 文件组内的局部替换动作。
+
+## 2026-11-16 — Search Everywhere Actions 不再泄漏动作过滤词
+
+**作用域**：Search Everywhere Actions 的 `Find in Files…`、
+`Replace in Files…`，以及 Actions 与内容结果移交的查询语义。
+
+**问题证据**：
+
+- Actions 页的查询词用于过滤动作名称，不是文件内容查询；
+- `Find in Files…` / `Replace in Files…` 的 run 闭包此前把
+  `searchEverywhere.query` 传给 `openFindTool()`；
+- 在 Actions 页输入 `Replace in Files` 并执行后，Find 工具窗口
+  把动作过滤词当成内容查询，带入 `Replace in Files` 输入框；
+- 内容结果的 Header Open Find 与文本菜单 Replace 是另一条语义，
+  仍必须保留真正的搜索 query、结果和 active row。
+
+**实现**：
+
+- Actions 的 `Find in Files…` 固定调用 `openFindTool('', 'find')`；
+- Actions 的 `Replace in Files…` 固定调用
+  `openFindTool('', 'replace')`；
+- actions memo 移除已无用途的 `searchEverywhere?.query` 依赖；
+- 内容结果的 `searchFindHandoff()`、active row、查询和选项移交保持不变。
+
+**验证**：
+
+- RED：`tests/round503.test.mjs` 初始 **1 pass / 2 fail**；
+- GREEN：round503/502/501/500/499/464/467/468 定向
+  **30 pass / 0 fail**；
+- 全量：`npm test` = **1655 pass / 0 fail**；
+- 隔离 DSH Web（固定 Files/Text 响应验证客户端动作）：
+  Search Everywhere Actions 输入 `Replace in Files` 并 Enter 后，
+  Find 以 replace mode 打开，query 为空、结果为空，查询输入获得焦点；
+  动作过滤词没有进入内容搜索框。
+- `node --check lib/client.js`、`lib/index.js`、`lib/terminal.js` 与
+  `git diff --check` 通过；
+- CUA `getState()` 仍返回 Mac 锁屏；IDEA 对照使用 2026.2.3 安装包契约。
+
+**下一轮计划**：
+
+1. 审计 Search Everywhere 打开时的 `⌘R / Ctrl+R` 是否与 Actions 的
+   `Replace… ⌘R` 一致；
+2. 确认全局编辑器 Find handler 不会抢走 Search Everywhere 内的替换快捷键；
+3. 文本结果按 `⌘R` 应走现有 Replace 移交，非内容查询应打开空白替换工具；
+4. 补 round504、全量回归和隔离 DSH Web 门禁。
+
+## 2026-11-16 — Find 交接展开折叠目标组并保持 Replace 上下文
+
+**作用域**：Search Everywhere → Find 的重复交接、目标文本组折叠、
+active index 收敛、Replace mode 切换和结果滚动。
+
+**问题证据**：
+
+- `openFindTool()` 只把 active index 传到 Find option 序列；
+- Find 已打开且目标文本组被用户折叠时，可见 option 序列变短，
+  原 index 会被 clamp 到另一个仍可见结果；
+- 后续 Search Everywhere 再次移交同一命中时，旧折叠状态仍然存在，
+  祖先组不会自动展开，active descendant 与用户选择不一致。
+
+**实现**：
+
+- `openFindTool()` 为每次移交写入单调递增的 `handoffRevision`；
+- 新增 `findToolHandoffTarget()`，先在未折叠的完整 Files + Text 序列中
+  按 index 恢复目标 rowKey；
+- Find 在收敛 active index 前先移除目标文本组的折叠状态；
+- 目标恢复可见后，按 rowKey 找到新的可见索引并更新选中行、descendant
+  和滚动位置；
+- active index 收敛 effect 在本次 handoff 完成前暂停，避免先一步把
+  state index 改到错误结果；
+- Replace mode 只切换模式与聚焦替换输入，不重建 handoff、结果或折叠状态。
+
+**验证**：
+
+- RED：`tests/round502.test.mjs` 初始 **1 pass / 3 fail**；
+- GREEN：round502/501/500/499/498/497/496/480/469/467 定向
+  **46 pass / 0 fail**；
+- 全量：`npm test` = **1652 pass / 0 fail**；
+- `node --check lib/client.js`、`lib/index.js`、`lib/terminal.js` 与
+  `git diff --check` 通过；
+- 宿主纯函数：`searchWorkspaceText()` 对 fixture 的 `needle` 查询
+  10ms 返回 README 两处和 `docs/notes.md` 一处；
+- 隔离 DSH Web（固定 Files/Text 响应验证客户端交接）：
+  - 首次 Open Find 后目标 `docs/notes.md:2:1` 被选中；
+  - 手动折叠 `docs/notes.md` 后可见结果收敛到 README；
+  - 再次 Search Everywhere 选择同一命中并 Open Find，
+    `docs/notes.md` 组自动展开，`aria-selected=true`、
+    active descendant 和滚动可见行都恢复为该命中；
+  - 文本结果 `Replace…` 后替换输入获得焦点，
+    README/docs 两组展开状态、active descendant 和结果集不变。
+- CUA `getState()` 仍返回 Mac 锁屏；IDEA 对照使用 2026.2.3 安装包契约。
+
+**下一轮计划**：
+
+1. 审计 Search Everywhere Actions 的 `Replace in Files…` 是否保留当前
+   query、Files/Text 结果、active result 和搜索选项；
+2. 审计 `⌘R` 在 Search Everywhere 文本结果和 Find 文本结果上的入口一致性；
+3. 补一个直接 Action 与文本菜单共用同一 handoff 的运行态契约；
+4. 补 round503、全量回归和隔离 DSH Web 门禁。
+
+## 2026-11-16 — Find 交接保留 Search Everywhere 活动结果
+
+**作用域**：Search Everywhere → Find/Replace 的 active result 移交、
+`openFindTool()` initial index 收敛和文本结果菜单定位。
+
+**问题证据**：
+
+- Header Open Find 与文本结果 `Replace…` 虽保留 query、结果和选项，
+  但 Find 固定从结果序列第 0 行开始；
+- 用户已选中的 `docs/notes.md:2:1` 在交接后丢失活动上下文，
+  需要再次在 Find 中寻找同一命中；
+- 文件结果与文本结果共用 Find option 序列，若只按 Text 索引移交，
+  会与 `fileResults + matches` 的真实顺序错位。
+
+**实现**：
+
+- `searchFindHandoff()` 接受 `activeRowKey`，复用最终 option rowKey
+  计算 `index`，无匹配或越界时回退 0；
+- Search Everywhere Header 使用当前 `activeResult`，文本结果菜单
+  `Replace…` 使用被点击的 result，两者继续共享确认和移交逻辑；
+- `openFindTool()` 保存 initial index，并按 Files + Text 总数收敛；
+- Find 打开后 active descendant、选中行和 replace mode 指向同一结果；
+- 不新增第二套结果顺序、确认阈值或替换写入路径。
+
+**验证**：
+
+- RED：`tests/round501.test.mjs` 初始 **0 pass / 4 fail**；
+- GREEN：round501/500/499/468/467 定向 **20 pass / 0 fail**；
+- 全量：`npm test` = **1648 pass / 0 fail**；
+- `node --check lib/client.js`、`lib/index.js`、`lib/terminal.js` 与
+  `git diff --check` 通过；
+- 隔离 DSH Web：
+  - 文本结果 `docs/notes.md:2:1` 选择 `Replace…` 后，Find 以
+    replace mode 打开，query=`needle`，active descendant 与
+    `aria-selected=true` 均指向 `docs/notes.md:2:1`；
+  - Header Open Find 前先激活同一结果，Find 打开后仍选中该行，
+    且保持 find mode。
+- CUA `getState()` 仍返回 Mac 锁屏；IDEA 对照使用 2026.2.3 安装包契约。
+
+**下一轮计划**：
+
+1. 审计 initial active text result 所属文件组折叠时是否自动展开祖先组；
+2. 审计 initial active file result 的 listbox descendant 与滚动位置；
+3. 验证 Replace mode 打开后组折叠状态和 active row 持续稳定；
+4. 补 round502、全量回归和隔离 DSH Web 运行态门禁。
+
+## 2026-11-16 — Search Everywhere → Find 统一交接模型
+
+**作用域**：Search Everywhere Header Open Find、文本菜单 Replace、
+结果集、mode、搜索选项和大结果确认。
+
+**问题证据**：
+
+- Header 与结果菜单此前各自组装 Find initial、mode 和选项，容易分叉；
+- Regex 与 Whole Words 的互斥只在 UI toggle 层处理，交接模型未防守；
+- 大结果 confirmation 与 request 字段没有单一纯对象可测试；
+- 选项组合需要通过重复静态断言才能覆盖。
+
+**实现**：
+
+- 新增 `searchFindHandoff()` 纯函数：
+  - 输出 `{ needsConfirmation, total, request }`；
+  - request 与 `openFindTool()` initial 契约一致；
+  - find/replace mode、withReplace、query、files/matches、truncated；
+  - caseSensitive、wholeWords、regex、fileMask；
+  - regex=true 时 wholeWords 强制 false；
+  - 复用现有 `searchEverywhereRequiresResultConfirmation()`。
+- `openSearchResultsInFind(mode)` 只负责确认和 callback；
+- Header Open Find 与文本菜单 Replace 共用该函数；
+- Replace menu 仍只对 text result 渲染一次。
+
+**验证**：
+
+- RED：`tests/round500.test.mjs` 初始 **0 pass / 4 fail**；
+- GREEN：round500/499/498/483/482/469 定向 **25 pass / 0 fail**；
+- 全量：`npm test` = **1644 pass / 0 fail**；
+- `node --check lib/client.js`、`lib/index.js`、`lib/terminal.js` 与
+  `git diff --check` 通过；
+- 隔离 DSH Web：
+  - Whole Words + `*.md` 经 Replace 交接后 Find 仍为
+    wholeWords=true、regex=false、mask=`*.md`、replace mode；
+  - 再开启 Regex 后交接为 regex=true、wholeWords=false、
+    Whole Words 按钮 disabled、mask 保留、replace mode 保留。
+- CUA `getState()` 仍返回 Mac 锁屏；IDEA 对照使用 2026.2.3 安装包契约。
+
+**下一轮计划**：
+
+1. 交接时保留 Search Everywhere 当前活动结果；
+2. `openFindTool` initial 支持 active row/index，Find 打开后定位同一命中；
+3. Replace 入口使用被点击的文本结果，Header 使用当前 active result；
+4. 补 round501、全量回归和隔离 DSH Web 运行态门禁。
+
+## 2026-11-16 — 文本结果 Replace 入口与 mode 聚焦
+
+**作用域**：Search Everywhere/Find 文本结果 `Replace…`、Find handoff、
+替换 mode 切换、替换输入焦点和大结果确认。
+
+**问题证据**：
+
+- 结果菜单只有导航/复制，没有 IDEA 的文本替换入口；
+- Search Everywhere Header 的 Open Find 逻辑已包含大结果确认和选项移交，
+  结果菜单若复制一份会产生两套规则；
+- Find 从 find mode 切 replace mode 时，替换输入尚未挂载，
+  直接 focus 会落空；
+- 切换 mode 若重建 Find state 会丢结果和 active descendant。
+
+**实现**：
+
+- `searchResultContextItems()` 增加可选 `onReplace`，
+  仅 text 结果渲染 `Replace…`；
+- Search Everywhere 抽取 `openSearchResultsInFind(mode)`，
+  Header 与结果菜单共用大结果确认、结果集和搜索选项移交；
+- 菜单 Replace 传 `mode: 'replace'`，确认取消时搜索弹框保持打开；
+- Find 增加 `onReplaceMode`、`replaceInputRef`、
+  `replaceFocusPendingRef` 和 `focusReplaceInput()`；
+- find mode 下先置 pending 再切 mode，replace 输入挂载后 focus；
+- 已处于 replace mode 时直接聚焦，不重建结果。
+
+**验证**：
+
+- RED：`tests/round499.test.mjs` 初始 **0 pass / 4 fail**；
+- GREEN：round499/498/497/496/480 定向 **22 pass / 0 fail**；
+- 全量：`npm test` = **1640 pass / 0 fail**；
+- `node --check lib/client.js`、`lib/index.js`、`lib/terminal.js` 与
+  `git diff --check` 通过；
+- 隔离 DSH Web：
+  - 文本结果菜单为 6 项，包含 `Replace…`；
+  - Search Everywhere `needle` 选择 Replace 后 Find 打开，
+    query 保留 `needle`、6 条结果和 descendant 保留；
+  - Find find-mode 文本结果选择 Replace 后出现替换输入，
+    焦点落在替换输入，6 条结果与 descendant 不变。
+- CUA `getState()` 仍返回 Mac 锁屏；IDEA 对照使用 2026.2.3 安装包契约。
+
+**下一轮计划**：
+
+1. 检查 Replace 交接在 Whole Words/Regex/File Mask 组合下的一致性；
+2. 为大结果确认取消补显式运行态/契约验证；
+3. 审计 Replace 入口在文件结果中隐藏、文本结果中仅出现一次；
+4. 补 round500、全量回归和隔离 DSH Web 运行态门禁。
+
+## 2026-11-16 — 文本结果右侧拆分定位与右键激活修复
+
+**作用域**：Search Everywhere/Find 文本结果 Open in Right Split、
+拆分模型绑定后的行列定位、结果行右键主键判断。
+
+**问题证据**：
+
+- Open in Right Split 只传 path，文本结果进入右侧后停在 1:1；
+- 拆分编辑器创建/换 model 是异步的，过早 setSelection 会被后续绑定覆盖；
+- 运行态还发现 Search Everywhere 行的 `onMouseDown` 不区分鼠标键，
+  右键会先执行 `activateResult` 并关闭弹框，结果菜单来不及出现。
+
+**实现**：
+
+- `openInRightSplit(target, location = null)` 增加可选位置对象；
+- 文本菜单传 `{ path, line, column }`，文件结果传 `null`；
+- 新增 `revealSplitLocation()`：
+  - 等待 split editor 与 `modelsRef` 中同一 model；
+  - 行列按 model 边界收敛；
+  - 连续 3 帧应用 selection/reveal，避免异步换 model 覆盖；
+  - 最后聚焦 split editor；
+- Search Everywhere 结果 `onMouseDown` 只在 `event.button === 0`
+  时激活，右键保留给 `contextmenu`；
+- Editor 的 Search/Find callback 同时转发 path 和 location。
+
+**验证**：
+
+- RED：`tests/round498.test.mjs` 初始终止于未实现定位与右键守卫；
+- GREEN：round498/497/496/477 定向 **18 pass / 0 fail**；
+- 全量：`npm test` = **1636 pass / 0 fail**；
+- `node --check lib/client.js`、`lib/index.js`、`lib/terminal.js` 与
+  `git diff --check` 通过；
+- 隔离 DSH Web：
+  - Search Everywhere `needle` 的 `docs/notes.md:2:1` 右键菜单可打开；
+  - Open in Right Split 后右编辑器选中 `2:1` 并获得焦点；
+  - 左编辑器位置仍为 `1:1`，弹框关闭但 split 正常；
+  - Find 同文本结果 Open in Right Split 仍选中 `2:1`，
+    Find 保持打开，descendant 仍为 `docs/notes.md:2:1`。
+- CUA `getState()` 仍返回 Mac 锁屏；IDEA 对照使用 2026.2.3 安装包契约。
+
+**下一轮计划**：
+
+1. 为文本结果上下文菜单增加 `Replace…` 入口；
+2. 从 Search Everywhere 打开时进入 Replace in Files，
+   保留当前 query 与搜索选项；
+3. Find 内只聚焦替换输入，不丢失当前结果和 active descendant；
+4. 补 round499、全量回归和隔离 DSH Web 运行态门禁。
+
+## 2026-11-16 — 搜索复制失败边界与结果菜单焦点
+
+**作用域**：Search Everywhere/Find 共享复制 helper、query/结果菜单
+`Shift+F10`、Esc 焦点恢复和视口定位。
+
+**问题证据**：
+
+- `navigator.clipboard.writeText()` 在部分权限/策略环境会同步抛错；
+  旧 helper 只处理 `undefined` 和 rejected Promise，会把异常抛给 React；
+- query 与结果行都能打开菜单，但需要确认 Esc 分别回到 query/当前行；
+- 结果菜单只有复用 `ContextMenu` 才能继承 viewport clamp。
+
+**实现**：
+
+- `copySearchResultText()` 用 try/catch 包住 `writeText()` 调用；
+- 无 API、同步 throw、Promise reject 统一通知
+  `clipboardWriteFailed`，resolve 通知 `copiedToClipboard`；
+- Find query `Shift+F10` 使用 active option 的稳定 row rect 打开菜单；
+- 结果行菜单保存行 opener，Esc 由 `ContextMenu` 恢复该行；
+- Find result menu 继续走现有 `ContextMenu` layout clamp：
+  `innerWidth/innerHeight - rect - 8`，不新增第二套定位代码。
+
+**验证**：
+
+- RED：`tests/round497.test.mjs` 初始 **3 pass / 2 fail**；
+- GREEN：round497/496/478/477 定向 **16 pass / 0 fail**；
+- 全量：`npm test` = **1631 pass / 0 fail**；
+- `node --check lib/client.js`、`lib/index.js`、`lib/terminal.js` 与
+  `git diff --check` 通过；
+- 隔离 DSH Web：
+  - Search Everywhere query `Shift+F10` 打开 5 项菜单，Esc 后焦点回
+    combobox；
+  - Find 结果行 `Shift+F10` 菜单 Esc 后焦点回同一 option；
+  - stub Clipboard resolve 时 Copy relative path 捕获 `README.md`，
+    Path with Line Number 捕获 `README.md:3:1`；
+  - stub Clipboard reject 时状态栏出现
+    `The browser refused the clipboard write`；
+  - 最后一个结果行菜单矩形完全位于 viewport 内；
+  - Find 始终保持打开，active descendant 不丢失。
+- CUA `getState()` 仍返回 Mac 锁屏；IDEA 对照使用 2026.2.3 安装包契约。
+
+**下一轮计划**：
+
+1. 修正文本结果 Open in Right Split 的定位：
+   当前只传 path，未把 `line/column` 带到拆分编辑器；
+2. 复用现有查找到达位置逻辑，让右侧 pane 打开后居中并聚焦命中；
+3. 保持 Search Everywhere/Find 菜单、焦点和右侧拆分生命周期；
+4. 补 round498、全量回归和隔离 DSH Web 运行态门禁。
+
+## 2026-11-16 — Find 结果上下文菜单复用 Search Everywhere
+
+**作用域**：Find 文件/文本结果右键、`Shift+F10/ContextMenu`、
+结果复制、右侧拆分、Project reveal 和状态通知。
+
+**问题证据**：
+
+- Find 行只能双击/Eenter 打开，没有 IDEA 的结果上下文菜单；
+- Search Everywhere 已有一套 5 项结果菜单，若复制一份会形成两套行为；
+- Find 是持久工具窗口，导航后不能像模态 Search Everywhere 一样关闭；
+- 复制失败/成功需要沿用现有状态栏通知，而不是静默失败。
+
+**实现**：
+
+- 抽取 `copySearchResultText()` 与 `searchResultContextItems()`，
+  Search Everywhere 和 Find 共用同一菜单模型；
+- 菜单项固定为 Open in Right Split、Open in editor、
+  Copy relative path、Path with Line Number、Select in Project View；
+- 文本复制使用真实 `path:line:column`，文件使用纯路径；
+- Find 增加 `resultMenu` 和 `openFindResultMenuAt()`；
+- 行 `onContextMenu`、行 `Shift+F10/ContextMenu` 与 query 输入快捷键
+  都打开同一菜单；
+- Find 导航不调用 `onClose`，工具窗口、当前行和 descendant 保持不变；
+- Editor 传入现有右侧拆分、Project reveal 和状态栏通知回调。
+
+**验证**：
+
+- RED：`tests/round496.test.mjs` 初始 **0 pass / 4 fail**；
+- GREEN：round496/495/494/477/478 定向 **19 pass / 0 fail**；
+- 全量：`npm test` = **1626 pass / 0 fail**；
+- `node --check lib/client.js`、`lib/index.js`、`lib/terminal.js` 与
+  `git diff --check` 通过；
+- 隔离 DSH Web：
+  - Find 文件结果右键菜单显示 5 项；
+  - 菜单 Esc 后 Find 保持打开，active descendant 不变；
+  - 聚焦结果行 `Shift+F10` 打开同一菜单；
+  - 选择 Open in Right Split 后 split 出现，Find 与 descendant 保持；
+  - Search Everywhere 原结果菜单静态契约继续通过。
+- CUA `getState()` 仍返回 Mac 锁屏；IDEA 对照使用 2026.2.3 安装包契约。
+
+**下一轮计划**：
+
+1. 实测 Find/Search Everywhere 的 Copy relative path 与
+   Path with Line Number 通知，覆盖剪贴板权限拒绝；
+2. 复核 query 输入 `Shift+F10` 与焦点行 Esc/Enter 的焦点归属；
+3. 审计 ContextMenu 在窄 Find 窗口中的视口翻转；
+4. 补 round497、全量回归和隔离 DSH Web 运行态门禁。
+
+## 2026-11-16 — Find 完整结果边界与文件组交接
+
+**作用域**：Find 命中 `Home/End`、文件结果到文本组头边界、活动索引同步。
+
+**问题证据**：
+
+- 命中行没有 `Home/End`，离开 query 后不能快速跳首尾；
+- 文件结果行 `↓` 直接跳到下一条 occurrence，会跳过中间的文本文件组头；
+- 文件结果和文本命中虽然共享活动索引，但上下边界没有统一语义。
+
+**实现**：
+
+- 新增 `findToolNextTextGroupPath()`：
+  仅当文件结果下一行是文本命中时返回其 path；
+- 命中行 `Home/End` 调用 `focusOccurrenceByIndex(0|length-1)`；
+- 文件结果 `↓` 优先用该 helper 聚焦首个文本组头；
+- 文本组仍由 `findToolGroupBoundaryTarget()` 处理组首/组末；
+- 文件结果与文本命中都保持 roving `tabIndex`、onFocus 活动索引同步、
+  Enter 打开和 Esc 关闭。
+
+**验证**：
+
+- RED：`tests/round495.test.mjs` 初始 **1 pass / 3 fail**；
+- GREEN：round495/494/493/491 定向 **17 pass / 0 fail**；
+- 全量：`npm test` = **1622 pass / 0 fail**；
+- `node --check lib/client.js`、`lib/index.js`、`lib/terminal.js` 与
+  `git diff --check` 通过；
+- 隔离 DSH Web：
+  - Search Everywhere 查询 `app` 后移交 Find，结果为
+    `src/app.js` 文件行与 README 文本组；
+  - 文件行 `↓` 进入 README 组头；
+  - 文件行 `End` 聚焦末条可见命中并同步 descendant；
+  - 末条命中 `Home` 回到 `src/app.js` 文件行并同步 descendant。
+- CUA `getState()` 仍返回 Mac 锁屏；IDEA 对照使用 2026.2.3 安装包契约。
+
+**下一轮计划**：
+
+1. 为 Find 文件/文本结果补与 Search Everywhere 一致的右键和
+   `Shift+F10/ContextMenu` 菜单；
+2. 复用 Open in Right Split、Copy relative path、Path with Line Number、
+   Select in Project View 与现有通知；
+3. 菜单关闭后保持当前 Find 行和查询上下文；
+4. 补 round496、全量回归和隔离 DSH Web 运行态门禁。
+
+## 2026-11-16 — Find 组与命中统一键盘路径
+
+**作用域**：Find 文件组头、文本命中行、文件结果行、listbox 活动项和
+替换/打开键盘入口。
+
+**问题证据**：
+
+- 组头虽有 roving 焦点，但 `↓` 只在组之间移动，不能进入本组命中；
+- 命中行不是焦点停点，用户离开 query 后无法继续用方向键浏览结果；
+- 组首/组末缺少回到组头、进入下一组的树状边界语义；
+- 文件结果和文本命中共用一个 listbox 活动索引，但只有 query 路径同步它。
+
+**实现**：
+
+- 新增 `findToolGroupBoundaryTarget()`，把组首 `↑` 路由到组头、
+  组末 `↓` 路由到下一组头；
+- 新增 `occurrenceRefs`、`focusOccurrenceByIndex()` 和
+  `focusAdjacentOccurrence()`；
+- 文件结果与文本命中行都使用
+  `tabIndex: position === activeIndex ? 0 : -1`；
+- 行获得焦点时调用 `onMove(0, occurrences.length, position)`，
+  同步 listbox 活动项与 combobox descendant；
+- 组头 `↓` 优先进入本组首条可见命中，折叠/空组继续走组间移动；
+- 命中 `↑/↓` 使用组边界 helper，Enter 打开当前行，Esc 关闭 Find；
+- query 输入原有 `↑/↓`、单处 Replace、Replace All、Preview 和 History
+  保持不变。
+
+**验证**：
+
+- RED：`tests/round494.test.mjs` 初始 **0 pass / 4 fail**；
+- GREEN：round494/493/491/480 定向 **17 pass / 0 fail**；
+- 全量：`npm test` = **1618 pass / 0 fail**；
+- `node --check lib/client.js`、`lib/index.js`、`lib/terminal.js` 与
+  `git diff --check` 通过；
+- 隔离 DSH Web：
+  - README 组头 `↓` 聚焦 `README.md:3:1`，descendant 同步；
+  - 命中 `↓` 到 `README.md:4:8`，`↑` 回 `README.md:3:1`；
+  - 组首 `↑` 回到 README 组头；
+  - README 组末 `↓` 进入 `docs/notes.md` 组头；
+  - 收起 docs 后从组头 `↓` 跳过隐藏命中，落到 `src/app.js` 组头。
+- IDEA 对照仍受 Mac 锁屏限制；CUA `getState()` 返回 native apps 不可用，
+  本轮使用 IDEA 2026.2.3 安装包既有树/折叠契约与 DSH 运行态证据。
+
+**下一轮计划**：
+
+1. 把 Find 的 `Home/End` 扩展到完整可见结果序列，
+   同时覆盖文件结果与文本命中；
+2. 复核文件结果行与文本组头之间的上下边界；
+3. 保持 `aria-activedescendant`、Enter、Replace、Preview 和 History；
+4. 补 round495、全量回归和隔离 DSH Web 运行态门禁。
+
+## 2026-11-16 — Find 文件组 roving 焦点与折叠收敛
+
+**作用域**：持久 Find 的文件分组头、组内命中折叠展开、活动结果索引
+和组合框 descendant。
+
+**问题证据**：
+
+- 文件组只有鼠标可点的折叠按钮，没有组间键盘移动或边界语义；
+- 折叠当前活动命中所在文件后，`state.index` 仍可能指向旧位置，
+  查询 combobox 与 listbox 只能靠 clamped 索引暂时掩盖；
+- 每个组按钮都是独立 Tab 停点，缺少 roving `tabIndex`；
+- 另造树组件会重复现有 listbox/option、结果排序和折叠投影。
+
+**实现**：
+
+- 新增 `findToolGroupId()` 与 `findToolGroupTarget()`；
+- 每组渲染为 listbox 内 `role="group"` 容器，组头按钮作为唯一组停点；
+- 组按钮使用 `tabIndex` roving、`aria-expanded`、`aria-controls`
+  和 `data-dsh-find-group-path`；
+- `↑/↓` 在组间夹取移动，`Home/End` 跳首尾；
+- `←` 收起、`→` 展开、`Enter/Space` 切换，操作后焦点保持在组头；
+- 新增 `state.index !== activeIndex` effect，复用现有 `onMove`
+  绝对索引接口同步到可见行；
+- 不修改 `findToolVisibleRows()` 的分组与隐藏模型。
+
+**验证**：
+
+- RED：`tests/round493.test.mjs` 初始 **0 pass / 5 fail**；
+- GREEN：round493/492/491/468/480 定向 **18 pass / 0 fail**；
+- 全量：`npm test` = **1614 pass / 0 fail**；
+- `node --check lib/client.js`、`lib/index.js`、`lib/terminal.js` 与
+  `git diff --check` 通过；
+- 隔离 DSH Web：
+  - `needle` 结果 6 处/3 文件，组为
+    `README.md / docs/notes.md / src/app.js`；
+  - 3 个组按钮 roving 状态为 `[0, -1, -1]`；
+  - `↓` 到 `docs/notes.md`，End 到 `src/app.js`，Home 回
+    `README.md`；
+  - `←` 收起 README 后 `aria-expanded=false`、README option 为 0；
+    活动 descendant 自动变为仍可见的 `docs/notes.md:2:1`；
+  - `→` 重新展开后 README option 恢复为 2，组头焦点仍在 README；
+  - Enter 连续收起/展开成功，焦点不转移。
+- IDEA 对照：本机 IntelliJ IDEA `2026.2.3 / IU-262.10968.63` 安装包提供
+  Find 结果树/折叠 action 契约；CUA `getState()` 仍返回 Mac 锁屏，
+  原生点击对照无法执行，本轮以 DSH Web 运行态与安装包契约完成验证。
+
+**下一轮计划**：
+
+1. 把组头与组内命中纳入同一键盘路径：
+   组头 `↓` 进入首条命中，首条命中 `↑` 返回组头；
+2. 为可见命中行补 roving `tabIndex`，避免方向键只在 query 输入时有效；
+3. 保持现有 query `↑/↓`、单处 Replace、Preview 和折叠索引收敛；
+4. 补 round494、全量回归和隔离 DSH Web 运行态门禁。
+
+## 2026-11-16 — Search Everywhere 查询历史入口
+
+**作用域**：Search Everywhere 查询字段、workspace recent searches、
+History 菜单与焦点恢复。
+
+**问题证据**：
+
+- Search Everywhere 空查询虽显示 recent searches，但查询字段本身没有
+  Find 已有的 History 按钮和 `⌥↓`；
+- 已输入查询时没有快捷入口恢复最近搜索；
+- 若另建存储，会与当前 workspace search history 分叉。
+
+**实现**：
+
+- 新增 `queryHistoryMenu` 与 `openQueryHistoryMenu()`；
+- 查询字段 `⌥↓` 与 History 按钮共用同一菜单；
+- 直接复用 `recentSearches`，不新增存储键；
+- 空历史显示 disabled `No history yet`；
+- 选择菜单项调用 `onQuery(value)`，查询回到第 0 条活动结果；
+- Esc 不改 draft，`ContextMenu` 关闭后回焦查询框；
+- 查询历史与 replacement history 仍是两个独立菜单。
+
+**验证**：
+
+- RED：`tests/round492.test.mjs` 初始 **0 pass / 3 fail**；
+- GREEN：round492/491/490/489 定向 **16 pass / 0 fail**；
+- 全量：`npm test` = **1609 pass / 0 fail**；
+- `node --check lib/client.js`、`lib/index.js`、`lib/terminal.js` 与
+  `git diff --check` 通过；
+- 隔离 DSH Web：
+  - 双击 Shift 打开空 Search Everywhere；
+  - `⌥↓` 菜单按 newest-first 显示
+    `zzzzzzzz-no-find-result / needle / alpha / app`；
+  - Esc 后查询值仍为空、Search Everywhere 保持打开、焦点回 combobox；
+  - 再次打开菜单并键盘选择首项后查询更新为
+    `zzzzzzzz-no-find-result`，焦点仍回 combobox；
+  - 现有 query combobox/listbox 与页签 roving 语义未回归。
+
+**下一轮计划**：
+
+1. 审计 Find 文件分组头的键盘展开/收起，补 tree/treeitem 语义；
+2. 折叠文件组后把活动命中收敛到仍可见结果，展开时保持文件上下文；
+3. 复核分组按钮、listbox 方向键和单处 Replace 的焦点交接；
+4. 补 round493、全量回归和隔离 DSH Web 运行态门禁。
+
+## 2026-11-16 — Find 工具窗口 combobox/listbox 与 live status
+
+**作用域**：持久 Find/Replace in Files 的查询框、文件结果、文本命中、
+活动结果和结果状态。
+
+**问题证据**：
+
+- Find 查询框只有普通 input，结果 listbox 与活动 option 没有
+  `aria-activedescendant` 关联；
+- 文件行和文本行没有稳定 DOM id，辅助技术只能看到视觉高亮；
+- 加载、短查询、空结果和命中计数没有 live region；
+- Search Everywhere 已具备该语义，但持久 Find 未对称。
+
+**实现**：
+
+- Find 查询输入增加 `role=combobox`、`aria-autocomplete=list`、
+  `aria-controls` 与活动 option 的 `aria-activedescendant`；
+- listbox 使用固定 id `dsh-editor-find-tool-listbox`；
+- 新增 `findToolOptionId(rowKey)`，文件行和文本命中行都使用
+  `encodeURIComponent(rowKey)` 生成 collision-safe id；
+- listbox 同步 `aria-activedescendant`，查询框与 listbox 在
+  `↑/↓` 后指向同一活动 option；
+- 隐藏 live region 使用 `role=status`、`aria-live=polite`、
+  `aria-atomic=true`，覆盖 loading、短查询、无匹配与命中/文件计数；
+- 可见 loading/empty 文本保持原样，避免重复播报。
+
+**验证**：
+
+- RED：`tests/round491.test.mjs` 初始 **0 pass / 4 fail**；
+- GREEN：round491/490/489/486 定向 **17 pass / 0 fail**；
+- 全量：`npm test` = **1606 pass / 0 fail**；
+- `node --check lib/client.js`、`lib/index.js`、`lib/terminal.js` 与
+  `git diff --check` 通过；
+- 隔离 DSH Web：
+  - Shift+⌘R 打开 Replace in Files，查询 `needle` 命中 6 处/3 文件；
+  - 查询 combobox 的 `aria-controls` 指向 Find listbox；
+  - input/listbox 的 `aria-activedescendant` 都指向当前
+    `aria-selected=true` option；
+  - 6 个 option id 全唯一；
+  - 查询框 `ArrowDown` 和 listbox `ArrowUp` 都移动同一活动项；
+  - live status 为 `6 matches in 3 files`；
+  - 无匹配查询后 descendant 清空、`aria-expanded=false`，
+    live status 为 `No matches`。
+
+**下一轮计划**：
+
+1. 为 Search Everywhere 查询字段补与 Find 一致的 History 按钮和
+   `⌥↓` 最近搜索入口；
+2. 审计 Find 文件分组头的键盘展开/收起和活动命中保留；
+3. 复核历史菜单、查询 combobox 与结果 listbox 的焦点交接；
+4. 补 round492 契约、全量回归和隔离 DSH Web 运行态门禁。
+
+## 2026-11-16 — Search Everywhere 替换历史与结果 live status
+
+**作用域**：Search Everywhere Replace 输入、workspace replacement history、
+搜索结果 live region 与截断提示。
+
+**问题证据**：
+
+- Search Everywhere 的 Replace 行只有输入和 Replace All，没有 Find/编辑器
+  已有的 replacement history 入口；
+- 结果加载、空结果与计数只靠视觉文本，辅助技术无法稳定获知更新；
+- 同一 branch 若给可见 loading/empty 节点再加 live，会和隐藏状态重复播报。
+
+**实现**：
+
+- `SearchEverywhere` 接收 Editor 的 `recentReplacements` 作为
+  `replaceHistory`；
+- Replace 输入 `⌥↓` 与 History 按钮共用 `openReplaceHistoryMenu()`；
+- 空历史显示 disabled `No history yet`，选择项才调用 `onReplaceChange()`；
+- Esc 关闭历史不修改 draft，并由 `ContextMenu` 恢复 opener 焦点；
+- 增加 `screenReaderOnly` 结果状态：
+  `role=status`、`aria-live=polite`、`aria-atomic=true`，
+  播报 loading、无结果或 `searchResultCount`；
+- 可见 loading/empty 文本不重复加 live，截断提示单独使用 `role=status`；
+- Replace 历史菜单复用同一个 `ContextMenu`，不新增第二套菜单系统。
+
+**验证**：
+
+- RED：`tests/round490.test.mjs` 初始 **0 pass / 4 fail**；
+- GREEN：round490/489/486/474 定向 **16 pass / 0 fail**；
+- 全量：`npm test` = **1602 pass / 0 fail**；
+- `node --check lib/client.js`、`lib/index.js`、`lib/terminal.js` 与
+  `git diff --check` 通过；
+- 隔离 DSH Web：
+  - Search Everywhere 查询 `needle` 时 live region 文本为 `6 results`，
+    `aria-atomic=true` 且视觉宽度为 1px；
+  - Actions 页输入无匹配命令时 live region 为 `No matches`；
+  - Find 工具窗口的 replacement history 为 `omega`，`⌥↓` 打开菜单后
+    Esc 保持空 draft 并回焦替换输入，选择历史项后值为 `omega`；
+- 当前 Search Everywhere 的 `withReplace` 分支没有直接 UI 入口，
+  本轮运行态通过共享 replacement history 的 Find 工具窗口验证，
+  静态契约覆盖 Search Everywhere 同分支，避免冒充已点击验证。
+
+**下一轮计划**：
+
+1. 把 Search Everywhere 已完成的 combobox/listbox、
+   `aria-activedescendant` 和 live status 语义对称落到持久 Find 工具窗口；
+2. 为 Find 结果文件行与文本命中行生成稳定 option id；
+3. 查询框 `aria-controls/aria-activedescendant` 与 listbox 同步；
+4. 保持现有 Find 单处替换、Replace All、History 与焦点返回行为；
+5. 补 round491 契约、全量回归和隔离 DSH Web 运行态门禁。
+
+## 2026-11-16 — Search Everywhere 键盘与辅助技术语义
+
+**作用域**：Search Everywhere 页签、查询 combobox、结果 listbox/option 和
+结果上下文菜单的键盘与 ARIA 语义。
+
+**问题证据**：
+
+- 页签只有 `role=tab` / `aria-selected`，没有 roving `tabIndex`，
+  也不能在页签获得焦点后用方向键导航；
+- 查询输入没有 combobox/listbox 关联，活动结果只靠视觉高亮，
+  辅助技术无法从输入框获知当前 option；
+- 结果 listbox 自身不可聚焦，`aria-activedescendant` 缺失；
+- 用位置生成 id 会在结果重排时漂移，用路径原文又可能含特殊字符。
+
+**实现**：
+
+- 页签增加 `data-dsh-search-tab-id`，活动项 `tabIndex=0`、其余 `-1`；
+- `searchEverywhereTabTarget()` 统一计算 `←/→` 循环和 `Home/End`；
+- 页签 `Enter/Space` 激活当前项，切换后用局部 tablist ref 恢复焦点；
+- 查询输入使用 `role=combobox`、`aria-autocomplete=list`、
+  `aria-controls` 和活动 option 的 `aria-activedescendant`；
+- 结果 listbox 使用固定 id、`tabIndex=0` 和同一活动 option id；
+- option id 用 `searchEverywhereOptionId(rowKey)` 编码，路径标点不会撞 id；
+- 查询框和结果列表复用 `handleSearchResultKeyDown`：`↑/↓`、Enter、
+  Escape、`Shift+F10/ContextMenu` 行为一致；
+- Filter 关闭继续回焦查询框；overflow/结果菜单继续由 `ContextMenu`
+  恢复 opener 焦点。
+
+**验证**：
+
+- RED：`tests/round489.test.mjs` 初始 **0 pass / 5 fail**；
+- GREEN：round489/488/487/474/472 定向 **19 pass / 0 fail**；
+- 全量：`npm test` = **1598 pass / 0 fail**；
+- `node --check lib/client.js`、`lib/index.js`、`lib/terminal.js` 与
+  `git diff --check` 通过；
+- 隔离 DSH Web（`127.0.0.1:63097`）：
+  - 4 个页签中只有活动项 `tabIndex=0`；
+  - `→` 到 Files、End 到 Actions、Home 回 All、All 上 `←` 循环到 Actions，
+    焦点和 `aria-selected` 同步；
+  - 查询 `needle` 后 combobox/listbox 的活动 id 都指向当前 option；
+  - input 上 `ArrowDown` 与 listbox 上 `ArrowUp` 都移动同一活动项；
+  - 结果 listbox 上 `Shift+F10` 打开 5 项结果菜单，Esc 关闭菜单后
+    焦点仍回到 listbox。
+- IDEA 证据：本机 `/Applications/Intellij.app` 为 IntelliJ IDEA
+  `2026.2.3 / IU-262.10968.63`，对应
+  `intellij.platform.searchEverywhere*.jar` 仍采用 tab/popup/list 交互模型；
+  Mac 当前锁屏，CUA `getState()` 明确返回无法自动解锁，运行态对照改用
+  DSH Web 与安装包资源，不把锁屏视为整体目标 blocked。
+
+**下一轮计划**：
+
+1. 审计 Search Everywhere 的 Tab 顺序，避免 roving 页签、查询/替换字段
+   与工具栏动作之间出现不可达或重复停点；
+2. 为加载中、空结果、截断、结果计数补充可读的 live/status 语义；
+3. 对齐替换字段的键盘行为与 Search Everywhere/Find 的状态反馈；
+4. 补静态契约、全量回归和隔离 DSH Web 键盘验证。
+
+## 2026-11-15 — Search Everywhere Header 响应式收敛
+
+**作用域**：Search Everywhere 顶部搜索/预览/筛选动作、窄视口与
+`CompactActionBar` overflow。
+
+**问题证据**：
+
+- 7 个动作手写在页签行内，760px 以下会挤压页签和查询入口；
+- Filter 只能从直接按钮打开，进入 overflow 后没有统一入口；
+- 直接与 overflow 若各自保存快照，响应式重排后菜单会过期。
+
+**实现**：
+
+- Header 改用 `CompactActionBar`，动作顺序为
+  `Include non-project / Match Case / Whole Words / Regex / Preview /
+   Filter / Open Find`；
+- Filter、Open Find pinned；窄宽度下其余动作进入 `»`；
+- 页签行保持完整，动作条独占下一行；
+- Filter 直接点击与 overflow 共用 `openFilterAt()`，无 event 时回退到
+  查询输入 rect；
+- overflow 菜单只保存坐标，按当前 hidden 集合实时生成菜单项。
+
+**验证**：
+
+- RED：`tests/round488.test.mjs` 初始 **0 pass / 4 fail**；
+- GREEN：round488/487/467 定向 **24 pass / 0 fail**；
+- 全量：`npm test` = **1593 pass / 0 fail**；
+- 隔离 DSH Web：
+  - 760px 时 7 个动作全部直接可见；
+  - 140px 时 Include/Match/Filter/Open Find + `»`；
+  - 24px 时仅 `»`，菜单仍含全部 7 个动作；
+  - 从 overflow 打开 Filter 后 Files/Text/Actions 可用，
+    Esc 关闭并回焦查询框；
+  - 恢复宽度后全部动作重新直接显示。
+
+## 2026-11-15 — Persistent Find 工具栏响应式收敛
+
+**作用域**：Find/Replace in Files 工具栏、搜索选项、结果动作、
+History/Replace 输入行和 `CompactActionBar` overflow。
+
+**问题证据**：
+
+- 新增 Match Case / Whole Words / Regex / History 后，Find 工具栏仍手写固定按钮；
+- 实际 255px 工具栏中新增按钮可能被裁出父边界；
+- 把动作条塞进 title row 后仅分到 45px，只能显示 `»`；
+- 旧 overflow 菜单在点击时保存 hidden 快照，响应式重排后菜单可能过期；
+- 本轮中途还发现一个 JSX 等价属性对象缺少 `}`，导致整个 client bundle
+  `Unexpected token ')'`，Editor 注入消失。
+
+**实现**：
+
+- `CompactActionBar` 支持可选 style override；
+- Persistent Find 将动作条放在独立满宽行，不复用 title row 的争抢空间；
+- Find actions 顺序：
+  - Previous / Next / Expand / Collapse / Preview；
+  - Match Case / Whole Words / Regex；
+  - Hide；
+- Previous/Next/Hide pinned，窄宽度其余进入 `»`；
+- overflow 状态只保存菜单坐标，渲染时按当前 hidden 集合生成 items；
+- search/replace rows 增加 `flexWrap`，History 与 Replace 控件可换行；
+- 修复 CompactActionBar createElement 属性对象缺 `}` 的语法错误。
+
+**验证**：
+
+- RED：`tests/round487.test.mjs` 初始 **0 pass / 4 fail**；
+- GREEN：round387/393/418/447/455/486/487 定向 **16 pass / 0 fail**；
+- 全量：`npm test` = **1589 pass / 0 fail**；
+- `node --check lib/client.js`、`lib/index.js`、`lib/terminal.js` 通过；
+- `git diff --check` 通过；
+- DSH Web：
+  - 均分宽度 255px 时 9 个动作全部直接可见；
+  - 强制 140px 时直接保留 Previous/Next/Expand/Hide + `»`；
+  - overflow 菜单显示 Collapse/Preview/Match Case/Whole Words/Regex；
+  - ArrowDown 移动到 Preview Source，Esc 回到 `»` 按钮；
+  - 恢复宽度后 9 个动作全部重新出现。
+
+**下一轮计划**：
+
+1. 审计 Search Everywhere 顶部动作在窄视口下的可见性；
+2. 让 Include non-project / Match Case / Whole Words / Regex / Preview /
+   Filter / Open Find 按 IDEA 优先级收敛到 overflow；
+3. 保持页签、查询输入和结果键盘导航不受影响；
+4. 补窄视口、overflow、焦点和全量回归门禁。
+
+## 2026-11-15 — Find/Replace 历史下拉
+
+**作用域**：持久 Find 与编辑器 Find 的查询/替换历史、workspace 隔离、
+`⌥↓` 菜单、draft 保持和跨刷新恢复。
+
+**问题证据**：
+
+- IDEA `FindBundle` 提供 `find.search.history` / `find.replace.history`；
+- 现有搜索历史只存在 Search Everywhere 空结果页，Find 字段没有历史入口；
+- 输入框直接占用 ↑/↓ 导航结果，不能再用同一按键做历史；
+- 替换字符串可能包含有意义的首尾空白，不能像 query 一样 trim 后保存。
+
+**实现**：
+
+- 查询继续使用 `dsh-editor.search.history:<root>`；
+- 新增 `dsh-editor.replace.history:<root>`；
+- `rememberReplacementHistory()`：
+  - 非空字符串；
+  - 保留原始内容，只把纯空白视为不记录；
+  - 去重、newest-first、最多 20 条。
+- `rememberWorkspaceSearchQuery()` / `rememberWorkspaceReplacement()` 写入并更新 UI；
+- Find 搜索成功时记录 query，实际 Replace/Replace All 成功时记录 replacement；
+- 编辑器 Find 的 Enter、Replace、Replace All 同步记录；
+- Persistent Find 与编辑器 Find 查询/替换字段都增加 History 按钮；
+- 输入框 `⌥↓` 打开历史菜单；
+- ContextMenu 提供方向键、Enter、Esc 和 opener focus 恢复；
+- 空历史显示 disabled `No history yet`；
+- menu 打开/关闭本身不修改输入 draft。
+
+**验证**：
+
+- RED：`tests/round486.test.mjs` 初始 **0 pass / 4 fail**；
+- GREEN：round467/484/485/486 定向 **15 pass / 0 fail**；
+- 全量：`npm test` = **1585 pass / 0 fail**；
+- `node --check lib/client.js`、`lib/index.js`、`lib/terminal.js` 通过；
+- `git diff --check` 通过；
+- 替换历史去重、限量、空白保留、workspace key 通过；
+- 隔离 DSH Web：
+  - Find 查询菜单 newest-first 为 `needle / alpha / app`；
+  - replacement 菜单为 `omega`；
+  - Esc 后 draft 仍为 `alpha`，焦点回到 Find 输入；
+  - 键盘选择第二项后 query 恢复为 `needle`；
+  - 页面刷新后 query/replacement 历史仍恢复；
+  - 编辑器 Find 的 `⌥↓` 打开同一 workspace 查询历史。
+
+**下一轮计划**：
+
+1. 审计 Persistent Find toolbar 在窄窗口下的新搜索选项可见性；
+2. 复用现有 toolbar overflow 能力，把 Whole Words/Regex/History 纳入响应式动作；
+3. 保持 Search History/Replace History 与主要 Replace 动作可键盘到达；
+4. 补窄宽度、overflow 菜单、焦点和全量回归门禁。
+
+## 2026-11-15 — 编辑器 Find/Replace 搜索选项
+
+**作用域**：当前 Monaco 文件查找、跳转、单处替换、Replace All、
+Match Case、Whole Words、Regex 和窄面板布局。
+
+**问题证据**：
+
+- 当前文件 Find 仅支持大小写敏感的字面量，和 workspace Find 的能力分叉；
+- IDEA `find.case.sensitive` / `find.whole.words` / `find.regex` 同时适用于
+  当前文件查找；
+- 直接把三个 24px 按钮加入现有横向 find bar 后，窄编辑区会把
+  Regex、Replace All 和关闭按钮裁出可见区域；
+- 单处替换所需 match 长度不能用 query.length 推导，Regex 命中长度可变化。
+
+**实现**：
+
+- 新增纯函数 `editorFindResult()`：
+  - literal 转义；
+  - smart case；
+  - Unicode Whole Words lookaround；
+  - Regex 256 字符限制与 nested-repeat 防护；
+  - zero-length match 按 code point 推进；
+  - 返回 offset/length/text 或可显示错误。
+- 新增 `editorReplaceAll()` 和 `editorReplaceAt()`：
+  - 复用同一 matcher；
+  - 支持 `$1/$&`；
+  - 单处替换用 sticky regex 绑定指定 offset。
+- `replaceState` 增加 caseSensitive/wholeWords/regex/error；
+- 打开编辑器 Find 时读取共享搜索选项；
+- 切换 Match Case/Whole Words/Regex 后重算命中并写回共享 storage；
+- Regex 开启时自动关闭并禁用 Whole Words；
+- 非法 pattern 显示 `role="alert"`，Replace 和 Replace All 禁用；
+- find bar 改为 `flexWrap:wrap`，窄面板中所有控件都可达。
+
+**验证**：
+
+- RED：`tests/round485.test.mjs` 初始 **0 pass / 3 fail**；
+- GREEN：round464/484/485 定向 **11 pass / 0 fail**；
+- 全量：`npm test` = **1581 pass / 0 fail**；
+- `node --check lib/client.js`、`lib/index.js`、`lib/terminal.js` 通过；
+- `git diff --check` 通过；
+- 纯函数 smart case、Whole Words、Regex、`$1` Replace All/单处替换通过；
+- 隔离 DSH Web：
+  - 编辑器内 `needle(\w*)` Regex 为 3 条；
+  - Whole Words 自动禁用；
+  - 非法 `[` 显示 alert 且 Replace 禁用；
+  - 单处 Replace 后继续保留命中，Replace All 后命中清空；
+  - Monaco model 变为 `item-Value / item-` 后刷新回磁盘原内容；
+  - 254px 宽 find bar 自动换行，所有 8 个按钮都在可见边界内。
+
+**下一轮计划**：
+
+1. 为 Find 查询和替换字段增加 IDEA 历史下拉；
+2. 搜索历史与替换历史分开、按 workspace 隔离且有界；
+3. 支持键盘选择历史项并恢复当前 draft；
+4. 补持久化、键盘、边界和运行态门禁。
+
+## 2026-11-15 — 搜索选项跨打开与刷新持久化
+
+**作用域**：Search Everywhere 与 Find 的 Match Case、Whole Words、Regex、
+File Mask 浏览器本地状态。
+
+**问题证据**：
+
+- 搜索选项此前只存在于单个弹框/工具窗口 state，关闭即丢失；
+- 页面刷新后用户每次都要重新配置同一组开关与 mask；
+- 直接信任 localStorage JSON 会让数组、字符串、超大 mask 或
+  `regex+wholeWords` 冲突状态进入搜索请求。
+
+**实现**：
+
+- 新增 `dsh-editor.search.options.v1`；
+- `normalizeSearchOptions()`：
+  - 非对象/数组回退默认值；
+  - 三个布尔项只接受 `true`；
+  - Regex 为 true 时强制 Whole Words=false；
+  - fileMask 只接受不超过 512 字符的 string；
+- `readSearchOptions()` 对损坏 JSON 和 storage 异常安全回退；
+- Search Everywhere 每次打开读取持久化选项；
+- Find 无移交结果时读取持久化选项；有移交时使用移交值；
+- 两个界面的四个选项变化通过 effect 写回同一 key；
+- 只保存选项，不保存 query、replace text 或结果集。
+
+**验证**：
+
+- RED：`tests/round484.test.mjs` 初始 **0 pass / 3 fail**；
+- GREEN：round467/479/481/482/483/484 定向 **25 pass / 0 fail**；
+- 全量：`npm test` = **1577 pass / 0 fail**；
+- `node --check lib/client.js`、`lib/index.js`、`lib/terminal.js` 通过；
+- `git diff --check` 通过；
+- 损坏值、错误类型、超大 mask 和 regex/wholeWords 冲突归一化通过；
+- 隔离 DSH Web：
+  - 设置 Match Case=true、Whole Words=true、mask=`*.md`；
+  - 关闭并重开 Search Everywhere 后三项保持；
+  - 页面 reload 后在 Find 中仍保持三项；
+  - 写入损坏 JSON 后重开 Find，四项恢复默认并重写有效存储。
+
+**下一轮计划**：
+
+1. 把 Match Case / Whole Words / Regex 接入当前编辑器 Find/Replace；
+2. 复用浏览器本地搜索选项，不建立第二套偏好；
+3. 非法 regex 在编辑器 Find 内显示错误并禁止替换；
+4. 补 replace current/all、选区与无匹配运行态门禁。
+
+## 2026-11-15 — Search Everywhere / Find File Mask
+
+**作用域**：Search Everywhere Text、Find/Replace in Files 的 File Mask、
+glob 过滤、排除模式和替换目标防越界。
+
+**问题证据**：
+
+- IDEA `FindBundle` 提供 `find.popup.filemask` 和 `File mask` 输入；
+- 文本搜索原本只能扫描 workspace 内全部候选文件；
+- 如果搜索按 mask 过滤、替换却只依赖旧结果 target，mask 状态与写入边界可能分叉；
+- 引入 glob 语法必须保持字符串匹配，不能把用户 mask 当作文件系统路径。
+
+**实现**：
+
+- 宿主新增 `compileWorkspaceFileMask()`：
+  - 逗号分隔，最多 16 项、总长 512；
+  - 支持 `* / ? / **`；
+  - 无 `/` 的项匹配 basename，含 `/` 的项匹配完整 workspace 相对路径；
+  - `!pattern` 排除；
+  - 只有排除项时默认包含其余全部；
+  - `[] / {}` 等尚未支持语法显式报 `unsupported file mask syntax`；
+- `searchWorkspaceText()` 在读取文件前过滤 `listWorkspaceFiles()` 候选；
+- `replaceWorkspaceText()` 对每个 target 再验证 mask，mask 外 target 拒绝写入；
+- Search Everywhere 与 Find 增加 File Mask 输入；
+- 搜索、Replace All、单处 Replace 和 Open in Find Tool Window 都透传 mask；
+- mask 编辑后清空旧结果并重跑搜索。
+
+**验证**：
+
+- RED：`tests/round483.test.mjs` 初始 **0 pass / 4 fail**；
+- GREEN：round467/481/482/483 定向 **17 pass / 0 fail**；
+- 全量：`npm test` = **1574 pass / 0 fail**；
+- `node --check lib/client.js`、`lib/index.js`、`lib/terminal.js` 通过；
+- `git diff --check` 通过；
+- `*.ts` 只返回 TS 文件；
+- `src/**` 返回 src 下所有文件；
+- `*.ts,!src/nested/**` 排除嵌套目录；
+- mask 外 Replace target 被拒绝；
+- 隔离 DSH Web：
+  - `needle` 无 mask 为 6 条；
+  - `*.md` 为 3 条 / 2 文件；
+  - 移交 Find 后 mask 保持 `*.md`；
+  - 改为 `*.js` 后为 3 条 / 1 文件；
+  - 非法 `[*` 显示 mask 语法错误并清空结果。
+
+**下一轮计划**：
+
+1. 持久化 Match Case / Whole Words / Regex / File Mask；
+2. Search Everywhere 与 Find 打开时恢复最近搜索选项；
+3. 损坏或旧版本存储值安全回退默认值；
+4. 补持久化、工作区隔离/共享策略和运行态门禁。
+
+## 2026-11-15 — Search Everywhere / Find Regex
+
+**作用域**：Search Everywhere、Find/Replace in Files 的 Regex 选项、
+pattern 校验、捕获组替换与 ReDoS 防护。
+
+**问题证据**：
+
+- IDEA `FindBundle` 提供 `find.regex` / `find.regex.label`；
+- 现有搜索只支持字面量与 Whole Words，无法表达 `\d+`、分支和捕获组；
+- 如果搜索与替换各自编译 pattern，大小写、flags 或 zero-length 推进可能分叉；
+- JavaScript 回溯正则在 workspace 文件上运行时必须限制 pattern 尺寸并拒绝常见
+  嵌套量词爆炸形状。
+
+**实现**：
+
+- 宿主新增 `compileWorkspaceRegex()`：
+  - 最大 256 字符；
+  - Unicode `u` flag；
+  - smart case 决定是否加 `i`；
+  - 编译错误返回 `invalid regular expression: ...`；
+  - 拒绝 `(a+)+` 等常见 nested-repeat ReDoS 形状；
+- 新增 `regexMatchRecords()`：
+  - global regex 枚举；
+  - zero-length match 按 Unicode code point 推进；
+  - 搜索按剩余 maxMatches 截断；
+- 搜索、Replace All 和 sticky 单处 Replace 复用同一 compile 入口；
+- Replace All 使用 JavaScript `$1/$&` 捕获替换；
+- 单处 Replace 用 sticky regex 精确验证 line/column；
+- Search Everywhere 和 Find 增加 `.*` 切换；
+- Regex 开启时自动关闭并禁用 Whole Words；
+- 选项切换清空旧结果并重跑，移交 Find 时继承 regex。
+
+**验证**：
+
+- RED：`tests/round482.test.mjs` 初始 **0 pass / 5 fail**；
+- GREEN：round467/480/481/482 定向 **17 pass / 0 fail**；
+- 全量：`npm test` = **1570 pass / 0 fail**；
+- `node --check lib/client.js`、`lib/index.js`、`lib/terminal.js` 通过；
+- `git diff --check` 通过；
+- 正则 `foo-(\d+)` 的 smart case / case-sensitive 搜索通过；
+- 非法 `[` 与 `(a+)+$` 在执行扫描前失败；
+- Replace All `$1:$2` 和单处 sticky 替换通过；
+- 隔离 DSH Web：
+  - `needleValue|// needle` 在 Regex 下得到 2 条；
+  - Whole Words 自动禁用；
+  - 移交 Find 后 Regex 保持按下、仍为 2 条；
+  - `[abc` 显示宿主正则解析错误；
+  - 恢复合法 pattern 后回到 2 条 / 1 个文件。
+
+**下一轮计划**：
+
+1. 增加 IDEA File Mask 搜索过滤；
+2. 复用 workspace 文件清单，在扫描前按 glob 过滤；
+3. 搜索与替换共享 mask 状态并随 Find 移交；
+4. 补 mask 语法、非法 mask、运行态和文档门禁。
+
+## 2026-11-15 — Search Everywhere / Find Whole Words
+
+**作用域**：Search Everywhere、Find/Replace in Files 的 Unicode Whole Words、
+搜索选项移交和替换边界一致性。
+
+**问题证据**：
+
+- IDEA `FindBundle` 明确提供 `find.whole.words` 与 `find.whole.words.label`；
+- 当前文本搜索只有 smart case，`needle` 会命中 `needleValue`；
+- 若只过滤搜索结果而不过滤替换，单处 Replace 和 Replace All 会改写非整词命中。
+
+**实现**：
+
+- 宿主新增 Unicode word-character 判断：
+  - 字母、数字、组合符和下划线属于 word character；
+  - 按 code point 处理 emoji/代理对；
+  - query 首尾为 word character 时才要求对应侧为边界；
+- `literalMatchOffsets()` 和 `replaceLiteralOccurrences()` 共用 wholeWords；
+- `searchWorkspaceText()`、Replace All、精确 occurrence Replace 都接收并验证
+  `wholeWords`；
+- Search Everywhere 与 Find 工具增加 `W` 切换；
+- 选项切换后清空旧结果、重置活动项并重跑搜索；
+- Open in Find Tool Window 继承 wholeWords；
+- 所有 Search Everywhere/Find 搜索和替换请求透传该字段。
+
+**验证**：
+
+- RED：`tests/round481.test.mjs` 初始 **0 pass / 4 fail**；
+- GREEN：round467/479/480/481 定向 **17 pass / 0 fail**；
+- 全量：`npm test` = **1565 pass / 0 fail**；
+- `node --check lib/client.js`、`lib/index.js`、`lib/terminal.js` 通过；
+- `git diff --check` 通过；
+- ASCII 回归 `cat concatenate cats cat_cat cat`：仅第 1、30 列命中；
+- CJK 回归 `猫。猫 猫猫`：仅第 1、3 列命中；
+- Replace All 只改两个整词，`concatenate / cats / cat_cat` 保持不变；
+- 隔离 DSH Web：
+  - `needle` 默认 6 条；
+  - Whole Words 开启后 5 条，`needleValue` 被排除；
+  - 移交 Find 后仍为 5 条且按钮按下；
+  - 关闭后恢复 6 条 / 3 个文件。
+
+**下一轮计划**：
+
+1. 增加 IDEA Regex 搜索选项；
+2. 宿主先校验 pattern，再在有界 workspace 扫描中复用；
+3. Replace All/单处 Replace 共享 regex 捕获替换语义；
+4. 补 ReDoS/长度/错误 pattern 防护、运行态验证和文档。
+
+## 2026-11-15 — 持久 Find 单处替换
+
+**作用域**：Find/Replace in Files 活动 occurrence、精确 line/column 写入、
+mtime 冲突和替换后的结果推进。
+
+**问题证据**：
+
+- 持久 Find 工具此前只有 Replace All，缺少 IDEA
+  `find.popup.replace.selected.button` 对应的当前命中替换；
+- 搜索结果只是快照，若直接在浏览器里改文件会绕过已有 mtime 防护；
+- 只按路径重写会把同文件的其他命中一起替换，无法保持 IDEA 的单处语义。
+
+**实现**：
+
+- Find 工具替换行增加单处 `Replace` 按钮；
+- 输入框 Enter 执行当前命中替换，Meta+Enter 保持 Replace All；
+- 当前行不是文本 occurrence、搜索加载中或替换 busy 时按钮禁用；
+- Editor 新增 `replaceFindToolOccurrence()`：
+  - 继续拒绝 dirty buffer；
+  - 只提交一个 target 和 `{line,column}`；
+  - 复用 `replaceText`、`reloadFile()` 和 `loadGit()`；
+- 宿主 `replaceWorkspaceText()` 支持 `occurrence`：
+  - 只允许一个目标文件；
+  - 将一基 line/column 转为字符串 offset；
+  - 在同一大小写规则下重新验证 query；
+  - 不匹配时返回 `dsh-editor/conflict`；
+  - 写入仍走 `writeTextFileGuarded()`；
+- 替换成功后重启 Find 搜索并把 index 留在原槽位，从而推进到下一处。
+
+**验证**：
+
+- RED：`tests/round480.test.mjs` 初始 **0 pass / 4 fail**；
+- GREEN：round467/479/480 定向 **13 pass / 0 fail**；
+- 全量：`npm test` = **1561 pass / 0 fail**；
+- `node --check lib/client.js`、`lib/index.js`、`lib/terminal.js` 通过；
+- `git diff --check` 通过；
+- 隔离 DSH Web：
+  - Find 中 `needle` 为 6 条，活动项 README.md:3:1；
+  - 单处 Replace 后只剩 5 条，仅 README 第 3 行变为 `omega`；
+  - 当前项自动推进到 README.md:4:8；
+  - app.js 与 docs/notes.md 的其他命中保持不变；
+  - 状态栏显示 `Replaced 1 occurrence(s) in 1 file(s)`；
+  - fixture 已恢复。
+
+**下一轮计划**：
+
+1. 对照 IDEA `find.whole.words` 增加 Whole Words；
+2. 搜索和替换共用 Unicode 单词边界语义；
+3. Search Everywhere 与持久 Find 同步选项状态；
+4. 补边界回归、运行态门禁和文档。
+
+## 2026-11-15 — Search Everywhere / Find 统一 Match Case
+
+**作用域**：Search Everywhere 文本搜索、持久 Find 工具、Replace in Files
+的大小写选项，以及结果移交时的查询状态继承。
+
+**问题证据**：
+
+- 宿主 `searchWorkspaceText()` 已支持显式 `caseSensitive`，但客户端从未发送；
+- 宿主 `replaceWorkspaceText()` 固定使用 smart case，与加大小写开关后的搜索
+  可能分叉：搜索只命中小写，替换却同时改写大写文本；
+- `Open in Find Tool Window` 只移交 query/results，不继承 Search Everywhere
+  搜索选项，工具窗口按钮状态会与已有结果不一致。
+
+**实现**：
+
+- Search Everywhere 和 FindToolWindow 增加 `Match Case` 切换按钮（`Aa`）；
+- 默认关闭，保持既有 smart case；
+- 开启时 `searchText` 与 `replaceText` 都传 `caseSensitive:true`；
+- 关闭时省略该字段，由宿主继续执行 smart case，而不是强制大小写不敏感；
+- `replaceWorkspaceText()` 增加 options 参数并由宿主路由透传；
+- 结果移交 Find 工具时携带 `caseSensitive`，打开后按钮和结果保持同一状态；
+- 切换选项会清空旧结果、重置活动项并重新请求搜索。
+
+**验证**：
+
+- `tests/round479.test.mjs`：**5 pass / 0 fail**；
+- round467/478/479 定向：**11 pass / 0 fail**；
+- 全量：`npm test` = **1557 pass / 0 fail**；
+- `node --check lib/client.js`、`lib/index.js`、`lib/terminal.js` 通过；
+- `git diff --check` 通过；
+- 隔离 DSH Web：
+  - 查询 `needle` 默认 smart case 为 6 条，开启 Match Case 后为 4 条；
+  - 按钮 `aria-pressed` 从 `false` 变为 `true`；
+  - `Open in Find Tool Window` 后仍为 4 条且 Match Case 为 `true`；
+  - 在 Find 工具关闭 Match Case 后恢复 6 条，汇总同步为
+    `6 matches in 3 files`。
+
+**下一轮计划**：
+
+1. 对照 IDEA `find.popup.replace.selected.button` 实现单处替换；
+2. 宿主替换接口支持精确 occurrence 位置，并继续校验 mtime；
+3. Find 工具替换当前命中后保留结果集并推进到下一处；
+4. 补回归、运行态验证并同步文档。
+
+## 2026-11-15 — Search Everywhere 结果菜单键盘入口与复制通知
+
+**作用域**：Search Everywhere 文件/文本结果上下文菜单、活动结果键盘入口、
+相对路径/带位置路径复制反馈，以及 Editor 现有状态栏通知接线。
+
+**问题证据**：
+
+- round477 只提供鼠标右键入口，键盘用户无法对活动文件/文本结果打开同一菜单；
+- 路径复制调用是 fire-and-forget，浏览器剪贴板 API 被拒绝时没有任何反馈；
+- 搜索弹框与 Editor 通知系统分属两个组件，直接 `navigator.clipboard` 成功/失败
+  不会进入现有状态栏。
+
+**实现**：
+
+- 查询输入框捕获 `Shift+F10` / `ContextMenu`，只对当前活动 `file` / `text` 行打开菜单；
+- 菜单锚点取 `[data-search-everywhere-active="1"]` 的真实矩形，缺失时回退到安全坐标；
+- 文件和文本结果继续共用 round477 的 `openResultMenuAt()`，不复制菜单动作；
+- 新增 `copySearchResultText()`：
+  - clipboard API 不存在时立即报告失败；
+  - Promise 成功报告 `editor.copiedToClipboard`；
+  - Promise 失败报告 `editor.clipboardWriteFailed`；
+- SearchEverywhere 新增 `onNotify`，Editor 接到现有 `flashStatus`；
+- 复制后只关闭菜单，不关闭搜索弹框，查询框保持可继续输入。
+
+**验证**：
+
+- RED：`tests/round478.test.mjs` 初始 **0 pass / 3 fail**；
+- GREEN：round476/477/478 定向 **11 pass / 0 fail**；
+- 全量：`npm test` = **1552 pass / 0 fail**；
+- 语法：`node --check lib/client.js`、`lib/index.js`、`lib/terminal.js` 通过；
+- `git diff --check` 通过；
+- 隔离 DSH Web：
+  - 双击 Shift 后输入 `Needle`，出现 README 与 app.js 文本命中；
+  - 活动结果按 `Shift+F10` 出现
+    `Open in Right Split / Open in editor / Copy relative path /
+    Path with Line Number / Select in Project View`；
+  - 执行 `Copy relative path` 后 Search Everywhere 保持打开，
+    `document.activeElement` 回到查询框；
+  - 状态栏显示 `Copied to clipboard`。
+
+**下一轮计划**：
+
+1. 用 IDEA 安装包资源与 DSH 源码对照 Find/Replace 大小写选项；
+2. 在 Search Everywhere Text 与持久 Find 工具中统一 `Match Case` 语义；
+3. 保证替换操作复用同一大小写规则，避免搜索与替换分叉；
+4. 保持全量回归并同步文档。
+
+## 2026-11-15 — Search Everywhere 结果右键导航
+
+**作用域**：Search Everywhere 文件/文本结果右键菜单、右侧拆分、
+编辑器打开、路径复制和 Project 定位。
+
+**实现**：
+
+- SearchEverywhere 增加本地 `resultMenu`；
+- 文件和文本结果 `onContextMenu` 打开 ContextMenu；
+- 菜单项复用现有能力：
+  - `Open in Right Split` -> `openInRightSplit(path)`；
+  - `Open in editor` -> 现有结果激活；
+  - `Copy relative path` -> 相对路径；
+  - `Path with Line Number` -> 文本命中 `path:line:column`；
+  - `Select in Project View` -> `revealPath(path)`；
+- 导航动作先关闭 Search Everywhere 再执行，避免模态遮挡；
+- 路径复制动作只关闭菜单，搜索框仍可继续使用；
+- 菜单复用 ContextMenu 的视口收敛和键盘导航。
+
+**验证**：
+
+- RED：`tests/round477.test.mjs` 初始 **0 pass / 4 fail**；
+- GREEN：round475/476/477 定向 **12 pass / 0 fail**；
+- 全量：`npm test` = **1549 pass / 0 fail**；
+- 隔离 DSH Web：
+  - `Needle` 文本结果右键菜单顺序为
+    `Open in Right Split / Open in editor / Copy relative path /
+    Path with Line Number / Select in Project View`；
+  - 选择 Open in Right Split 后 Search Everywhere 关闭；
+  - 编辑器出现 2 个 Monaco 实例，Split Close 控件存在。
+
+**下一轮计划**：
+
+1. 补结果右键菜单的 Shift+F10 / ContextMenu 键盘入口；
+2. 检查复制成功/失败的通知反馈；
+3. 对照 IDEA 对 File 与 Text 结果的菜单差异；
+4. 保持全量回归并同步文档。
+
+## 2026-11-15 — Search Everywhere Action tooltip 延迟与定位
+
+**作用域**：Search Everywhere Action hover tooltip、disabled 说明、
+视口边界和最近命令跨会话持久化。
+
+**实现**：
+
+- 新增 `searchEverywhereTooltipPosition()`：
+  - 默认放在结果行下方 4px；
+  - 下方空间不足时翻到行上方；
+  - left/top 都收敛到视口 4px 安全边距；
+- SearchEverywhere 增加 `resultTooltip` 和 450ms hover timer；
+- tooltip 使用 `position:fixed`、`pointer-events:none`；
+- 鼠标移出、滚动、查询变化、点击和组件卸载都会取消 timer/tooltip；
+- native title 改为 `aria-description` + 自定义 tooltip，避免双提示；
+- command history 仍写 `dsh-editor.search.commandHistory`，
+  页面重载后从 localStorage 恢复。
+
+**验证**：
+
+- RED：`tests/round476.test.mjs` 初始 **2 pass / 2 fail**；
+- GREEN：round474/475/476 定向 **11 pass / 0 fail**；
+- 全量：`npm test` = **1545 pass / 0 fail**；
+- 隔离 DSH Web：
+  - 写入 commandHistory 后 reload；
+  - Replace… 仍排在 Actions 第一条；
+  - hover Replace 500ms 后 tooltip 出现；
+  - tooltip 文本为 `Replace… — Replace with — ⌘R`；
+  - tooltip rect 位于 1044×657 视口内。
+
+**下一轮计划**：
+
+1. 对照 IDEA tooltip 的精确延迟和主题视觉；
+2. 复核 Filter 菜单在窄窗口中的方向键与首项焦点；
+3. 检查最近命令历史清理/重置入口；
+4. 保持全量回归并同步文档。
+
+## 2026-11-15 — Search Everywhere 空查询分组与 Action tooltip
+
+**作用域**：Search Everywhere 空查询/命令模式的 visual section、
+Action tooltip、Filter 菜单键盘契约。
+
+**实现**：
+
+- 新增 `searchEverywhereSection()`：
+  - 空 All 页将最近搜索与 Actions 分成 `Recent searches / Actions`；
+  - 命令模式结果标记为 Actions；
+  - 普通有查询结果不插分组标题；
+- 分组标题是普通 `div[data-search-everywhere-section]`，不是
+  `role=option`，不进入 `↑/↓`、Enter 或 activeIndex；
+- 新增 `searchEverywhereResultTooltip()`：
+  - disabled Action 显示 disabled 原因；
+  - 普通 Action 显示 `名称 — 描述 — 快捷键`；
+- Filter 菜单继续复用 ContextMenu：
+  - 打开后首项可聚焦；
+  - `↑/↓` 跳过 disabled；
+  - Esc/关闭后按 round474 的路径回到查询框。
+
+**验证**：
+
+- RED：`tests/round475.test.mjs` 初始 **1 pass / 3 fail**；
+- GREEN：round473/474/475 定向 **10 pass / 0 fail**；
+- 全量：`npm test` = **1541 pass / 0 fail**；
+- 隔离 DSH Web：
+  - 打开 `app` 结果后重开空查询；
+  - 分组标题为 `RECENT SEARCHES`、`ACTIONS`；
+  - option 数仍为 9，分组标题不计数；
+  - `Replace…` tooltip 为
+    `Replace… — Replace with — ⌘R`。
+
+**下一轮计划**：
+
+1. 检查 `/` 命令模式最近排序的跨会话持久化；
+2. 复核 Filter 菜单首项焦点与方向键在窄窗口中的表现；
+3. 对照 IDEA Actions tooltip 的延迟与定位；
+4. 保持全量回归并同步文档。
+
+## 2026-11-15 — Search Everywhere Filter 菜单焦点返回
+
+**作用域**：Search Everywhere Filter 菜单的连续切换、Esc/外部关闭、
+焦点恢复与 `/` 命令排序输入。
+
+**问题证据**：
+
+- Filter 菜单使用 keepOpen 连续切换，关闭时 ContextMenu 默认把焦点
+  还给 Filter 按钮；
+- 这会打断随后的键盘搜索：用户关闭菜单后必须再点击查询框；
+- IDEA 的搜索输入仍是主键盘表面，Esc 关闭临时菜单后应能继续输入。
+
+**实现**：
+
+- SearchEverywhere 新增 `searchInputRef`；
+- 新增 `closeFilterMenu()`：
+  - 关闭 Filter 菜单；
+  - 下一帧把焦点交回查询输入框；
+- Filter ContextMenu 的 `onClose` 统一走该函数；
+- keepOpen 选中分类时仍不关闭菜单；
+- `/` 命令模式仍通过去掉 slash 后的 `commandQuery` 进入最近命令排序。
+
+**验证**：
+
+- RED：`tests/round474.test.mjs` 初始 **2 pass / 1 fail**；
+- GREEN：round465/473/474 定向 **9 pass / 0 fail**；
+- 全量：`npm test` = **1537 pass / 0 fail**；
+- 隔离 DSH Web：
+  - 打开 Filter 并切换 Text；
+  - 菜单保持打开，Text 的 `aria-checked=false`；
+  - 按 Esc 后菜单消失；
+  - `document.activeElement` 回到
+    `Search files, text and actions…` 输入框。
+
+**下一轮计划**：
+
+1. 对照 IDEA Actions 空查询分组与 tooltip 文案；
+2. 检查 Filter 菜单方向键和首项焦点；
+3. 复核 `/` 命令模式最近排序的跨会话持久化；
+4. 保持全量回归并同步文档。
+
+## 2026-11-15 — Search Everywhere Filter 索引收敛与命令模式 disabled
+
+**作用域**：Filter 分类切换后的活动项归一、`/` 命令模式的
+disabled Action 展示和键盘遍历。
+
+**问题证据**：
+
+- Filter 关闭 `Actions` 后结果可能变成空集或大幅缩短；
+- 旧活动索引仍可能大于新结果数，或落到 disabled Action；
+- `/find` 命令模式会匹配到 Find Next/Previous，但无活动
+  Find 条件时它们仍必须是 disabled。
+
+**实现**：
+
+- 新增 `normalizeSearchResultIndex()`：
+  - 先 clamp 到当前可见行；
+  - 当前行 disabled 时向后找最近可执行行；
+  - 全部 disabled 或空集时保持合法索引 0；
+- Search Everywhere 用归一索引计算 `activeResult`；
+- effect 在 `state.index !== activeIndex` 时回写父状态；
+- `/` 命令模式继续保留 disabled Action，不先过滤掉；
+- 键盘遍历继续使用 `nextEnabledSearchResultIndex()`。
+
+**验证**：
+
+- RED：`tests/round473.test.mjs` 初始 **1 pass / 2 fail**；
+- GREEN：round471/472/473 定向 **9 pass / 0 fail**；
+- 全量：`npm test` = **1534 pass / 0 fail**；
+- 隔离 DSH Web：
+  - 空查询移动到 `Replace…`；
+  - Filter 关闭 Actions 后结果数为 0；
+  - 重新开启 Actions，活动项回到首条可执行
+    `Go to File`，不是旧索引；
+  - `/find` 保留 `Find Next/Previous`，两者
+    `aria-disabled=true`；
+  - 从 `Find…` 按 `↓` 跳过 disabled 项，落到
+    `Find in Files…`。
+
+**下一轮计划**：
+
+1. 对照 IDEA Actions 空查询分组与 tooltip 文案；
+2. 检查 Filter 菜单打开时键盘焦点与 Esc 返回路径；
+3. 复核 `/` 命令模式与最近命令排序组合；
+4. 保持全量回归并同步文档。
+
+## 2026-11-15 — Search Everywhere disabled Action 键盘边界
+
+**作用域**：Search Everywhere Actions 的上下键遍历、disabled 原因、
+鼠标/Enter 激活守卫，以及最近命令排序与筛选组合。
+
+**IDEA 对照**：
+
+- disabled Action 仍可看见并解释为何不可用；
+- 键盘选择不能落到 Enter 必然无效的 disabled 行；
+- 最近命令排序应先于 Filter 展示，不被分类过滤重新打乱。
+
+**实现**：
+
+- 新增 `nextEnabledSearchResultIndex()`：
+  - 循环查找下一个非 disabled 结果；
+  - 支持首尾回绕；
+  - 全部 disabled 时返回 null，保持当前选择；
+- Search Everywhere 的 `↑/↓` 统一调用 `moveSearchSelection()`；
+- Find Next/Previous 增加 `disabledReason`：
+  - 中文：先在编辑器中打开查找并输入查询条件；
+  - 英文：Open Find and enter a query first；
+- disabled 行 title 展示原因，`aria-disabled=true`；
+- 激活函数继续在 disabled 时提前返回；
+- `rankSearchActions()` 在 Filter 之前执行，筛选不会绕过最近命令排序。
+
+**验证**：
+
+- RED：`tests/round472.test.mjs` 初始 **1 pass / 2 fail**；
+- GREEN：round469/471/472 定向 **9 pass / 0 fail**；
+- 全量：`npm test` = **1531 pass / 0 fail**；
+- 隔离 DSH Web：
+  - 初始活动项为 Go to File；
+  - 连续按 4 次 ↓：Recent Files → Find… → Replace… →
+    Find in Files…，两个 disabled Find Next/Previous 被跳过；
+  - 两个 disabled 行 title 均为
+    `Open Find and enter a query first`。
+
+**下一轮计划**：
+
+1. 对照 IDEA Actions 空查询分组与 tooltip 文案；
+2. 复核 Filter 开关期间活动索引收敛与当前项选择；
+3. 检查 `/` 命令模式下的 disabled Action 展示；
+4. 保持全量回归并同步文档。
+
+## 2026-11-15 — Search Actions 最近使用排序与 disabled
+
+**作用域**：Search Everywhere Actions 的历史记忆、空查询排序、
+Find Next/Previous 可用状态和激活守卫。
+
+**IDEA 对照**：
+
+- Actions 空查询会优先展示常用/最近执行的命令；
+- Find Next / Previous 在没有活动查找条件时是 disabled；
+- disabled 项不能通过 Enter、鼠标或菜单回调执行。
+
+**实现**：
+
+- 新增 `rememberCommandHistory()`：去空、去重、最新在前、最多 12 条；
+- 历史保存在 `dsh-editor.search.commandHistory`；
+- 新增 `rankSearchActions()`：
+  - 先按文本匹配分数；
+  - 同分时按最近执行顺序；
+  - 空查询所有分相同，因此最近命令自然置顶；
+- Search Everywhere 在执行 Action 时记录 action id；
+- Find Next/Find Previous 在没有 `replaceState` 或查询为空时标记
+  `disabled`；
+- 列表行输出 `aria-disabled`，激活函数在 disabled 时直接返回；
+- 中英文文案、README 同步。
+
+**验证**：
+
+- RED：`tests/round471.test.mjs` 初始 **0 pass / 3 fail**；
+- GREEN：round466/469/470/471 定向 **13 pass / 0 fail**；
+- 全量：`npm test` = **1528 pass / 0 fail**；
+- 隔离 DSH Web：
+  - 清空命令历史后，Find Next/Previous 的
+    `aria-disabled=true`；
+  - 执行 `Replace…` 后历史写入 `["replace"]`；
+  - 重新打开空 Search Everywhere，最近搜索 `replace` 在最上，
+    Actions 中 `Replace…` 排到其余命令之前；
+  - Find in Files / Replace in Files 顺序保持稳定。
+
+**下一轮计划**：
+
+1. 补 Find/Replace 结果动作的键盘导航边界；
+2. 对照 IDEA Actions 空查询分组、disabled 文案与 tooltip；
+3. 检查 Search Everywhere 筛选器与最近命令排序的组合；
+4. 保持全量回归并同步文档。
+
+## 2026-11-15 — Search Everywhere Include non-project items
+
+**作用域**：Search Everywhere 的 Include non-project items、workspace
+排除目录扫描、Files/Text 搜索预算和宿主边界。
+
+**IDEA 实窗证据**：
+
+- Search Everywhere 工具栏有 `Include non-project items` 复选框；
+- 它扩展搜索范围到常规项目索引之外，但仍是 IDE 已知/有界范围，
+  不是任意磁盘路径浏览器。
+
+**实现边界**：
+
+- DSH 没有第二套语言索引或外部 content root；
+- 因此该开关映射为“重新纳入当前 workspace 内被快速搜索跳过的排除目录”：
+  `node_modules / dist / build / out / target / .cache / venv` 等；
+- `.git / .hg / .svn` 元数据永不纳入；
+- 所有路径仍经 `resolveInside(root)`，浏览器不能传入外部绝对路径；
+- 文件上限从 2000 提升到 5000，单文件仍为 1 MiB，文本命中仍最多 200 条。
+
+**实现**：
+
+- `listWorkspaceFiles()` 新增 `includeExcluded` 选项，并把
+  `showExcluded` 传给 `listDirectory()`；
+- `searchWorkspaceText()` 复用同一 walk 与预算；
+- host `fs.files` / `fs.searchText` 接受布尔 `includeExcluded`；
+- Search Everywhere 新增 IDEA 同名切换按钮，切换时同时刷新 Files
+  和 Text 结果；
+- 中英文文案、README、工程记忆同步。
+
+**验证**：
+
+- RED：`tests/round470.test.mjs` 初始 **0 pass / 3 fail**；
+- GREEN：round148/464/466/469/470 定向 **24 pass / 0 fail**；
+- 全量：`npm test` = **1525 pass / 0 fail**；
+- 隔离 DSH Web：
+  - 在 fixture 的 `node_modules/dsh-editor-r470/` 创建
+    `excluded.txt`，内容 `R470_EXCLUDED_ITEM`；
+  - 开关关闭时搜索该文本无结果；
+  - 点击 `Include non-project items` 后，
+    `node_modules/dsh-editor-r470/excluded.txt:1:1` 出现，
+    按钮 `aria-pressed=true`；
+  - `.git` 仍不在扫描结果中；
+  - 测试文件已清理。
+
+**下一轮计划**：
+
+1. 完善 `/` 命令模式分类与最近命令优先排序；
+2. 对照 IDEA Actions 空查询默认顺序、disabled 状态与分组；
+3. 补 Find/Replace 相关结果动作的键盘导航边界；
+4. 保持全量回归并同步文档。
+
+## 2026-11-15 — Search Everywhere 查找导航入口与超大结果确认
+
+**作用域**：Search Everywhere Actions 的 Find Next/Previous、
+`Open in Find Tool Window` 结果规模确认和动作文案。
+
+**IDEA 实窗证据**：
+
+- Actions 搜索结果中明确出现
+  `Find Next / Move to Next Occurrence ⌘G`、
+  `Find Previous / Move to Previous Occurrence ⇧⌘G`、
+  `Replace… ⌘R` 与 `Replace in Files… ⇧⌘R`；
+- 一千条以上结果进入 Find 工具窗口前会先弹出
+  `Too Many Results` 确认。
+
+**修复前差异**：
+
+- DSH Actions 只有 Find/Find in Files，没有 Find Next/Previous；
+- Search Everywhere 的尺寸有界，但 Files/Text 合计仍可能超过 200 条，
+  `Open in Find Tool Window` 会直接 materialize，没有规模确认；
+- 原 `Next match` 文案在搜索 `find` 时无法命中 IDEA 同名动作。
+
+**实现**：
+
+- 新增 `searchEverywhereRequiresResultConfirmation()` 纯函数；
+- `Open in Find Tool Window` 在 Files/Text 合计大于 200 时先确认；
+- Actions 新增：
+  - `Find Next / Move to Next Occurrence ⌘G`；
+  - `Find Previous / Move to Previous Occurrence ⇧⌘G`；
+- 动作通过 `editorFindStepRef` 调用现有 `jumpToMatch()`，不复制匹配逻辑；
+- 补齐中英文动作名称与提示。
+
+**验证**：
+
+- RED：`tests/round469.test.mjs` 初始 **0 pass / 3 fail**；
+- GREEN：round464/466/468/469 定向 **14 pass / 0 fail**；
+- 隔离 DSH Web：
+  - 搜索 `find` 时 Actions 顺序为
+    `Find… / Find Next / Find Previous / Find in Files…`；
+  - 创建 210 个临时匹配文件后，Files/Text 合计 280 条；
+  - 点击 `Open in Find Tool Window` 实际出现
+    `Found 280 results. Open them in the Find tool window?`；
+  - 选择取消后 Search Everywhere 保持打开，Find 未误打开；
+  - 临时 bulk fixture 已清理。
+
+**下一轮计划**：
+
+1. 设计 Include non-project items 的宿主授权路径与扫描边界；
+2. 完善 `/` 命令模式分类与最近命令优先排序；
+3. 对照 IDEA 的 Actions 空查询默认顺序和 disabled 状态；
+4. 保持 1522+ 全量回归并同步文档。
+
+## 2026-11-15 — Find 工具窗口折叠、全部展开/收起与 Preview Source
+
+**作用域**：持久 Find 工具窗口的文件分组、可见命中遍历、源码预览和
+软换行。
+
+**IDEA 实窗证据**：
+
+- Find 工具窗口工具栏包含
+  `Previous Occurrence / Next Occurrence / Expand All / Collapse All /
+  Preview Source`；
+- 文件结果是可折叠节点，收起后其 occurrence 行不再显示；
+- Preview Source 打开只读源码面板，并显示当前命中文件与行号；
+- 预览编辑器提供软换行开关。
+
+**实现**：
+
+- 新增 `findToolVisibleRows()` 纯函数：
+  - Files 结果始终可见；
+  - 收起的 Text 文件只隐藏自己的 occurrence；
+  - 可见行顺序继续复用 `groupFindMatches()` 的稳定文件分组；
+- `FindToolWindow` 新增 `collapsedFiles / previewOpen / previewSoftWrap`
+  本地状态；
+- 文件组标题前增加展开/收起箭头；工具栏新增
+  `Expand All / Collapse All`，并根据折叠状态控制 disabled；
+- `Preview Source` 复用宿主 `fs.read`、`searchEverywherePreviewWindow()`
+  与现有只读代码行样式；文本命中居中并高亮目标行；
+- `↑/↓`、Previous/Next 和 Enter 只操作当前可见结果；
+- 补齐中英文文案，不引入新的搜索或预览实现。
+
+**验证**：
+
+- RED：`tests/round468.test.mjs` 初始 **1 pass / 1 fail**，
+  缺少 `findToolVisibleRows()`；
+- GREEN：round467/468 与 Preview 相关定向 **9 pass / 0 fail**；
+- 全量：`npm test` = **1519 pass / 0 fail**；
+- `node --check lib/client.js`、`lib/index.js`、`lib/terminal.js`
+  与 `git diff --check` 通过；
+- 隔离 DSH Web：
+  - `Needle` 显示 2 个文件、2 条命中；
+  - 收起 `README.md` 后可见 option 从 2 变为 1，
+    `Expand All` 启用；
+  - `Expand All` 恢复 2 条；
+  - `Collapse All` 后 option 为 0、`Collapse All` 禁用，
+    再展开恢复 2 条；
+  - `Preview Source` 显示 `src/app.js`，目标第 1 行高亮；
+  - 软换行开关存在；
+- 截图：`/private/tmp/dsh-editor-r468-find-preview-collapse.png`。
+
+**下一轮计划**：
+
+1. 实现 Include non-project items 的可信扫描边界，仍以宿主明确授权路径
+   为限，不扫描浏览器任意路径；
+2. 对照 IDEA `Too Many Results` 的结果规模确认与截断提示；
+3. 完善 `/` 命令模式分类、最近命令优先排序和 Actions 顺序；
+4. 保持 1519+ 全量回归并同步文档。
+
+## 2026-11-15 — Search Everywhere `Open in Find Tool Window`
+
+**作用域**：Search Everywhere 的搜索结果持久化、Find/Replace in Files
+入口、底部 Find 工具窗口与 Terminal 底栏互斥。
+
+**IDEA 实窗证据**：
+
+- Search Everywhere 工具栏包含 `Preview / Filter / Open in Find Tool Window`；
+- 点击后弹框关闭，底部 `Find` 工具窗口保留查询与结果；
+- 结果按文件分组，工具栏提供
+  `Previous Occurrence / Next Occurrence / Hide`；
+- `Find in Files` 与 `Replace in Files` 属于工具窗口语义，
+  不是一次性弹框。
+
+**修复前差异**：
+
+- DSH 的 `⇧⌘F / ⇧⌘R` 与 Actions 入口仍打开 Search Everywhere 的
+  Text 页；
+- 关闭弹框后结果和查询丢失，不能继续逐条走命中；
+- Search Everywhere 没有 IDEA 的 `Open in Find Tool Window`。
+
+**实现**：
+
+- `SearchEverywhere` 增加 `Open in Find Tool Window`，仅在非命令模式、
+  查询非空且已有 Files/Text 结果时启用；
+- 新增 `groupFindMatches()` 纯函数，按首次出现顺序稳定地按文件分组；
+- 新增 `FindToolWindow` 持久底栏：
+  - 文件分组、行内搜索词高亮；
+  - `Previous/Next Occurrence`、`↑/↓`、Enter 打开、Esc 隐藏；
+  - Replace 模式复用宿主 `replaceText`，保留 dirty tab 与 mtime 防护；
+- `Find in Files…`、`Replace in Files…` 及 `⇧⌘F / ⇧⌘R`
+  改为打开持久 Find 底栏；
+- Find 与 Terminal 共用底部工具窗口位置：打开一方收起另一方，
+  但 Terminal PTY 与 Find 查询状态均保留；
+- Find 高度写入 `dsh-editor.find.height`。
+
+**验证**：
+
+- RED：`tests/round467.test.mjs` = **0 pass / 4 fail**；
+- 定向：round464/465/466/467 = **16 pass / 0 fail**；
+- 全量：`npm test` = **1517 pass / 0 fail**；
+- `node --check lib/client.js`、`lib/index.js`、`lib/terminal.js`
+  与 `git diff --check` 通过；
+- 隔离 DSH Web：
+  - Search Everywhere 输入 `Needle` 后出现可用的
+    `Open in Find Tool Window`；
+  - 点击后弹框关闭，Find 底栏显示
+    `2 matches in 2 files`，按 `README.md` / `src/app.js` 分组；
+  - `↑/↓` 选择第二条后 Enter 打开 `src/app.js`，状态栏为
+    `Ln 1, Col 29`；
+  - `⇧⌘F` 直接聚焦 Find 查询框；
+  - `⇧⌘R` 显示替换输入，Replace All 经确认后替换 2 个文件中的
+    2 处，结果自动刷新为 `No matches`；
+  - 测试文件已按原 SHA-1 恢复。
+- 截图：
+  `/private/tmp/dsh-editor-r467-find-tool-window.png`、
+  `/private/tmp/dsh-editor-r467-find-second-opened.png`、
+  `/private/tmp/dsh-editor-r467-replace-done.png`。
+
+**下一轮计划**：
+
+1. 补 IDEA Find 工具窗口的文件分组折叠、`Expand All / Collapse All`
+   与 `Preview Source`；
+2. 为 `Too Many Results` 和 Include non-project items 设计可信边界；
+3. 完善命令模式分类与最近命令优先排序；
+4. 保持 1517+ 全量回归并同步 README / engineering-memory。
+
+## 2026-11-15 — Search Everywhere `/` 命令模式与搜索历史
+
+**作用域**：Search Everywhere 命令输入、最近搜索和文件内容搜索触发条件。
+
+**问题证据**：
+
+- 弹框已经显示 IDEA 的 `Type / to see commands`；
+- 旧实现输入 `/replace` 仍按普通文本搜索文件和内容，
+  即提示入口与真实行为不一致；
+- 每次打开 Search Everywhere 都从空列表开始，没有 IDEA 的最近搜索。
+
+**实现**：
+
+- 新增 `searchEverywhereCommandQuery()`：
+  - `/` -> 空命令，显示全部 Actions；
+  - `/find` -> 以 `find` 过滤 Actions；
+  - 非 `/` 输入仍走普通 Files/Text/Actions 搜索；
+- 命令模式下结果只来自现有 Actions 注册表，不再请求
+  `searchText`，避免无意义的磁盘扫描；
+- 新增 `rememberSearchHistory()`：
+  - 去空、去重、最新在前、最多 20 条；
+- 按 workspace 保存到
+  `dsh-editor.search.history:<workspace-root>`；
+- Search Everywhere 空输入时先显示最近搜索，点击可恢复查询；
+- 成功打开文件、文本命中或执行动作时记录查询；
+- 历史查询自身不重复写入。
+
+**验证**：
+
+- RED：`tests/round466.test.mjs` = **0 pass / 4 fail**；
+- 定向：round464/465/466 = **12 pass / 0 fail**；
+- 隔离 DSH Web：
+  - `/replace` 只显示
+    `Replace… ⌘R`、`Replace in Files… ⇧⌘R`；
+  - 打开 `Needle` 文本命中后 localStorage 写入 `["Needle"]`；
+  - 重新打开空 Search Everywhere，首行为
+    `Needle · Recent search`；
+  - 键盘 Enter 打开 `app` 后历史变为 `["app","Needle"]`；
+- 截图：
+  `/private/tmp/dsh-editor-r466-search-slash.png`、
+  `/private/tmp/dsh-editor-r466-search-history.png`。
+
+**下一轮计划**：
+
+1. 实现 IDEA 的 `Open in Find Tool Window` 持久结果页；
+2. 设计 Include non-project items 的可信扫描边界；
+3. 补充命令模式分类和最近命令优先排序；
+4. 保持全量回归并同步文档。
+
+## 2026-11-15 — Search Everywhere Preview 与 Filter
+
+**作用域**：Search Everywhere 的结果预览、内容读取、分类过滤和
+可复用的保持展开菜单项。
+
+**IDEA 实窗证据**：
+
+- Search Everywhere 顶部 Preview 按钮打开下半区只读编辑器；
+- 选中 README 文件时显示文件内容、行号和搜索词高亮；
+- Preview 工具栏有 `Soft-Wrap Preview Editor`；
+- Filter 菜单用于筛选 All 页结果类型；
+- 预览底部显示完整路径和 `Open In Right Split`。
+
+**实现**：
+
+- `SearchEverywhere` 增加 Preview 开关和只读代码预览：
+  - 文件/文本结果通过 `callFs({ op: 'read', path })` 读取；
+  - 预览最多 401 行，避免在弹框中复制完整 Monaco；
+  - 文本命中居中并高亮真实行；
+  - 文件命中从首行开始；
+  - 支持 Soft-Wrap，默认开启；
+  - 动作结果显示动作说明；
+- 新增纯函数 `searchEverywherePreviewWindow()`；
+- 新增 Filter 按钮和 `Files / Text / Actions` 分类过滤：
+  - 只影响 `All`；
+  - 专用页签不因过滤而消失；
+  - 菜单项使用 `keepOpen: true` 连续切换；
+  - 当前启用项显示 `✓`；
+- `ContextMenu` 支持 `keepOpen`：过滤项点击后菜单不关闭；
+- 新增 IDEA 风格 Preview 和 Filter 图标；
+- Classes / Symbols / Include non-project items 继续不伪造。
+
+**验证**：
+
+- RED：`tests/round465.test.mjs` = **0 pass / 3 fail**；
+- 全量：`npm test` = **1509 pass / 0 fail**；
+- `node --check lib/client.js`、`lib/index.js`、`lib/terminal.js`
+  与 `git diff --check` 通过；
+- 隔离 DSH Web：
+  - `Needle` 预览路径为 `README.md`；
+  - 高亮行内容为 `3 Needle appears here.`；
+  - Filter 初始 `Files/Text/Actions` 全部 checked；
+  - 点击 Text 后菜单保持打开，`Text=false`，All 结果实时变为 0；
+  - Preview 打开后弹框仍保持在同一屏幕内；
+- 截图：
+  `/private/tmp/dsh-editor-r465-search-preview.png`、
+  `/private/tmp/dsh-editor-r465-search-filter.png`。
+
+**下一轮计划**：
+
+1. 实现 IDEA 的 `Open in Find Tool Window` 持久结果页；
+2. 搜索输入 `/` 命令模式与最近搜索历史；
+3. 加入 Include non-project items 之前先确认宿主可用的非项目扫描源；
+4. 保持 1509+ 全量回归并同步文档。
+
+## 2026-11-15 — Search Everywhere 与 IDEA 搜索/替换入口
+
+**作用域**：双击 Shift Search Everywhere、文件/文本/动作搜索、
+编辑器 Find/Replace、Find/Replace in Files。
+
+**IDEA 实窗证据**：
+
+- 双击 `Shift` 打开 Search Everywhere；
+- 页签顺序为 `All / Classes / Files / Symbols / Actions / Text`；
+- `All` 同时显示文件名和文本命中；
+- Actions 搜索 `Replace` 出现：
+  - `Replace… ⌘R`
+  - `Replace in Files… ⇧⌘R`
+
+**实现**：
+
+- 新增纯函数 `doubleShiftAction()`：只接受两次裸 Shift，
+  400ms 内有效；其他按键、修饰键和 auto-repeat 会重置；
+- 新增 `SearchEverywhere` 弹框：
+  - `All / Files / Text / Actions` 四页；
+  - 不伪造无从实现的 Classes / Symbols；
+  - `Tab / Shift+Tab` 循环页签，`↑/↓` 移动，Enter 激活，Esc 关闭；
+  - 文件结果显示 git 状态；文本结果显示 `path:line:column`；
+- `Files` 复用既有 `fs.files`；`Actions` 复用现有编辑器/Project 命令；
+- 新增宿主 `searchWorkspaceText()`：
+  - 复用 `listWorkspaceFiles()`，不另造目录遍历；
+  - 最多 2000 文件、单文件 1 MiB、200 命中；
+  - 跳过二进制、依赖和构建目录；
+  - smart case；
+- 新增宿主 `replaceWorkspaceText()`：
+  - 目标来自搜索结果，不接受浏览器任意路径；
+  - 写入前验证所有目标的 mtime；
+  - 只写工作区文本；
+- 文本命中通过 `openFileAtLocation()` 打开并定位；已打开的活动标签
+  也会移动光标，不再依赖 active-path 变化副作用；
+- Search Everywhere Actions 提供：
+  - Go to File `⌘⇧O`
+  - Recent Files `⌘E`
+  - Find `⌘F`
+  - Replace `⌘R`
+  - Find in Files `⇧⌘F`
+  - Replace in Files `⇧⌘R`
+- 编辑器查找：
+  - `⌘R` 打开 replace，旧 `⌥⌘F` 保留；
+  - 打开时带入单行选区；
+  - 新增单次 `Replace`，与 `Replace All` 分离；
+- Replace in Files：
+  - 拒绝有未保存修改的打开文件；
+  - 使用浏览器确认框显示文件数/命中数；
+  - 成功后重载相关打开文件并刷新 Git。
+
+**验证**：
+
+- RED：`tests/round464.test.mjs` = **0 pass / 5 fail**；
+- 定向：`round464 + round242 + round347/348 + 搜索相关回归`
+  = **56 pass / 0 fail**；
+- 全量：`npm test` = **1506 pass / 0 fail**；
+- `node --check lib/client.js`、`lib/index.js`、`lib/terminal.js`
+  与 `git diff --check` 通过；
+- 隔离 DSH Web（`/private/tmp/dsh-editor-r464-home`，
+  fixture `/private/tmp/dsh-editor-r464-fixture`）：
+  - 双击 Shift 出现四页签弹框；
+  - 输入 `Needle` 命中 `README.md:3:1`、`src/app.js:1:29`；
+  - 选择文本命中的真实 editor position 为 `src/app.js:1:29`；
+  - Actions 搜索 `Replace` 顺序为 `Replace…`、`Replace in Files…`；
+  - Replace in Files 确认后只替换 smart-case 匹配的 2 处；
+  - `⌘R` 打开 Find + Replace，单次 Replace 将 Monaco 模型从
+    `Needle` 改为 `Omega`，磁盘保持不变直到保存；
+  - 替换输入中 Escape 关闭 Search Everywhere；
+- 截图：
+  `/private/tmp/dsh-editor-r464-search-everywhere-empty.png`、
+  `/private/tmp/dsh-editor-r464-search-everywhere-text.png`、
+  `/private/tmp/dsh-editor-r464-search-actions-replace.png`、
+  `/private/tmp/dsh-editor-r464-replace-in-files-preview.png`。
+
+**下一轮计划**：
+
+1. 对照 IDEA Search Everywhere 的 Preview 面板与 Filter；
+2. 实现 `Open in Find Tool Window` 的持久结果页；
+3. 补充 `/` 命令模式、历史与 Include non-project items；
+4. 保持 1506+ 全量回归并同步文档。
+
+## 2026-11-15 — Commit Diff 模式切换对齐 IDEA 双按钮
+
+**作用域**：Commit / Compare diff 工具栏、Unified 与 Side-by-side
+视图切换、窄工具栏响应式布局。
+
+**IDEA 实窗证据**：
+
+- IntelliJ IDEA Commit diff 顶部右侧有两个相邻模式按钮：
+  统一行视图与左右并排视图；
+- 当前模式有独立选中视觉，点击另一个按钮直接切换；
+- 模式按钮不是普通 overflow 命令，正常宽度下始终可见。
+
+**DSH 修复前**：
+
+- 只有一个 `diffViewToggle` ToolbarButton；
+- 图标会随当前模式在 `split` / `hide` 间变化；
+- 用户看不到 IDEA 的两种模式及当前选择，只能从提示文字推断。
+
+**修复**：
+
+- 删除通用 `id: 'view'` diff action；
+- 新增 `DiffViewModeControl`，正常宽度渲染两个相邻
+  `ToolbarButton`：
+  - `unified` 图标，`aria-label = Unified view`；
+  - `split` 图标，`aria-label = Side-by-side view`；
+  - 两者用 `aria-pressed` 表达真实模式；
+- 新增 `diffViewModeControlForWidth()`：
+  - `>= 280px` 使用双按钮；
+  - `< 280px` 退化为单按钮，避免固定控件把 Close 挤出；
+- 模式控制作为 `data-dsh-diff-fixed` 控件参与工具栏宽度测量；
+- 新增 IDEA 风格的 unified 图标；
+- side-by-side / unified 偏好仍写 `dsh-editor.diff.sideBySide`。
+
+**验证**：
+
+- RED：`tests/round463.test.mjs` = **0 pass / 3 fail**；
+- 更新 round197/365/382/441/444 的旧单按钮契约；
+- 全量：`npm test` = **1501 pass / 0 fail**；
+- 隔离 DSH Web 255px 工具栏：
+  - 自动退化为单按钮；
+  - 点击后 label 从 `统一视图` 变为 `并排视图`，
+    localStorage 从 `1` 变为 `0`；
+  - Close right `773`，toolbar right `777`，未被裁切；
+- 隔离 DSH Web 512px 工具栏：
+  - 两个按钮同时显示；
+  - `统一视图 pressed=true`、`并排视图 pressed=false`；
+  - mode switch right `918`，Close right `1030`，
+    toolbar right `1034`，未被裁切；
+- 截图：
+  `/private/tmp/dsh-editor-r463-paired-mode-final.png`、
+  `/private/tmp/dsh-editor-r463-paired-wide-final.png`；
+- `node --check lib/client.js` 与 `git diff --check` 通过。
+
+**下一轮计划**：
+
+1. 对照 IDEA diff 顶部的 Previous / Next Difference 边界 disabled；
+2. 检查文件导航 `n / total files` 的完整文案与窄宽降级；
+3. 复核模式按钮在 280px 展开时的实际 Rect 与溢出；
+4. 保持 1501+ 全量回归并同步文档。
+
+## 2026-11-15 — Monaco Canceled Promise 不再作为未处理异常输出
+
+**作用域**：Editor / Diff 的 Monaco dispose、restoreViewState、
+`unhandledrejection` 诊断。
+
+**症状/原始错误**：
+
+```text
+Canceled: Canceled
+    at i.cancel (.../monaco/vs/editor/editor.main.js:122:13889)
+    at i.dispose (.../monaco/vs/editor/editor.main.js:122:14018)
+    at P.dispose (.../monaco/vs/editor/editor.main.js:722:24461)
+```
+
+打开 Editor 或销毁/恢复 diff 时，控制台出现
+`Uncaught (in promise) Canceled: Canceled`，同时诊断被记为
+`unhandled-rejection`。
+
+**根因**：
+
+- 该 rejection 由 Monaco 内部在 view/model 被 dispose 或 restore view state
+  时产生；此时原 Promise owner 已不存在，属于预期的取消，不是编辑器功能失败；
+- 旧处理只匹配 `Canceled: Canceled + editor.main.js` 后跳过日志写入，
+  但没有调用 `event.preventDefault()`，浏览器仍会打印
+  `Uncaught (in promise)`；
+- 归档中的真实 stack 明确落在
+  `api/dsh-editor/monaco/vs/editor/editor.main.js`，不是业务异常。
+
+**修复**：
+
+- 新增 `isMonacoCancellation(reason, stack)`；
+- 仅当 stack 含 `monaco/vs/editor/editor.main.js`，message 为
+  `Canceled` / `Canceled: Canceled` 或 name 为
+  `Canceled` / `CanceledError`，且不是 `TypeError` 等错误类型时返回 true；
+- `onUnhandledRejection` 命中后先 `event.preventDefault()` 再返回，
+  不写诊断、不进入 `console.error`；
+- 其他 `unhandledrejection` 行为不变，仍记录 reason、stack 和最近动作。
+
+**回归测试**：
+
+- `tests/round462.test.mjs`：
+  - 使用归档中的真实 Monaco stack 验证识别；
+  - TypeError 和非 Monaco 同名错误不被误吞；
+  - handler 必须先 `preventDefault()` 后 `return`；
+- 更新 `tests/round460.test.mjs`：Monaco cancellation 应被消费而不是记录。
+
+**验证**：
+
+- RED：`tests/round462.test.mjs` = **0 pass / 2 fail**；
+- 定向：`round462 + round460 + round457` = **9 pass / 0 fail**；
+- 全量：`npm test` = **1498 pass / 0 fail**；
+- `node --check lib/client.js`、`lib/index.js`、`lib/terminal.js`
+  与 `git diff --check` 通过；
+- 隔离 DSH Web 中构造真实形态 rejection，结果为
+  `defaultPrevented=true`、stack 含 `monaco/vs/editor/editor.main.js`；
+- 隔离 home 诊断文件没有新增 `unhandled-rejection`；
+- 截图：`/private/tmp/dsh-editor-r462-monaco-cancel.png`。
+
+## 2026-11-15 — Editor 空白根因闭环：稳定 mainPanel 宿主替代 watchdog 重建
+
+**作用域**：Editor React host 生命周期、Chat body 重渲染、
+workspace/session 切换、`Project / Commit / Terminal / Harness` 工具窗。
+
+**症状与原始证据**：
+
+- 从左侧工作区菜单打开 Editor 后，工具窗会周期性整体变空，Chat 仍正常；
+- 归档日志
+  `/Users/chan/.dsh/logs/dsh-editor-diagnostics.jsonl.r460-real-repro-20261115-212055`
+  共记录 11 次 `host-unhealthy`、11 次 `host-rebuild`、11 次
+  `host-recovered`；
+- 故障间隔约 5–13 秒，`recentActions=[]`，期间没有用户操作；
+- 现场为 `active=true`、`bodyActive=true`，但
+  `hostConnected=false`、`workspace/stripe=false`。
+
+**根因**：
+
+- Editor host 直接挂在 `[data-conversation-region="chat"]` 下；
+- 该 Chat body 会随会话、View 和宿主布局更新被 React 替换；
+- 替换会连同外部注入的 host 一起移除，700ms watchDog 只能事后
+  销毁并重建整个 React root，因此表现为周期性空白和状态丢失；
+- 首次 commit 空壳判断、激活重试和健康检查都只是修补症状，
+  不是可靠的宿主集成方式。
+
+**最终修复**：
+
+- `findHostParent()` 从 `[data-slot="main.conversation"]` 向上寻找
+  第一个 `display != contents` 且有真实尺寸的稳定布局祖先；
+  当前 DSH 版本稳定落在 `.PIRFFq_mainPanel`；
+- Editor host 使用 `position: fixed`，按 live Chat body 的
+  `getBoundingClientRect()` 写入 left/top/width/height；
+- `ResizeObserver` 只跟踪尺寸和布局变化，不拥有 React root；
+- Chat body 仍负责 `data-dsh-editor-active`、拖动柄、滚轮和
+  jump badge，但不再承载 Editor；
+- 会话 body 替换时保留同一个 host/root，Project、Commit、
+  Terminal 与 Monaco/xterm 状态不丢失；
+- 删除 `recoverUnhealthyEditorHost`、700ms interval、
+  `hostHealthFailures`、`hostRecoveryPending`、空壳重建、
+  激活 rAF 重试和 `hostMountGeneration/Pending/Frame`；
+- 保留错误边界与真实运行错误日志，日志 action ring 改作
+  `react-render-error / window-error / unhandled-rejection` 的上下文。
+
+**回归测试**：
+
+- `tests/round461.test.mjs`：稳定 parent、fixed 几何、
+  Chat chrome 边界、旧 watchdog/空壳/重试彻底移除；
+- 更新 round167/451/456/457/458/460/83/plugin-contract，
+  移除与新架构冲突的旧断言；
+- 运行：
+
+```bash
+node --test tests/round461.test.mjs tests/round460.test.mjs \
+  tests/round458.test.mjs tests/round457.test.mjs \
+  tests/round456.test.mjs tests/round451.test.mjs \
+  tests/round167.test.mjs tests/round83.test.mjs \
+  tests/plugin-contract.test.mjs
+npm test
+node --check lib/client.js
+node --check lib/index.js
+node --check lib/terminal.js
+git diff --check
+```
+
+**运行态验证**：
+
+- 隔离 DSH Web（`/tmp/dsh-editor-r456-home-20261115-205936`，
+  `127.0.0.1:63096`）从 hero 打开 Editor；
+- host parent=`PIRFFq_mainPanel`，`position=fixed`；
+  host 矩形 `280,40,497.59375,617` 与 Chat body 左侧编辑区一致；
+- 连续 3 轮切换 `Commit → Terminal → Project → Harness →
+  Harness` 并等待 12 秒，host probe、React workspace 和
+  parent probe 均未变化；
+- 在 `dsh-editor` 工作区新建会话后，Chat body probe 消失并出现
+  新 body，证明 React 确实替换了 body；Editor host probe、
+  parent probe、workspace 仍存在，Project 已切到 `dsh-editor`；
+- 隔离 home 的 diagnostics 在本次运行期间没有新增
+  `host-unhealthy` 或 `window-error`；
+- 截图：`/private/tmp/dsh-editor-r461-stable-after-20s.png`。
+
+**门禁结果**：`npm test` = **1496 pass / 0 fail**；
+`node --check lib/client.js / lib/index.js / lib/terminal.js`
+与 `git diff --check` 均通过。
+
+## 2026-11-15 — DSH 稳定会话锚点验证
+
+**作用域**：Editor host 最终架构、`main.conversation` slot、
+conversation body 重渲染与诊断期 DOM 修补替换。
+
+**运行态证据**：
+
+- 克隆真实会话中标记 `[data-slot="main.conversation"]`；
+- 完成对话/轨迹 View 切换、工作区菜单开关、新建空会话、
+  返回原会话后，标记仍在同一节点；
+- slot wrapper 为 `display:contents`、0×0；
+- 其上级 `.PIRFFq_mainPanel` 为真实 764×657 flex 布局节点，
+  当前 `position:static`；
+- 向 slot wrapper 和 mainPanel 分别插入外部探针节点；
+- 完成同样操作后探针均存在，mainPanel 子节点数保持 2。
+
+**设计结论**：
+
+- `data-conversation-region="chat"` 的 `kiGsTW_body` 会随会话/View
+  重渲染，当前 direct injection 生命周期天然脆弱；
+- `main.conversation` slot / mainPanel 比 conversation body 稳定；
+- 最终应把 Editor host 放到 mainPanel 或独立 body portal layer，
+  并根据 conversation body 的实时 rect 更新 fixed overlay；
+- mainPanel 目前无定位上下文，直接加 `position:relative`
+  可能影响宿主既有绝对定位子节点，需先验证 fixed overlay；
+- 本轮只取证，不改实现；等真实空白日志后迁移并移除 watchdog、
+  direct conversation-body injection 和重复 MutationObserver 修补。
+
+## 2026-11-15 — 工作区激活与聊天 body 的挂载竞态
+
+**作用域**：工作区菜单 `... → Editor`、`setActive(true)`、
+聊天 body 挂载、Editor 初始 watchdog 宽限。
+
+**真实日志证据**：
+
+- 重启实际 Harness 后从工作区菜单打开 Editor；
+- `dsh-editor-diagnostics.jsonl` 记录：
+  - `active=true`
+  - `splitWanted=true`
+  - `bodyActive=true`
+  - `hostConnected=false`
+  - `hostChildCount=0`
+  - `workspaceExists=false`
+  - `stripeExists=false`
+- 原 `setActive(true)` 在 `findBody() === null` 时只调用
+  `destroyHost()` 后返回；
+- 如果随后没有新的 DOM mutation，`sync()` 不会再运行，
+  Editor 会一直缺失，而 split 宽度和右侧 Chat 仍保留。
+
+**修复**：
+
+- 激活时找不到聊天 body，不再直接放弃；
+- `scheduleActiveMountRetry()` 使用有界
+  `requestAnimationFrame`，最多 120 帧等待 body；
+- body 出现后重新应用聊天宽度并调用统一 `sync()`；
+- 关闭 Editor、切换 View、插件卸载时取消待执行重试；
+- `editorActivatedAt` 提供 2.5 秒首次挂载宽限期，
+  watchdog 不把正常的 body 挂载过渡误报为 unhealthy；
+- Activity Stripe 增加 `data-dsh-editor-activity-stripe`
+  供健康检查与日志使用。
+
+**验证**：
+
+```bash
+node --test tests/round458.test.mjs tests/round457.test.mjs \
+  tests/round456.test.mjs
+npm test
+node --check lib/client.js
+node --check lib/index.js
+git diff --check
+```
+
+- RED：`tests/round458.test.mjs` 初始 **0 pass / 3 fail**；
+- 定向与相邻回归：**13 pass / 0 fail**；
+- 全量：`npm test` = **1489 pass / 0 fail**；
+- 实际 Harness 刷新到最新 client 后从项目右键 Editor 打开；
+- 等待 8 秒，Activity Stripe、Project 树和工具窗正常；
+- 修复前同路径立即产生 unhealthy/rebuild；
+- 修复后活动诊断文件保持 0 条新增事件，没有初开误报；
+- 旧日志保留为
+  `dsh-editor-diagnostics.jsonl.pre-r458-*`，活动文件已清空。
+
+**设计债务**：
+
+- 本次修复锁定了一个真实竞态，但 watchdog 和 DOM 修补仍是
+  临时保护层；
+- 根因日志完整后应转向稳定宿主 slot / portal，
+  并删除重复的 DOM/MutationObserver 修补；
+- 后续真实复现优先读取活动 JSONL，不再盲目叠加新 watchdog。
+
+## 2026-11-15 — Editor 空白诊断日志
+
+**作用域**：Editor host watchdog、React 错误边界、窗口级异常和
+宿主 JSONL 诊断文件。
+
+**背景**：
+
+- Editor 仍可能在随机交互后进入“分屏启用但左侧宿主失效”的空白态；
+- 单靠现场截图无法区分 host 被移除、React 子树为空、CSS 隐藏
+  或尺寸归零；
+- 用户要求保留可持久化日志，后续复现时直接按日志定位；
+- 日志必须排除聊天正文、文件内容和 DOM 文案。
+
+**实现**：
+
+- 宿主新增 `POST /api/dsh-editor/diagnostics`；
+- 写入 `$DSH_HOME/logs/dsh-editor-diagnostics.jsonl`，
+  无 DSH_HOME 时回退 `~/.dsh/logs/dsh-editor-diagnostics.jsonl`；
+- 客户端 `reportEditorDiagnostic()` 记录稳定事件名、时间、序号、
+  技术状态，并以 best-effort fetch 上报；
+- 客户端内存 ring 最多 50 条；
+- 宿主单请求上限 64 KiB、每批最多 20 条；
+- details 超过 8 KiB 时截断为 preview；
+- 事件：
+  - `host-unhealthy`
+  - `host-rebuild`
+  - `host-recovered`
+  - `react-render-error`
+  - `window-error`
+  - `unhandled-rejection`
+- 忽略高频无害的
+  `ResizeObserver loop completed with undelivered notifications`。
+
+**记录字段**：
+
+- active、splitWanted、bodyActive、bodyChildCount；
+- chatWidthValue、harnessCollapsed；
+- hostConnected、hostParentIsBody、hostChildCount、hostIdle；
+- hostWidth、hostHeight、hostDisplay、hostVisibility；
+- hostTextLength、hostGeneration、hostMountPending；
+- workspaceExists、stripeExists、activity；
+- window error 的 message/stack，React error 的 componentStack。
+
+不记录聊天文本、文件正文、HTML 或请求内容。
+
+**验证**：
+
+```bash
+node --test tests/round457.test.mjs tests/round456.test.mjs
+npm test
+node --check lib/client.js
+node --check lib/index.js
+git diff --check
+```
+
+- RED：`tests/round457.test.mjs` 初始 **0 pass / 3 fail**；
+- 目标与相邻回归：**14 pass / 0 fail**；
+- 全量：`npm test` = **1486 pass / 0 fail**；
+- 克隆真实“问候”会话运行态：
+  - 主动将 host 设为 `visibility:hidden`；
+  - 依次写入 `host-unhealthy → host-rebuild → host-recovered`；
+  - host 最终恢复为 visible、1 个子节点，Stripe/workspace 均存在；
+- JSONL 文件实际写出 6 条测试事件，字段完整且不含正文。
+
+**设计债务**：
+
+- 当前 watchdog、DOM 注入和 MutationObserver 是抓现场用的临时保护；
+- 根因确认后需要移除重复修补，改用稳定的宿主 slot/portal；
+- 在真实复现日志拿到前，不再继续叠加新的补丁层。
+
+**后续**：
+
+- 等待用户再次触发空白后读取该 JSONL；
+- 根据 unhealthy 时的 body/host/workspace/stripe/generation 组合
+  定位是哪一层被移除或隐藏；
+- 完成根因修复后删除不必要的 watchdog 和 DOM 修补。
+
 ## 2026-11-15 — Changes 视图与组级菜单展开语义
 
 **作用域**：Commit Changes 的 `View Options`、三个 Changes 组的

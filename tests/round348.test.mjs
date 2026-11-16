@@ -31,7 +31,7 @@ test('the hidden log filter input is the shortcut target', () => {
 });
 
 test('editor find yields the Log panel shortcut to the tool window', () => {
-  const start = source.indexOf('/* Cmd/Ctrl+F opens find; Cmd/Ctrl+Alt+F opens the same bar with replace. */');
+  const start = source.indexOf('const openEditorFind = React.useCallback');
   const end = source.indexOf('/* Recompute match count whenever the query or the active file changes. */', start);
   const handler = source.slice(start, end);
   assert.match(handler, /closest\('\[data-dsh-log-panel\]'\)/);

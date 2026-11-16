@@ -84,12 +84,12 @@ test('command control actions are disabled after the shell exits', () => {
 
 test('screen context menu passes the clicked pane emulator and terminal', () => {
   const open = source.slice(
-    source.indexOf('const openScreenMenu = (event, emulator, terminal) => {'),
+    source.indexOf("const openScreenMenu = (event, emulator, terminal, pane = 'left') => {"),
     source.indexOf('/* Recompute the match count whenever the query changes. */'),
   );
   assert.match(open, /const model = terminalMenuModel\(\{/);
   assert.match(open, /active: terminal/);
   assert.match(open, /onSelectAll: \(\) => emulator\.selectAll\(\)/);
   assert.match(open, /onFind: \(\) => openTerminalFind\(emulator\)/);
-  assert.match(source, /onContextMenu: \(event\) => openScreenMenu\(event, splitEmulatorRef\.current, splitTerminal\)/);
+  assert.match(source, /onContextMenu: \(event\) => openScreenMenu\(event, splitEmulatorRef\.current, splitTerminal, 'right'\)/);
 });

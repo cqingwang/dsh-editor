@@ -29,7 +29,7 @@ test('Project and Changes overflow buttons open their custom menu from the keybo
     assert.match(component, /event\.key === 'ContextMenu' \|\| \(event\.shiftKey === true && event\.key === 'F10'\)/);
     assert.match(component, /onContextMenu: \(event\) => \{/);
     assert.match(component, /ariaHasPopup: 'menu'/);
-    assert.match(component, /ariaExpanded: menu !== null/);
+    assert.match(component, /ariaExpanded: (?:menu|menuPosition) !== null/);
   }
 });
 

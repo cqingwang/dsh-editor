@@ -14,7 +14,7 @@ function block(startMarker, endMarker) {
 
 test('the Project view selector reports its local menu expansion', () => {
   const panel = block('function ProjectPanel({', '/**\n     * IDEA-style context menu');
-  assert.match(panel, /'aria-label': t\('editor\.projectViewMenu'\),[\s\S]*?'aria-haspopup': 'menu',[\s\S]*?'aria-expanded': viewMenu !== null,/);
+  assert.match(panel, /'aria-label': `\$\{t\('editor\.projectViewMenu'\)\}: \$\{currentViewLabel\}`,[\s\S]*?'aria-haspopup': 'menu',[\s\S]*?'aria-expanded': viewMenu !== null,/);
 });
 
 test('PanelToolbar can describe a popup badge without affecting plain badges', () => {

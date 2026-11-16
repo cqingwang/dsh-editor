@@ -41,13 +41,14 @@ test('the chat column can be dragged within a sane range', () => {
   assert.equal(clampChatPercent(Number.NaN), 35);
 });
 
-test('the split width comes from a CSS variable, so a drag can move it', () => {
+test('the Chat width remains live while the Editor uses measured geometry', () => {
   /* Round 82 replaced the hard-coded width with one variable read by all three
-     layout rules (chat column, composer, editor host). */
+     Chat layout rules. Round 461 moved the Editor surface out of the replaceable
+     Chat body, so its width is measured and written by `positionEditorHost`. */
   assert.match(source, /--dsh-editor-chat-width/);
   assert.match(source, /width: var\(--dsh-editor-chat-width, 35%\) !important;/);
   assert.match(source, /margin-left: var\(--dsh-editor-chat-offset, 65%\) !important;/);
-  assert.match(source, /right: var\(--dsh-editor-chat-width, 35%\);/);
+  assert.match(source, /host\.style\.width = `\$\{width\}px`/);
 });
 
 test('a drag handle is injected and the width is remembered', () => {

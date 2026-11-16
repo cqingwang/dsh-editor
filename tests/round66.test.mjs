@@ -60,7 +60,9 @@ test('the log menu offers Create Tag and the client prompts for a name', () => {
   const client = read('lib/client.js');
   const start = client.indexOf('const buildLogMenu = React.useCallback(');
   assert.notEqual(start, -1);
-  const block = client.slice(start, start + 2200);
+  const end = client.indexOf('/* Rollback discards edits', start);
+  assert.notEqual(end, -1);
+  const block = client.slice(start, end);
   assert.match(block, /t\('editor\.createTagAction'\)/);
   assert.match(block, /kind: 'tag'/);
   assert.match(client, /if \(namePrompt\.kind === 'tag'\)/);

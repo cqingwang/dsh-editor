@@ -25,10 +25,9 @@ test('Diff toolbar actions retain IDEA ordering while declaring semantic groups'
   const end = source.indexOf('const hidden =', start);
   assert.ok(start >= 0 && end > start);
   const block = source.slice(start, end);
-  const ids = [...block.matchAll(/id: '(view|swapSides|disableEditing|focusOppositePane|selectPositionInOppositePane|reloadDiff|find|collapse|goToChange|settings|undo|redo|selection)'/g)]
+  const ids = [...block.matchAll(/id: '(swapSides|disableEditing|focusOppositePane|selectPositionInOppositePane|reloadDiff|find|collapse|goToChange|settings|undo|redo|selection)'/g)]
     .map((match) => match[1]);
   assert.deepEqual(ids, [
-    'view',
     'swapSides',
     'disableEditing',
     'focusOppositePane',
@@ -42,7 +41,8 @@ test('Diff toolbar actions retain IDEA ordering while declaring semantic groups'
     'redo',
     'selection',
   ]);
-  assert.match(block, /id: 'view',[\s\S]*?group: 'mode'/);
+  assert.doesNotMatch(block, /id: 'view'/);
+  assert.match(source, /React\.createElement\(DiffViewModeControl, \{/);
   assert.match(block, /id: 'focusOppositePane',[\s\S]*?group: 'selection'/);
   assert.match(block, /id: 'reloadDiff',[\s\S]*?group: 'inspect'/);
   assert.match(block, /id: 'undo',[\s\S]*?group: 'history'/);

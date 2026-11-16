@@ -15,7 +15,7 @@ test('graph rows expose the shared commit menu on right click', () => {
   assert.match(graph, /event\.preventDefault\(\)/);
   assert.match(graph, /event\.stopPropagation\(\)/);
   assert.match(graph, /onShow\?\.\(entry\.hash\)/);
-  assert.match(graph, /onContextMenu\?\.\(\{\s+commit: entry,\s+x: event\.clientX,\s+y: event\.clientY,?\s+\}\)/);
+  assert.match(graph, /onContextMenu\?\.\(\{\s+commit: entry,\s+selectionHashes: contextSelection,\s+x: event\.clientX,\s+y: event\.clientY,?\s+\}\)/);
 });
 
 test('right click synchronises graph cursor before opening the menu', () => {

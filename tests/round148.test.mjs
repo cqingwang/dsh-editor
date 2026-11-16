@@ -64,7 +64,9 @@ test('the workspace walks still skip heavy directories so scanning stays bounded
   assert.match(host, /const WALK_IGNORED = new Set\(\[/);
   assert.match(host, /'node_modules',/);
   const walk = host.slice(host.indexOf('async function listWorkspaceFiles('), host.indexOf('async function listWorkspaceDirectories('));
-  assert.match(walk, /if \(WALK_IGNORED\.has\(basename\(entry\.path\)\)\) continue;/);
+  assert.match(walk, /WALK_IGNORED\.has\(basename\(entry\.path\)\)/);
+  assert.match(walk, /includeExcluded/);
+  assert.match(walk, /VCS_METADATA_DIRECTORIES/);
   /* Dot-directories must survive that skip, or `.github/` is unreachable. */
   const dirs = host.slice(host.indexOf('async function listWorkspaceDirectories('), host.indexOf('async function describePaths('));
   assert.match(dirs, /listDirectory\(root, directory, \{ showHidden: true \}\)/);
@@ -116,7 +118,7 @@ test('the diff tab and the file tabs hand the code area back and forth', () => {
      annotate view or editor terminal. */
   assert.match(source, /const fileSurfaceVisible = \(activeFile !== null \|\| splitFile !== null\)[\s\S]*?diffOpen === false[\s\S]*?annotateTarget === null[\s\S]*?editorTerminals\.length === 0/);
   assert.match(source, /display: fileSurfaceVisible \? 'flex' : 'none'/);
-  assert.match(source, /diffOpen === false\n\s+\? null\n\s+: React\.createElement\(DiffPreview/);
+  assert.match(source, /diffOpen === false\n\s+\? null\n\s+: diffTarget\?\.repositoryVersion[\s\S]*?: React\.createElement\(DiffPreview/);
   assert.match(source, /const breadcrumbSegments = activeFile !== null && diffOpen === false/);
 });
 
@@ -136,7 +138,7 @@ test('the diff tab is named Commit: for changes and Compare: for a revision', ()
   assert.match(source, /commitTab: '提交: \{name\}',\n        compareTab: '比较: \{name\}',/);
   assert.match(source, /commitTab: 'Commit: \{name\}',\n        compareTab: 'Compare: \{name\}',/);
   /* The name in the tab is the file name; the full path stays in the tooltip. */
-  assert.match(source, /title: diffTarget\.combined === true \? diffTabName : `\$\{diffTabName\} — \$\{diffTarget\.path\}`,/);
+  assert.match(source, /title: diffTarget\.combined === true \|\| diffTarget\.repositoryVersion[\s\S]*?diffTabName\n\s+: `\$\{diffTabName\} — \$\{diffTarget\.path\}`,/);
   /* The overflow list carries the same entry, or the pinned tab could vanish. */
   assert.match(source, /entry === DIFF_TAB_KEY\n\s+\? \{ id: 'tab:diff', label: diffTabName, run: \(\) => setDiffActive\(true\) \}/);
 });

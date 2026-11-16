@@ -12,13 +12,13 @@ function block(startMarker, endMarker) {
   return source.slice(start, end);
 }
 
-test('the Editor host never unmounts a React root before its first commit', () => {
+test('the Editor host is reused across asynchronous React commits', () => {
   const ensureHost = block('function ensureHost(body) {', 'function idleHost()');
-  assert.match(ensureHost, /hostMountPending/);
-  assert.match(ensureHost, /host\.childElementCount > 0 \|\| hostMountPending/);
-  assert.match(ensureHost, /hostMountPending = true/);
-  assert.match(ensureHost, /requestAnimationFrame/);
-  assert.match(ensureHost, /hostMountPending = false/);
+  assert.match(ensureHost, /host !== null && root !== null/);
+  assert.match(ensureHost, /if \(hostParent !== null && host\.parentElement !== hostParent\)/);
+  assert.match(ensureHost, /hostParent\.appendChild\(host\)/);
+  assert.doesNotMatch(ensureHost, /childElementCount/);
+  assert.doesNotMatch(ensureHost, /requestAnimationFrame/);
 });
 
 test('the Editor workspace has a local recoverable render-error boundary', () => {

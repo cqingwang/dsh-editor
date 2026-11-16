@@ -16,7 +16,7 @@ test('flat Log opens the existing commit menu from the keyboard', () => {
   assert.match(log, /event\.key === 'ContextMenu' \|\| \(event\.shiftKey === true && event\.key === 'F10'\)/);
   assert.match(log, /flatLogTarget\(visible, selected, 'current'\)/);
   assert.match(log, /data-dsh-log-hash/);
-  assert.match(log, /onContextMenu\?\.\(\{\s+commit: target,\s+x:/);
+  assert.match(log, /onContextMenu\?\.\(\{\s+commit: target,\s+selectionHashes: contextSelectionFor\(target\.hash\),\s+x:/);
   assert.match(log, /getBoundingClientRect/);
 });
 

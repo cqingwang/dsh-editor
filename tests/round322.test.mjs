@@ -31,8 +31,10 @@ test('Create Patch reuses the selected patch request and downloads a Blob', () =
   assert.match(source, /const requestSelectedPatch = React\.useCallback\(/);
   assert.match(source, /op: 'patch', entries/);
   assert.match(source, /const createSelectedPatch = React\.useCallback\(/);
-  assert.match(source, /new Blob\(\[value\.patch\], \{ type: 'text\/x-patch;charset=utf-8' \}\)/);
-  assert.match(source, /anchor\.download = patchDownloadName\(\)/);
+  assert.match(source, /function downloadPatchBlob\(patch, downloadName\)/);
+  assert.match(source, /new Blob\(\[patch\], \{ type: 'text\/x-patch;charset=utf-8' \}\)/);
+  assert.match(source, /anchor\.download = downloadName/);
+  assert.match(source, /downloadPatchBlob\(value\.patch, patchDownloadName\(\)\)/);
   assert.match(source, /URL\.revokeObjectURL\(url\)/);
 });
 

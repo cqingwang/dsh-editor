@@ -16,5 +16,5 @@ test('Commit Log file menu copies a shell-ready absolute path', () => {
   assert.match(menu, /id: 'copyAbsolute'/);
   assert.match(menu, /label: t\('editor\.copyAbsolutePath'\)/);
   assert.match(menu, /shellQuote\(root === '' \? path : `\$\{root\}\/\$\{path\}`\)/);
-  assert.match(workspace, /\[showCommitDiff, editLocalVersion, openInTerminal, revealPath, showFileHistory, root\]/);
+  assert.match(workspace, /\[showCommitDiff, editLocalVersion, openInTerminal, openRepositoryVersion, revealPath, showFileHistory, root, t\]/);
 });

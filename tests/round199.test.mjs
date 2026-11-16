@@ -38,7 +38,7 @@ test('sort and hidden-file preferences live under Appearance', () => {
   const start = options.indexOf("id: 'appearance'");
   const appearance = options.slice(start);
   assert.match(appearance, /id: `sort:\$\{mode\}`/);
-  assert.match(appearance, /\['name', 'type', 'modified', 'modified-asc'\]\.map/);
+  assert.match(appearance, /\['name', 'type', 'modified', 'modified-asc', 'manual'\]\.map/);
   assert.match(appearance, /const labelMode = mode === 'modified-asc' \? 'modified_asc' : mode;/);
   assert.match(appearance, /t\(`editor\.sort_\$\{labelMode\}`\)/);
   assert.match(appearance, /id: 'hidden'/);

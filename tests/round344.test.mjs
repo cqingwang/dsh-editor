@@ -38,7 +38,7 @@ const directTerminalShortcut = new Function(
 test('IDEA terminal direct shortcuts distinguish new tab, copy, and paste', () => {
   assert.equal(directTerminalShortcut({ metaKey: true, ctrlKey: false, altKey: false, shiftKey: false, key: 't' }, false), 'newTab');
   assert.equal(directTerminalShortcut({ metaKey: true, ctrlKey: false, altKey: false, shiftKey: false, key: 'c' }, true), 'copy');
-  assert.equal(directTerminalShortcut({ metaKey: true, ctrlKey: false, altKey: false, shiftKey: false, key: 'c' }, false), null);
+  assert.equal(directTerminalShortcut({ metaKey: true, ctrlKey: false, altKey: false, shiftKey: false, key: 'c' }, false), 'copyBlock');
   assert.equal(directTerminalShortcut({ metaKey: true, ctrlKey: false, altKey: false, shiftKey: false, key: 'v' }, false), 'paste');
 });
 

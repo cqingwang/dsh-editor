@@ -90,6 +90,6 @@ test('terminal tabs are remembered per session and rebuilt after a host restart'
   assert.match(client, /\.filter\(\(entry\) => entry !== null && typeof entry === 'object' && typeof entry\.shell === 'string' && entry\.shell !== ''\)/);
   assert.match(client, /const restoreTerminals = React\.useCallback\(/);
   /* A shell that no longer exists falls back to the default instead of aborting. */
-  assert.match(client, /const created = await createTerminal\(exists \? entry\.shell : undefined\);/);
+  assert.match(client, /const created = await createTerminal\(exists \? entry\.shell : undefined, undefined, snapshots\[index\] \?\? ''\);/);
   assert.match(client, /if \(remembered\.length > 0\) \{\n\s+void restoreTerminals\(remembered\);/);
 });

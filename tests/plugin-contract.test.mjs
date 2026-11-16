@@ -51,7 +51,9 @@ test('client half keeps the resizable editor/chat split contract', () => {
      makes the parent's width depend on this child's, and a shrink-to-fit parent
      then grows on every pass (the "tab row keeps widening" bug). */
   assert.match(client, /margin-left: var\(--dsh-editor-chat-offset, 65%\) !important;/);
-  assert.match(client, /right: var\(--dsh-editor-chat-width, 35%\);/);
+  /* Round 461 moved the Editor root to a stable overlay surface whose geometry
+     is measured from the live Chat body. */
+  assert.match(client, /host\.style\.width = `\$\{width\}px`/);
   assert.match(client, /flex:\s*'0 0 25%'/);
   assert.match(client, /flex:\s*'1 1 0'/);
   assert.match(client, /pointer-events:\s*none/);

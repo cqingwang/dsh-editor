@@ -47,7 +47,7 @@ function loadFlattenRows() {
     }
     throw new Error(`unbalanced braces in ${name}`);
   };
-  return new Function(`'use strict';\n${at('continuationFlags')}\n${at('flattenRows')}\nreturn flattenRows;`)();
+  return new Function(`'use strict';\n${at('continuationFlags')}\n${at('orderProjectEntriesByManual')}\n${at('flattenRows')}\nreturn flattenRows;`)();
 }
 
 const flattenRows = loadFlattenRows();
@@ -60,27 +60,27 @@ test('an expanded empty directory shows a placeholder row', () => {
     'ws',
     '/root',
   );
-  assert.deepEqual(rows.map((row) => row.kind), ['directory', 'directory', 'placeholder']);
-  assert.equal(rows[2].depth, 2);
-  assert.equal(rows[2].empty, true);
+  assert.deepEqual(rows.map((row) => row.kind), ['directory', 'placeholder']);
+  assert.equal(rows[1].depth, 1);
+  assert.equal(rows[1].empty, true);
 });
 
 test('a still-loading directory shows nothing rather than an empty placeholder', () => {
   /* undefined means "children not fetched yet"; [] means "confirmed empty". */
   const rows = flattenRows([{ name: 'slow', path: 'slow', kind: 'directory' }], {}, new Set(['', 'slow']), 'ws', '/root');
-  assert.deepEqual(rows.map((row) => row.name), ['ws', 'slow']);
+  assert.deepEqual(rows.map((row) => row.name), ['slow']);
 });
 
 test('a bare workspace shows the placeholder at the root', () => {
   const rows = flattenRows([], {}, new Set(['']), 'ws', '/root');
-  assert.equal(rows.length, 2);
-  assert.equal(rows[1].kind, 'placeholder');
-  assert.equal(rows[1].depth, 1);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].kind, 'placeholder');
+  assert.equal(rows[0].depth, 0);
 });
 
 test('a collapsed directory never emits a placeholder', () => {
   const rows = flattenRows([{ name: 'empty', path: 'empty', kind: 'directory' }], { empty: [] }, new Set(['']), 'ws', '/root');
-  assert.deepEqual(rows.map((row) => row.kind), ['directory', 'directory']);
+  assert.deepEqual(rows.map((row) => row.kind), ['directory']);
 });
 
 test('the placeholder row is not selectable and cannot be dragged', () => {

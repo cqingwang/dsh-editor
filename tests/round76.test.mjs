@@ -13,7 +13,7 @@ test('double-clicking a tree row OPENS it and does not start a rename', () => {
      last, and for a directory it produced
      `EINVAL … rename 'assets' -> 'assets/assets'`. A double-click now only opens;
      rename comes from the context menu or F2. */
-  const start = source.indexOf('ref: treeRef,');
+  const start = source.indexOf("const isDirectory = row.kind === 'directory';");
   assert.notEqual(start, -1);
   const block = source.slice(start, source.indexOf('onContextMenu:', start));
   assert.match(block, /onDoubleClick: \(event\) => \{/);

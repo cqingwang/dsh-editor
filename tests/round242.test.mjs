@@ -63,9 +63,9 @@ test('search hits are rendered through the existing tree flattener with their an
     { path: 'docs/note.txt', name: 'note.txt', kind: 'file' },
     { path: 'docs/nested/another-note.md', name: 'another-note.md', kind: 'file' },
   ], 'workspace');
-  assert.deepEqual(rows.map((row) => row.path), ['', 'docs', 'docs/note.txt', 'docs/nested', 'docs/nested/another-note.md']);
-  assert.deepEqual(rows.map((row) => row.kind), ['directory', 'directory', 'file', 'directory', 'file']);
-  assert.deepEqual(rows.map((row) => row.depth), [0, 1, 2, 2, 3]);
+  assert.deepEqual(rows.map((row) => row.path), ['docs', 'docs/note.txt', 'docs/nested', 'docs/nested/another-note.md']);
+  assert.deepEqual(rows.map((row) => row.kind), ['directory', 'file', 'directory', 'file']);
+  assert.deepEqual(rows.map((row) => row.depth), [0, 1, 1, 2]);
 });
 
 test('Project speed search requests host matches and feeds the existing navigation helpers', () => {
@@ -81,5 +81,5 @@ test('Project speed search requests host matches and feeds the existing navigati
 test('the host fs route exposes search beside the existing list operation', () => {
   const host = readFileSync(join(root, 'lib/index.js'), 'utf8');
   assert.match(host, /case 'search':\s+return ok\(await searchWorkspaceEntries\(root, body\?\.query/);
-  assert.match(host, /workspaceFileOperations = \{ remove: deleteEntry, rename: renameEntry, write: writeTextFileGuarded, describe: describePaths, sort: sortEntries, reveal: revealInFileManager, search: searchWorkspaceEntries \}/);
+  assert.match(host, /workspaceFileOperations = \{[\s\S]*?search: searchWorkspaceEntries,[\s\S]*?searchText: searchWorkspaceText,[\s\S]*?replaceText: replaceWorkspaceText \}/);
 });

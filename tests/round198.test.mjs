@@ -19,7 +19,7 @@ test('Project View stores IDEA Open Directories with Single Click off by default
 test('a directory row selects on one click and toggles on double click by default', () => {
   const start = source.indexOf("const isDirectory = row.kind === 'directory';");
   const row = source.slice(start, source.indexOf('onContextMenu:', start));
-  assert.match(row, /if \(isDirectory\) \{[\s\S]*?if \(openDirectoriesSingleClick === true\) onToggle\(row\.path\);/);
+  assert.match(row, /if \(isDirectory\) \{[\s\S]*?if \(row\.root !== true && openDirectoriesSingleClick === true\) onToggle\(row\.path\);/);
   assert.match(row, /onDoubleClick: \(event\) => \{[\s\S]*?if \(isDirectory && openDirectoriesSingleClick !== true\) onToggle\(row\.path\);/);
 });
 

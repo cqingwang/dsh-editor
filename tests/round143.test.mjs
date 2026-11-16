@@ -73,7 +73,7 @@ test('⇧F6 renames the selected row and ⌘R refreshes the tree', () => {
   assert.match(handler, /void openMoveTo\(/);
   assert.match(handler, /event\.key\.toLowerCase\(\) === 'r'/);
   assert.match(handler, /void refreshTree\(\);/);
-  assert.match(handler, /\[expanded, openFile, openMoveTo, refreshTree,/);
+  assert.match(handler, /\[[^\]]*\bexpanded\b[^\]]*\bopenMoveTo\b[^\]]*\brefreshTree\b/);
 });
 
 /* ── Commit: keyboard staging and diff ──────────────────────────────────── */
