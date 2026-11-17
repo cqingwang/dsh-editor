@@ -2700,6 +2700,31 @@
     }
 
     /**
+     * Move Project expansion paths with an internal rename/move.
+     *
+     * refreshTree reads expandedRef immediately after the filesystem operation,
+     * before React effects can sync state. Return the remapped Set so callers can
+     * update both state and the ref synchronously.
+     * @param {Set<string>|null} expanded - current expansion set.
+     * @param {Array<[string, string]>} entries - old/new path pairs.
+     * @returns {Set<string>} the same set when no expanded path moved.
+     */
+    function remapProjectExpandedPaths(expanded, entries) {
+      const source = expanded instanceof Set ? expanded : new Set();
+      const moves = (Array.isArray(entries) ? entries : [])
+        .filter((entry) => Array.isArray(entry) && typeof entry[0] === 'string' && entry[0] !== '' && typeof entry[1] === 'string' && entry[1] !== '');
+      if (moves.length === 0) return source;
+      let changed = false;
+      const next = new Set();
+      for (const path of source) {
+        const mapped = path === '' ? path : remapPathAfterMove(path, moves);
+        if (mapped !== path) changed = true;
+        next.add(mapped);
+      }
+      return changed ? next : source;
+    }
+
+    /**
      * Versioned Project expansion key.
      *
      * Legacy `dsh-editor.expanded:<root>` values were also written by the old

@@ -1,5 +1,53 @@
 # dsh-editor 工程记忆
 
+## 2026-11-17 — 外部删除目录后 expanded state 残留
+
+**作用域**：Project tree expanded state、localStorage、children cache、
+外部目录删除与同名重建。
+
+**症状/证据**：
+
+- 展开 `round784-dir` 后，expanded v2 持久化包含该路径；
+- 从 shell 删除目录，rows 消失，但 expanded 仍保留；
+- 重建同名目录时会因旧 expanded state 自动展开，表现成 Project tree
+  自己重新打开目录。
+
+**根因**：
+
+- refreshTree 会清理 children cache，但 expanded 是独立 state；
+- 没有根据已知 parent listing 清理已证明不存在的展开路径。
+
+**修复**：
+
+- 新增 `pruneProjectExpandedPaths()`；
+- root `''` 永远保留；
+- 只有 parent listing 已知且缺少该 directory 时才判定 stale；
+- ancestor 被删除时，其所有 expanded 后代一并移除；
+- parent listing 未知/折叠时保留展开状态；
+- EditorWorkspace 在 entries/children 更新后收敛 expanded，并由既有
+  storage effect 持久化。
+
+**回归**：
+
+- RED：round784 初始因 helper 不存在而失败；
+- GREEN：round784 / round783 / round782 / round721 / static-order
+  **16 pass / 0 fail**；
+- 全量 `npm test`：**2567 pass / 0 fail**；
+- build/语法/diff 门禁通过。
+
+**运行态证据**：
+
+- Ego Browser / 隔离 DSH Web：
+  - 展开目录后 v2 存储包含该路径；
+  - shell 删除后存储自动收敛为 `docs/src`；
+  - 同名目录重建后显示 Expand folder，不再自动展开。
+
+**适用边界**：
+
+- 只清理可证明不存在的 expanded paths；
+- 折叠目录的 descendant expansion 保留；
+- 不改变 rows 排序、selection reconciliation 或文件内容。
+
 ## 2026-11-17 — Project 文件右键精简打开动作
 
 **作用域**：Project tree 文件/目录 context menu、EditSource 与分屏入口。

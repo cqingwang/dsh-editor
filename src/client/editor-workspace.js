@@ -1837,6 +1837,13 @@
         });
       }, []);
 
+      const remapProjectExpandedPathsForMoves = React.useCallback((entries) => {
+        const next = remapProjectExpandedPaths(expandedRef.current, entries);
+        if (next === expandedRef.current) return;
+        expandedRef.current = next;
+        setExpanded(next);
+      }, []);
+
       const openFile = React.useCallback(async (path, options = {}) => {
         /* The Commit diff is a tab of its own: picking a file shows that file and
            leaves the diff tab where it is, ready to be clicked back (IDEA). */
@@ -7110,6 +7117,7 @@
                 : describeMoved(entries.map(([, to]) => to), summary.blocked, t);
             /* Open tabs, previews, comparisons and Models follow their files. */
             remapEditorPaths(entries);
+            remapProjectExpandedPathsForMoves(entries);
             const movedPaths = entries.map(([, to]) => to);
             const primary = movedPaths[movedPaths.length - 1] ?? null;
             applyTreeSelection(new Set(movedPaths), primary, primary);
@@ -7123,7 +7131,7 @@
             setTreeError(failure instanceof Error ? failure.message : String(failure));
           }
         },
-        [applyTreeSelection, loadGit, refreshTree, remapEditorPaths, rows, t],
+        [applyTreeSelection, loadGit, refreshTree, remapEditorPaths, remapProjectExpandedPathsForMoves, rows, t],
       );
 
       /* Resolve one conflicted file by taking ours/theirs, then refresh the change list. */
@@ -8190,6 +8198,7 @@
         try {
           await callFs({ op: 'rename', path: renameState.path, to: next });
           remapEditorPaths([[renameState.path, next]]);
+          remapProjectExpandedPathsForMoves([[renameState.path, next]]);
           setRenameState(null);
           setSelectedPath(next);
           await refreshTree();
@@ -8197,7 +8206,7 @@
         } catch (failure) {
           setTreeError(failure instanceof Error ? failure.message : String(failure));
         }
-      }, [loadGit, refreshTree, remapEditorPaths, renameState, t]);
+      }, [loadGit, refreshTree, remapEditorPaths, remapProjectExpandedPathsForMoves, renameState, t]);
 
       const selectActivity = React.useCallback(
         (next) => {
