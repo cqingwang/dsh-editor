@@ -1,5 +1,155 @@
 # dsh-editor 工程记忆
 
+## 2026-11-17 — Markdown 预览没有渲染 README 相对路径图片
+
+**作用域**：Editor 的 Markdown 代码和预览 / 预览模式、README 图片、
+宿主 `MarkdownText` 的图片解析以及工作区图片路由。
+
+**症状/证据**：
+
+- README 的标题、段落、表格和代码块正常；
+- `![demo](docs/home.png)` 只显示 alt 文本，不生成图片；
+- DevTools：
+  - `[data-dsh-markdown-preview] img` 数量为 `0`；
+  - 预览正文保留了图片替代文本；
+  - `/api/dsh-editor/image` 没有对应网络请求；
+- 宿主 `MarkdownText` 的公开类型和官方 document preview 均支持
+  `pathImages.resolve`，编辑器只传了 `text` 和 `labels`。
+
+**根因**：
+
+- `MarkdownPreviewPane` 没有向宿主 Markdown primitive 提供
+  `pathImages`；
+- 宿主无法把 Markdown 图片目标转换为可访问的图片 URL，于是图片节点
+  退化为普通文本；
+- 这不是 CSS 隐藏、图片解码失败或 Monaco 预览模式本身的问题。
+
+**修复**：
+
+- 新增 `markdownWorkspaceImageUrl(basePath, target, baseUri)`：
+  - 复用 `resolveMarkdownLink` 按当前文档目录解析；
+  - 继续拒绝 `../` 越界、外部协议和锚点；
+  - 只接受 `isImagePreviewPath` 白名单内的图片扩展名；
+  - 使用现有 `imagePreviewUrl` 生成带 Session/workspace 身份和
+    `version` 参数的 same-origin 图片 URL；
+- `MarkdownPreviewPane` 通过 `React.useMemo` 构造
+  `pathImages = { resolve }` 并传给宿主 `MarkdownText`；
+- 保留 `MarkdownDelegateProvider` 的本地链接和外部链接行为不变；
+- 没有新增第二套 Markdown parser，也没有在客户端读取图片字节。
+
+**回归**：
+
+- RED：`tests/round755.test.mjs` 初始 **3 fail**；
+- GREEN：round755 三项、round385、round396、round404、round399
+  定向回归通过；
+- 全量 `npm test`：**2507 pass / 0 fail**；
+- `npm run check:client-build`、`node --check lib/client.js`、
+  `node --check lib/index.js`、`git diff --check` 均通过；
+- 回归覆盖：
+  - `README.md` + `docs/home.png`；
+  - 子目录文档 + `../image.png`；
+  - URL 编码路径与 query/fragment 剥离；
+  - 外部 URL、锚点、越界路径和非图片扩展名拒绝。
+
+**运行态证据**：
+
+- 隔离 Harness（新 host 进程 + 当前 link 客户端）打开真实 README
+  的“代码和预览”；
+- `[data-dsh-markdown-preview] img` 数量为 **3**；
+- 三张图片均 `complete=true`：
+  - `docs/home.png`：`2952 × 1994`；
+  - `docs/commit.png`：`2960 × 1994`；
+  - `docs/search.png`：`2958 × 1994`；
+- `src` 均指向
+  `/api/dsh-editor/image?...&path=docs%2F...png&version=`；
+- 预览正文中图片 Markdown 语法计数为 **0**；
+- 测试 fixture 已恢复，临时图片保存在
+  `/private/tmp/dsh-r755-test-artifacts/`。
+
+**边界**：
+
+- 当前只解析 Markdown 图片节点的工作区相对路径；
+- 外部图片仍由宿主 Markdown 处理；
+- 图片仍受现有浏览器原生解码扩展名白名单限制；
+- 图片变化后的预览缓存刷新继续沿用现有 tab 的外部变更链路。
+
+## 2026-11-17 — 图片预览无法成为 focused editor pane
+
+**作用域**：编辑器图片预览、右侧 split、焦点归属和状态栏。
+
+**症状/证据**：
+
+- Monaco 通过 `onDidFocusEditorText` 更新 `focusedPath`；
+- 图片 pane 只有普通 `div/img`，没有 tabIndex 或 focus 回调；
+- 右侧 split 打开图片后点击图片，底部路径仍可能属于另一个文本
+  editor；
+- split 的蓝色焦点描边也无法稳定归属图片 pane。
+
+**修复**：
+
+- `ImagePreviewPane` 接受 `onActivate`；
+- 外层增加 `tabIndex=0`、`onFocus`、`onPointerDown`；
+- 新增 `activateImagePane(path)`，统一更新
+  `focusedEditorRef/focusedPathRef/setFocusedPath`；
+- 左侧与右侧 split 分别传入自己的 path；
+- focus-visible 使用 accent 内描边。
+
+**回归**：
+
+- RED：round754 初始 **2 fail**；
+- GREEN：round754 / round753 / round752 / round671
+  **12 pass / 0 fail**；
+
+**运行态证据**：
+
+- A 图片在左侧，B 图片在右侧 split；
+- 点击右侧图片后，状态栏路径切到 B；
+- 点击左侧图片后，状态栏路径切回 A；
+- split 保持打开，没有把图片误当 Monaco model。
+
+## 2026-11-17 — 图片 tab 的外部变化仍按文本读取
+
+**作用域**：图片预览 tab 的 external-change 检测、静默重载和手动
+Reload。
+
+**症状/证据**：
+
+- 图片预览正常，但 `checkExternalChanges()` 对 clean tab 统一调用
+  `op: 'read'`；
+- 图片含 NUL 字节，host 返回 `binary files are not editable`；
+- 外部替换图片后，预览停在旧内容并出现 external-change banner；
+- `reloadActiveFromDisk()` 复用同一条文本读取，Reload 也失败。
+
+**根因**：
+
+- 图片分支只应用于首次 openFile；
+- 两条 disk-change 路径都假设 clean tab 一定有 Monaco model。
+
+**修复**：
+
+- 新增 `workspaceReloadOperation(file)`：
+  - 图片 → `op: 'image'`；
+  - 文本 → `op: 'read'`；
+- 新增 `workspaceFileAfterReload(file, value)`：
+  - 图片保留 kind，更新 size/mtime/mediaType；
+  - 文本更新 content/mtime；
+- `checkExternalChanges()` 与 `reloadActiveFromDisk()` 统一复用；
+- 图片重载不触碰 Monaco model；
+- image URL 的 mtime version 改变后，浏览器重新加载原图。
+
+**回归**：
+
+- RED：round753 初始 **3 fail**；
+- GREEN：round753 / round752 / round671
+  **10 pass / 0 fail**；
+
+**运行态证据**：
+
+- Harness 打开 1044×657 PNG；
+- 外部覆盖为 1×1 PNG；
+- 没有出现 external-change banner 或二进制错误；
+- 预览自动刷新，尺寸变为 `1 × 1`。
+
 ## 2026-11-17 — 图片文件被当作文本打开，无法在编辑器预览
 
 **作用域**：Project tree 双击图片文件、编辑器 tab、host 二进制只读路由

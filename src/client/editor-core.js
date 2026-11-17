@@ -99,6 +99,24 @@
     }
 
     /**
+     * Resolve one authored Markdown image destination beside the open document.
+     *
+     * The host Markdown primitive calls this only for image nodes. Keeping the
+     * workspace boundary in resolveMarkdownLink prevents authored `../` paths
+     * from turning into arbitrary file reads, while the image extension guard
+     * matches the host's native-preview whitelist.
+     * @param {string} basePath - workspace-relative Markdown document path.
+     * @param {string} target - authored image destination.
+     * @param {string} [baseUri] - application base URI.
+     * @returns {string|undefined} authenticated same-origin image URL.
+     */
+    function markdownWorkspaceImageUrl(basePath, target, baseUri = document.baseURI) {
+      const resolved = resolveMarkdownLink(basePath, target);
+      if (resolved === null || !isImagePreviewPath(resolved)) return undefined;
+      return new URL(imagePreviewUrl(resolved), baseUri).href;
+    }
+
+    /**
      * Stable key for terminal processes and terminal-only preferences.
      *
      * An Editor opened from a workspace row must not reuse the conversation
@@ -273,6 +291,9 @@
         },
         footnotes: t('editor.markdownFootnotes'),
       }), [t]);
+      const pathImages = React.useMemo(() => ({
+        resolve: (value) => markdownWorkspaceImageUrl(path, value),
+      }), [path]);
       const getTriggerProps = React.useCallback(() => undefined, []);
       const openLocal = React.useCallback((target) => {
         const resolved = resolveMarkdownLink(path, target);
@@ -292,7 +313,7 @@
       }, []);
       const body = MarkdownText === null
         ? React.createElement('pre', { style: styles.markdownPreviewFallback }, content)
-        : React.createElement(MarkdownText, { text: content, labels });
+        : React.createElement(MarkdownText, { text: content, labels, pathImages });
       return React.createElement(
         'div',
         {
@@ -334,10 +355,10 @@
 
     /**
      * Render one image with the browser's native decoder inside an editor tab.
-     * @param {{t: Function, path: string, src: string, mediaType?: string}} props - image preview.
+     * @param {{t: Function, path: string, src: string, mediaType?: string, onActivate?: Function}} props - image preview.
      * @returns {object} React element.
      */
-    function ImagePreviewPane({ t, path, src, mediaType = '' }) {
+    function ImagePreviewPane({ t, path, src, mediaType = '', onActivate }) {
       const [state, setState] = React.useState({ status: 'loading', width: 0, height: 0 });
       React.useEffect(() => {
         setState({ status: 'loading', width: 0, height: 0 });
@@ -346,10 +367,14 @@
         'div',
         {
           style: styles.imagePreviewPane,
+          className: 'dsh-editor-image-preview',
+          tabIndex: 0,
           role: 'group',
           'aria-label': t('editor.imagePreview'),
           'data-dsh-editor-image-preview': path,
           'data-dsh-editor-image-media-type': mediaType,
+          onFocus: () => onActivate?.(),
+          onPointerDown: () => onActivate?.(),
         },
         state.status === 'loading'
           ? React.createElement(
@@ -428,13 +453,14 @@
     }
 
     /** Create the native image surface used by the editor and right split. */
-    function workspaceImagePreviewElement(t, path, file) {
+    function workspaceImagePreviewElement(t, path, file, onActivate) {
       return React.createElement(ImagePreviewPane, {
         key: path,
         t,
         path,
         src: imagePreviewUrl(path, file?.mtime),
         mediaType: file?.mediaType ?? '',
+        onActivate: () => onActivate?.(path),
       });
     }
 

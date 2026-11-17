@@ -902,6 +902,13 @@
       }, [moveEditorTab]);
 
       const activeFile = activePath === null ? null : openFiles.find((file) => file.path === activePath) ?? null;
+      const activateImagePane = React.useCallback((path) => {
+        if (typeof path !== 'string' || path === '') return;
+        const editor = splitPathRef.current === path ? splitEditorRef.current : editorRef.current;
+        focusedEditorRef.current = { path, editor };
+        focusedPathRef.current = path;
+        setFocusedPath(path);
+      }, []);
       const activeImage = activeFile?.kind === 'image';
       const markdownAvailable = activeFile !== null && isMarkdownPath(activePath);
       const effectiveMarkdownMode = markdownAvailable ? markdownMode : 'code';
@@ -6330,20 +6337,23 @@
         const clean = paths.filter((path) => openFilesRef.current.find((file) => file.path === path)?.dirty !== true);
         for (const path of clean) {
           try {
-            const value = await callFs({ op: 'read', path });
-            const model = modelsRef.current.get(path);
-            if (model !== undefined) {
-              /* Replace content without marking the model dirty. */
-              silentReloadRef.current.add(path);
-              try {
-                model.setValue(value.content);
-                model.pushStackElement?.();
-              } finally {
-                silentReloadRef.current.delete(path);
+            const file = openFilesRef.current.find((entry) => entry.path === path) ?? null;
+            const value = await callFs({ op: workspaceReloadOperation(file), path });
+            if (file?.kind !== 'image') {
+              const model = modelsRef.current.get(path);
+              if (model !== undefined) {
+                /* Replace content without marking the model dirty. */
+                silentReloadRef.current.add(path);
+                try {
+                  model.setValue(value.content);
+                  model.pushStackElement?.();
+                } finally {
+                  silentReloadRef.current.delete(path);
+                }
               }
             }
             setOpenFiles((list) =>
-              list.map((entry) => (entry.path === path ? { ...entry, content: value.content, dirty: false, mtime: value.mtime ?? entry.mtime } : entry)),
+              list.map((entry) => (entry.path === path ? workspaceFileAfterReload(entry, value) : entry)),
             );
             delete findings[path];
           } catch {
@@ -10374,7 +10384,7 @@
                     'data-dsh-markdown-editor-pane': '',
                   }),
                   activeImage
-                    ? workspaceImagePreviewElement(t, activePath, activeFile)
+                    ? workspaceImagePreviewElement(t, activePath, activeFile, activateImagePane)
                     : markdownAvailable
                     ? React.createElement(MarkdownPreviewPane, {
                         key: activePath,
@@ -10672,7 +10682,7 @@
                         },
                       }),
                       splitImage && splitPath !== null
-                        ? workspaceImagePreviewElement(t, splitPath, splitFile)
+                        ? workspaceImagePreviewElement(t, splitPath, splitFile, activateImagePane)
                         : null,
                     ),
               ),
