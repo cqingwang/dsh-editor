@@ -99,6 +99,7 @@ test('two editor groups share a model and disposing one never disposes it', () =
      ${extractFunction('isMacPlatform')}
      ${extractFunction('ideaControlKeyModifier')}
      ${extractFunction('findUsagesSearchTarget')}
+     ${extractFunction('filterMonacoContextMenuActions')}
      ${extractFunction('createCodeEditorGroup')};
      return createCodeEditorGroup;`,
   )(() => 'vs', '"Trebuchet MS", sans-serif');
@@ -139,6 +140,7 @@ test('editor group actions forward IDEA shortcuts and dispose once', () => {
      ${extractFunction('isMacPlatform')}
      ${extractFunction('ideaControlKeyModifier')}
      ${extractFunction('findUsagesSearchTarget')}
+     ${extractFunction('filterMonacoContextMenuActions')}
      ${extractFunction('createCodeEditorGroup')};
      return createCodeEditorGroup;`,
   )(() => 'vs', '"Trebuchet MS", sans-serif');

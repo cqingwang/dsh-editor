@@ -22,9 +22,9 @@ test('explicit incremental queries override an existing Find draft and reset sco
     source.indexOf('const openEditorFindInSelection = React.useCallback'),
   );
   assert.match(open, /const hasExplicitQuery = typeof initialQuery === 'string'/u);
-  assert.match(open, /const find = hasExplicitQuery \? requestedFind : selectedFind/u);
-  assert.match(open, /find,\n\s+index: 0,/u);
-  assert.match(open, /scope: null/u);
+  assert.match(open, /const find = hasExplicitQuery \? requestedFind : base\.find/u);
+  assert.match(open, /hasExplicitQuery \? null : \(base\.scope \?\? null\)/u);
+  assert.match(open, /withReplace,\n\s+scope,/u);
   assert.match(open, /'\[data-dsh-editor-find-input\]'/u);
   assert.match(source, /'data-dsh-editor-find-input': ''/u);
 });

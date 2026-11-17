@@ -4023,7 +4023,9 @@
             error: null,
           };
           const find = hasExplicitQuery ? requestedFind : base.find;
-          const scope = scopeOverride === undefined ? (base.scope ?? null) : scopeOverride;
+          const scope = scopeOverride === undefined
+            ? (hasExplicitQuery ? null : (base.scope ?? null))
+            : scopeOverride;
           const result = model !== null && find !== ''
             ? editorFindResult(model.getValue(), find, { ...base, scope })
             : { matches: [], error: null };

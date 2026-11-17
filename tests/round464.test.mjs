@@ -71,10 +71,10 @@ test('current-file replace exposes IDEA Meta+R and a single replace command', ()
   assert.match(source, /const replaceCurrent = React\.useCallback/);
   assert.match(source, /t\('editor\.replaceCurrent'\)/);
   assert.match(source, /event\.key\.toLowerCase\(\) === 'r'/);
-  assert.match(source, /const selected = model !== null && selection !== null/);
-  assert.match(source, /const selectedFind = selected\.includes\('\\n'\) \|\| selected\.length > 200 \? '' : selected/);
   assert.match(source, /const hasExplicitQuery = typeof initialQuery === 'string'/);
-  assert.match(source, /const find = hasExplicitQuery \? requestedFind : selectedFind/);
+  assert.match(source, /const find = hasExplicitQuery \? requestedFind : base\.find/);
+  assert.match(source, /const request = editorFindKeyboardRequest\(editor\)/);
+  assert.match(source, /openEditorFindInSelection\(request\.scope, withReplace, request\.query, focusTarget\)/);
 });
 
 test('host searches workspace text in bounded files and returns line locations', async (t) => {

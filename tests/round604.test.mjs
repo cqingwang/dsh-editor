@@ -68,6 +68,7 @@ function createGroupHarness(platform) {
      ${extractFunction('isMacPlatform')}
      ${extractFunction('ideaControlKeyModifier')}
      ${extractFunction('findUsagesSearchTarget')}
+     ${extractFunction('filterMonacoContextMenuActions')}
      ${extractFunction('createCodeEditorGroup')};
      return createCodeEditorGroup;`,
   )({ platform }, () => 'vs', 'monospace');

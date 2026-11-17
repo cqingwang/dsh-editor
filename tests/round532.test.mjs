@@ -26,11 +26,12 @@ test('Find Usages in File keeps editor/symbol disabled reasons', () => {
 
 test('the editor Find opener accepts a preselected usage query without dropping options', () => {
   const open = source.slice(source.indexOf('const openEditorFind = React.useCallback'), source.indexOf('/* IDEA\'s editor search family'));
-  assert.match(open, /const openEditorFind = React\.useCallback\(\(withReplace = false, initialQuery = null, focusTarget = 'query'\) => \{/);
+  assert.match(open, /const openEditorFind = React\.useCallback\(\(withReplace = false, initialQuery = null, focusTarget = 'query', scopeOverride = undefined\) => \{/);
   assert.match(open, /const requestedFind = typeof initialQuery === 'string' \? initialQuery\.trim\(\) : ''/);
   assert.match(open, /const hasExplicitQuery = typeof initialQuery === 'string'/);
-  assert.match(open, /const find = hasExplicitQuery \? requestedFind : selectedFind/);
-  assert.match(open, /editorFindResult\(model\.getValue\(\), find, savedOptions\)/);
+  assert.match(open, /const find = hasExplicitQuery \? requestedFind : base\.find/);
+  assert.match(open, /hasExplicitQuery \? null : \(base\.scope \?\? null\)/);
+  assert.match(open, /editorFindResult\(model\.getValue\(\), find, \{ \.\.\.base, scope \}\)/);
 });
 
 test('Find Usages in File is localized in both dictionaries', () => {

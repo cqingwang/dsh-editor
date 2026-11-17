@@ -29,6 +29,7 @@ function createGroupHarness() {
      ${extractSource('ideaControlKeyModifier')}
      ${extractSource('findUsagesSearchTarget')}
      ${extractSource('editorFindSelectionScope')}
+     ${extractSource('filterMonacoContextMenuActions')}
      ${extractSource('createCodeEditorGroup')};
      return createCodeEditorGroup;`,
   )(() => 'vs', 'monospace');
