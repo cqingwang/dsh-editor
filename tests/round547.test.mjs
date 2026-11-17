@@ -7,25 +7,23 @@ const groupStart = source.indexOf('function createCodeEditorGroup(');
 const groupEnd = source.indexOf('\n    /**\n     * Reuse one workspace model', groupStart);
 const group = source.slice(groupStart, groupEnd);
 
-test('Monaco context menu exposes workspace Find and Replace actions', () => {
+test('workspace Find and Replace actions stay executable without redundant context-menu rows', () => {
   const find = group.slice(
     group.indexOf('id: `dsh-editor.findInFiles.${groupId}`'),
     group.indexOf('id: `dsh-editor.replaceInFiles.${groupId}`'),
   );
   const replace = group.slice(
     group.indexOf('id: `dsh-editor.replaceInFiles.${groupId}`'),
-    group.indexOf("id: 'dsh-editor.closeTab'"),
+    group.indexOf('id: `dsh-editor.findUsagesInFile.${groupId}`'),
   );
   assert.match(find, /label: actionsHandlers\.findInFilesLabel \?\? 'Find in Files…'/);
   assert.match(find, /precondition: findUsagesPrecondition/);
-  assert.match(find, /contextMenuGroupId: 'navigation'/);
-  assert.match(find, /contextMenuOrder: 1\.6/);
+  assert.doesNotMatch(find, /contextMenuGroupId|contextMenuOrder/);
   assert.match(find, /actionsHandlers\.onFindInFiles\?\.\(editor\)/);
 
   assert.match(replace, /label: actionsHandlers\.replaceInFilesLabel \?\? 'Replace in Files…'/);
   assert.match(replace, /precondition: findUsagesPrecondition/);
-  assert.match(replace, /contextMenuGroupId: 'navigation'/);
-  assert.match(replace, /contextMenuOrder: 1\.7/);
+  assert.doesNotMatch(replace, /contextMenuGroupId|contextMenuOrder/);
   assert.match(replace, /actionsHandlers\.onReplaceInFiles\?\.\(editor\)/);
 });
 

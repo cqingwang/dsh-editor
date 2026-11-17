@@ -94,7 +94,7 @@ test('flattenRows compacts loaded chains while preserving the deepest real path'
   assert.match(source, /rows\.push\(\{ \.\.\.rowEntry, depth: frame\.depth, continues \}\);/);
 });
 
-test('expanding a compact chain uses the same bounded three-level lazy traversal', () => {
+test('expanding a compact chain uses the same bounded one-level lazy traversal', () => {
   const start = source.indexOf('const toggleDirectory = React.useCallback(async (path) => {');
   assert.notEqual(start, -1);
   const body = source.slice(start, source.indexOf('}, [expanded, foldersFirst', start));

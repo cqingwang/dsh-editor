@@ -93,11 +93,11 @@ test('extension input is opened from the toolbar and hidden when unused', () => 
 
 test('all text-search and replace handoffs use normalized extension masks', () => {
   assert.ok((source.match(/fileMask: normalizeFileExtensionFilter\(/g) ?? []).length >= 7);
-  assert.match(source, /searchFileMaskLabel: '文件后缀'/);
-  assert.match(source, /searchFileMaskLabel: 'File extension'/);
-  assert.match(source, /searchFileMask: '文件后缀（例如 \.ts, \.md；也支持 \*\.ts, src\/\*\*）'/);
-  assert.match(source, /searchFileSuffixFilter: '文件后缀筛选'/);
-  assert.match(source, /searchFileSuffixFilter: 'File extension filter'/);
+  assert.match(source, /searchFileMaskLabel: '文件掩码'/);
+  assert.match(source, /searchFileMaskLabel: 'File mask'/);
+  assert.match(source, /searchFileMask: '文件掩码（例如 \.ts, \.md；也支持 \*\.ts, src\/\*\*）'/);
+  assert.match(source, /searchFileSuffixFilter: '文件掩码筛选'/);
+  assert.match(source, /searchFileSuffixFilter: 'File mask filter'/);
 });
 
 test('double Shift and Cmd/Ctrl+Shift+F call one Find in Files shortcut body', () => {
@@ -106,7 +106,8 @@ test('double Shift and Cmd/Ctrl+Shift+F call one Find in Files shortcut body', (
     source.indexOf('const closeFindToolWindow', source.indexOf('const openFindInFilesFromShortcut = React.useCallback')),
   );
   assert.match(shortcut, /if \(findTool !== null\)/);
-  assert.match(shortcut, /openFindTool\('', 'find'\)/);
+  assert.match(shortcut, /selectedEditorFindQuery\(currentCodeEditor\(\)\)/);
+  assert.match(shortcut, /openFindTool\(selectedQuery, 'find'\)/);
   const doubleShiftEffect = source.slice(
     source.indexOf('/* Double Shift remains a registered alias'),
     source.indexOf('React.useEffect(() => {\n        searchEverywhereFilesRequestRef', source.indexOf('/* Double Shift remains a registered alias')),

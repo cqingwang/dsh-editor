@@ -2035,6 +2035,27 @@
     }
 
     /**
+     * Resolve the editor Find input for the current keyboard gesture.
+     *
+     * A non-empty selection owns both the search scope and, when short enough,
+     * the initial query. No selection explicitly means the whole file.
+     * @param {object|null} editor - active Monaco editor.
+     * @returns {{scope: {start: number, end: number}|null, query: string|null}} request.
+     */
+    function editorFindKeyboardRequest(editor) {
+      const scope = editorFindSelectionScope(editor);
+      if (scope === null) return { scope: null, query: null };
+      const model = editor?.getModel?.() ?? null;
+      const selection = editor?.getSelection?.() ?? null;
+      if (model === null || selection === null) return { scope, query: null };
+      const selected = String(model.getValueInRange(selection) ?? '');
+      return {
+        scope,
+        query: selected.includes('\n') || selected.length > 200 ? null : selected,
+      };
+    }
+
+    /**
      * IDEA Toggle Find in Selection either flips the scope of an open Find bar
      * or opens Find directly in the selected range. It is a no-op only when
      * neither an open Find nor a selection scope exists.
@@ -2577,6 +2598,19 @@
     }
 
     /**
+     * Versioned Project expansion key.
+     *
+     * Legacy `dsh-editor.expanded:<root>` values were also written by the old
+     * automatic three-level expansion path. Ignoring that generation prevents
+     * stale auto-expanded descendants from opening the new tree.
+     * @param {string} root - absolute workspace root.
+     * @returns {string} browser-local storage key.
+     */
+    function expandedStorageKey(root) {
+      return `dsh-editor.expanded.v2:${root}`;
+    }
+
+    /**
      * Read the persisted expansion set for one workspace.
      * @param {string} root - absolute workspace root, used as the storage key.
      * @returns {string[]} workspace-relative directory paths.
@@ -2584,7 +2618,7 @@
     function readExpanded(root) {
       if (root === '') return [];
       try {
-        const raw = window.localStorage.getItem(`dsh-editor.expanded:${root}`);
+        const raw = window.localStorage.getItem(expandedStorageKey(root));
         const parsed = raw === null ? null : JSON.parse(raw);
         return Array.isArray(parsed) ? parsed.filter((value) => typeof value === 'string' && value !== '') : [];
       } catch {
@@ -2600,7 +2634,7 @@
     function writeExpanded(root, expanded) {
       if (root === '') return;
       try {
-        window.localStorage.setItem(`dsh-editor.expanded:${root}`, JSON.stringify([...expanded].filter((value) => value !== '')));
+        window.localStorage.setItem(expandedStorageKey(root), JSON.stringify([...expanded].filter((value) => value !== '')));
       } catch {
         /* a storage-less browser simply forgets the expansion */
       }

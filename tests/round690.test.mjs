@@ -22,8 +22,11 @@ function extractFunction(name) {
 const prefetchDirectorySubtrees = new Function(
   `${extractFunction('prefetchDirectorySubtrees')}; return prefetchDirectorySubtrees;`,
 )();
+const compactDirectoryExpansionPaths = new Function(
+  `${extractFunction('compactDirectoryExpansionPaths')}; return compactDirectoryExpansionPaths;`,
+)();
 
-test('Project prefetches information for three directory levels without expanding them', async () => {
+test('Project prefetches one directory level without expanding it', async () => {
   const listings = {
     a: [{ path: 'a/b', kind: 'directory' }],
     'a/b': [{ path: 'a/b/c', kind: 'directory' }],
@@ -39,29 +42,30 @@ test('Project prefetches information for three directory levels without expandin
       return listings[path] ?? [];
     },
     200,
-    3,
+    1,
   );
-  assert.deepEqual(calls, ['a', 'a/b', 'a/b/c']);
-  assert.deepEqual(Object.keys(result.children).sort(), ['a', 'a/b', 'a/b/c']);
-  assert.equal(result.children['a/b/c/d'], undefined);
+  assert.deepEqual(calls, ['a']);
+  assert.deepEqual(Object.keys(result.children), ['a']);
+  assert.equal(result.children['a/b'], undefined);
   assert.equal('expanded' in result, false);
 });
 
-test('A clicked directory anchors prefetch but expands only that clicked node', () => {
+test('A clicked directory anchors background prefetch without waiting for it', () => {
   const toggle = source.slice(
     source.indexOf('const toggleDirectory = React.useCallback(async (path) => {'),
     source.indexOf('/* Open a file, reusing its existing tab. */'),
   );
   assert.match(toggle, /const willExpand = !expanded\.has\(path\)/);
-  assert.match(toggle, /prefetchDirectorySubtrees\(\s*\[path\],/);
+  assert.match(toggle, /void prefetchDirectorySubtrees\(\s*\[path\],/);
   assert.match(toggle, /PROJECT_PREFETCH_DEPTH/);
-  assert.match(toggle, /const expandedPaths = \[path\]/);
+  assert.match(toggle, /let expandedPaths = compactDirectories === true/);
   assert.match(toggle, /setExpanded\(\(current\) => new Set\(\[\.\.\.current, \.\.\.expandedPaths\]\)\)/);
+  assert.doesNotMatch(toggle, /await prefetchDirectorySubtrees/);
   assert.doesNotMatch(toggle, /setExpanded\(value\.expanded\)/);
 });
 
 test('Startup prefetch fills children but leaves the visible expansion tree collapsed', () => {
-  assert.match(source, /const PROJECT_PREFETCH_DEPTH = 3;/);
+  assert.match(source, /const PROJECT_PREFETCH_DEPTH = 1;/);
   assert.match(source, /const PROJECT_PREFETCH_VISIT_LIMIT = 200;/);
   const root = source.slice(
     source.indexOf('const loadRoot = React.useCallback'),
@@ -73,11 +77,19 @@ test('Startup prefetch fills children but leaves the visible expansion tree coll
   assert.doesNotMatch(root, /writeExpanded\(workspaceRoot, prefetched/);
 });
 
-test('Compact Directories still treats one continuous chain as one visual node', () => {
+test('Compact Directories resolves one continuous chain before and after refresh', () => {
   const toggle = source.slice(
     source.indexOf('const toggleDirectory = React.useCallback(async (path) => {'),
     source.indexOf('/* Open a file, reusing its existing tab. */'),
   );
   assert.match(toggle, /compactDirectories === true/);
-  assert.match(toggle, /expandedPaths\.push\(nextPath\)/);
+  assert.match(toggle, /compactDirectoryExpansionPaths\(path, childrenRef\.current\)/);
+  assert.match(toggle, /compactDirectoryExpansionPaths\(path, mergedChildren\)/);
+
+  const children = {
+    a: [{ path: 'a/b', kind: 'directory' }],
+    'a/b': [{ path: 'a/b/c', kind: 'directory' }],
+    'a/b/c': [{ path: 'a/b/c/d', kind: 'directory' }],
+  };
+  assert.deepEqual(compactDirectoryExpansionPaths('a', children), ['a', 'a/b', 'a/b/c', 'a/b/c/d']);
 });

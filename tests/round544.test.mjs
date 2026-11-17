@@ -31,10 +31,11 @@ test('Search Web keeps editor and symbol disabled reasons distinct', () => {
   assert.match(action, /editor\.findUsagesSymbolRequired/);
 });
 
-test('Search Web is localized in both dictionaries', () => {
-  assert.match(source, /searchWebAction: '使用 Google 搜索'/);
-  assert.match(source, /searchWebHint: '使用 Google 搜索选中文本或光标处标识符'/);
-  assert.match(source, /searchWebAction: 'Search with Google'/);
-  assert.match(source, /searchWebSynonym: 'Search Web'/);
-  assert.match(source, /searchWebHint: 'Search the Web for the selection or symbol at caret'/);
+test('Browser Search is localized while Google remains a searchable alias', () => {
+  assert.match(source, /searchWebAction: '浏览器搜索'/);
+  assert.match(source, /searchWebHint: '在浏览器中搜索选中文本或光标处标识符'/);
+  assert.match(source, /searchWebAction: 'Browser Search'/);
+  assert.match(source, /searchWebSynonym: '使用 Google 搜索 · 搜索 Web'/);
+  assert.match(source, /searchWebSynonym: 'Search with Google · Search Web'/);
+  assert.match(source, /searchWebHint: 'Search the selected text or symbol at the caret in the browser'/);
 });

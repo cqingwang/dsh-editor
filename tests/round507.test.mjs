@@ -4,7 +4,8 @@ import test from 'node:test';
 
 const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
 const comment = source.indexOf("/* IDEA's editor search family: ⌘F Find");
-const shortcut = source.slice(comment, source.indexOf("}, [openEditorFind, openFindTool, searchEverywhereOpen]);", comment));
+const effectStart = source.indexOf('React.useEffect(() => {', comment);
+const shortcut = source.slice(comment, source.indexOf('\n      }, [', effectStart));
 
 test('Search Everywhere only defers the Replace key to its own handler', () => {
   assert.match(shortcut, /const key = event\.key\.toLowerCase\(\);/);
@@ -15,7 +16,7 @@ test('Search Everywhere only defers the Replace key to its own handler', () => {
 
 test('Cmd/Ctrl+F and Shift+Cmd/Ctrl+F still reach the editor find actions', () => {
   assert.match(shortcut, /if \(key === 'f' && event\.shiftKey\)/);
-  assert.match(shortcut, /openFindTool\('', 'find'\)/);
+  assert.match(shortcut, /openFindInFilesFromShortcut\(\)/);
   assert.match(shortcut, /if \(searchEverywhereOpen && key === 'f' && !event\.shiftKey\) setSearchEverywhere\(null\)/);
-  assert.match(shortcut, /openEditorFind\(event\.altKey\)/);
+  assert.match(shortcut, /openEditorFindFromShortcut\(event\.altKey\)/);
 });

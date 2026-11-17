@@ -1,5 +1,279 @@
 # dsh-editor 工程记忆
 
+## 2026-11-17 — Find/Replace 按 live selection 自动收敛 scope
+
+**作用域**：Monaco 正文右键菜单、编辑器 `Cmd/Ctrl+F`、`Cmd/Ctrl+R`、
+Find/Replace 的 selection scope。
+
+**用户目标**：
+
+- 正文右键移除 `命令面板 / 增量搜索 / 仅在选区内搜索 /
+  仅在选区内替换`；
+- 有选区时按 `Cmd/Ctrl+F` 或 `Cmd/Ctrl+R` 自动只在选区搜索/替换；
+- 无选区时同一快捷键回到整个文件；
+- 不删除 Incremental Search、selection-only 的 Search Everywhere
+  入口或底层能力。
+
+**根因/缺口**：
+
+- Incremental Search 和两个 selection-only 动作仍注册在 Monaco
+  `navigation` context menu group；
+- Command Palette 是 Monaco standalone 内置 action，无法通过
+  `editor.addAction` 删除其菜单注册；
+- `Cmd/Ctrl+F/R` 只打开 Find/Replace，选区 scope 仍取决于上一条
+  Find 状态，无法明确表达“本次快捷键有选区/无选区”。
+
+**最终修复**：
+
+- 三个 DSH 自定义 action 移除 `contextMenuGroupId/contextMenuOrder`，
+  但保留 action、keybinding 和 Search Everywhere 路由；
+- `filterMonacoContextMenuActions()` 包装 ContextMenuController 的
+  `_getMenuActions`，按 action id 隐藏
+  `editor.action.quickCommand`，dispose 时恢复；
+- 新增 `editorFindKeyboardRequest()`：一次性读取 live selection，
+  返回 selection offset scope 和短选区的初始 query；
+- Cmd/Ctrl+F、Cmd/Ctrl+R 统一调用
+  `openEditorFindFromShortcut()`：有 scope 时使用
+  `openEditorFindInSelection()`；无 scope 时传显式 `scopeOverride=null`
+  给 `openEditorFind()`，清空旧 selection scope；
+- Replace All 继续复用同一 `replaceState.scope`，没有第二套替换路径。
+
+**回归**：
+
+- 新增 round725：**4 pass / 0 fail**；
+- 定向 round725 / 550 / 552 / 545 / 722 / 504 / 507 / 509 / 511 /
+  577 / static-order / round671：**41 pass / 0 fail**；
+- 全量 `npm test`：**2436 pass / 0 fail**。
+
+**运行态证据**：
+
+- Ego Browser / 隔离 r526：
+  - Monaco 正文右键中
+    `Command Palette / Incremental Search / Search in Selection Only /
+    Replace in Selection Only` 均消失；
+  - 选择 `TerminalHub` 后 `Cmd+F`：query 为该文本，
+    Selection Only `aria-pressed=true`；
+  - 清除选区后 `Cmd+F`：Selection Only 回到 `false`；
+  - 选择 `TerminalHub` 后 `Cmd+R`：Replace 输入可见且聚焦，
+    Selection Only `aria-pressed=true`；
+  - 清除选区后 `Cmd+R`：Replace 输入可见且聚焦，
+    Selection Only `aria-pressed=false`；
+  - 临时 model `AAAA\nBBBB\nAAAA` 中选择第一个 `AAAA`，Replace All
+    `ZZ` 后得到 `ZZ\nBBBB\nAAAA`，随后恢复原内容。
+
+## 2026-11-17 — Project 目录展开卡顿与预取收敛到 1 层
+
+**作用域**：Project 文件树目录展开、workspace 初次加载预取、
+Compact Directories 连续链。
+
+**症状/根因**：
+
+- 点击目录后界面要等待明显时间才出现直属子项；
+- `toggleDirectory()` 把 `prefetchDirectorySubtrees([path], depth=3)`
+  放在可见展开的关键路径上，helper 会串行读取点击目录及最多 200 个
+  后代目录，全部完成后才更新 children/expanded；
+- workspace 首次加载也预取 3 层，进一步扩大启动请求与后续点击的
+  竞争压力。
+
+**最终修复**：
+
+- 有 children 缓存时先立即 `setExpanded`，随后只刷新 clicked path
+  自身一次 `list`；
+- 无缓存时最多等待当前目录自己的直接 listing，不再等待多层 BFS；
+- `PROJECT_PREFETCH_DEPTH` 从 3 改为 1，预取函数默认深度同步改为 1；
+- 后台预取改为 `void`，使用 workspace 与 per-directory token 防止旧
+  请求回写；
+- Compact Directories 的连续单链解析抽到 `project.js`，缓存路径先
+  立即解析，刷新后再按最新 listing 解析一次；
+- 后台预取仍然只写 children，不写 expanded。
+
+**回归**：
+
+- round723 覆盖缓存立即展开、无缓存只等直接 listing、预取非阻塞；
+- round690 覆盖一层预取、启动不展开和 Compact Directories；
+- round694 / 206 / 723 的名称与断言已从三层更新为一层；
+- 定向 round723 / 690 / 694 / 206 / 327 / project-toolwindow /
+  round671：**38 pass / 0 fail**；
+- 全量 `npm test`：**2432 pass / 0 fail**；
+- `npm run check:client-build`、`node --check lib/client.js`、
+  `node --check lib/index.js`、`git diff --check` 均通过。
+
+**运行态证据**：
+
+- Ego Browser / 隔离 r526；
+- Project 初次打开只显示 `.idea / docs / src / README.md` 顶层行，
+  目录均折叠；
+- 测量点击 `src` 到直属 `app.js / nav-main.js / nav-target.js` 行
+  出现约 **3.5ms**；
+- 页面无 alert，展开后树结构与 fixture 一致。
+
+## 2026-11-17 — 选区直填 Find in Files、右键菜单收敛与 Browser Search
+
+**作用域**：Monaco live selection、Find/Replace in Files 快捷入口、
+编辑器正文右键菜单、Search Everywhere Search Web 可见文案。
+
+**用户目标**：
+
+- 有选区时 `Cmd/Ctrl+Shift+F`、`Cmd/Ctrl+Shift+R` 与双击 Shift
+  自动把选区原文填入查询框；
+- 重复快捷键必须用编辑器最新选区覆盖现有 query；
+- 正文右键移除 `Find in Files… / Replace in Files… / Replace… /
+  Find Usages…`；
+- `Search with Google` 可见文案改为 `Browser Search / 浏览器搜索`。
+
+**缺口/根因**：
+
+- 快捷 opener 固定传空 query；Find 已打开时只聚焦旧 query；
+- 单行文本 input 会吞掉多行选区换行；
+- 四个搜索动作虽然仍可右键执行，但用户认为它们是重复高频噪声；
+- 可见 label 仍把浏览器搜索限定为 Google。
+
+**修复**：
+
+- 新增 `selectedEditorFindQuery()`，从当前 Monaco live selection
+  读取未 trim 原文；
+- Find/Replace opener 在选区非空时替换 query、清空旧结果并递增
+  searchGeneration；无选区时保持原有空白/聚焦行为；
+- 双击 Shift 与 CmdShiftF 共用 find opener，CmdShiftR 使用 replace
+  opener；
+- query 含换行时自动启用 Search New Line，切换到 textarea；
+- 仅删除四个 Monaco action 的 contextMenuGroupId/order，保留动作、
+  keybinding 和 Search Everywhere 入口；
+- 可见文案改为 `Browser Search / 浏览器搜索`，keywords 保留
+  `Search with Google / Search Web`。
+
+**回归**：
+
+- 新增 round722：**5 pass / 0 fail**；
+- RED：初始 **0 pass / 4 fail**；
+- 定向 round722 / 544 / 545 / 546 / 547 / 550 / 530 / 557 / 583 /
+  628：**44 pass / 0 fail**；
+- 全量 `npm test`：**2429 pass / 0 fail**。
+
+**运行态证据**：
+
+- Ego Browser / 隔离 r526：
+  - 选区 `  constructor() {\n    ` 触发 CmdShiftF 后 query 完全一致，
+    自动进入 textarea + New Line；
+  - 再次选择 `}\n` 执行同一快捷键，query 被最新选区整体替换；
+  - CmdShiftR 把 `export class Terminal` 填入 Replace in Files query；
+  - 双击 Shift 把最新选区 `}` 填入 Find in Files；
+  - Monaco 正文右键不再出现四个冗余项；
+  - 同样右键中出现 `Browser Search`。
+
+## 2026-11-17 — Project 首次打开禁止自动展开预取层
+
+**作用域**：workspace `... → Editor` 首次打开、Project 树 expanded
+恢复、初始 tab session restore、Always Select Opened File。
+
+**用户澄清**：
+
+- workspace 只预加载前 3 层目录节点信息；
+- 首次打开 Editor 时不得自动展开这 3 层；
+- 树默认只展开项目根，目录由用户点击后展开。
+
+**根因**：
+
+- prefetch helper 本身只填 children，但旧版展开 key
+  `dsh-editor.expanded:<root>` 曾混入自动三层路径，升级后仍被恢复；
+- 初始 editor session restore 会依次激活多个历史 tab
+  （实测 `nav-target.js → README.md → nav-target.js`），
+  Always Select Opened File 把这些恢复过程误当成用户 tab 切换，
+  调 `revealInProjectTree()` 展开 `src/`；
+- expanded effect 随后把自动展开写入持久化，下一次继续污染。
+
+**修复**：
+
+- expanded 改为版本化 key `dsh-editor.expanded.v2:<root>`，旧 key
+  不再读取；用户之后手动展开会写 v2 并继续持久化；
+- session restore 开始时关闭 Project autoscroll arm，恢复完成后下一
+  macrotask 才 arm；restore 期间的 activePath 变化不触发 reveal；
+- 用户后续切换 tab 仍走原 `revealInProjectTree()`，Always Select
+  Opened File 的交互保留；
+- prefetch 仍为 3 层 BFS，且仍不写 expanded。
+
+**回归**：
+
+- 新增 round721：**4 pass / 0 fail**；
+- RED：初始 **0 pass / 3 fail**；补充 autoscroll 用例后 4 pass；
+- 定向 round721 / 690 / 694 / 138 / 379 / project-toolwindow /
+  round173：**31 pass / 0 fail**；
+- 全量 `npm test`：**2424 pass / 0 fail**。
+
+**运行态证据**：
+
+- Ego Browser / 隔离 r526：
+  - 注入旧 key `["src","src/lang","src/lang/base"]` 并删除 v2 后打开
+    Editor；
+  - 树仅有 `.idea / docs / src / README.md` 四个顶层行，
+    所有目录 `aria-expanded=false`，无 level-2 行；
+  - 旧 key 保留但被忽略，v2 初始为 `null`；
+  - 手动展开 `src` 后 v2 写为 `["src"]`；
+  - 用户先切 README、再切回 nav-target 后，autoscroll 正常展开
+    `src` 并选中目标文件；
+  - 验证后已收起 src 并删除测试 v2 key。
+
+## 2026-11-17 — Find in Files 空结果选项提示与快捷键
+
+**作用域**：IDEA `Cmd+Shift+F` 的 Find/Replace in Files 空结果状态、
+搜索选项摘要、清除动作、File mask 命名和快捷键。
+
+**缺口**：
+
+- DSH 空结果只显示 `No matches`，没有 IDEA 的
+  `Search option used / Clear option`；
+- File mask 控件在 DSH 中仍叫 `File extension`，与 IDEA 实窗不一致；
+- IDEA 在多选项时显示 `Search options used` 和每项清除快捷键，
+  DSH 没有对应动作。
+
+**IDEA CUA 证据**：
+
+- `ZZZZ_NOT_FOUND_TOKEN` + File mask：
+  `Nothing found. / Search option used: File mask / Clear option ⌥⇧⌫`；
+- 再加 Match case：`Search option used: Match case / Clear option`；
+- Match case + Words：
+  `Search options used: Match case ⌃C  Words ⌃W / Clear all options ⌥⇧⌫`；
+- 再加 Regex：
+  `Match case ⌃C  Words ⌃W  Regex ⌃X`。
+
+**修复**：
+
+- Find in Files 复用 `searchEverywhereActiveOptionIds()`，避免两套
+  active-option 判定漂移；
+- floating popup 空结果显示 `Nothing found.`，并按单/多选项显示
+  `Search option used(s)`；
+- Clear 只重置 Match Case / Whole Words / Regex / File mask，保留 query、
+  scope、Filter、Preserve case 和 Replace；
+- query/replace 输入所在 Find 工具窗支持 `Ctrl+C / Ctrl+W / Ctrl+X`
+  清对应选项、`Alt+Shift+Backspace` 清全部；有文本选区时不抢占复制；
+- `File extension` 可见文案统一为 IDEA 的 `File mask / 文件掩码`。
+
+**回归**：
+
+- 新增 round720：**6 pass / 0 fail**；
+- RED：初始 **0 pass / 6 fail**；
+- 定向 round720 / 594 / 596 / 628 / 630 / 632 / 636 / 639 / 641 /
+  648 / 649：**52 pass / 0 fail**；
+- 全量 `npm test`：**2420 pass / 0 fail**。
+
+**运行态证据**：
+
+- Ego Browser / 隔离 r526 / `127.0.0.1:63237`：
+  - 空结果显示 `Nothing found.`；
+  - Match Case 单项显示 `Search option used: Match Case ⌃C`、
+    `Clear option ⌥⇧⌫`；
+  - Match Case + Regex 显示 `Search options used` 与
+    `Clear all options ⌥⇧⌫`；
+  - `Control+C` 只清除 Match Case，保留 Regex；
+  - `Alt+Shift+Backspace` 清除剩余选项，query 保留且焦点回到查询框；
+  - File mask 标签为 `File mask:`。
+
+**下一轮风险**：
+
+- IDEA 结果 Preview 标题行还提供 `Soft-Wrap Preview Editor`，DSH 当前
+  没有对应直接动作；
+- 需要继续检查 History 菜单和 File mask combo 的 IDEA 默认建议。
+
 ## 2026-11-17 — Harness 一级发送入口与 Monaco 选区引用
 
 **作用域**：Project 文件树、编辑器标签、diff 标签、Monaco 正文右键菜单、

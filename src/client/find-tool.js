@@ -562,6 +562,11 @@
       const [resultMenu, setResultMenu] = React.useState(null);
       const [previewState, setPreviewState] = React.useState({ loading: false, path: '', content: '', line: 1, error: null });
       const query = typeof state.query === 'string' ? state.query : '';
+      React.useEffect(() => {
+        /* A multiline editor selection must stay visible and searchable as
+           selected. Switch the query field to New Line mode before rerender. */
+        if (/[\r\n]/u.test(query) && searchNewLine === false) setSearchNewLine(true);
+      }, [query, searchNewLine]);
       const scopeModeOptions = [
         { id: 'project', label: `${t('editor.findScopeIn')} ${t('editor.findScopeProject')}`, disabled: false },
         { id: 'module', label: t('editor.findScopeModule'), disabled: true },
@@ -779,14 +784,27 @@
         if (showFindSearchOptionSummary !== true) return false;
         const action = findSearchOptionShortcutAction(event);
         if (action === null) return false;
-        const idleSelection = event.currentTarget.selectionStart === event.currentTarget.selectionEnd;
+        const editable = event.target instanceof HTMLElement && typeof event.target.selectionStart === 'number'
+          ? event.target
+          : null;
+        const idleSelection = editable === null || editable.selectionStart === editable.selectionEnd;
         if (idleSelection !== true) return false;
         if (action !== 'clear' && activeFindSearchOptionIds.includes(action) === false) return false;
         event.preventDefault();
         event.stopPropagation();
-        clearFindSearchOptions(action);
+        clearFindSearchOptions(action === 'clear' ? 'all' : action);
         return true;
       };
+      React.useEffect(() => {
+        if (showFindSearchOptionSummary !== true) return undefined;
+        const onKeyDown = (event) => {
+          if (!(event.target instanceof Element)
+            || event.target.closest('[data-dsh-find-tool-window]') === null) return;
+          handleFindSearchOptionShortcut(event);
+        };
+        window.addEventListener('keydown', onKeyDown, true);
+        return () => window.removeEventListener('keydown', onKeyDown, true);
+      }, [activeFindSearchOptionsText, showFindSearchOptionSummary, state.caseSensitive, state.wholeWords, state.regex, state.fileMask]);
       const replaceFocusRequest = Math.max(0, Number(state.replaceFocusRequest) || 0);
       const previewWindow = previewOpen
         ? searchEverywherePreviewWindow(previewState.content, previewState.line)
@@ -1735,7 +1753,6 @@
             'aria-activedescendant': active === null ? undefined : findToolOptionId(active.rowKey),
             onChange: (event) => onQuery(event.target.value),
             onKeyDown: (event) => {
-              if (handleFindSearchOptionShortcut(event)) return;
               if (searchNewLine && event.key === 'Enter' && event.metaKey !== true && event.ctrlKey !== true) return;
               if (
                 floating
@@ -1842,7 +1859,6 @@
                 'aria-label': t('editor.findToolReplacePlaceholder'),
                 onChange: (event) => onReplace(event.target.value),
                 onKeyDown: (event) => {
-                  if (handleFindSearchOptionShortcut(event)) return;
                   if (
                     replaceNewLine
                     && event.key === 'Enter'

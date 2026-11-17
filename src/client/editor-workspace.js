@@ -1,5 +1,21 @@
 /* editor-workspace.js: dsh-editor client module. Generated into lib/client.js by scripts/build-client.mjs. */
     /**
+     * Read the exact live editor selection for Find/Replace in Files.
+     *
+     * The query is not trimmed: IDEA preserves selected whitespace and
+     * multiline text in the content field. An empty/collapsed selection
+     * returns an empty string so callers keep their existing query.
+     * @param {object|null} editor - Monaco editor instance.
+     * @returns {string} selected text, or an empty string.
+     */
+    function selectedEditorFindQuery(editor) {
+      const model = editor?.getModel?.() ?? null;
+      const selection = editor?.getSelection?.() ?? null;
+      if (model === null || selection === null || typeof selection.isEmpty !== 'function' || selection.isEmpty()) return '';
+      return String(model.getValueInRange(selection) ?? '');
+    }
+
+    /**
      * Convert a Monaco editor's live selection into a Harness reference range.
      *
      * A caret has no range and is projected as one line-column pair. A real
@@ -45,7 +61,7 @@
       const [expanded, setExpanded] = React.useState(() => new Set(['']));
       /* Restored once the workspace root is known, so keys can include it. */
       const expandedRestoredRef = React.useRef('');
-      /* 三层目录预取每个 workspace 只执行一次，轮询刷新不得重复请求。 */
+      /* 一层目录预取每个 workspace 只执行一次，轮询刷新不得重复请求。 */
       const prefetchedRootRef = React.useRef('');
       /* IDEA's project tree is multi-select: one primary row plus shift/⌘ extended rows. */
       const [selectedPath, setSelectedPathRaw] = React.useState(null);
@@ -763,6 +779,9 @@
       const sessionRestoredFor = React.useRef('');
       const sessionRestoringRef = React.useRef(false);
       const sessionRestoreGeneration = React.useRef(0);
+      /* Project autoscroll is armed only after initial tab restoration settles;
+         restoring several saved paths must not expand their ancestors. */
+      const projectAutoScrollArmedRef = React.useRef(false);
       const childrenRef = React.useRef({});
       const expandedRef = React.useRef(expanded);
       const rootRef = React.useRef('');
@@ -782,6 +801,9 @@
       const collapsedRestoredFor = React.useRef(null);
       const rowRefs = React.useRef(new Map());
       const treeRef = React.useRef(null);
+      /* Per-directory background prefetch generation, so a slower older walk
+         cannot overwrite a newer listing after rapid expand/collapse. */
+      const projectPrefetchTokensRef = React.useRef(new Map());
       /* Read by the one-shot keyboard handlers, which must not re-bind per render. */
       const panelVisibleRef = React.useRef(true);
       const activityRef = React.useRef('project');
@@ -793,7 +815,6 @@
       /* Explicit row reveal wins over the next Auto Scroll pass caused by leaving
          a filtered view; otherwise the active editor tab reselects itself. */
       const suppressAutoScrollRef = React.useRef(false);
-
       React.useEffect(() => {
         activePathRef.current = activePath;
       }, [activePath]);
@@ -1526,7 +1547,7 @@
             return Array.isArray(result?.entries) ? result.entries : [];
           };
           if (prefetchedRootRef.current !== workspaceRoot) {
-            /* 默认只预取前三层节点信息；目录仍保持折叠，用户点击才展开。 */
+            /* 默认只预取一层节点信息；目录仍保持折叠，用户点击才展开。 */
             const prefetched = await prefetchDirectorySubtrees(
               listing.filter((entry) => entry.kind === 'directory' && typeof entry.path === 'string').map((entry) => entry.path),
               { children: { '': listing } },
@@ -1645,35 +1666,61 @@
           return;
         }
         if (path === '') return;
+        const workspaceRoot = treeRootRef.current;
         try {
-          const cachedChildren = { ...childrenRef.current };
-          /* 点击目录始终刷新该节点本身，并从这里继续预取三层节点信息。 */
-          delete cachedChildren[path];
-          const value = await prefetchDirectorySubtrees(
+          const cached = Array.isArray(childrenRef.current[path]) ? childrenRef.current[path] : null;
+          let expandedPaths = compactDirectories === true
+            ? compactDirectoryExpansionPaths(path, childrenRef.current)
+            : [path];
+          /* The root prefetch normally seeded this directory. Expand from that
+             cache immediately, then refresh the real listing in the background. */
+          if (cached !== null) {
+            setExpanded((current) => new Set([...current, ...expandedPaths]));
+          }
+          const listingValue = await callFs({ op: 'list', path, showHidden, sort: sortMode, foldersFirst, showExcluded: showExcludedFiles });
+          if (treeRootRef.current !== workspaceRoot) return;
+          const listing = Array.isArray(listingValue?.entries) ? listingValue.entries : [];
+          const mergedChildren = { ...childrenRef.current, [path]: listing };
+          childrenRef.current = mergedChildren;
+          setChildren((current) => ({
+            ...current,
+            [path]: keepUnchangedListing(current[path], listing),
+          }));
+          expandedPaths = compactDirectories === true
+            ? compactDirectoryExpansionPaths(path, mergedChildren)
+            : [path];
+          setExpanded((current) => new Set([...current, ...expandedPaths]));
+          const token = (projectPrefetchTokensRef.current.get(path) ?? 0) + 1;
+          projectPrefetchTokensRef.current.set(path, token);
+          /* One-level prefetch is cache warm-up only. It must never hold up the
+             visible expand operation or write expanded. */
+          void prefetchDirectorySubtrees(
             [path],
-            { children: cachedChildren },
+            { children: mergedChildren },
             async (directory) => {
               const result = await callFs({ op: 'list', path: directory, showHidden, sort: sortMode, foldersFirst, showExcluded: showExcludedFiles });
               return Array.isArray(result?.entries) ? result.entries : [];
             },
             PROJECT_PREFETCH_VISIT_LIMIT,
             PROJECT_PREFETCH_DEPTH,
-          );
-          if (!Array.isArray(value.children[path])) return;
-          const expandedPaths = [path];
-          if (compactDirectories === true) {
-            let listing = value.children[path];
-            let guard = 0;
-            while (Array.isArray(listing) && listing.length === 1 && listing[0]?.kind === 'directory' && guard < 64) {
-              const nextPath = listing[0].path;
-              if (typeof nextPath !== 'string' || nextPath === '' || expandedPaths.includes(nextPath)) break;
-              expandedPaths.push(nextPath);
-              listing = value.children[nextPath];
-              guard += 1;
-            }
-          }
-          setChildren(value.children);
-          setExpanded((current) => new Set([...current, ...expandedPaths]));
+          ).then((prefetched) => {
+            if (
+              treeRootRef.current !== workspaceRoot
+              || projectPrefetchTokensRef.current.get(path) !== token
+            ) return;
+            const prefetchedChildren = { ...prefetched.children };
+            delete prefetchedChildren[path];
+            childrenRef.current = { ...childrenRef.current, ...prefetchedChildren };
+            setChildren((current) => {
+              const next = { ...current };
+              for (const [directory, entries] of Object.entries(prefetchedChildren)) {
+                next[directory] = keepUnchangedListing(current[directory], entries);
+              }
+              return next;
+            });
+          }).catch(() => {
+            /* Background prefetch is optional; the clicked listing is already visible. */
+          });
         } catch (error) {
           setTreeError(error instanceof Error ? error.message : String(error));
         }
@@ -1948,6 +1995,7 @@
         const generation = ++sessionRestoreGeneration.current;
         sessionRestoredFor.current = requestedRoot;
         sessionRestoringRef.current = true;
+        projectAutoScrollArmedRef.current = false;
         const stored = readEditorSession(requestedRoot);
         openFilesRef.current = [];
         splitTabsRef.current = [];
@@ -1985,7 +2033,12 @@
           splitPathRef.current = restoredSplit;
           if (stored.splitPercent !== null) setEditorSplitPercent(stored.splitPercent);
         } finally {
-          if (sessionRestoreGeneration.current === generation) sessionRestoringRef.current = false;
+          if (sessionRestoreGeneration.current === generation) {
+            sessionRestoringRef.current = false;
+            window.setTimeout(() => {
+              if (sessionRestoreGeneration.current === generation) projectAutoScrollArmedRef.current = true;
+            }, 0);
+          }
         }
       }, [openFile, root]);
 
@@ -3475,8 +3528,9 @@
        * @returns {void}
        */
       const openBlankReplaceInFilesFromEditor = React.useCallback(() => {
+        const selectedQuery = selectedEditorFindQuery(currentCodeEditor());
         if (findTool === null) {
-          openFindTool('', 'replace');
+          openFindTool(selectedQuery, 'replace');
           return;
         }
         setTerminalOpen(false);
@@ -3484,7 +3538,7 @@
           ? current
           : {
               ...current,
-              query: '',
+              query: selectedQuery,
               mode: 'replace',
               replace: '',
               files: [],
@@ -3501,25 +3555,36 @@
         window.setTimeout(() => {
           document.querySelector('[data-dsh-find-tool-window] input[role="combobox"]')?.focus?.();
         }, 0);
-      }, [findTool, openFindTool]);
+      }, [currentCodeEditor, findTool, openFindTool]);
 
       /** Single shortcut body shared by double Shift and Cmd/Ctrl+Shift+F. */
       const openFindInFilesFromShortcut = React.useCallback(() => {
+        const selectedQuery = selectedEditorFindQuery(currentCodeEditor());
+        const hasSelectionQuery = selectedQuery !== '';
         if (findTool !== null) {
           setFindTool((current) => (current === null
             ? current
             : {
                 ...current,
+                query: hasSelectionQuery ? selectedQuery : current.query,
                 mode: 'find',
+                files: hasSelectionQuery ? [] : current.files,
+                matches: hasSelectionQuery ? [] : current.matches,
+                truncated: hasSelectionQuery ? false : current.truncated,
+                loading: hasSelectionQuery ? false : current.loading,
+                error: hasSelectionQuery ? null : current.error,
+                index: hasSelectionQuery ? 0 : current.index,
                 surface: current.surface === 'dock' ? 'popup' : current.surface ?? 'popup',
+                searchGeneration: hasSelectionQuery ? (current.searchGeneration ?? 0) + 1 : current.searchGeneration,
+                loadedGeneration: hasSelectionQuery ? -1 : current.loadedGeneration,
               }));
           window.setTimeout(() => {
             document.querySelector('[data-dsh-find-tool-window] input[role="combobox"]')?.focus?.();
           }, 0);
           return;
         }
-        openFindTool('', 'find');
-      }, [findTool, openFindTool]);
+        openFindTool(selectedQuery, 'find');
+      }, [currentCodeEditor, findTool, openFindTool]);
 
       /**
        * Hide the persistent Find tool and return the caret to the editor.
@@ -3937,21 +4002,12 @@
         return () => window.removeEventListener('keydown', onKeyDown, true);
       }, [openRecent]);
 
-      const openEditorFind = React.useCallback((withReplace = false, initialQuery = null, focusTarget = 'query') => {
+      const openEditorFind = React.useCallback((withReplace = false, initialQuery = null, focusTarget = 'query', scopeOverride = undefined) => {
         const savedOptions = readSearchOptions();
         const editor = currentCodeEditor();
         const model = editor?.getModel?.() ?? null;
-        const selection = editor?.getSelection?.() ?? null;
-        const selected = model !== null && selection !== null && !selection.isEmpty?.()
-          ? model.getValueInRange(selection)
-          : '';
         const requestedFind = typeof initialQuery === 'string' ? initialQuery.trim() : '';
         const hasExplicitQuery = typeof initialQuery === 'string';
-        const selectedFind = selected.includes('\n') || selected.length > 200 ? '' : selected;
-        const find = hasExplicitQuery ? requestedFind : selectedFind;
-        const result = model !== null && find !== ''
-          ? editorFindResult(model.getValue(), find, savedOptions)
-          : { matches: [], error: null };
         setReplaceState((current) => {
           const base = current ?? {
             find: '',
@@ -3966,17 +4022,20 @@
             scope: null,
             error: null,
           };
-          return hasExplicitQuery
-            ? {
-                ...base,
-                find,
-                index: 0,
-                total: result.matches.length,
-                withReplace,
-                scope: null,
-                error: result.error,
-              }
-            : { ...base, withReplace };
+          const find = hasExplicitQuery ? requestedFind : base.find;
+          const scope = scopeOverride === undefined ? (base.scope ?? null) : scopeOverride;
+          const result = model !== null && find !== ''
+            ? editorFindResult(model.getValue(), find, { ...base, scope })
+            : { matches: [], error: null };
+          return {
+            ...base,
+            find,
+            withReplace,
+            scope,
+            total: result.matches.length,
+            error: result.error,
+            index: hasExplicitQuery ? 0 : Math.min(base.index, Math.max(0, result.matches.length - 1)),
+          };
         });
         /* Monaco restores editor focus after a context-menu action returns.
            Defer past that restoration so the editor Find query wins. */
@@ -4043,6 +4102,16 @@
           }, 40);
         }
       }, [currentCodeEditor]);
+
+      const openEditorFindFromShortcut = React.useCallback((withReplace = false, focusTarget = 'query') => {
+        const editor = currentCodeEditor();
+        const request = editorFindKeyboardRequest(editor);
+        if (request.scope === null) {
+          openEditorFind(withReplace, null, focusTarget, null);
+          return;
+        }
+        openEditorFindInSelection(request.scope, withReplace, request.query, focusTarget);
+      }, [currentCodeEditor, openEditorFind, openEditorFindInSelection]);
 
       React.useEffect(() => {
         selectionFindContextRunnerRef.current = (editor, withReplace = false, focusTarget = 'query') => {
@@ -4168,14 +4237,14 @@
           if (searchEverywhereOpen && key === 'f' && !event.shiftKey) setSearchEverywhere(null);
           event.preventDefault();
           if (key === 'r') {
-            openEditorFind(true);
+            openEditorFindFromShortcut(true, 'replace');
             return;
           }
-          openEditorFind(event.altKey);
+          openEditorFindFromShortcut(event.altKey);
         };
         window.addEventListener('keydown', onKeyDown, true);
         return () => window.removeEventListener('keydown', onKeyDown, true);
-      }, [openBlankReplaceInFilesFromEditor, openEditorFind, openFindInFilesFromShortcut, openFindTool, openFindUsages, openShowUsages, searchEverywhereOpen, currentCodeEditor]);
+      }, [openBlankReplaceInFilesFromEditor, openEditorFindFromShortcut, openFindInFilesFromShortcut, openFindTool, openFindUsages, openShowUsages, searchEverywhereOpen, currentCodeEditor]);
 
       const closeSearchEverywhere = React.useCallback(() => {
         setSearchEverywhere(null);
@@ -5632,6 +5701,11 @@
         if (suppressAutoScrollRef.current) return;
         if (!autoScroll || !panelVisible || activity !== 'project') return;
         if (activePath === null || activePath === '') return;
+        /* Initial tab restoration can walk through several active paths before
+           the stored tab settles. Those paths are not user navigation and must
+           not expand Project directories on the first paint. */
+        if (sessionRestoringRef.current) return;
+        if (!projectAutoScrollArmedRef.current) return;
         if (projectTreeActionsAvailable === false) {
           if (rows.some((row) => row.path === activePath)) setSelectedPath(activePath);
           return;

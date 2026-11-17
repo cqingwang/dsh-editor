@@ -80,7 +80,7 @@ function createGroupHarness() {
   };
 }
 
-test('the editor context menu offers Find Usages through a scoped precondition', () => {
+test('Find Usages remains executable without the redundant context-menu row', () => {
   const harness = createGroupHarness();
   const invoked = [];
   harness.createGroup(harness.monaco, {}, {
@@ -90,8 +90,8 @@ test('the editor context menu offers Find Usages through a scoped precondition',
   const action = harness.actions.find((entry) => entry.id.startsWith('dsh-editor.findUsages'));
   assert.ok(action);
   assert.equal(action.label, 'Find Usages…');
-  assert.equal(action.contextMenuGroupId, 'navigation');
-  assert.equal(action.contextMenuOrder, 1.1);
+  assert.equal(action.contextMenuGroupId, undefined);
+  assert.equal(action.contextMenuOrder, undefined);
   assert.match(action.precondition, /^dshEditorFindUsagesAvailable\d+$/u);
   assert.equal(harness.contextKeys.get(action.precondition), false);
   action.run();

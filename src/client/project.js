@@ -1,4 +1,28 @@
 /* project.js: dsh-editor client module. Generated into lib/client.js by scripts/build-client.mjs. */
+    /**
+     * Resolve the visible paths of one Compact Directories chain.
+     *
+     * The chain stops at the first level whose children have not been loaded,
+     * so a cache hit can render immediately while the host refresh continues.
+     * @param {string} path - clicked directory path.
+     * @param {Record<string, Array<object>>} children - cached listings by directory.
+     * @param {number} limit - maximum number of implicit levels.
+     * @returns {string[]} clicked path followed by every single-directory child.
+     */
+    function compactDirectoryExpansionPaths(path, children, limit = 64) {
+      const expandedPaths = [path];
+      let listing = Array.isArray(children[path]) ? children[path] : null;
+      let guard = 0;
+      while (Array.isArray(listing) && listing.length === 1 && listing[0]?.kind === 'directory' && guard < limit) {
+        const nextPath = listing[0].path;
+        if (typeof nextPath !== 'string' || nextPath === '' || expandedPaths.includes(nextPath)) break;
+        expandedPaths.push(nextPath);
+        listing = children[nextPath];
+        guard += 1;
+      }
+      return expandedPaths;
+    }
+
     function ProjectPanel({
       t,
       root,

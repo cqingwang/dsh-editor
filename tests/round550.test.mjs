@@ -7,7 +7,7 @@ const groupStart = source.indexOf('function createCodeEditorGroup(');
 const groupEnd = source.indexOf('\n    /**\n     * Reuse one workspace model', groupStart);
 const group = source.slice(groupStart, groupEnd);
 
-test('Monaco context menu exposes Replace and Incremental Search', () => {
+test('Replace and Incremental Search remain executable without context-menu duplicates', () => {
   const replace = group.slice(
     group.indexOf('id: `dsh-editor.replace.${groupId}`'),
     group.indexOf('id: `dsh-editor.incrementalSearch.${groupId}`'),
@@ -18,14 +18,12 @@ test('Monaco context menu exposes Replace and Incremental Search', () => {
   );
   assert.match(replace, /label: actionsHandlers\.replaceLabel \?\? 'Replace…'/);
   assert.match(replace, /precondition: findUsagesPrecondition/);
-  assert.match(replace, /contextMenuGroupId: 'navigation'/);
-  assert.match(replace, /contextMenuOrder: 2\.2/);
+  assert.doesNotMatch(replace, /contextMenuGroupId|contextMenuOrder/);
   assert.match(replace, /actionsHandlers\.onReplace\?\.\(editor\)/);
 
   assert.match(incremental, /label: actionsHandlers\.incrementalSearchLabel \?\? 'Incremental Search'/);
   assert.match(incremental, /precondition: findUsagesPrecondition/);
-  assert.match(incremental, /contextMenuGroupId: 'navigation'/);
-  assert.match(incremental, /contextMenuOrder: 2\.3/);
+  assert.doesNotMatch(incremental, /contextMenuGroupId|contextMenuOrder/);
   assert.match(incremental, /actionsHandlers\.onIncrementalSearch\?\.\(editor\)/);
 });
 

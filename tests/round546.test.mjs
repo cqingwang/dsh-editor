@@ -12,7 +12,7 @@ test('Monaco context menu exposes Search Web through the symbol precondition', (
     group.indexOf('id: `dsh-editor.searchWeb.${groupId}`'),
     group.indexOf("id: 'dsh-editor.closeTab'"),
   );
-  assert.match(action, /label: actionsHandlers\.searchWebLabel \?\? 'Search with Google'/);
+  assert.match(action, /label: actionsHandlers\.searchWebLabel \?\? 'Browser Search'/);
   assert.match(action, /precondition: findUsagesPrecondition/);
   assert.match(action, /contextMenuGroupId: 'navigation'/);
   assert.match(action, /contextMenuOrder: 1\.5/);

@@ -52,20 +52,22 @@ test('Project target action is pinned and retains IDEA reveal semantics', () => 
   assert.match(reveal, /onClick: onReveal/);
 });
 
-test('Three-level Project loading remains prefetch-only and anchored on directory clicks', () => {
+test('One-level Project loading remains prefetch-only and anchored on directory clicks', () => {
   const prefetch = extractFunction('prefetchDirectorySubtrees');
-  assert.match(prefetch, /maxDepth = 3/);
+  assert.match(prefetch, /maxDepth = 1/);
   assert.doesNotMatch(prefetch, /setExpanded/);
   assert.match(prefetch, /while \(queue\.length > 0 && visited < limit\)/);
   assert.match(prefetch, /item\.depth < depthLimit/);
+  assert.match(source, /const PROJECT_PREFETCH_DEPTH = 1;/);
 
   const toggle = source.slice(
     source.indexOf('const toggleDirectory = React.useCallback(async (path) => {'),
     source.indexOf('/* Open a file, reusing its existing tab. */'),
   );
-  assert.match(toggle, /prefetchDirectorySubtrees\(\s*\[path\],/);
+  assert.match(toggle, /void prefetchDirectorySubtrees\(\s*\[path\],/);
   assert.match(toggle, /PROJECT_PREFETCH_DEPTH/);
-  assert.match(toggle, /const expandedPaths = \[path\]/);
+  assert.match(toggle, /let expandedPaths = compactDirectories === true/);
   assert.match(toggle, /setExpanded\(\(current\) => new Set\(\[\.\.\.current, \.\.\.expandedPaths\]\)\)/);
+  assert.doesNotMatch(toggle, /await prefetchDirectorySubtrees/);
   assert.doesNotMatch(toggle, /setExpanded\(\(current\) => new Set\(\[\.\.\.current, \.\.\.Object\.keys\(value\.children\)\]\)\)/);
 });

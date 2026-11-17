@@ -7,7 +7,7 @@ const groupStart = source.indexOf('function createCodeEditorGroup(');
 const groupEnd = source.indexOf('\n    /**\n     * Reuse one workspace model', groupStart);
 const group = source.slice(groupStart, groupEnd);
 
-test('Monaco context menu exposes selection-only Find and Replace', () => {
+test('selection-only Find and Replace remain executable without context-menu duplicates', () => {
   const find = group.slice(
     group.indexOf('id: `dsh-editor.findInSelection.${groupId}`'),
     group.indexOf('id: `dsh-editor.replaceInSelection.${groupId}`'),
@@ -18,14 +18,12 @@ test('Monaco context menu exposes selection-only Find and Replace', () => {
   );
   assert.match(find, /label: actionsHandlers\.findInSelectionLabel \?\? 'Search in Selection Only'/);
   assert.match(find, /precondition: findSelectionPrecondition/);
-  assert.match(find, /contextMenuGroupId: 'navigation'/);
-  assert.match(find, /contextMenuOrder: 2\.4/);
+  assert.doesNotMatch(find, /contextMenuGroupId|contextMenuOrder/);
   assert.match(find, /actionsHandlers\.onFindInSelection\?\.\(editor\)/);
 
   assert.match(replace, /label: actionsHandlers\.replaceInSelectionLabel \?\? 'Replace in Selection Only'/);
   assert.match(replace, /precondition: findSelectionPrecondition/);
-  assert.match(replace, /contextMenuGroupId: 'navigation'/);
-  assert.match(replace, /contextMenuOrder: 2\.5/);
+  assert.doesNotMatch(replace, /contextMenuGroupId|contextMenuOrder/);
   assert.match(replace, /actionsHandlers\.onReplaceInSelection\?\.\(editor\)/);
 });
 

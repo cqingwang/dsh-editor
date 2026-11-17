@@ -74,7 +74,9 @@ test('Find option shortcuts are visible and wired only with an idle query caret'
   assert.match(findTool, /searchRegex[^\n]*⌃X|⌃X[^\n]*searchRegex/);
   assert.match(findTool, /'aria-keyshortcuts': 'Alt\+Shift\+Backspace'/);
   assert.match(findTool, /findSearchOptionShortcutAction\(event\)/);
-  assert.match(findTool, /selectionStart === event\.currentTarget\.selectionEnd/);
+  assert.match(findTool, /editable\.selectionStart === editable\.selectionEnd/);
+  assert.match(findTool, /closest\('\[data-dsh-find-tool-window\]'\)/);
+  assert.match(findTool, /clearFindSearchOptions\(action === 'clear' \? 'all' : action\)/);
 });
 
 test('Find empty-state copy is localized in both dictionaries', () => {

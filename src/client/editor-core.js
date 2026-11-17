@@ -272,6 +272,36 @@
     let codeEditorGroupSequence = 0;
 
     /**
+     * Remove selected built-in actions from Monaco's editor context menu.
+     *
+     * Monaco does not expose the menu registry it uses for built-in actions.
+     * Its ContextMenuController owns the final action list, so wrap that one
+     * seam and restore it when this editor group is disposed.
+     * @param {object} editor - Monaco standalone editor.
+     * @param {string[]} hiddenActionIds - action ids that must not be rendered.
+     * @returns {Function} restores the previous menu action resolver.
+     */
+    function filterMonacoContextMenuActions(editor, hiddenActionIds) {
+      const hidden = new Set(hiddenActionIds);
+      const controller = editor?.getContribution?.('editor.contrib.contextmenu') ?? null;
+      const original = controller?._getMenuActions;
+      if (typeof original !== 'function') return () => {};
+      const filtered = function (...args) {
+        return original.apply(this, args).filter((action) => {
+          const id = String(action?.id ?? '');
+          for (const hiddenId of hidden) {
+            if (id === hiddenId || id.endsWith(`:${hiddenId}`)) return false;
+          }
+          return true;
+        });
+      };
+      controller._getMenuActions = filtered;
+      return () => {
+        if (controller._getMenuActions === filtered) controller._getMenuActions = original;
+      };
+    }
+
+    /**
      * Create one independent Monaco editor group.
      *
      * The group owns only its editor instance and local actions. Models stay in
@@ -319,6 +349,7 @@
       });
       const findUsagesContextKey = editor.createContextKey?.(findUsagesPrecondition, false) ?? null;
       const findSelectionContextKey = editor.createContextKey?.(findSelectionPrecondition, false) ?? null;
+      const restoreContextMenuActions = filterMonacoContextMenuActions(editor, ['editor.action.quickCommand']);
       const updateFindUsagesAvailability = () => {
         const queryAvailable = findUsagesSearchTarget(editor).query !== '';
         findUsagesContextKey?.set(queryAvailable);
@@ -400,8 +431,6 @@
           id: `dsh-editor.findUsages.${groupId}`,
           label: actionsHandlers.findUsagesLabel ?? 'Find Usages',
           precondition: findUsagesPrecondition,
-          contextMenuGroupId: 'navigation',
-          contextMenuOrder: 1.1,
           run: () => actionsHandlers.onFindUsages?.(editor),
         }),
         editor.addAction({
@@ -430,7 +459,7 @@
         }),
         editor.addAction({
           id: `dsh-editor.searchWeb.${groupId}`,
-          label: actionsHandlers.searchWebLabel ?? 'Search with Google',
+          label: actionsHandlers.searchWebLabel ?? 'Browser Search',
           precondition: findUsagesPrecondition,
           contextMenuGroupId: 'navigation',
           contextMenuOrder: 1.5,
@@ -448,16 +477,12 @@
           id: `dsh-editor.findInFiles.${groupId}`,
           label: actionsHandlers.findInFilesLabel ?? 'Find in Files…',
           precondition: findUsagesPrecondition,
-          contextMenuGroupId: 'navigation',
-          contextMenuOrder: 1.6,
           run: () => actionsHandlers.onFindInFiles?.(editor),
         }),
         editor.addAction({
           id: `dsh-editor.replaceInFiles.${groupId}`,
           label: actionsHandlers.replaceInFilesLabel ?? 'Replace in Files…',
           precondition: findUsagesPrecondition,
-          contextMenuGroupId: 'navigation',
-          contextMenuOrder: 1.7,
           run: () => actionsHandlers.onReplaceInFiles?.(editor),
         }),
         editor.addAction({
@@ -500,32 +525,24 @@
           id: `dsh-editor.replace.${groupId}`,
           label: actionsHandlers.replaceLabel ?? 'Replace…',
           precondition: findUsagesPrecondition,
-          contextMenuGroupId: 'navigation',
-          contextMenuOrder: 2.2,
           run: () => actionsHandlers.onReplace?.(editor),
         }),
         editor.addAction({
           id: `dsh-editor.incrementalSearch.${groupId}`,
           label: actionsHandlers.incrementalSearchLabel ?? 'Incremental Search',
           precondition: findUsagesPrecondition,
-          contextMenuGroupId: 'navigation',
-          contextMenuOrder: 2.3,
           run: () => actionsHandlers.onIncrementalSearch?.(editor),
         }),
         editor.addAction({
           id: `dsh-editor.findInSelection.${groupId}`,
           label: actionsHandlers.findInSelectionLabel ?? 'Search in Selection Only',
           precondition: findSelectionPrecondition,
-          contextMenuGroupId: 'navigation',
-          contextMenuOrder: 2.4,
           run: () => actionsHandlers.onFindInSelection?.(editor),
         }),
         editor.addAction({
           id: `dsh-editor.replaceInSelection.${groupId}`,
           label: actionsHandlers.replaceInSelectionLabel ?? 'Replace in Selection Only',
           precondition: findSelectionPrecondition,
-          contextMenuGroupId: 'navigation',
-          contextMenuOrder: 2.5,
           run: () => actionsHandlers.onReplaceInSelection?.(editor),
         }),
         editor.addAction({
@@ -554,6 +571,7 @@
         dispose() {
           if (disposed) return;
           disposed = true;
+          restoreContextMenuActions();
           for (const subscription of availabilitySubscriptions) subscription?.dispose?.();
           definitionClickSubscription?.dispose?.();
           for (const action of actions) action.dispose?.();
@@ -656,7 +674,7 @@
     }
 
     /** Project 首次打开与目录点击默认预取的目录层数。 */
-    const PROJECT_PREFETCH_DEPTH = 3;
+    const PROJECT_PREFETCH_DEPTH = 1;
     /** 单次预取最多读取的目录数，防止异常宽树拖垮 UI。 */
     const PROJECT_PREFETCH_VISIT_LIMIT = 200;
 
@@ -713,16 +731,16 @@
     /**
      * 预取目录节点信息，但不改变 UI 的展开集合。
      *
-     * 起点按第 1 层计算，默认只读取起点及两级后代。调用方点击某目录时
+     * 起点按第 1 层计算，默认只读取起点本身。调用方点击某目录时
      * 可以显式把该 clicked path 加入 expanded，后代保持折叠。
      * @param {string[]} startPaths - 需要预取的目录。
      * @param {{children?: Record<string, object[]>}} current - 当前 children 缓存。
      * @param {(path: string) => Promise<object[]>} listDirectory - 目录读取器。
      * @param {number} [limit=200] - 单次最多读取的目录数。
-     * @param {number} [maxDepth=3] - 最多预取的目录层数。
+     * @param {number} [maxDepth=1] - 最多预取的目录层数。
      * @returns {Promise<{children: Record<string, object[]>, visited: number, truncated: boolean}>} 预取结果。
      */
-    async function prefetchDirectorySubtrees(startPaths, current, listDirectory, limit = 200, maxDepth = 3) {
+    async function prefetchDirectorySubtrees(startPaths, current, listDirectory, limit = 200, maxDepth = 1) {
       const children = { ...(current?.children ?? {}) };
       const depthLimit = Math.max(1, Math.floor(Number(maxDepth) || 1));
       const queue = [...new Set((Array.isArray(startPaths) ? startPaths : []).filter((path) => typeof path === 'string'))]

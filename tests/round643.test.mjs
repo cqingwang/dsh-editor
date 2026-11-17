@@ -58,14 +58,15 @@ test('Changing Find scope invalidates the prior scoped result generation', () =>
   assert.match(source, /loadedGeneration: -1/);
 });
 
-test('Shift+Replace in Files preserves the live scope while clearing the query', () => {
+test('Shift+Replace in Files preserves scope while using the live selection or clearing the query', () => {
   assert.match(source, /const openBlankReplaceInFilesFromEditor = React\.useCallback/);
   const blankReplace = source.slice(
     source.indexOf('const openBlankReplaceInFilesFromEditor = React.useCallback'),
     source.indexOf('/** Single shortcut body shared by double Shift'),
   );
   assert.match(blankReplace, /\.\.\.current/);
-  assert.match(blankReplace, /query: ''/);
+  assert.match(blankReplace, /const selectedQuery = selectedEditorFindQuery\(currentCodeEditor\(\)\)/);
+  assert.match(blankReplace, /query: selectedQuery/);
   assert.match(blankReplace, /mode: 'replace'/);
   assert.doesNotMatch(blankReplace, /searchScopeMode:/);
   assert.match(source, /openBlankReplaceInFilesFromEditor\(\)/);

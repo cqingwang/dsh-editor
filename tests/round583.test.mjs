@@ -25,7 +25,7 @@ test('Search Everywhere action identities use the installed IDEA 2026.2 action t
   for (const [value, key] of [
     ['Search Structurally…', 'structuralSearchAction'],
     ['Replace Structurally…', 'structuralReplaceAction'],
-    ['Search with Google', 'searchWebAction'],
+    ['Browser Search', 'searchWebAction'],
     ['Next Occurrence of the Word at Caret', 'nextWordOccurrenceAction'],
     ['Add Selection for Next Occurrence', 'selectNextOccurrenceAction'],
     ['Unselect Occurrence', 'unselectPreviousOccurrenceAction'],
@@ -75,9 +75,9 @@ test('IDEA action text and legacy aliases both rank the same executable action',
     },
     {
       id: 'searchWeb',
-      label: 'Search with Google',
+      label: 'Browser Search',
       description: 'Search the Web',
-      keywords: 'Search Web',
+      keywords: 'Search with Google · Search Web',
     },
   ];
   assert.equal(rank(rows, 'Search Structurally', [])[0]?.id, 'structuralSearch');
@@ -93,7 +93,8 @@ test('IDEA action text and legacy aliases both rank the same executable action',
 test('English and Chinese dictionaries contain the IDEA names and aliases', () => {
   assert.match(source, /structuralSearchAction: '结构化搜索…'/);
   assert.match(source, /structuralReplaceAction: '结构化替换…'/);
-  assert.match(source, /searchWebAction: '使用 Google 搜索'/);
+  assert.match(source, /searchWebAction: '浏览器搜索'/);
+  assert.match(source, /searchWebAction: 'Browser Search'/);
   assert.match(source, /nextWordOccurrenceAction: '查找文本光标处的字'/);
   assert.match(source, /selectNextOccurrenceAction: '将下一个匹配项添加到选择'/);
   assert.match(source, /unselectPreviousOccurrenceAction: '取消选择匹配项'/);

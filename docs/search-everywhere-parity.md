@@ -102,7 +102,7 @@
   Recent Find Usages、Find Usages、Show Usages、Find Usages Settings、
   Find Usages in File、Highlight Usages in File。
 - 无 category：
-  Find Tool Window、Incremental Search、Search with Google。
+  Find Tool Window、Incremental Search、Browser Search。
 - category 显示在 Action row 右侧，进入 tooltip 和 Item Info meta。
 - row width < 460px 时通过 container query 先隐藏 category；
   viewport < 640px 时通过 media query 隐藏，避免挤压名称、描述和快捷键。
@@ -136,7 +136,7 @@
 
 ## Find in Files 筛选
 
-- File mask 复选框与后缀输入位于顶部右侧；`.ts, .md` 会转换为
+- File mask 复选框与 mask 输入位于顶部右侧；`.ts, .md` 会转换为
   `*.ts,*.md`，同时兼容 `*.ts`、`src/**`。
 - Query 行右端固定 Match Case / Whole Words / Regex。
 - Find in Files 接受单字符 query；Search Everywhere 的 Text provider
@@ -192,6 +192,13 @@
 - 弹框结果按 IDEA 平铺：左侧是匹配行/高亮，右侧是 `文件名 行号`；
   不再套用 dock 的 file/directory tree header。当前 active match 自动
   打开下方 Source Preview，并随上/下选择切换。
+- IDEA CUA 显示空结果时显示 `Nothing found.`；若有搜索选项生效，会列出
+  `Search option used:` / `Search options used:` 和 `Clear option` /
+  `Clear all options`。DSH Find in Files 复用同一 active-option 判定并
+  显示 `Match Case ⌃C / Whole Words ⌃W / Regex ⌃X`；`⌃C / ⌃W / ⌃X`
+  分别清除对应布尔选项，`⌥⇧⌫` 清除全部四个搜索选项。清除动作保留
+  query、scope、Filter、Preserve case 和 Replace 文本，并回焦查询框；
+  有文本选区时快捷键不抢占复制。
 - Source Preview 的行窗口仍按固定上限截取，但容器会以 active match 的
   垂直中心设置 `scrollTop`。短文件也定位到命中的第 N 行，而不是停在第
   1 行；首尾行按可滚动范围自然 clamp。
