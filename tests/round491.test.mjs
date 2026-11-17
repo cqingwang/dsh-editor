@@ -54,7 +54,7 @@ test('Find option ids encode result identities without collisions', () => {
 
 test('Find exposes one non-duplicated live result status', () => {
   const panel = findTool();
-  assert.match(panel, /const findResultStatus = state\.loading === true/);
+  assert.match(panel, /const findResultStatus = state\.error !== null[\s\S]*?: state\.loading === true/);
   assert.match(panel, /'aria-live': 'polite'/);
   assert.match(panel, /'aria-atomic': 'true'/);
   assert.match(panel, /style: styles\.screenReaderOnly/);

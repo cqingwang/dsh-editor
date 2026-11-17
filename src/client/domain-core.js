@@ -219,6 +219,10 @@
 
     /** Trebuchet MS is the requested default for editor chrome and code text. */
     const EDITOR_UI_FONT = '"Trebuchet MS", "PingFang SC", "Microsoft YaHei UI", sans-serif';
+    /** One code text size across every Monaco editing surface. */
+    const EDITOR_CODE_FONT_SIZE = 13;
+    /** One line height across every Monaco editing surface. */
+    const EDITOR_CODE_LINE_HEIGHT = 20;
     /** IDEA Markdown modes: Editor / Editor and Preview / Preview. */
     const MARKDOWN_MODES = new Set(['code', 'split', 'preview']);
 
@@ -238,6 +242,15 @@
      */
     function isMarkdownPath(path) {
       return typeof path === 'string' && /\.(?:md|markdown|mdx)$/iu.test(path);
+    }
+
+    /**
+     * Whether a workspace file is rendered by the browser's native image decoder.
+     * @param {unknown} path - workspace-relative path.
+     * @returns {boolean} true for supported still-image extensions.
+     */
+    function isImagePreviewPath(path) {
+      return typeof path === 'string' && /\.(?:png|jpe?g|jfif|gif|webp|avif|bmp|ico|svg)$/iu.test(path);
     }
 
     /**

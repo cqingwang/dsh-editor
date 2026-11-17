@@ -65,7 +65,7 @@ test('Find dirty merge and Replace All share the scoped row set', () => {
   assert.match(source, /if \(scopedMatches\.length > 0\) onReplaceAll\(scopedReplacementPaths\)/u);
 });
 
-test('Scope invalidation clears active rows and Preview before the next result set', () => {
+test('Scope invalidation keeps the old rows visible until the next generation replaces them', () => {
   const changeScope = source.slice(
     source.indexOf('const changeFindToolScope = React.useCallback'),
     source.indexOf('/** Persist and reapply IDEA\'s Directory recursion toggle. */'),
@@ -75,12 +75,15 @@ test('Scope invalidation clears active rows and Preview before the next result s
     source.indexOf('/** Persist local named Scopes and invalidate a selection that disappeared. */'),
   );
   for (const block of [changeScope, changeRecursive]) {
-    assert.match(block, /files: \[\],\s+matches: \[\],\s+index: 0,/u);
+    assert.match(block, /const hasQuery = hasFindToolContentQuery\(current\.query\)/u);
+    assert.match(block, /loading: hasQuery/u);
     assert.match(block, /searchGeneration: \(current\.searchGeneration \?\? 0\) \+ 1/u);
     assert.match(block, /loadedGeneration: -1/u);
   }
+  assert.match(changeScope, /files: current\.files,\s+matches: current\.matches,\s+index: current\.index,/u);
+  assert.match(source, /const retainPreviousResultsWhileLoading = state\.loading === true\s+&& state\.loadedGeneration !== state\.searchGeneration/u);
   assert.match(
     source,
-    /if \(activeResult === null\) \{\s+setPreviewState\(\{ loading: false, kind: null, path: '', content: '', line: 1, error: null \}\);/u,
+    /if \(!previewOpen \|\| active === null \|\| typeof active\.path !== 'string' \|\| active\.path === ''\) \{[\s\S]*?setPreviewState\(\{ loading: false, path: '', content: '', line: 1, error: null \}\);/u,
   );
 });

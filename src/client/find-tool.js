@@ -594,6 +594,9 @@
       const effectiveScopePreset = selectedCustomScopeMissing || selectedScopePresetAvailable !== true
         ? 'projectFiles'
         : scopePreset;
+      const retainPreviousResultsWhileLoading = state.loading === true
+        && state.loadedGeneration !== state.searchGeneration
+        || state.error !== null;
       const scopeAllowedPaths = effectiveScopePreset === 'openFiles'
         ? new Set(openFilePaths)
         : effectiveScopePreset === 'recentlyViewedFiles'
@@ -603,20 +606,24 @@
             : effectiveScopePreset === 'gitTrackedFiles' || effectiveScopePreset === 'gitNonIgnoredFiles'
               ? null
               : new Set(changedFilePaths);
-      const scopedFileResults = fileResults.filter((file) => findToolPathMatchesScope(file.path, scopeMode, {
-        directory: effectiveScopeDirectory,
-        preset: effectiveScopePreset,
-        allowedPaths: scopeAllowedPaths,
-        recursive: scopeRecursive,
-        customScope: selectedCustomScope,
-      }));
-      const scopedMatches = state.matches.filter((match) => findToolPathMatchesScope(match.path, scopeMode, {
-        directory: effectiveScopeDirectory,
-        preset: effectiveScopePreset,
-        allowedPaths: scopeAllowedPaths,
-        recursive: scopeRecursive,
-        customScope: selectedCustomScope,
-      }));
+      const scopedFileResults = retainPreviousResultsWhileLoading
+        ? fileResults
+        : fileResults.filter((file) => findToolPathMatchesScope(file.path, scopeMode, {
+            directory: effectiveScopeDirectory,
+            preset: effectiveScopePreset,
+            allowedPaths: scopeAllowedPaths,
+            recursive: scopeRecursive,
+            customScope: selectedCustomScope,
+          }));
+      const scopedMatches = retainPreviousResultsWhileLoading
+        ? state.matches
+        : state.matches.filter((match) => findToolPathMatchesScope(match.path, scopeMode, {
+            directory: effectiveScopeDirectory,
+            preset: effectiveScopePreset,
+            allowedPaths: scopeAllowedPaths,
+            recursive: scopeRecursive,
+            customScope: selectedCustomScope,
+          }));
       const dockVisibleRows = findToolVisibleRows(scopedFileResults, scopedMatches, collapsedFiles, findGroupBy);
       const groups = dockVisibleRows.groups;
       const popupOccurrences = [
@@ -647,6 +654,24 @@
         : groups[0]?.path ?? null;
       const activeIndex = Math.max(0, Math.min(Number(state.index) || 0, Math.max(0, occurrences.length - 1)));
       const active = occurrences[activeIndex] ?? null;
+      const replaceAllDisabledReason = state.replaceBusy === true
+        ? t('editor.findReplaceBusy')
+        : state.loading === true
+          ? t('editor.findReplaceLoading')
+          : state.error !== null
+            ? t('editor.findReplaceSearchError')
+            : scopedMatches.length === 0
+              ? t('editor.findReplaceAllDisabled')
+              : null;
+      const replaceCurrentDisabledReason = state.replaceBusy === true
+        ? t('editor.findReplaceBusy')
+        : state.loading === true
+          ? t('editor.findReplaceLoading')
+          : state.error !== null
+            ? t('editor.findReplaceSearchError')
+            : active?.kind !== 'text'
+              ? t('editor.findReplaceCurrentDisabled')
+              : null;
       const rerunFindSearch = () => {
         if (active !== null && typeof active.rowKey === 'string') {
           rerunSelectionRef.current = {
@@ -728,13 +753,15 @@
         : !hasFindToolContentQuery(query)
           ? t('editor.findOpenInFindWindowEmptyQuery')
           : '';
-      const findResultStatus = state.loading === true
-        ? t('editor.loading')
-        : !hasFindToolContentQuery(query)
-          ? t('editor.findToolEmptyQuery')
-          : occurrences.length === 0
-            ? t('editor.findToolNoMatches')
-            : findToolResultSummary(t, resultMatches, resultFiles);
+      const findResultStatus = state.error !== null
+        ? ''
+        : state.loading === true
+          ? t('editor.loading')
+          : !hasFindToolContentQuery(query)
+            ? t('editor.findToolEmptyQuery')
+            : occurrences.length === 0
+              ? t('editor.findToolNoMatches')
+              : findToolResultSummary(t, resultMatches, resultFiles);
       const activeFindSearchOptionIds = searchEverywhereActiveOptionIds({
         caseSensitive: state.caseSensitive === true,
         wholeWords: state.wholeWords === true,
@@ -1673,7 +1700,9 @@
             : React.createElement(
                 'span',
                 { style: styles.findToolCount },
-                findToolResultSummary(t, resultMatches, resultFiles),
+                state.loading === true
+                  ? t('editor.loading')
+                  : findToolResultSummary(t, resultMatches, resultFiles),
               ),
           React.createElement('span', { style: styles.findToolSpacer }),
           React.createElement(
@@ -2036,7 +2065,11 @@
             : null,
         ),
         state.error !== null
-          ? React.createElement('div', { style: styles.searchEverywhereError, role: 'alert' }, state.error)
+          ? React.createElement(
+              'div',
+              { style: styles.searchEverywhereError, role: 'alert' },
+              t('editor.findSearchFailed', { message: state.error }),
+            )
           : null,
         React.createElement(
           'div',
@@ -2072,7 +2105,7 @@
                 tabIndex: 0,
                 onKeyDown: handleListKeyDown,
               },
-              state.loading === true
+              state.loading === true && occurrences.length === 0
             ? React.createElement(
                 'div',
                 { style: floating ? styles.findToolPopupMessage : styles.findToolMessage },
@@ -2482,8 +2515,10 @@
                   type: 'button',
                   style: {
                     ...styles.conflictAction,
+                    ...styles.findToolBottomAction,
                     opacity: hasFindToolContentQuery(query) ? 1 : 0.45,
                   },
+                  'data-dsh-find-bottom-action': 'open-in-find-window',
                   disabled: !hasFindToolContentQuery(query),
                   title: openInFindWindowDisabledReason || `${t('editor.findOpenInFindWindow')} (⌘⏎)`,
                   'aria-description': openInFindWindowDisabledReason || undefined,
@@ -2503,10 +2538,13 @@
                     type: 'button',
                     style: {
                       ...styles.conflictAction,
-                      opacity: state.replaceBusy || scopedMatches.length === 0 ? 0.45 : 1,
+                      ...styles.findToolBottomAction,
+                      opacity: state.replaceBusy || state.loading || state.error !== null || scopedMatches.length === 0 ? 0.45 : 1,
                     },
-                    disabled: state.replaceBusy === true || scopedMatches.length === 0,
-                    title: `${t('editor.searchReplaceAll')} (⌥⇧⏎)`,
+                    'data-dsh-find-bottom-action': 'replace-all',
+                    disabled: state.replaceBusy === true || state.loading === true || state.error !== null || scopedMatches.length === 0,
+                    title: replaceAllDisabledReason || `${t('editor.searchReplaceAll')} (⌥⇧⏎)`,
+                    'aria-description': replaceAllDisabledReason || undefined,
                     'aria-keyshortcuts': 'Alt+Shift+Enter',
                     onClick: () => onReplaceAll(scopedReplacementPaths),
                   },
@@ -2518,9 +2556,14 @@
                     type: 'button',
                     style: {
                       ...styles.conflictAction,
-                      opacity: state.replaceBusy || state.loading || active?.kind !== 'text' ? 0.45 : 1,
+                      ...styles.findToolBottomAction,
+                      opacity: state.replaceBusy || state.loading || state.error !== null || active?.kind !== 'text' ? 0.45 : 1,
                     },
-                    disabled: state.replaceBusy === true || state.loading === true || active?.kind !== 'text',
+                    'data-dsh-find-bottom-action': 'replace',
+                    disabled: state.replaceBusy === true || state.loading === true || state.error !== null || active?.kind !== 'text',
+                    title: replaceCurrentDisabledReason || `${t('editor.replaceCurrent')} (Enter)`,
+                    'aria-description': replaceCurrentDisabledReason || undefined,
+                    'aria-keyshortcuts': 'Enter',
                     onClick: () => onReplaceOccurrence(active, activeIndex),
                   },
                   t('editor.replaceCurrent'),

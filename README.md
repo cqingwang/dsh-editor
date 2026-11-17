@@ -1,5 +1,29 @@
 # dsh-editor
 
+**在 DeepSeek Harness 中提供 IDE 式 Editor 工作台，对齐 IDEA 的 Project、Commit、Terminal、搜索与替换体验。**
+
+下面截图是当前实际运行效果：编辑器与 Harness Chat 并排工作，Project 文件树、Monaco、终端、Commit 和 Find in Files 都在同一工作台内完成。
+
+## 功能演示
+
+### 编辑器工作台
+
+![dsh-editor 编辑器工作台](docs/home.png)
+
+Project 文件树、Monaco 编辑区、底部 Terminal 与右侧 Harness Chat 同时工作；支持文件 tab、图片预览、Markdown 预览、Harness 引用、目录拖拽和操作系统文件上传。
+
+### Commit 工具窗口
+
+![dsh-editor Commit 工具窗口](docs/commit.png)
+
+按 IDEA changelist 语义展示 staged / unstaged / unversioned 文件，支持目录树、批量选择、暂存/取消暂存、提交、提交并推送、Amend、差异预览和提交历史。
+
+### Find in Files 与替换
+
+![dsh-editor Find in Files](docs/search.png)
+
+提供 IDEA 风格 Search Everywhere、持久 Find 工具窗、Directory/Scope 搜索、File mask、Preview、单处 Replace 与 Replace All，并保留搜索历史和可撤销替换。
+
 为 DeepSeek Harness 会话增加一个 **Editor** 工作台：新会话 hero 提供 Editor 入口，工作区 `...` 菜单也保留同名入口；打开后把原聊天区域切成：
 
 - 左侧约为 **65%**：完整编辑器（文件树 + Monaco 编辑区），最左侧的活动条（Project / Commit / Terminal / Harness）按 IDEA 收窄到 36px；
@@ -264,6 +288,7 @@ Editor **不再插入“对话 / 轨迹 / 上下文”标签行**；没有 View 
 - 一次刷新只会让**真的变了**的行重新渲染：每份目录列表先算指纹（`directorySignature`），与当前完全一致时**沿用手上那个数组**（`keepUnchangedListing`），React 因引用未变跳过整棵子树；`entries` / `children` / `expanded` / `newPaths` / `deletedPaths` 都按值比较后再决定是否换引用。因此外部改动只重绘变化的那几行，空闲轮询一次渲染都不产生。
 - 关闭分栏时编辑器**不卸载**，只把宿主标成 `data-dsh-editor-host-idle`（`visibility: hidden`）：重新打开时文件树、展开状态、打开的文件都还在，不会再"每切一次闪一次"（旧实现每次重新挂载都从零 `loadRoot`，先出占位再出列表）。同一工作区的 `fs.watch` 监听在隐藏期间继续工作，所以回到编辑器时看到的是最新列表而不是旧快照。宿主替换 Chat body（切换会话/新建会话）时 Editor root 仍保留在稳定布局父节点中，只重新测量 overlay 几何。
 - 可拖动文件到目录完成移动（拒绝移入自身子目录），成功后树里回显「已移动 N 项到 X」（部分冲突时说明哪些没动）；拖到树上**空白区域**即移动到工作区根目录，拖动经过时树会有描边提示（IDEA 的「拖到项目根」）。已展开的目录按工作区持久化，刷新后自动恢复并补拉子项。
+- Project 树同时接收操作系统拖入的 `Files`：可把单个文件或整个文件夹拖到目录行、文件行或工作区根；落到文件行时自动解析到该文件的父目录，文件夹会递归保留子目录与空目录；落点目录自动展开并选中上传项。Project 工具栏也接受 drop，目标优先使用当前选中目录，选中文件则用其父目录，无选择时落到工作区根，并在工具栏底部显示 2px accent 落点线。拖入 Editor workspace 时会隐藏 DSH Chat 附件的全页 `backdrop-filter: blur(10px)` 遮罩，Project 内只在当前目标目录行/工具栏底部显示一根 2px accent 落点线，目标行不铺背景、不加整行描边；drop 后向 window 补发一次 `dragend`，让宿主自行卸载残留附件遮罩，而不是直接删除 React 节点。拖到右侧 Chat 时仍保留 Chat 自己的附件上传反馈。整批路径先在宿主 `fs.exists` 中预检，任一目标已存在则整批取消、绝不覆盖；文件随后逐个以 10 MiB 二进制分片顺序上传，单片失败按 0/1/2/4/8 秒节奏最多重试 5 次，offset 冲突从宿主 durable offset 恢复；不再把整文件读入内存或转成 base64，也不设置 4 MiB/32 MiB 人工文件上限。如果浏览器没有提供可读 entries/files，树顶会明确提示重新拖入。单次最多 1000 项。
 
 - Project 工具栏的宽度分配优先保留末尾 IDEA 动作：200px 时 `全部收起 / 选项 / 隐藏` 和 `»` 留在直接工具栏，标题中的 Project 视图选择器收缩；新建、定位、展开所选等低优先级动作进入 `»`。不再出现整个工具栏只剩一个 `»`、`Options / Hide` 也被塞进菜单的情况。
 - Project 中宽工具栏按 IDEA 的恢复顺序展开：220px 保留 `收起 / 选项 / 隐藏 / »`，260px 恢复 `展开所选`，300px 起恢复 `新建文件或目录… / 定位当前文件 / 展开所选 / 收起 / 选项 / 隐藏`。`»` 中“新建”与导航动作之间显示真实分隔线，分隔线使用 `role="separator"`，方向键会跳过它和 disabled 项。
@@ -311,15 +336,16 @@ Editor **不再插入“对话 / 轨迹 / 上下文”标签行**；没有 View 
 - Project `Options → 外观 → 紧凑目录` 默认为关（与 IDEA `ViewSettings.isCompactDirectories()` 的默认一致）；开启后连续单子目录链合并成一行，例如 `src/nested/deep`。合并行仍以最深目录为真实路径，展开、拖放、重命名和右键动作不会作用到显示用的路径摘要；首次展开尚未加载的目录时会沿链条继续读取并同步展开。
 - Project `Options → 外观 → 显示排除项` 默认开启以兼容当前行为；关闭后 `node_modules / dist / build / out / target / .next / .nuxt / .turbo / .cache / __pycache__ / .venv / venv` 不再显示，`.git` 仍无条件隐藏。
 - 文件编辑：Monaco Editor，按扩展名识别语言，支持多标签打开、未保存标记、`Cmd/Ctrl+S` 保存。
-- Editor 工作台、Project / Commit 工具窗口、输入控件以及 Monaco 代码区和 Diff 编辑器默认使用 `Trebuchet MS`；中文回退到 `PingFang SC / Microsoft YaHei UI`，不引入额外字体依赖。
+- 图片文件（`png / jpg / jpeg / jfif / gif / webp / avif / bmp / ico / svg`）双击后在编辑器区新增普通文件 tab，并使用浏览器原生 `<img>` 显示预览；不存在 Monaco 文本模型，`⌘/Ctrl+S` 不会覆盖原图。图片字节由宿主 `/api/dsh-editor/image` 同源只读路由流式返回，先做 workspace 越界校验，再按扩展名返回 MIME；编辑器和右侧 split 共用同一预览组件，底部状态栏显示“图片预览”和实际像素尺寸。加载失败时 tab 保持存在并显示本地化 alert。
+- Editor 工作台、Project / Commit 工具窗口、输入控件以及 Monaco 代码区和 Diff 编辑器默认使用 `Trebuchet MS`；中文回退到 `PingFang SC / Microsoft YaHei UI`，不引入额外字体依赖。所有 Monaco 编辑面（主编辑器、右侧分屏、修订预览、Diff）统一使用 `EDITOR_CODE_FONT_SIZE = 13` 与 `EDITOR_CODE_LINE_HEIGHT = 20`，避免不同编辑器视图字号和行高漂移。
 - Markdown / MDX 文件在面包屑右侧提供 IDEA 三态切换：**代码 / 代码和预览 / 预览**。模式写入 `dsh-editor.markdown.mode` 并在刷新后恢复；代码与预览表面保持挂载，分栏模式按用户指定采用左代码右预览，预览使用宿主 `MarkdownText` 渲染并随未保存编辑实时更新。三态按钮固定为 `24×20px` 图标按钮，实测编辑器内容区约 198px 时整组仍为 80px、无裁切，breadcrumb 先让出空间。分栏内代码区与预览按归一化阅读比例双向同步，程序写入的回显只抑制一次，避免两侧滚动互相自激。
 - Markdown 预览中的工作区本地链接复用宿主 file link 与 `openFile`：目标留在工作区内时按当前文档目录解析并打开；`../` 越出工作区的链接被安全拒绝，不改 URL、不打开文件。外部链接继续在新标签页以 `noopener,noreferrer` 打开。
 - Markdown 本地链接目标不存在或无法读取时，预览顶部显示 `role="alert"` 的本地化提示“Markdown 链接目标无法打开：<路径>”，不再把宿主 `ENOENT` 原始错误写入编辑器全局错误条；文件打开列表保持不变。错误条使用 `overflow-wrap:anywhere` 与 `word-break:break-word`，完整长路径在约 200px 的预览区内自动换成多行，不会撑出横向滚动，也不会用省略号丢掉路径。预览表面是 `inline-size` 容器，水平内边距使用 `clamp(8px, 12cqw, 24px)`：左代码右预览只剩约 100px 时会把内边距让给正文，alert 不再被固定 24px 边距压到约 48px 宽；宽预览仍保持原有阅读边距。下一次有效本地链接成功执行时，旧 alert 会自动清除；同文档自链接也不会误留旧错误。
 - 文件 API：宿主侧提供 `/api/dsh-editor/fs`，按会话 `cwd` 做路径越界校验，支持 `list` / `read` / `write`。
 - **运行时库是 `dependencies`，不再随包复制**：`monaco-editor@0.52.2`、`@xterm/xterm@6.0.0`、`@xterm/addon-fit@0.11.0` 从 `node_modules` 读取。宿主侧按文件注册精确的 `/api/dsh-editor/monaco/vs/*` 与 `/api/dsh-editor/xterm/*` 路由，路径由 `createRequire(import.meta.url).resolve(...)` 解析——profile 会把插件装进自己的树（pnpm 甚至隔离到 `.pnpm/<pkg>@file+.../node_modules/`），所以 `../node_modules` 是错的基准。包体积从 ~15 MB 降到 ~200 KB；升级 Monaco/xterm 只需改 `package.json` 再装依赖。
 - Search Everywhere 搜索快捷键与 IDEA 对齐：`PageDown / ⌘↓` 跳到下一个结果组，`PageUp / ⌘↑` 跳到上一个结果组（macOS 默认 keymap；其他平台为 `Ctrl+↓ / Ctrl+↑`）；`Show Search History` 显示 IDEA 默认的 `⌥↓`。组顺序按 `Recent searches / Actions / Files / Text` 的真实可见相邻关系计算，进入相邻组时落到首个启用行并跳过 disabled Action，不越过列表首尾。`⌘R / Ctrl+R` 保留当前文本结果的 query、options 和 active row 后进入 Replace；`⇧⌘R` 打开空白 Replace in Files；`⌘F` 先关闭弹框再打开当前 Monaco Find，`⇧⌘F` 打开 Find in Files 浮层并聚焦其查询框；`⌘G / ⇧⌘G` 步进当前编辑器 Find，`F3 / ⇧F3`（macOS 另有 `⌃L / ⌃⇧L`）复用同一步进路径；命中后把焦点还给编辑器。Actions 页的 `Incremental Search` 复用当前编辑器 Find：有选区或光标标识符时以其为初始 query，否则打开空查询；执行后关闭 Search Everywhere、清除旧 scope 并聚焦 Find 输入。`Select All Occurrences / Add Selection for Next Occurrence / Unselect Occurrence` 复用 Monaco multiple-caret 命令；macOS 使用 IDEA keymap 的 `⌃⌘G / ⌃G / ⌃⇧G`。正文右键不再列出 `Command Palette / Incremental Search / Search in Selection Only / Replace in Selection Only`；前三项对应的快捷键与 Search Everywhere 入口保留，selection-only 的行为改为 `⌘F / ⌘R` 根据实时选区自动启用。其余高频搜索项继续在正文右键中提供。Actions 页与空白 Find/Replace in Files 都先聚焦内容 query；只有带 selection/symbol 的 Replace Selection in Files 或从结果菜单选择 Replace 时才聚焦 replacement input。编辑器 Replace 同样聚焦 replacement input，Incremental Search 聚焦 query；replacement input 的 Enter 复用单处 Replace，Escape 关闭 Find。in-file usage search 复用编辑器 Find，highlight 复用 Monaco word-highlight，word occurrence 复用 Monaco selection-match 命令。Action 行把视觉快捷键同步映射为 `aria-keyshortcuts`，例如 `⌘R → Meta+R`、`⇧⌘R → Shift+Meta+R`，方向键会规范化为 `ArrowUp / ArrowDown / ArrowLeft / ArrowRight`。`Find in Path`、`Replace in Path` 作为 Find/Replace in Files 的搜索同义词；`Search Web`、`Find Word at Caret`、`Select Next Occurrence`、`Unselect Previous Occurrence`、`Structural Search`、`Structural Replace` 作为 IDEA 旧文案/本地插件文案的 `keywords`，仍能命中同一动作。`Browser Search` 以 `noopener,noreferrer` 在新标签搜索选区或光标标识符。`Search Structurally… / Replace Structurally…` 作为 IDEA 入口保留在 Actions 中；由于 Monaco 没有 language AST，两项显式 disabled 并显示原因。动作过滤词不会被当成内容 query，Search Everywhere 关闭后也不会留下 Project speed search 抢占输入焦点。Replace All 已通过真实宿主写入闭环：确认框、5 处/3 文件替换、结果刷新、打开文件重载和 Git 状态均同步。
-- Find in Files 的 Scope 与 IDEA 2026.2 对齐到当前可真实实现的范围：`Project Files`、`Project Files Excluding Git-ignored`、`Project Files Tracked by Git`、`Recently Viewed Files`、`Open Files`、`Current File`、`Changed Files`。Git 两项由宿主在 200 条结果上限之前用 `git ls-files` 限定候选集；tracked 只含索引文件，excluding ignored 还包含未被 `.gitignore` 排除的 untracked 文件。workspace 是仓库子目录时按 Git prefix 归一化路径。Recently Viewed Files 复用每 workspace 的 30 条 MRU；dirty Monaco buffer 只合并宿主确认属于当前 Git scope 的路径，Preview、Replace 与 Replace All 继续共用同一 scoped result 集。libraries、scratches、language class hierarchy 因缺少对应索引模型仍不伪造入口。
-- Find in Files 的 File mask 下拉现在同时保留最近使用值，并从 active/open/recent/changed 及当前搜索结果中生成按出现频率排序的 `*.ext` 建议；点击建议会启用 mask 并走与手输 mask 相同的搜索/替换路径。Git Scope 在当前 workspace 不是 Git 仓库时保持可见但 disabled；Recently Viewed、Open Files、Current File、Changed Files 在缺少 MRU、打开文件、活动文件或变更集时同样 disabled，已持久化的不可用 Scope 安全回退 Project Files。
+- Find in Files 的 Scope 与 IDEA 2026.2 对齐到当前可真实实现的范围：`Project Files`、`Project Files Excluding Git-ignored`、`Project Files Tracked by Git`、`Recently Viewed Files`、`Open Files`、`Current File`、`Changed Files`。Git 两项由宿主在 200 条结果上限之前用 `git ls-files` 限定候选集；tracked 只含索引文件，excluding ignored 还包含未被 `.gitignore` 排除的 untracked 文件。workspace 是仓库子目录时按 Git prefix 归一化路径。Recently Viewed Files 复用每 workspace 的 30 条 MRU；dirty Monaco buffer 只合并宿主确认属于当前 Git scope 的路径，Preview、Replace 与 Replace All 继续共用同一 scoped result 集。当前 `In Project / Directory / Scope` 模式显示主文字色、600 字重与 accent 下划线，选中态不再只依赖接近背景色的弱高亮。360px 最小宽度下压缩 Scope 模式间距、按钮横向 padding 和 Scope 下拉最小宽度，使 `Edit Scopes…` 的 `…` 入口保持完整可见且 Scope 行无横向溢出。Scope 输入沿用 180ms 防抖，只提交最后一次 query；新 generation 加载期间保留上一轮结果和 Source Preview，标题计数显示 Loading，列表不插入会推挤结果的占位行；Replace / Replace All 在新结果返回前禁用，避免对旧 scope 行执行写入。搜索失败时继续保留上一轮结果与 Preview，可见 `role="alert"` 以 `Search failed: …` 作为唯一错误播报，Replace / Replace All 同步禁用；切回可搜索范围后错误清除并恢复操作。错误文本使用 `overflow-wrap:anywhere` / `word-break:break-word`，360px 最小弹框下无空格长路径或 host 错误也不会把整个 Find 弹框横向撑开。libraries、scratches、language class hierarchy 因缺少对应索引模型仍不伪造入口。
+- Find in Files 的 File mask 下拉现在同时保留最近使用值，并从 active/open/recent/changed 及当前搜索结果中生成按出现频率排序的 `*.ext` 建议；点击建议会启用 mask 并走与手输 mask 相同的搜索/替换路径。Git Scope 在当前 workspace 不是 Git 仓库时保持可见但 disabled；Recently Viewed、Open Files、Current File、Changed Files 在缺少 MRU、打开文件、活动文件或变更集时同样 disabled，已持久化的不可用 Scope 安全回退 Project Files。弹框底部的 `Open in Find Window / Replace All / Replace` 使用独立的 24px 白底细边框动作面，启用时不再与禁用态混淆；Replace 同时暴露 `Enter` 的 `aria-keyshortcuts`。Replace / Replace All 禁用时通过 title 与 `aria-description` 说明具体原因：无匹配、搜索加载中、替换进行中或尚未选择文本匹配。
 - `Cmd/Ctrl+Shift+F` 现在不会再被 Project speed search 截获：Project 的 `Cmd/Ctrl+F` 只处理无 Shift 手势。Find 弹框内的 Search History、Replace History、Filter 与 File mask 菜单会限制在弹框可命中区域内；长历史在弹框内部滚动，不再绘制到弹框外后把点击穿透给聊天页面。
 - Search Everywhere 与 Find in Files 的文本结果预览会在布局阶段立即把 active match 滚到预览区垂直中心，并在下一帧按最终尺寸复核，避免内容切换时先显示顶部再跳动；短文件也不会再从第 1 行开始展示。dirty 结果保存后会由磁盘命中接替且不重复，Preview 同步切换到磁盘内容。双击、Enter 或 Open in Right Split 打开文本结果时继续复用 `openFileAtLocation()` / `revealLineInCenter()`，Monaco caret、选中行和可视中心都落在实际命中行列。
 - 预览中切换 Soft-Wrap、调整 Find dock/popup 或 Preview 面板尺寸时，会通过 `ResizeObserver` 重新计算匹配行位置，继续保持命中行在预览中心；ResizeObserver 不可用时仍保留首次定位。
@@ -403,7 +429,8 @@ npm install     # 或在 profile 里 pnpm install，monaco / xterm 会一起装�
 
 ## 已知边界
 
-- 当前文件树只读目录列表和文本文件；二进制文件、超大文件（>4 MiB）会拒绝打开。
+- 当前文件树可预览上述常见图片；其他二进制文件或超过 4 MiB 的文本内容仍不会作为 Monaco 文本打开。该 4 MiB 只限制文本读取，不影响图片预览或 Project 拖入上传——上传按 10 MiB 分片处理，不受此限制。图片预览当前不提供缩放、平移、裁剪、格式转换或 EXIF 面板，也不支持 TIFF/HEIC 等浏览器未统一原生解码的格式。
+- Project 的系统拖入只负责创建新路径；已有同名文件/目录不会被合并或覆盖。文件按 10 MiB 分片上传，先写入隐藏 `.dsh-editor-upload-*.part`，全部完成后再原子改名到最终路径；页面刷新中断不会占用最终文件名，空闲 1 小时的半成品会在宿主后台清理。上传期间 Project 顶部显示当前文件、`index/count`、累计字节、百分比和 `progressbar`，并提供“取消上传”；取消会立即中断在途分片请求和重试等待，再 abort 当前 part，已原子提交的前序文件保留，后续文件不再上传。单次拖入上限 1000 项；分片传输本身没有 4 MiB 或 32 MiB 的单文件上限。
 - 文件写入使用同目录临时文件 + rename；symlink 会更新其真实目标，硬链接语义会随 inode 替换而断开。
 - Editor 是插件在 hero / 工作区菜单提供的入口，不进入 Conversation View 注册表，也不会占用“对话 / 轨迹 / 上下文”标签行。
 - 空白会话的快捷入口依赖宿主 `conversation.hero.options` 槽；槽位缺失时仍可从工作区 `... → Editor` 打开。

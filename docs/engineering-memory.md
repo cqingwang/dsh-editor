@@ -1,5 +1,1348 @@
 # dsh-editor 工程记忆
 
+## 2026-11-17 — 图片文件被当作文本打开，无法在编辑器预览
+
+**作用域**：Project tree 双击图片文件、编辑器 tab、host 二进制只读路由
+与右侧 split。
+
+**症状/证据**：
+
+- 图片文件与普通文本共用 `op: 'read'`；
+- host 遇到 NUL 字节会报 `binary files are not editable`；
+- 用户无法在 IDE 内查看 workspace 图片，只能借助系统图片查看器。
+
+**根因**：
+
+- openFile 没有文件类型分支；
+- host 只有文本读取和 Monaco 静态资源路由，没有 workspace 图片流；
+- Monaco model 与文本保存假设所有打开文件都是 UTF-8 文本。
+
+**修复**：
+
+- host 新增 `imageFileInfo()` 元数据操作与
+  `/api/dsh-editor/image` GET/HEAD 路由；
+- 图片扩展名白名单：
+  `png/jpg/jpeg/jfif/gif/webp/avif/bmp/ico/svg`；
+- 路由先执行 workspace 越界校验，再返回对应 MIME、`content-length`
+  和 `no-store`；
+- 客户端 `openFile()` 对图片走 `op: 'image'`，只取元数据，不创建
+  Monaco model；
+- 编辑器与右侧 split 使用 `ImagePreviewPane` 原生 `<img>`；
+- tab 保持普通文件 tab 的关闭、预览标签、拖拽和右键生命周期；
+- 图片状态栏只显示“图片预览”，不显示伪 caret/行数；
+- 加载失败显示本地化 alert，成功显示真实像素尺寸；
+- `⌘S` 因无 model 而安全 no-op，不会用空文本覆盖图片。
+
+**回归**：
+
+- RED：round752 初始 **3 fail**；
+- GREEN：round752 / round686 / editor-round16 / round671
+  **21 pass / 0 fail**；
+- 全量：`npm test` **2499 pass / 0 fail**；
+- `check:client-build`、`node --check lib/client.js`、
+  `node --check lib/index.js`、`git diff --check` 均通过。
+
+**运行态证据**：
+
+- Harness / desktop profile / 1044×657 PNG；
+- 双击 Project tree 文件后新增 `round752-preview.png` tab；
+- 浏览器原生图片成功显示；
+- 预览和状态栏显示 `1044 × 657`；
+- `⌘S` 前后 SHA-256
+  `f86d4d64c35fe118416e73e980b83e1c1afa0e244e811414265a57ecca35d3b1`
+  完全一致；
+- tab 可关闭，测试图片已移入
+  `/private/tmp/dsh-r752-test-artifacts/`。
+
+**边界**：
+
+- 当前不提供缩放、平移、裁剪、格式转换或 EXIF；
+- TIFF/HEIC 等浏览器未统一原生解码的格式不列入白名单；
+- 其他二进制文件仍不会进入 Monaco。
+
+## 2026-11-17 — 旧 host 的 upload 404 缺少可行动提示
+
+**作用域**：Project Files drop 在 Harness host 尚未加载上传路由时的
+客户端错误映射。
+
+**症状/证据**：
+
+- host 处于旧版本时，`POST /api/dsh-editor/upload/start` 返回普通
+  404；
+- 客户端 `requestWorkspaceUpload()` 将无 JSON 的 404 归一为
+  `dsh-editor/upload-http`；
+- Project 只能显示 `upload API HTTP 404`，没有说明需要重启 Harness。
+
+**修复**：
+
+- `uploadDropFailureMessage()` 在 `upload-not-found` 等已知生命周期
+  错误之后，把剩余 404 映射为
+  `editor.uploadServiceUnavailable`；
+- 中文提示：“编辑器上传服务未加载，请完全退出并重新启动 Harness
+  后再试”；
+- 英文提示：“The editor upload service is not loaded; quit and
+  restart Harness, then try again”；
+- 保留 `dsh-editor/upload-not-found` 的“上传目标已不可用”专属文案。
+
+**回归**：
+
+- RED：round751 初始 **2 fail**；
+- 全量 `npm test`：**2496 pass / 0 fail**；
+- 回归同时确认普通 404 与 `upload-not-found` 不会被错误合并。
+
+**复用结论**：
+
+- HTTP 404 在 upload 生命周期中可能有两种完全不同的语义；
+- 先匹配稳定业务错误码，再匹配裸 HTTP 状态；
+- 对“host 版本/路由未加载”这类环境错误，UI 必须给出可行动操作，
+  不能只显示技术 fallback。
+
+## 2026-11-17 — Harness 桌面进程长期运行导致上传接口仍为旧版本
+
+**作用域**：desktop profile 的 host/client 热更新、Project 文件拖入上传
+与 Harness 应用重启要求。
+
+**症状/证据**：
+
+- 用户在 Harness 桌面应用把文件拖到 Project tree，松手后没有落盘；
+- 在真实 Harness DevTools 控制台重放同一个 Files drop：
+  - 客户端确实发出
+    `POST dsh-app://app/api/dsh-editor/upload/start?...`；
+  - 该请求返回 **404 Not Found**；
+  - 控制台来源是 `dsh-app://app/plugins/dsh-editor/client.js:8455`；
+- Harness host 进程 PID 785 启动于
+  `2026-11-16 20:49:49`，而 `lib/index.js` 更新于
+  `2026-11-17 12:46:03`、`lib/client.js` 更新于
+  `2026-11-17 12:59:48`；
+- 通过插件页关闭再启用 `dsh-editor` 后，`fs / git / upload`
+  路由仍全部 404，说明插件开关不足以重新装载 host 入口。
+
+**根因**：
+
+- desktop profile 虽然用 `link:` 指向工作区，但 Harness host 在应用
+  启动时已加载旧模块；
+- 浏览器刷新或插件启停只影响部分 renderer 生命周期，未重新加载
+  `/api/dsh-editor/upload/*` 等 host 精确路由；
+- 因此 drag UI 能触发客户端请求，但 host 对该路径直接返回 404。
+
+**修复/运维动作**：
+
+- 完全退出 Harness 后重新启动；
+- 重启后进程启动时间为 `2026-11-17 13:10:36`；
+- 在真实 Harness 的 Project tree 中再次触发 Files drop：
+  - 客户端上传生命周期成功，无 404；
+  - 新文件行出现在 Project tree；
+  - 磁盘文件为预期的 21 bytes 且内容正确。
+
+**复用结论**：
+
+- 修改 `lib/index.js`、`cordis.patch.yml`、host 路由或依赖后必须
+  完全退出并重启 Harness；
+- 仅刷新页面、重开 Editor 或切换插件开关不能证明 host 新代码已加载；
+- 排查顺序应为：
+  1. 检查 host 进程启动时间；
+  2. 对照相关文件的 mtime；
+  3. 在 DevTools 查看真实 API 路径与 HTTP 状态；
+  4. 必要时重启应用后重放同一 drop。
+
+**已排除方案**：
+
+- 把 404 误判为前台拖拽 UI 没实现；
+- 认为 `link:` profile 会自动热更新 host 模块；
+- 用插件开关代替应用重启。
+
+## 2026-11-17 — 取消上传仍被重试退避与在途分片阻塞
+
+**作用域**：Project chunked upload 的取消响应性、chunk 请求 abort
+与重试 timer 生命周期。
+
+**症状/证据**：
+
+- 取消按钮只把 `cancelRequested` 设为 true；
+- 当前 chunk fetch 没有 `AbortSignal`，网络挂起时点击取消不会中断；
+- 5 次 chunk 失败后的 8 秒退避使用普通 timer，取消只能等 timer
+  结束后的下一次循环检查；
+- CDP 阻断 `/upload/chunk` 5 次后，页面仍显示
+  `Uploading ... Cancel upload`。
+
+**根因**：
+
+- 取消模型只有布尔轮询，没有可中断的 fetch/timer 生命周期；
+- chunk retry 的等待不属于请求调用链，无法观察批次取消信号。
+
+**修复**：
+
+- `requestWorkspaceUpload()` 透传可选 `AbortSignal`；
+- 每个上传批次创建独立 `AbortController`，finally 清空；
+- 取消按钮同时设置 `cancelRequested` 并调用
+  `cancelController.abort()`；
+- chunk fetch 使用批次 signal，在途请求可立即结束；
+- 新增 `waitForWorkspaceUploadRetry(delay, shouldCancel, signal)`：
+  - timer 与 `abort` 事件共享一次 settle；
+  - 所有结束路径都清理 timer 和 listener；
+  - 取消时抛出稳定的 `dsh-editor/upload-cancelled`；
+- chunk failure 分支先检查取消，再决定 offset 恢复或重试；
+- abort 清理完成后统一返回 cancellation，避免把 `AbortError`
+  泄露为普通上传失败。
+
+**回归**：
+
+- RED：round749 初始 **2 fail**；
+- GREEN：round749 / 748 / 747 / 746 / 745 / 733
+  **16 pass / 0 fail**；
+- 全量：`npm test` **2494 pass / 0 fail**；
+- `check:client-build`、`node --check lib/client.js`、
+  `node --check lib/index.js`、`git diff --check` 均通过。
+
+**运行态证据**：
+
+- Ego Browser / 隔离 r526 / 11 MiB；
+- CDP `Network.setBlockedURLs` 阻断 chunk 5 次；
+- 取消前：`aria-busy=true`、progressbar `0%`、Cancel 可见；
+- 点击取消后 **103.7ms**：
+  - status=`Upload cancelled`；
+  - progressbar、`aria-busy`、Cancel 均消失；
+  - 最终目标不存在；
+- fixture 中没有残留 `.dsh-editor-upload-*.part`。
+
+**已排除方案**：
+
+- 只在每 8 秒退避结束后检查取消；
+- 用固定短轮询替代 AbortSignal；
+- 把 `AbortError` 当作普通可重试网络失败。
+
+## 2026-11-17 — 长任务上传缺少显式取消入口
+
+**作用域**：Project chunked upload 的取消控制、失败保留语义与
+`.part` 清理。
+
+**症状/证据**：
+
+- 进度条只有数值和当前文件，没有取消动作；
+- 大文件或多个文件顺序上传时，用户只能等待完成、断网或刷新页面；
+- 刷新页面后当前 `.part` 只能等 host 的 1 小时 idle cleanup，
+  期间继续占用磁盘。
+
+**根因**：
+
+- 客户端上传循环只有 busy 标记，没有批次级取消信号；
+- abort 路由虽然已经存在，但 UI 和上传检查点没有调用路径。
+
+**修复**：
+
+- `uploadBusyRef.cancelRequested` 在文件开始、chunk 和 retry 前检查；
+- 取消抛出稳定错误 `dsh-editor/upload-cancelled`；
+- 客户端 catch 通过 `requestWorkspaceUpload('abort')` 删除当前隐藏
+  `.part`；
+- 已在前序文件中完成并原子 rename 的文件保留，后续文件不再上传；
+- Project 进度条增加 `Cancel upload / 取消上传` 按钮、可访问名称和
+  tooltip；
+- 取消后清除进度条与 `aria-busy`，用普通本地化状态显示“上传已取消”；
+- round733 的静态契约放宽为允许
+  `uploadWorkspaceFile(file, path, onProgress, isCancelled)` 的现有参数。
+
+**回归**：
+
+- RED：round748 初始 **2 fail**；
+- GREEN：round748 / 671 / static-order **10 pass / 0 fail**；
+- 定向：round748 / 747 / 746 / 745 / 733
+  **14 pass / 0 fail**；
+- 全量：`npm test` **2492 pass / 0 fail**；
+- `check:client-build`、`node --check lib/client.js`、
+  `node --check lib/index.js`、`git diff --check` 均通过。
+
+**运行态证据**：
+
+- Ego Browser / 隔离 r526 / 两个 12 MiB 文件顺序上传；
+- 第二个文件上传期间点击 `Cancel upload`；
+- 第一个文件保留，SHA-256
+  `2035167438838a59533e30d07fdda4ecd0ea8a3f14fa41fa255761761fa6ad76`
+  与源一致；
+- 第二个文件不存在，无残留 `.dsh-editor-upload-*.part`；
+- status 为 `Upload cancelled`，progressbar 与 `aria-busy` 均消失。
+
+**已排除方案**：
+
+- 取消时回滚前序已提交文件；
+- 只隐藏进度条而继续后台传输；
+- 通过刷新页面等待 TTL 清理当前 part。
+
+## 2026-11-17 — 上传目标消失被误当瞬态错误重试并泄露英文
+
+**作用域**：chunked upload 的 4xx 重试策略、host 错误 payload 与
+Project 失败文案。
+
+**症状/证据**：
+
+- 暂扣首个 chunk 后删除隐藏 `.part`，再放行；
+- 客户端对 `dsh-editor/upload-not-found` 404 连续发送 6 次 chunk
+  请求，约 15 秒后才 abort；
+- 最终 Project tree 显示 host 英文
+  `The upload destination is no longer available...` 的原始技术路径；
+- 最终目标已被外部创建时，`dsh-editor/exists` 也没有复用本地化冲突
+  文案。
+
+**根因**：
+
+- 客户端只把 409/413 视为不可重试，其他 4xx 仍走 5 次退避；
+- `uploadDropFailureMessage()` 未映射 host upload lifecycle 错误码；
+- host 错误 payload 没有稳定返回 `path`。
+
+**修复**：
+
+- 新增 `uploadFailureIsRetryable()`：
+  - 400–499 永久失败不重试；
+  - transport failure / 5xx 仍可按 0/1/2/4/8 秒重试；
+- host `uploadFailureResponse()` 返回可选 `path`；
+- 客户端映射：
+  - `upload-not-found` → 上传目标已不可用；
+  - `upload-offset` → 上传位置已变化；
+  - `upload-incomplete` / `upload-length` / `upload-chunk-too-large`
+    → 上传未完整完成；
+  - `dsh-editor/exists` → 现有冲突文案并点名路径。
+
+**回归**：
+
+- RED：round747 初始 **2 fail**；
+- GREEN：round747 / 746 / 745 / static-order
+  **12 pass / 0 fail**；
+- 全量：`npm test` **2490 pass / 0 fail**；
+- `check:client-build`、`node --check lib/client.js`、
+  `node --check lib/index.js`、`git diff --check` 均通过；
+- 目标消失运行态从 6 次 chunk 降为 **1 次 chunk + 1 次 abort**；
+- Project 立即显示本地化“上传目标已不可用，请重新拖入”；
+- 两个 12 MiB 文件顺序上传：
+  - 第二个文件暂扣时进度为 `2/2`、`12.0 MiB / 24.0 MiB`、
+    `aria-valuenow=50`；
+  - 完成后两个文件 SHA-256 均与源一致。
+
+**已排除方案**：
+
+- 对所有 HTTP 错误统一重试；
+- 把 404 当成 offset 冲突继续；
+- 只隐藏英文而不修复重试风暴。
+
+## 2026-11-17 — Project 分片上传缺少可见进度与进度语义
+
+**作用域**：Project chunked upload 的文件级/整批进度、状态展示与
+ARIA progressbar。
+
+**症状/证据**：
+
+- 上传开始只有一次静态 `Uploading N item(s)…`；
+- 该状态写入编辑器底栏 `statusNotice`，而未打开文件时底栏不渲染；
+- 25–64 MiB 上传过程中没有当前文件、累计字节或百分比；
+- Project tree 虽有 `aria-busy`，但没有 `progressbar` 的数值语义。
+
+**修复**：
+
+- `uploadWorkspaceFile()` 在 start 和每次 durable offset 更新后调用
+  `onProgress({loaded,total})`；
+- 上传编排记录当前文件 index/count、当前文件大小和整批累计字节；
+- Project tree 顶部增加专用进度条：
+  - 文件名、`index/count`；
+  - 累计 `loaded / total`；
+  - 整数百分比；
+  - `role=progressbar`、`aria-valuemin/max/now`；
+- 进度文本使用单一 `role=status`；有文件上传时不再同时 flash 静态
+  `uploadingItems`，避免重复播报；
+- 上传结束或失败时清空进度条。
+
+**回归**：
+
+- RED：round746 初始 **2 fail**；
+- GREEN：round746 / 745 / 743 / static-order
+  **12 pass / 0 fail**；
+- 全量 `npm test`：**2487 pass / 0 fail**；
+- `check:client-build`、`node --check lib/client.js`、
+  `node --check lib/index.js`、`git diff --check` 均通过。
+
+**运行态证据**：
+
+- Ego Browser / 隔离 r526 / 25 MiB + 37 字节真实文件；
+- CDP Fetch 放行首个 chunk、暂扣第二个 chunk；
+- 页面状态：
+  - tree `aria-busy=true`；
+  - 唯一 status=
+    `Uploading r746-progress.bin (1/1): 10.0 MiB / 25.0 MiB 39%`；
+  - progressbar `aria-valuenow=39`、bar width=`39%`；
+  - Project tree 不显示内部 part；
+- 放行后进度条消失，文件树新增目标，源/目标 SHA-256 均为
+  `d535309c0cf71fc4a1ae2351b6aa8d14bb2f2a91632693b4a0b1a12e18f2268a`。
+
+**已排除方案**：
+
+- 继续只靠编辑器底栏瞬时状态；
+- 每片新增独立 live region；
+- 只显示动画而不暴露真实 bytes 和百分比。
+
+## 2026-11-17 — 分片上传中断留下最终半成品并阻断重试
+
+**作用域**：Project chunked upload 的临时文件、原子提交、watcher 过滤
+与中断清理。
+
+**症状/证据**：
+
+- 旧实现 `start` 直接用 `wx` 创建最终目标文件；
+- 页面刷新或网络中断后 active upload identity 丢失，但最终路径留下
+  不完整文件；
+- 用户再次拖入同名文件时，客户端整批 `exists` 预检将残留文件视为
+  冲突，无法自然重试；
+- watcher 还会把上传中的最终文件当作真实新文件刷新 Project/Git。
+
+**根因**：
+
+- 最终路径与传输中的临时状态混用；
+- 页面刷新无法保证执行 abort；
+- active upload 没有 host-owned idle cleanup。
+
+**修复**：
+
+- start 在目标目录创建隐藏
+  `.dsh-editor-upload-<uploadId>.part`；
+- chunk 只写临时文件并每片 `Sync`；
+- finish 再检查最终路径不存在，然后同目录 `rename` 原子提交；
+- abort 删除临时文件；
+- Project listing、quick-open、递归 watcher 与 legacy watcher 无条件
+  忽略内部 `.part`；
+- 每次 start 清理超过 TTL 的残留 part；
+- active upload 有 1 小时 idle timer，页面刷新放弃后由 host 后台删除；
+- 最终路径在上传完成前始终不存在，同名 retry 不再被半成品阻断。
+
+**回归**：
+
+- RED：round745 初始 **2 fail**；
+- GREEN：round745 / 744 / 742 / round73 **10 pass / 0 fail**；
+- 全量 `npm test`：**2485 pass / 0 fail**；
+- `check:client-build`、`node --check lib/client.js`、
+  `node --check lib/index.js`、`git diff --check` 均通过。
+
+**运行态证据**：
+
+- Ego Browser / 隔离 r526 / CDP Fetch 暂扣首个 chunk：
+  - Project tree 仍只显示正常条目，不显示 `.part`；
+  - 磁盘只存在
+    `.dsh-editor-upload-<uuid>.part`，最终 `r745-interrupted.bin`
+    不存在；
+- 刷新页面后最终路径仍不存在；
+- 重新拖入同一 15 MiB + 19 字节文件：
+  - `start`、两个 chunk、`finish` 完成；
+  - 最终大小 15,728,659；
+  - 源/目标 SHA-256 均为
+    `5b14928956c2dfc10e6aa5addd6f6987bf8e60c02895c87a798ede1cd042a149`；
+- 测试目标与残留 part 已移出 fixture，原有 dirty/untracked 状态保持。
+
+**适用环境**：
+
+- macOS、Node v24.22.2、Chromium 156；
+- 隔离 DSH home `/private/tmp/dsh-editor-r526-home`，
+  fixture `/private/tmp/dsh-editor-r526-fixture`。
+
+**已排除方案**：
+
+- 继续直接写最终文件并在冲突时要求用户手工删除；
+- 依赖页面 `beforeunload` 保证 abort；
+- 把 `.part` 当普通隐藏文件展示或让 watcher 处理其每次写入。
+
+## 2026-11-17 — Project 大文件上传改为 File Browser 式 10 MiB 分片
+
+**作用域**：Project 操作系统文件拖入、上传协议、客户端内存峰值与大文件
+稳定性。
+
+**参考实现**：
+
+- File Browser commit
+  `833d908884d5c801f30f5c098d7977177eb3a36b`；
+- `frontend/src/api/tus.ts`：10 MiB chunk、单分片 in-flight、5 次
+  0/1/2/4/8 秒退避，409 冲突不重试；
+- `http/tus_handlers.go`：declared length、durable offset、每片 Sync、
+  超长分片回滚并在最终完成后校验字节。
+
+**旧实现问题**：
+
+- 客户端 `file.arrayBuffer()` 读取整个文件后转 base64 JSON；
+- base64 膨胀约 33%，浏览器与 host 同时持有大块内存；
+- 单请求承载整个文件，失败不能只重传当前分片；
+- 客户端人为限制单文件 32 MiB，且曾因长 base64 regex 在约 4 MiB
+  触发 V8 栈溢出。
+
+**新实现**：
+
+- 新增 host `start → chunk → finish / abort` 上传生命周期；
+- start：
+  - 随机 uploadId 登记 workspace root、目标路径和声明长度；
+  - 目标文件用 `wx` 独占创建，冲突返回 409；
+- chunk：
+  - `PATCH application/octet-stream`；
+  - 每次最多 16 MiB，客户端固定 10 MiB；
+  - offset 必须等于当前 durable file size；
+  - 每片写完后 `Sync`；
+  - stale retry 返回 409 和 `currentOffset`；
+  - 超过声明长度返回 413；
+- finish 校验 durable size 与 declared size 一致；完成 identity 保留
+  10 分钟，使重试 finish 幂等；
+- abort 删除半成品；
+- 客户端只 `file.slice(offset, end).arrayBuffer()`，不再保留整文件或
+  base64 副本；
+- 每片失败按 0/1/2/4/8 秒最多重试 5 次；offset 冲突从 host durable
+  offset 恢复；
+- 删除客户端 32 MiB 单文件上限；旧 `writeBinary` API 保留兼容，但
+  Project 拖入已不再使用。
+
+**回归**：
+
+- round744：
+  - 36 MiB + 137 字节跨分片上传，SHA-256 一致；
+  - stale offset 返回 durable offset 后可继续；
+  - abort 删除半成品；
+  - 客户端 10 MiB slice、5 次重试和四段 host route 契约；
+- 定向 round744 / 743 / 733 / 741：**13 pass / 0 fail**；
+- 全量 `npm test`：**2482 pass / 0 fail**；
+- `check:client-build`、`node --check lib/client.js`、
+  `node --check lib/index.js`、`git diff --check` 均通过。
+
+**运行态证据**：
+
+- Ego Browser / 隔离 r526 / 64 MiB + 321 字节真实文件拖放：
+  - 1 次 `start`；
+  - 6 次 10 MiB `PATCH`；
+  - 1 次 4,194,625 字节尾片；
+  - 1 次 `finish`；
+  - 源/目标 SHA-256 均为
+    `734f1e8daabb580db34ec2ae47fe7a3ae761cfc92db8628a02a90b2aac9a5a35`；
+- 12 MiB + 17 字节上传主动中断首个 chunk：
+  - 客户端自动重放该分片；
+  - 共 3 次 chunk request（失败、重试、尾片）；
+  - 源/目标 SHA-256 一致；
+- fixture 测试产物已移出，原有 dirty/untracked 状态保持不变。
+
+**适用环境**：
+
+- macOS、Node v24.22.2、Chromium 156；
+- 隔离 DSH home `/private/tmp/dsh-editor-r526-home`，
+  fixture `/private/tmp/dsh-editor-r526-fixture`。
+
+**已排除方案**：
+
+- 继续增大单次 base64 JSON 上限；
+- 并发多分片上传；
+- 把 10–16 MiB 的分片保护误当成最终文件大小限制；
+- 客户端整文件流式请求但不提供 offset/重试语义。
+
+## 2026-11-17 — Project 上传忙碌时重复 drop 被静默丢弃
+
+**作用域**：Project 外部 Files drop、上传 busy 生命周期、tree ARIA 与
+拖入错误本地化。
+
+**症状/证据**：
+
+- Ego Browser / 隔离 r526，用 CDP Fetch 暂扣第一个
+  `writeBinary`；
+- 上传 busy 期间向 `src` drop 第二个文件：
+  - 第二个文件没有 `exists/writeBinary`；
+  - 页面无 busy 提示、无错误、无完成说明；
+  - 第一个完成后只显示 `Uploaded 1 item(s)`，用户无法知道第二个
+    drop 已被丢弃；
+- Project tree 上传期间没有 `aria-busy`；
+- 32 MiB + 1 字节错误直接显示客户端英文
+  `is larger than the 32 MiB upload limit`。
+
+**根因**：
+
+- `uploadWorkspaceDropToProject()` 在 `uploadBusyRef.current` 为 true 时
+  直接 `return`；
+- busy 状态只存在于 ref，不参与渲染，也没有 ignored-drop 记录；
+- 拖入枚举错误使用自由文本，没有稳定 code 供 locale 映射。
+
+**修复**：
+
+- busy 时记录 `uploadBusyRef.ignoredDrops` 并立即显示本地化提示；
+- 第一个上传结束且期间有 ignored drop 时，状态栏改为
+  `Uploaded N …; M drop(s) were ignored…`，避免提示被 refresh 清掉；
+- 上传期间 Project tree 暴露 `aria-busy=true`，结束后移除；
+- 为过大、过多、过深、非法名称、不可读文件增加
+  `dsh-editor/upload-*` 稳定错误码和中英文文案映射；
+- 不排队第二个上传，不改变冲突预检、目录递归或写入协议。
+
+**回归**：
+
+- RED：`node --test tests/round743.test.mjs` 初始 **3 fail**；
+- GREEN：round743 / 733 / 740 / round73 / static-order
+  **17 pass / 0 fail**；
+- 全量：`npm test` **2478 pass / 0 fail**；
+- `check:client-build`、`node --check lib/client.js`、
+  `node --check lib/index.js`、`git diff --check` 均通过。
+
+**运行态证据**：
+
+- Fetch 暂扣第一个 `writeBinary` 后第二次 drop：
+  - tree `aria-busy=true`；
+  - status=`Uploading 1 item(s)…`；
+  - tree 显示
+    `An upload is already in progress…`；
+- 放行第一个上传后：
+  - `aria-busy` 移除；
+  - status=`Uploaded 1 item(s) to docs; 1 drop(s) were ignored while the upload was in progress`；
+  - 第一个文件落盘，第二个文件不存在；
+  - 状态提示在 watcher 刷新后仍保持。
+
+**适用环境**：
+
+- macOS、Node v24.22.2、Chromium 156；
+- 隔离 DSH home `/private/tmp/dsh-editor-r526-home`，
+  fixture `/private/tmp/dsh-editor-r526-fixture`。
+
+**已排除方案**：
+
+- 不自动排队并执行第二个 drop；
+- 不只加视觉 toast 而继续静默丢弃；
+- 不把错误原因硬编码成单一语言。
+
+## 2026-11-17 — Git index.lock 触发 Project watcher 自激刷新
+
+**作用域**：`WorkspaceWatcher` 递归文件事件、Project/Commit 的
+`refreshTree + loadGit` 链路与空闲性能。
+
+**症状/证据**：
+
+- Ego Browser / 隔离 r526，Project 已打开且无用户操作；
+- 5 秒 Network 记录：
+  - `list` 160 次；
+  - `exists` 64 次；
+  - `git/status` 65 次；
+- 同时用独立
+  `fs.watch(root, { recursive: true, persistent: false })` 观察，
+  3 秒内只有连续 `.git/index.lock` rename，没有工作区文件变化；
+- 说明 UI 空闲时仍在高频刷新，不是正常 signature 轮询。
+
+**根因**：
+
+- 递归 watcher 把手写事件路径中的 `.git/index.lock` 也当成真实
+  Git 状态变化，并发出根目录 change；
+- 客户端收到 change 后执行 `refreshTree + loadGit`；
+- `git status` 会刷新 index lock，watcher 再次收到 lock 事件，形成
+  “刷新 → git status → index.lock → 刷新”的持续自激循环。
+
+**修复**：
+
+- 递归 watcher 对 `.git` 下 `*.lock` 临时文件直接忽略；
+- `.git/index`、refs 等真实 Git 文件变化仍记录根目录刷新；
+- 不关闭 watcher、不删除 git status、不改变客户端刷新 API。
+
+**回归**：
+
+- RED：`node --test tests/round742.test.mjs` 初始 1 fail，
+  `.git/index.lock` 产生 1 个 change frame；
+- GREEN：round742 + round383 + round165 + round741 + round733
+  **15 pass / 0 fail**；
+- 全量：`npm test` **2475 pass / 0 fail**；
+- `npm run check:client-build`、`node --check lib/client.js`、
+  `node --check lib/index.js`、`git diff --check` 均通过。
+
+**运行态证据**：
+
+- 修复后空闲 9 秒 Network 只有 1 次预期 `signature`，`list`、
+  `exists`、`git/status` 均为 0；
+- 外部 `git add README.md` / `git reset HEAD -- README.md`
+  各触发一次正常刷新，fixture 最后恢复为 `M README.md`；
+- 32 MiB 整文件拖入：
+  - `writeBinary` 200，落盘 33,554,432 字节；
+  - 源/目标 SHA-256 一致；
+- 32 MiB + 1 字节文件：
+  - 没有 `exists/writeBinary` 请求；
+  - Project 树显示 32 MiB 上限错误；
+- IDEA Computer Use 对照：
+  - Project 状态栏显示 `Processing file events…`；
+  - Commit 工具窗无需手动刷新即可显示 3 个 changed 与 22 个
+    unversioned 文件，确认外部文件/Git 状态应自动吸收。
+
+**适用环境**：
+
+- macOS、Node v24.22.2、Chromium 156；
+- 隔离 DSH home `/private/tmp/dsh-editor-r526-home`，
+  fixture `/private/tmp/dsh-editor-r526-fixture`。
+
+**已排除方案**：
+
+- 不移除 `.git/index` 监听；
+- 不靠提高 refresh debounce 掩盖自激，而是从事件源忽略临时锁；
+- 不修改 Project 刷新 API 或 Git status 语义。
+
+## 2026-11-17 — Project 大文件拖入因 base64 正则栈溢出静默失败
+
+**作用域**：Project 文件树操作系统文件拖入、`writeBinary` 主机校验与
+大文件上传反馈。
+
+**症状/证据**：
+
+- Ego Browser / 隔离 r526 / CDP 真实文件路径；
+- 1 MiB 文件上传成功，落盘大小与源文件一致；
+- 8 MiB 文件 `drop` 事件携带正确的 `Files` 与
+  `File(name,size=8388608)`，前端也发出 `writeBinary`；
+- 主机 `writeBinary` HTTP 200，但响应体为
+  `{"ok":false,"error":{"message":"Maximum call stack size exceeded"}}`；
+- 目标文件未创建；树刷新随后清掉瞬时错误，界面看起来像拖拽 UI
+  有反馈但实际没有上传；
+- 同一路径的 `dataTransfer.items`、`DataTransfer.files` 都正常，
+  不是只实现拖拽 UI，也不是 Chrome/File API 没有提供内容。
+
+**根因**：
+
+- `writeUploadedFile()` 用
+  `/^(?:[A-Za-z0-9+/]{4})*(?:...)?$/u` 校验整段 base64；
+- V8 执行重复分组 regex 时使用递归栈，输入超过约 4 MiB 即抛
+  `RangeError: Maximum call stack size exceeded`；
+- 本机 Node 直接复现：1 MiB 通过，4/8/24 MiB 均栈溢出。
+- Chrome 官方 File System Access drag/drop 文档确认拖放文件应通过
+  `DataTransferItem`/`FileSystemHandle` 读取；本轮实测文件内容已到达
+  `writeBinary`，失败点在主机端编码校验。
+
+**修复**：
+
+- 新增 `isCanonicalBase64()`，线性扫描字符、长度与尾部 `=` 填充；
+- `writeUploadedFile()` 不再对整段内容执行重复分组 regex；
+- 保留空字符串、canonical padding、32 MiB 上限、越界路径和独占
+  创建语义；
+- 未改动客户端拖拽落点、目录递归、冲突预检或 API 格式。
+
+**回归**：
+
+- RED：`node --test tests/round741.test.mjs` 初始 1 fail，栈顶为
+  `RegExp.test → writeUploadedFile`；
+- GREEN：round741 1 pass；round741 + round733 5 pass / 0 fail；
+- 全量：`npm test` **2474 pass / 0 fail**；
+- `npm run check:client-build`、`node --check lib/client.js`、
+  `node --check lib/index.js`、`git diff --check` 均通过。
+
+**运行态证据**：
+
+- 重启隔离 r526 主机加载修复后的 `lib/index.js`；
+- 8 MiB 真实拖放到 `docs`：
+  - `writeBinary` 请求体 11,184,964 字符，响应 `ok:true`；
+  - 落盘大小 8,388,608 字节；
+  - 源/目标 SHA-256 均为
+    `2daeb1f36095b44b318410b3f4e8b5d989dcc7bb023d1426c492dab0a3053e74`；
+  - Project 树显示 `r741-size-8m-fixed.bin`。
+- 测试产物已移出 fixture；fixture 恢复为原有的
+  `M README.md`、`?? src/nav-main.js`、`?? src/nav-target.js`。
+
+**适用环境**：
+
+- macOS、Node v24.22.2、Chromium 156；
+- 隔离 DSH home `/private/tmp/dsh-editor-r526-home`，
+  fixture `/private/tmp/dsh-editor-r526-fixture`。
+
+**已排除方案**：
+
+- 不降低 32 MiB 上传上限；
+- 不改成 multipart 或重做拖拽 UI；
+- 不依赖一次性手工重试，保留 round741 大文件主机回归。
+
+## 2026-11-17 — Project 工具栏 Files drop 无抬升入口
+
+**作用域**：Project tool window 的 toolbar、Files drag/drop 覆盖范围与
+选中目录 fallback。
+
+**症状/证据**：
+
+- CDP 原生 Files drop 到 `role=toolbar aria-label=Project`：
+  - drop 正常发生；
+  - 没有 `writeBinary`，树无变化；
+  - DSH attachment mask 与 body drag class 正常清除，因此看起来像
+    “页面恢复了但文件没上传”；
+- 原因是 Project 只有 tree row/tree background 有 drop handler，
+  toolbar 没有任何上传入口。
+
+**修复**：
+
+- PanelToolbar 增加可选 drop handlers 与 `dropActive`；
+- Project toolbar drop 时在底部绘制 2px accent 线；
+- 新增 `projectToolbarDropDirectory(rows, selectedPath)`：
+  - 当前选中目录 → 该目录；
+  - 当前选中文件 → 父目录；
+  - 无选择 → 工作区根；
+- toolbar drop 复用 `captureDroppedWorkspaceHandles()` 和现有 upload
+  事务，不复制 host API；
+- tree row/tree background handler 保持原优先级。
+
+**回归**：
+
+- RED：round740 初始 **3 fail / 0 fail**；
+- GREEN：round740：**3 pass / 0 fail**；
+- 定向 round740 / round20 / round177 / round454 / round739 /
+  static-order：**24 pass / 0 fail**；
+- 全量 `npm test`：**2473 pass / 0 fail**；
+- `check:client-build`、`node --check lib/client.js`、
+  `node --check lib/index.js`、`git diff --check` 均通过。
+
+**运行态证据**：
+
+- Ego Browser / 隔离 r526 / CDP；
+- toolbar dragover computed `inset 0 -2px 0 rgb(65,118,230)`；
+- 选中目录 `src` 时 host 写入
+  `src/round740-toolbar-proof.txt`；
+- tree 新增文件，drop 后 toolbar boxShadow=`none`；
+- attachment mask 数量为 0。
+
+## 2026-11-17 — Project 文件行不接受 OS 文件 drop，松手无反馈
+
+**作用域**：Project 文件树操作系统文件拖入、文件行落点解析与无内容
+drop 反馈。
+
+**症状/证据**：
+
+- 拖到目录行可正常上传；
+- 利用 CDP 原生 Files drop 拖到 `notes.md` 文件行：
+  - 浏览器产生 `drop`，target 为 `DIV.dsh-editor-tree-row`；
+  - 前端没有任何 `exists/writeBinary` 请求；
+  - 树中无新文件，也无错误提示；
+- 根因是 Files 分支里 `if (!isDirectory) return;`，文件行被直接忽略。
+
+**修复**：
+
+- 新增 `projectExternalDropDirectory(row)`：
+  - 目录行/根返回自身 path；
+  - 文件行返回 `dirname(path)`；
+- dragOver/drop 都使用解析后的目标目录，落点线仍锚定父目录行；
+- 离开文件行时清理父目录落点线；
+- 即使 capture 到的 handles 为空也进入 upload 流程，由
+  `uploadNothingReadable` 明确提示重新拖入；
+- root/background 的 drop 也走同一空内容反馈。
+
+**回归**：
+
+- RED：round739 初始 **3 fail / 0 fail**；
+- GREEN：round739：**3 pass / 0 fail**；
+- 定向 round739 / round733 / round735 / round737 / round73 /
+  round671 / static-order：**23 pass / 0 fail**；
+- 全量 `npm test`：**2470 pass / 0 fail**；
+- `check:client-build`、`node --check lib/client.js`、
+  `node --check lib/index.js`、`git diff --check` 均通过。
+
+**运行态证据**：
+
+- Ego Browser / 隔离 r526 / CDP `Input.dispatchDragEvent`；
+- 拖到 `notes.md` 文件行时落点线=`docs`；
+- host `writeBinary(path="docs/round739-os-file-row.txt")` 成功；
+- 树显示 `round739-os-file-row.txt`，磁盘内容 `drop on file row`；
+- 真实文件夹拖入 `round739-os-folder/nested/inside.txt` 成功递归写入；
+- drop 后 DSH attachment mask=0、body drag class=false。
+
+## 2026-11-17 — Find 长错误撑破 360px 弹框并重复播报
+
+**作用域**：Find in Files / Replace in Files 的 error banner、360px 最小
+布局与 ARIA live announcement。
+
+**症状/证据**：
+
+- CDP Fetch 注入无空格长错误后，360×430 popup：
+  - region `scrollWidth=2669`、`clientWidth=360`；
+  - error banner 同样 `scrollWidth=2669`；
+  - `overflow-wrap:normal`、`word-break:normal`、`overflow:visible`；
+- 整个 Find 弹框被错误文本横向撑开；
+- 可见错误条 `role=alert` 与隐藏 `role=status` 同时包含错误全文，
+  辅助技术会重复播报。
+
+**根因**：
+
+- 通用 `searchEverywhereError` 没有 min-width 和 break-anywhere 约束；
+- error 文本同时被 alert 和 status 消费；
+- 360px 下没有针对长 host 消息的几何回归。
+
+**修复**：
+
+- `searchEverywhereError` 增加 `minWidth:0`、`maxWidth:100%`、
+  `overflowWrap:anywhere`、`wordBreak:break-word`；
+- 可见 `role="alert"` 显示 `Search failed: …`，成为唯一错误播报；
+- `findResultStatus` 在 error 状态下返回空字符串，保留一个
+  `role=status` 节点但不重复 error message；
+- 新增 round738 几何/单一播报回归。
+
+**回归**：
+
+- RED：round738 初始 **2 fail / 0 fail**；
+- GREEN：round738：**2 pass / 0 fail**；
+- 定向 round738 / round736 / round734 / round491 / round520 /
+  round671 / static-order：**23 pass / 0 fail**；
+- 全量 `npm test`：**2467 pass / 0 fail**；
+- `check:client-build`、`node --check lib/client.js`、
+  `node --check lib/index.js`、`git diff --check` 均通过。
+
+**运行态证据**：
+
+- Ego Browser / 隔离 r526 / 360×430；
+- region `scrollWidth=360`、`clientWidth=360`；
+- error banner `scrollWidth=360`、`clientWidth=360`、height=124px；
+- buttons 全部位于弹框内；
+- alert=1、status=1，status 文本为空；
+- alert 文本 `Search failed: round738_…`；
+- Directory 输入保持焦点。
+
+## 2026-11-17 — Editor 文件 drop 后残留 DSH 附件遮罩
+
+**作用域**：Project 文件拖入后的宿主 drag 生命周期与 DSH Chat
+attachment mask。
+
+**症状/证据**：
+
+- 用户释放鼠标后仍出现整屏 `文件或图片拖动到此处即可添加`；
+- CDP 复现 `dragEnter → dragOver → drop`；
+- drop 前 body 有 `dsh-editor-file-drag`，mask computed display=`none`；
+- drop 后本插件移除 body class，但宿主 mask 仍 connected，display 从
+  `none` 变回 `flex`，于是整屏遮罩重新盖住页面；
+- 这说明 DSH 没有在目标 drop 时自行清除 attachment drag state。
+
+**根因**：
+
+- 上一轮仅用 CSS 抑制遮罩，未结束宿主 drag session；
+- drop 后过早移除抑制 class；
+- 直接删除宿主 React mask 节点虽能临时消失，但不解决内部 drag-active
+  state，后续仍可能异常。
+
+**修复**：
+
+- 全局 capture drop 判断 target 是否在
+  `[data-dsh-editor-workspace]`；
+- Editor 内 drop 后保留抑制 class 到下一 task，再向 window 补发一次
+  synthetic `dragend`；
+- 宿主自己的 dragend listener 正常卸载 attachment mask，本插件 listener
+  再移除 body class；
+- Editor 之外的 drop 不补发 dragend，Chat 附件流程保持原样。
+
+**回归**：
+
+- RED：round737 初始 **2 fail / 0 fail**；
+- GREEN：round737：**2 pass / 0 fail**；
+- 定向 round737 / round735 / round733 / round73 / round671 /
+  static-order：**20 pass / 0 fail**；
+- 全量 `npm test`：**2465 pass / 0 fail**；
+- `check:client-build`、`node --check lib/client.js`、
+  `node --check lib/index.js`、`git diff --check` 均通过。
+
+**运行态证据**：
+
+- Ego Browser / 隔离 r526 / CDP；
+- dragOver：body class=true、mask display=`none`、`docs` 落点线存在；
+- drop 350ms 后：body class=false、mask 节点数为 0、落点线为 null；
+- 页面截图恢复 Project/Editor 正常布局，无整屏附件遮罩。
+
+## 2026-11-17 — Find 搜索失败误报 No matches 并清空旧结果
+
+**作用域**：Find in Files / Replace in Files 的 `searchText` 失败状态、
+live region 与 Replace 可用性。
+
+**症状/证据**：
+
+- query=`end`、Directory 从 `src` 切到 `docs` 后，通过 CDP Fetch
+  注入一次 `searchText` HTTP 失败；
+- catch 分支清空 `files/matches`，同时设置 `error`；
+- UI 结果区显示 `Nothing found`，错误条显示
+  `round736 synthetic failure`，两个状态互相矛盾；
+- screen-reader live region 播报 `No matches`，没有播报真实失败；
+- 上一轮 Preview 被清空，Replace 仍按“无匹配”而不是“搜索失败”解释。
+
+**根因**：
+
+- 搜索错误和正常零结果是两个不同语义，但共用 `loading=false +
+  occurrences=0` 的展示路径；
+- error 优先于 loading 的状态优先级缺失；
+- catch 主动丢弃上一代结果；
+- Replace disabled reason 没有覆盖搜索失败。
+
+**修复**：
+
+- catch 保留上一代 `files/matches/index`，只设置 error、结束 loading；
+- error 状态下继续渲染 retained rows，延后 scope 过滤；
+- live status 优先显示 `查找失败：<message>` / `Search failed: <message>`；
+- Replace / Replace All 在 error 状态禁用，aria-description 为
+  `搜索失败，请重试后再替换` / `Search failed; retry before replacing`；
+- 新 query、options 或 scope 触发下一次搜索时清 error，成功后恢复
+  Replace 可用性。
+
+**回归**：
+
+- RED：round736 初始 **3 fail / 0 fail**；
+- GREEN：round736：**3 pass / 0 fail**；
+- 定向 round736 / round734 / round731 / round727 / round520 / round714 /
+  round491 / round671 / static-order：**25 pass / 0 fail**；
+- 全量 `npm test`：**2463 pass / 0 fail**；
+- `check:client-build`、`node --check lib/client.js`、
+  `node --check lib/index.js`、`git diff --check` 均通过。
+
+**运行态证据**：
+
+- Ego Browser / 隔离 r526 / CDP Fetch 注入失败；
+- 失败态 status=`Search failed: round736 synthetic failure`；
+- options=2、Preview=true，上一轮上下文保留；
+- Replace All / Replace disabled，description 为
+  `Search failed; retry before replacing`；
+- Directory 恢复 `src` 后 status=`2 matches in 1 file`、error=null、
+  Replace All 恢复 enabled。
+
+## 2026-11-17 — 文件拖入 Editor 时 DSH 全页附件遮罩导致发糊
+
+**作用域**：Project 操作系统文件拖入、Editor workspace drag 状态与 DSH
+Chat 附件遮罩。
+
+**症状/证据**：
+
+- 文件进入页面后，`BODY` 下出现宿主原生
+  `DIV.leFxdG_mask[role="status"]`；
+- 该节点 `position:fixed`、`z-index:1000`、
+  `backdrop-filter:blur(10px)`、白底 `rgba(255,255,255,0.7)`，覆盖整个
+  1044×657 viewport；
+- 文案是 Chat 的 `Drag files or images here to add them`，与 Project
+  上传无关；
+- 遮罩虽然 `pointer-events:none`，但 Project 文件名、目录和落点全部
+  发糊，用户无法识别目标文件夹。
+
+**根因**：
+
+- DSH Chat 在任意 `Files` dragEnter 时显示自己的全页附件提示；
+- Editor/Project 没有声明“当前拖拽由编辑器接管”，宿主遮罩继续覆盖；
+- Project 原先使用整行背景和 inset 描边表达落点，在遮罩下更难辨认。
+
+**修复**：
+
+- Editor workspace 收到 `Files` dragEnter 时给 `body` 加
+  `dsh-editor-file-drag`；
+- 注入 CSS 只在该状态下隐藏 body 直接 `role=status`、`class*="_mask"`
+  的宿主附件遮罩，右侧 Chat drop 不受影响；
+- 离开 workspace、drop、dragend 或卸载时移除 drag class；
+- Project 目标目录改为底部 2px accent 动态落点线，使用
+  `data-dsh-project-file-drop-line=<path>`，目标行保持透明背景且无
+  box-shadow；
+- 落点线随 hover 的目录行移动，宽度仅锚定文件/目录名称区域。
+
+**回归**：
+
+- round735：**3 pass / 0 fail**；
+- 定向 round735 / round733 / round130 / round73 / round671 /
+  project-toolwindow / static-order：**33 pass / 0 fail**；
+- 全量 `npm test`：**2460 pass / 0 fail**；
+- `check:client-build`、`node --check lib/client.js`、
+  `node --check lib/index.js`、`git diff --check` 均通过。
+
+**运行态证据**：
+
+- Ego Browser / 隔离 r526 / CDP `Input.dispatchDragEvent`；
+- dragEnter 后 `body.dsh-editor-file-drag=true`；
+- 宿主附件 mask computed `display:none`；
+- hover `docs` 行时落点线：
+  - path=`docs`；
+  - `height=2px`、`width≈36px`、accent `rgb(65,118,230)`；
+  - 行背景 `rgba(0,0,0,0)`、boxShadow=`none`。
+
+## 2026-11-17 — Directory Scope 输入逐键清空结果与 Preview
+
+**作用域**：Find in Files / Replace in Files 的 Directory Scope 输入、
+Directory recursion toggle 与搜索 generation 生命周期。
+
+**症状/证据**：
+
+- query=`end`、Directory 从 `src` 连续输入 `s → sr → src`；
+- CDP 只捕获最终 1 次 `searchText(directory="src")`，180ms 防抖正常；
+- 每个输入事件却立即执行 `files/matches = []`，列表从 2 条结果切到
+  `Loading…`，Source Preview 同时消失，直到最终响应才恢复；
+- 用户连续输入时整个搜索面反复抽空，虽功能最终正确但视觉明显闪烁。
+
+**根因**：
+
+- Scope 变更和搜索 effect 启动都主动清空 retained rows；
+- 组件随后按新 scope 重新过滤旧 rows，旧 scope 的可见上下文全部丢失；
+- Replace 按钮只按 matches 判断可用，没有把新 generation loading 纳入
+  写入前置条件。
+
+**修复**：
+
+- Scope / recursion 变更时保留 `files/matches/index`，只递增 generation，
+  设置 `loading`；
+- 搜索 effect 启动不再清空 matches；
+- 新 generation 未完成前，scope 过滤延后，继续显示上一轮结果；
+- 标题计数显示 `Loading…`，只有列表本身为空时才插入 loading 占位，
+  避免结果行下移；
+- Replace All 在 `state.loading === true` 时禁用，并在 title /
+  aria-description 中说明搜索结果仍在加载；
+- 新结果返回后恢复 scope 过滤；若结果为零，active 和 Preview 正常收敛
+  到空状态。
+
+**回归**：
+
+- RED：round734 初始 **3 fail / 0 fail**；
+- GREEN：round734：**5 pass / 0 fail**；
+- 定向 round734 / round714 / round731 / round727 / round520 / round634 /
+  round635 / round651 / round671 / round726 / round730 / static-order：
+  **40 pass / 0 fail**；
+- 全量 `npm test`：**2457 pass / 0 fail**；
+- `check:client-build`、`node --check lib/client.js`、
+  `node --check lib/index.js`、`git diff --check` 均通过。
+
+**运行态证据**：
+
+- Ego Browser / 隔离 r526 / `127.0.0.1:63237` / CDP Network；
+- 输入序列期间 status=`Loading…`、options=2、Preview=true；
+- 最终仍只有 1 次 `searchText(directory="src", query="end")`；
+- loading 时 `replace-all` / `replace` 均 disabled，description 为
+  `Search results are still loading`。
+
+## 2026-11-17 — Project 缺少操作系统文件拖入上传
+
+**作用域**：Project 文件树、`/api/dsh-editor/fs` 与工作区二进制写入。
+
+**缺口**：
+
+- 树内 `text/plain` 拖拽只能移动已有工作区条目；
+- 操作系统拖入的 `Files` 没有 `text/plain`，Project 的 `dragover/drop`
+  会直接忽略；
+- 现有 `write` 仅接受 UTF-8 文本，无法上传图片、压缩包等二进制文件；
+- 若逐文件直接写入，同名冲突可能在中途才暴露并留下半批结果。
+
+**修复**：
+
+- Project 优先识别 `Files`，drop 同步提取
+  `DataTransferItem.webkitGetAsEntry()`，递归读取目录并保留空目录；
+  无 Entry API 时回退 `DataTransfer.files`；
+- 目标仅接受目录行和工作区根，文件行不触发上传；`dropEffect=copy`
+  并在目标行显示 accent 边框；
+- 整批先通过 `fs.exists` 预检全部目标，任一冲突则整批取消并显示路径；
+- 目录先按深度创建，文件逐个读取 `arrayBuffer()` 后通过新宿主操作
+  `writeBinary` 写入；单次最多 1000 项、单文件 32 MiB；
+- 宿主严格校验 canonical base64、空路径、工作区越界、32 MiB 上限，
+  用 `open(..., 'wx')` 独占创建，竞争写入也不会覆盖；
+- 上传后立即刷新 Git 状态与落点目录，展开目标并选中上传顶层项；
+- 上传编排下沉到 `src/client/project.js`，避免
+  `editor-workspace.js` 超过 11000 行评审上限。
+
+**回归**：
+
+- round733：**4 pass / 0 fail**；
+- 定向 round733 / round73 / round671 / project-toolwindow /
+  file-operations / round131 / static-order：**36 pass / 0 fail**；
+- 全量 `npm test`：**2452 pass / 0 fail**；
+- `check:client-build`、`node --check lib/client.js`、
+  `node --check lib/index.js`、`git diff --check` 均通过。
+
+**运行态证据**：
+
+- Ego Browser / 隔离 r526 / `127.0.0.1:63237`；
+- 向 `docs` 目录行拖入文件与含空目录/嵌套文件的文件夹，树立即显示，
+  磁盘内容分别为 `dropped-from-operating-system` 与 `nested-drop-ok`；
+- 同名重拖被整批拒绝，原文件保持 `dropped-from-operating-system`；
+- 客户端重载最新 bundle 后再次上传 `round733-recheck.txt`，磁盘内容为
+  `recheck-after-reload`。
+
+## 2026-11-17 — disabled Replace 动作缺少原因说明
+
+**作用域**：Find in Files / Replace in Files 底部 Replace 与 Replace All。
+
+**症状**：
+
+- 两个按钮 disabled 时只保留动作名和快捷键 title；
+- 用户无法区分是无匹配、搜索仍在加载、替换正在执行，还是当前结果是
+  文件行而非可替换文本行；
+- 键盘/辅助技术只能读到 disabled，没有原因说明。
+
+**修复**：
+
+- Replace All：busy 时说明正在替换；无 scoped matches 时说明当前范围
+  没有可替换匹配；
+- Replace：busy → 正在替换；loading → 搜索结果仍在加载；
+  active 不是文本匹配 → 请先选择文本匹配；
+- disabled 时把原因写入 `title` 与 `aria-description`；
+- enabled 时继续显示动作名和快捷键；
+- 新增中英文原因文案与 round731 回归。
+
+**回归**：
+
+- round731：**2 pass / 0 fail**；
+- 定向 round731 / 730 / 727 / 520 / 635 / 671 / static-order：
+  **21 pass / 0 fail**；
+- 全量 `npm test`：**2446 pass / 0 fail**；
+- `check:client-build`、`node --check lib/client.js`、
+  `node --check lib/index.js`、`git diff --check` 均通过。
+
+**运行态证据**：
+
+- Ego Browser / r526 / `127.0.0.1:63237`；
+- 空查询：Replace All title/description 为
+  `No replaceable matches in the current scope`；Replace 为
+  `Select a text match to replace`；
+- query=`Scoped`、存在文本匹配后：两按钮 enabled，title 恢复
+  `Replace All (⌥⇧⏎)` / `Replace (Enter)`，description 清空。
+
+## 2026-11-17 — Find 弹框 360px Scope 行横向溢出
+
+**作用域**：Find in Files / Replace in Files 浮层最小宽度布局。
+
+**症状/证据**：
+
+- Ego Browser 将弹框设为 `360×430` 后，Scope 行
+  `scrollWidth=376`、`clientWidth=358`；
+- Scope 模式组实际宽约 222px，Scope 下拉最小宽 110px，加上
+  `Edit Scopes…` 与 gap 后超过行宽；
+- 右侧 `… / Edit Scopes` 被挤出可视区，用户无法直接打开该入口。
+
+**修复**：
+
+- Scope 模式组 gap `5 → 3`；
+- Scope 模式按钮横向 padding `6 → 4`；
+- Scope 下拉 `minWidth 110 → 96`；
+- 不隐藏任何模式或动作，行高保持 35px。
+
+**回归**：
+
+- 新增 round730：**2 pass / 0 fail**；
+- 定向 round730 / 729 / 728 / 726 / 727 / 651 / static-order：
+  **15 pass / 0 fail**；
+- 全量 `npm test`：**2444 pass / 0 fail**；
+- `check:client-build`、`node --check lib/client.js`、
+  `node --check lib/index.js`、`git diff --check` 均通过。
+
+**运行态证据**：
+
+- Ego Browser / r526 / `127.0.0.1:63237` / popup `360×430`；
+- Scope 行 `scrollWidth=358`、`clientWidth=358`；
+- Scope 行高度保持 35px；
+- `Edit Scopes…` 按钮右缘 431px，小于行右缘 439px，完整可见。
+
+## 2026-11-17 — Monaco 全局代码行高统一为 20px
+
+**作用域**：主编辑器、右侧分屏、修订预览、Diff 编辑器。
+
+**缺口**：
+
+- 13px 全局字号落地后，主编辑器与修订预览仍使用 20px 行高；
+- Diff 编辑器仍保留旧的 19px 行高，13px 文字下比其它编辑面更拥挤，
+  存在视觉不一致和潜在裁切风险。
+
+**修复**：
+
+- 在 `domain-core.js` 增加 `EDITOR_CODE_LINE_HEIGHT = 20`；
+- `editor-core.js` 与 `diff.js` 的三个 Monaco create 点全部引用；
+- Monaco 字号仍保持 `EDITOR_CODE_FONT_SIZE = 13`；
+- 终端字体/行高仍由 Terminal 独立设置，不受影响。
+
+**回归**：
+
+- 新增 round729：**1 pass / 0 fail**；
+- 定向 round729 / 728 / 329 / 530 / 604 / 726 / 727 /
+  static-order：**22 pass / 0 fail**；
+- 全量 `npm test`：**2442 pass / 0 fail**；
+- `check:client-build`、`node --check lib/client.js`、
+  `node --check lib/index.js`、`git diff --check` 均通过。
+
+## 2026-11-17 — Monaco 全局代码字号统一为 13px
+
+**作用域**：主编辑器、右侧分屏、修订预览、Diff 编辑器。
+
+**缺口**：
+
+- 三处 Monaco create 路径分别硬编码 `fontSize: 12`；
+- 修改主编辑器字号时，split、只读预览或 Diff 可能继续保持旧值。
+
+**修复**：
+
+- 在 `domain-core.js` 新增唯一常量 `EDITOR_CODE_FONT_SIZE = 13`；
+- `editor-core.js` 的源码编辑器组与 `diff.js` 的两处 Monaco create
+  全部引用该常量；
+- 行高保持现有 20/19px，不改变布局节奏或终端字号。
+
+**回归**：
+
+- 新增 round728：**1 pass / 0 fail**；
+- 定向 round728 / 329 / 530 / 604 / 726 / 727：
+  **17 pass / 0 fail**；
+- 全量 `npm test`：**2441 pass / 0 fail**；
+- `check:client-build`、`node --check lib/client.js`、
+  `node --check lib/index.js`、`git diff --check` 均通过。
+
+**运行态证据**：
+
+- Ego Browser / r526 / `127.0.0.1:63237`；
+- Monaco `EditorOption.fontSize = 13`；
+- `.monaco-editor .view-line` computed `font-size: 13px`，
+  `line-height: 20px`。
+
+## 2026-11-17 — Find 弹框底部动作的可点击反馈与键盘元数据
+
+**作用域**：Find in Files / Replace in Files 浮层底部
+`Open in Find Window / Replace All / Replace`。
+
+**症状**：
+
+- IDEA 底部动作使用清晰的标准按钮边界；
+- DSH 三个动作仅 20px 高，并使用接近工具栏背景的填充，实际已启用时
+  仍容易被误读为 disabled；
+- `Open in Find Window` 和 `Replace All` 已暴露快捷键元数据，单处
+  `Replace` 只有点击路径，缺少 `Enter` 的辅助技术提示。
+
+**修复**：
+
+- 新增 Find 专用 `findToolBottomAction` 样式：24px 高、`bg-base`
+  背景、0.5px 边框、11px 字体；
+- 三个动作统一使用该样式并增加
+  `data-dsh-find-bottom-action` 稳定身份；
+- 单处 Replace 增加 `title: "Replace (Enter)"` 与
+  `aria-keyshortcuts="Enter"`；
+- 原有 disabled/opacity、busy 状态和 Replace 执行链保持不变。
+
+**回归**：
+
+- 新增 round727：**2 pass / 0 fail**；
+- 定向 round727 / 726 / 520 / 634 / 635 / 671 / static-order：
+  **24 pass / 0 fail**；
+- 全量 `npm test`：**2440 pass / 0 fail**；
+- `check:client-build`、`node --check lib/client.js`、
+  `node --check lib/index.js`、`git diff --check` 均通过。
+
+**运行态证据**：
+
+- Ego Browser / 隔离 r526 / `127.0.0.1:63237`；
+- 三个动作 computed style 均为 `height:24px`、白底、
+  `0.5px` 主题边框、11px 字体；
+- `Replace` 的 title 为 `Replace (Enter)`，
+  `aria-keyshortcuts=Enter`；
+- 查询 `Scoped` 得到 1 个匹配时三个动作均正确启用。
+
+## 2026-11-17 — Find in Files Scope 模式选中态对齐 IDEA
+
+**作用域**：Find in Files / Replace in Files 弹框的 Scope 模式行。
+
+**症状**：
+
+- IDEA CUA 中当前 Scope 模式有清晰的选中提示；
+- DSH 的 `In Project / Module / Directory / Scope` 选中态只使用
+  `interactive-bg-hover-solid`，与 Scope 行背景过于接近，视觉上难以判断
+  当前模式；
+- `aria-pressed` 已正确，但视觉反馈不足属于 UI/可访问体验缺口，不是功能
+  缺失。
+
+**修复**：
+
+- Scope 模式按钮增加固定的 2px transparent 底边，避免切换时布局跳动；
+- 当前模式改为透明背景、主文字色、`fontWeight: 600` 和
+  `state-business-primary` 2px 下划线；
+- 保留现有 `aria-pressed`、roving tabIndex、`←/→/Home/End` 导航；
+- 新增 round726 静态契约，锁定选中态与 pressed 语义分离。
+
+**回归**：
+
+- round726：**2 pass / 0 fail**；
+- 定向 round726 / 651 / 634 / 671 / static-order：
+  **18 pass / 0 fail**；
+- 全量 `npm test`：**2438 pass / 0 fail**；
+- `check:client-build`、`node --check lib/client.js`、
+  `node --check lib/index.js`、`git diff --check` 均通过。
+
+**运行态证据**：
+
+- Ego Browser / 隔离 r526 / `127.0.0.1:63237`；
+- 当前 `Scope`：`aria-pressed=true`、`font-weight=600`、
+  `border-bottom=2px solid rgb(65, 118, 230)`、透明背景；
+- 其他模式：`aria-pressed=false`、`font-weight=400`、
+  transparent 2px 底边；
+- 截图确认激活态与 IDEA 的 accent underline 方向一致。
+
 ## 2026-11-17 — Find/Replace 按 live selection 自动收敛 scope
 
 **作用域**：Monaco 正文右键菜单、编辑器 `Cmd/Ctrl+F`、`Cmd/Ctrl+R`、

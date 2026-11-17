@@ -96,6 +96,8 @@ test('two editor groups share a model and disposing one never disposes it', () =
     'detectTheme',
     'EDITOR_UI_FONT',
     `let codeEditorGroupSequence = 0;
+     const EDITOR_CODE_FONT_SIZE = 13;
+     const EDITOR_CODE_LINE_HEIGHT = 20;
      ${extractFunction('isMacPlatform')}
      ${extractFunction('ideaControlKeyModifier')}
      ${extractFunction('findUsagesSearchTarget')}
@@ -137,6 +139,8 @@ test('editor group actions forward IDEA shortcuts and dispose once', () => {
     'detectTheme',
     'EDITOR_UI_FONT',
     `let codeEditorGroupSequence = 0;
+     const EDITOR_CODE_FONT_SIZE = 13;
+     const EDITOR_CODE_LINE_HEIGHT = 20;
      ${extractFunction('isMacPlatform')}
      ${extractFunction('ideaControlKeyModifier')}
      ${extractFunction('findUsagesSearchTarget')}

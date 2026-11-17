@@ -6,16 +6,19 @@ const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf
 const statusStart = source.indexOf('statusFile === null || diffOpen');
 const statusEnd = source.indexOf("findTool === null || findTool.surface === 'dock'", statusStart);
 const statusBlock = source.slice(statusStart, statusEnd);
+const factsStart = source.indexOf('function EditorStatusFacts');
+const factsEnd = source.indexOf('/** Monotonic id source', factsStart);
+const factsBlock = source.slice(factsStart, factsEnd);
 
 test('The status bar orders encoding and line count before the file path', () => {
-  const position = statusBlock.indexOf('editor.statusBarPosition');
-  const encoding = statusBlock.indexOf('fileMode.encoding');
-  const lineCount = statusBlock.indexOf('editor.lineCount');
+  const position = factsBlock.indexOf('editor.statusBarPosition');
+  const encoding = factsBlock.indexOf('fileMode.encoding');
+  const lineCount = factsBlock.indexOf('editor.lineCount');
   const path = statusBlock.indexOf('data-dsh-editor-status-path');
   assert.ok(position >= 0, 'caret position is missing');
   assert.ok(encoding > position, 'encoding must follow the caret position');
   assert.ok(lineCount > encoding, 'line count must follow encoding');
-  assert.ok(path > lineCount, 'file path must follow encoding and line count');
+  assert.ok(statusBlock.indexOf('EditorStatusFacts') < path, 'file path must follow the editor facts');
 });
 
 test('The status path is a keyboard-accessible copy button', () => {

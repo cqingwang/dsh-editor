@@ -5,6 +5,10 @@
       const style = document.createElement('style');
       style.id = id;
       style.textContent = [
+        /* DSH's chat attachment drag overlay blurs the whole page. While a file
+           is over the Editor workspace, the Project tree owns that drop, so the
+           unrelated attachment mask must not obscure the destination. */
+        'body.dsh-editor-file-drag > [role="status"][class*="_mask"] { display: none !important; }',
         /* The Editor toggle is absolutely positioned in the tab ROW (see
            `ensureChatToggle`), so the row must reserve its 28px + margin here — a
            free-floating button would sit on top of the last tab when the strip wraps.

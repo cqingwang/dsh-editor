@@ -840,7 +840,25 @@
      * the actions stop fitting they collapse into a "»" menu. The groups are
      * measured independently so left/right alignment survives a narrow panel.
      */
-    function PanelToolbar({ icon, title, titleAction = null, titleActionStyle = null, left = [], right = [], badge = null, t, onBadge, badgeHasPopup = undefined, badgeExpanded = undefined, ariaLabel = null }) {
+    function PanelToolbar({
+      icon,
+      title,
+      titleAction = null,
+      titleActionStyle = null,
+      left = [],
+      right = [],
+      badge = null,
+      t,
+      onBadge,
+      badgeHasPopup = undefined,
+      badgeExpanded = undefined,
+      ariaLabel = null,
+      dropActive = false,
+      onDragEnter,
+      onDragLeave,
+      onDragOver,
+      onDrop,
+    }) {
       const ref = React.useRef(null);
       const titleRef = React.useRef(null);
       const badgeRef = React.useRef(null);
@@ -908,10 +926,17 @@
         'div',
         {
           ref,
-          style: styles.panelToolbar,
+          style: {
+            ...styles.panelToolbar,
+            ...(dropActive ? { boxShadow: 'inset 0 -2px 0 var(--dsw-alias-state-business-primary)' } : null),
+          },
           role: 'toolbar',
           'aria-label': ariaLabel,
           'aria-orientation': 'horizontal',
+          onDragEnter,
+          onDragLeave,
+          onDragOver,
+          onDrop,
         },
         React.createElement(
           'span',

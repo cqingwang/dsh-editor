@@ -65,6 +65,8 @@ function createGroupHarness(platform) {
     'detectTheme',
     'EDITOR_UI_FONT',
     `let codeEditorGroupSequence = 0;
+     const EDITOR_CODE_FONT_SIZE = 13;
+     const EDITOR_CODE_LINE_HEIGHT = 20;
      ${extractFunction('isMacPlatform')}
      ${extractFunction('ideaControlKeyModifier')}
      ${extractFunction('findUsagesSearchTarget')}

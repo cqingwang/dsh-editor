@@ -1,56 +1,4 @@
 /* editor-workspace.js: dsh-editor client module. Generated into lib/client.js by scripts/build-client.mjs. */
-    /**
-     * Read the exact live editor selection for Find/Replace in Files.
-     *
-     * The query is not trimmed: IDEA preserves selected whitespace and
-     * multiline text in the content field. An empty/collapsed selection
-     * returns an empty string so callers keep their existing query.
-     * @param {object|null} editor - Monaco editor instance.
-     * @returns {string} selected text, or an empty string.
-     */
-    function selectedEditorFindQuery(editor) {
-      const model = editor?.getModel?.() ?? null;
-      const selection = editor?.getSelection?.() ?? null;
-      if (model === null || selection === null || typeof selection.isEmpty !== 'function' || selection.isEmpty()) return '';
-      return String(model.getValueInRange(selection) ?? '');
-    }
-
-    /**
-     * Convert a Monaco editor's live selection into a Harness reference range.
-     *
-     * A caret has no range and is projected as one line-column pair. A real
-     * selection keeps both ends so Chat can name the exact rows and columns the
-     * user selected instead of borrowing another tab's remembered position.
-     * @param {object|null} editor - Monaco editor instance.
-     * @returns {{path: string, line: number, column: number, endLine: number|null, endColumn: number|null}|null} reference location.
-     */
-    function harnessEditorLocation(editor) {
-      const model = editor?.getModel?.() ?? null;
-      const path = navigationPathForModel(model);
-      if (path === '') return null;
-      const selection = editor?.getSelection?.() ?? null;
-      const empty = selection === null || typeof selection.isEmpty !== 'function' || selection.isEmpty();
-      if (empty === false) {
-        let startLine = Math.max(1, Math.floor(Number(selection.startLineNumber) || 1));
-        let startColumn = Math.max(1, Math.floor(Number(selection.startColumn) || 1));
-        let endLine = Math.max(1, Math.floor(Number(selection.endLineNumber) || startLine));
-        let endColumn = Math.max(1, Math.floor(Number(selection.endColumn) || startColumn));
-        if (endLine < startLine || (endLine === startLine && endColumn < startColumn)) {
-          [startLine, endLine] = [endLine, startLine];
-          [startColumn, endColumn] = [endColumn, startColumn];
-        }
-        return { path, line: startLine, column: startColumn, endLine, endColumn };
-      }
-      const position = editor?.getPosition?.() ?? null;
-      return {
-        path,
-        line: Math.max(1, Math.floor(Number(position?.lineNumber) || 1)),
-        column: Math.max(1, Math.floor(Number(position?.column) || 1)),
-        endLine: null,
-        endColumn: null,
-      };
-    }
-
     function EditorWorkspace({ t, workspaceId = '', initialHarnessCollapsed = false, onToggleHarness, onCloseEditor, onInsertHarnessReference }) {
       const [monacoReady, setMonacoReady] = React.useState(false);
       const [monacoError, setMonacoError] = React.useState(null);
@@ -94,6 +42,7 @@
       /* Which workspace's tool-window widths are loaded (see loadRoot). */
       const toolWidthsRestoredFor = React.useRef('');
       const [treeError, setTreeError] = React.useState(null);
+      const [uploadBusy, setUploadBusy] = React.useState(false); const [uploadProgress, setUploadProgress] = React.useState(null);
       const [activity, setActivity] = React.useState(() => lastEditorActivity);
       const [harnessCollapsed, setHarnessCollapsed] = React.useState(initialHarnessCollapsed === true);
       const toggleHarness = React.useCallback(() => {
@@ -103,6 +52,7 @@
       React.useEffect(() => {
         lastEditorActivity = activity;
       }, [activity]);
+      React.useEffect(bindEditorFileDragCleanup, []);
       const [panelVisible, setPanelVisible] = React.useState(true);
       /* IDEA keeps one width per tool window. Commit used to open at 52%, which
          spent more than half the work area before a diff was even open; the
@@ -952,10 +902,12 @@
       }, [moveEditorTab]);
 
       const activeFile = activePath === null ? null : openFiles.find((file) => file.path === activePath) ?? null;
+      const activeImage = activeFile?.kind === 'image';
       const markdownAvailable = activeFile !== null && isMarkdownPath(activePath);
       const effectiveMarkdownMode = markdownAvailable ? markdownMode : 'code';
       const markdownPreviewVisible = markdownAvailable && effectiveMarkdownMode !== 'code';
       const splitFile = splitPath === null ? null : openFiles.find((file) => file.path === splitPath) ?? null;
+      const splitImage = splitFile?.kind === 'image';
       const splitFocused = splitFile !== null && focusedPath === splitFile.path;
       const statusFile = splitFocused ? splitFile : activeFile ?? splitFile;
       const statusPath = statusFile === null
@@ -1877,8 +1829,11 @@
         }
         openingRef.current.add(path);
         try {
-          const value = await callFs({ op: 'read', path });
-          const file = { path, content: value.content, dirty: false, mtime: value.mtime ?? null };
+          const imagePreview = isImagePreviewPath(path);
+          const value = imagePreview
+            ? await callFs({ op: 'image', path })
+            : await callFs({ op: 'read', path });
+          const file = workspaceFileFromResponse(path, value, imagePreview);
           if (wantsPreview) {
             const previous = previewPathRef.current;
             const previousFile = previous === null ? undefined : openFilesRef.current.find((entry) => entry.path === previous);
@@ -2705,6 +2660,7 @@
         }
         const file = openFilesRef.current.find((entry) => entry.path === activePath);
         if (file === undefined) return;
+        if (file.kind === 'image') { editor.setModel(null); return; }
         const model = ensureEditorModel(monaco, modelsRef.current, activePath, file.content);
         if (editor.getModel() !== model) editor.setModel(model);
         /* An inline create/rename in the tree keeps focus, and so does a plain tree
@@ -3003,6 +2959,7 @@
         if (!monacoReady || monaco?.editor === undefined || editor === null || path === null) return;
         const file = openFilesRef.current.find((entry) => entry.path === path);
         if (file === undefined) return;
+        if (file.kind === 'image') { editor.setModel(null); return; }
         const model = ensureEditorModel(monaco, modelsRef.current, path, file.content);
         if (editor.getModel() !== model) editor.setModel(model);
         syncEditorStatus(editor);
@@ -3449,14 +3406,16 @@
             && current.searchScopePreset === preset
             && current.searchScopeDirectory === directory
           ) return current;
+          const hasQuery = hasFindToolContentQuery(current.query);
           return {
             ...current,
             searchScopeMode: mode,
             searchScopePreset: preset,
             searchScopeDirectory: directory,
-            files: [],
-            matches: [],
-            index: 0,
+            files: current.files,
+            matches: current.matches,
+            index: current.index,
+            loading: hasQuery,
             error: null,
             searchGeneration: (current.searchGeneration ?? 0) + 1,
             loadedGeneration: -1,
@@ -3469,12 +3428,11 @@
         const next = writeFindDirectoryRecursive(rootRef.current, recursive);
         setFindTool((current) => {
           if (current === null || current.searchScopeRecursive === next) return current;
+          const hasQuery = hasFindToolContentQuery(current.query);
           return {
             ...current,
             searchScopeRecursive: next,
-            files: [],
-            matches: [],
-            index: 0,
+            loading: hasQuery,
             error: null,
             searchGeneration: (current.searchGeneration ?? 0) + 1,
             loadedGeneration: -1,
@@ -3778,7 +3736,7 @@
         }
         setFindTool((current) => (current === null
           ? current
-          : { ...current, files: [], loading: true, error: null }));
+          : { ...current, loading: true, error: null }));
         const timer = window.setTimeout(() => {
           const dirtyFiles = (openFilesRef.current ?? []).filter((file) =>
             file.dirty === true && typeof file.content === 'string');
@@ -3850,8 +3808,6 @@
                 ? current
                 : {
                     ...current,
-                    files: [],
-                    matches: [],
                     truncated: false,
                     loading: false,
                     loadedGeneration: generation,
@@ -5613,18 +5569,21 @@
         const path = activePathRef.current;
         if (path === null) return;
         try {
-          const value = await callFs({ op: 'read', path });
-          const model = modelsRef.current.get(path);
-          if (model !== undefined) {
-            silentReloadRef.current.add(path);
-            try {
-              model.setValue(value.content);
-            } finally {
-              silentReloadRef.current.delete(path);
+          const file = openFilesRef.current.find((entry) => entry.path === path) ?? null;
+          const value = await callFs({ op: workspaceReloadOperation(file), path });
+          if (file?.kind !== 'image') {
+            const model = modelsRef.current.get(path);
+            if (model !== undefined) {
+              silentReloadRef.current.add(path);
+              try {
+                model.setValue(value.content);
+              } finally {
+                silentReloadRef.current.delete(path);
+              }
             }
           }
           setOpenFiles((current) =>
-            current.map((entry) => (entry.path === path ? { ...entry, content: value.content, dirty: false, mtime: value.mtime ?? null } : entry)),
+            current.map((entry) => (entry.path === path ? workspaceFileAfterReload(entry, value) : entry)),
           );
           setConflict(null);
           setEditorError(null);
@@ -7067,6 +7026,12 @@
         },
         [compareWithClipboard, compareWithRevision, currentCodeEditor, currentCodePath, filteredView, git, openFile, openInRightSplit, openInTerminal, openMoveTo, refreshTree, removeEntries, removeEntry, restage, revealInFinder, revealPath, root, rows, selection, showFileHistory, startCreate, t, toggleDirectory, buildHarnessPathAction],
       );
+      const uploadDropBusyRef = React.useRef(false);
+      const uploadDroppedEntries = React.useCallback((handles, targetDirectory) => uploadWorkspaceDropToProject({
+        handles, targetDirectory, callFs, refreshTree, loadGit, uploadBusyRef: uploadDropBusyRef,
+        setExpanded, setChildren, setEntries, setTreeError, flashStatus, applyTreeSelection,
+        showHidden, sortMode, foldersFirst, showExcludedFiles, projectName, setUploadBusy, setUploadProgress, t,
+      }), [applyTreeSelection, flashStatus, foldersFirst, loadGit, projectName, refreshTree, showExcludedFiles, showHidden, sortMode, t]);
       /* Move one entry into a directory by drag-and-drop, reusing the rename endpoint. */
       const moveEntry = React.useCallback(
         async (source, targetDirectory) => {
@@ -9377,7 +9342,6 @@
             onOpenInFindWindow: openFindToolInDock,
             onClose: closeFindToolWindow,
           });
-
       return React.createElement(
         'div',
         {
@@ -9385,6 +9349,7 @@
           'data-dsh-editor-workspace': '',
           'data-dsh-workspace-id': workspaceId || undefined,
           'data-dsh-editor-gutter-surface': 'idea',
+          ...editorFileDragProps,
         },
         /* No title/save/refresh bar: the tool-window toolbars already sit at the top,
            the breadcrumb strip names the open file, and saving belongs to ⌘/Ctrl+S
@@ -9759,6 +9724,8 @@
                       }),
                       rootContextMenuOpen: menu?.owner === 'project-root',
                       onDrop: (source, target) => void moveEntry(source, target),
+                      onUpload: (handles, target) => void uploadDroppedEntries(handles, target), onCancelUpload: () => { uploadDropBusyRef.cancelRequested = true; uploadDropBusyRef.cancelController?.abort(); },
+                      uploadBusy, uploadProgress,
                       /* Rename is reached from the context menu and F2/⇧F6 only. */
                       showHidden,
                       foldersFirst,
@@ -10402,11 +10369,13 @@
                     style: {
                       ...styles.editorContainer,
                       flex: '1 1 0',
-                      display: effectiveMarkdownMode === 'preview' ? 'none' : undefined,
+                      display: activeImage || effectiveMarkdownMode === 'preview' ? 'none' : undefined,
                     },
                     'data-dsh-markdown-editor-pane': '',
                   }),
-                  markdownAvailable
+                  activeImage
+                    ? workspaceImagePreviewElement(t, activePath, activeFile)
+                    : markdownAvailable
                     ? React.createElement(MarkdownPreviewPane, {
                         key: activePath,
                         t,
@@ -10695,7 +10664,16 @@
                           '▣',
                         ),
                       ),
-                      React.createElement('div', { ref: splitContainerRef, style: styles.editorContainer }),
+                      React.createElement('div', {
+                        ref: splitContainerRef,
+                        style: {
+                          ...styles.editorContainer,
+                          display: splitImage ? 'none' : undefined,
+                        },
+                      }),
+                      splitImage && splitPath !== null
+                        ? workspaceImagePreviewElement(t, splitPath, splitFile)
+                        : null,
                     ),
               ),
               /* A terminal moved into the editor owns the code area, the way IDEA's
@@ -10778,9 +10756,7 @@
                 : React.createElement(
                     'div',
                     { style: styles.editorStatus },
-                    React.createElement('span', { style: styles.statusItem }, t('editor.statusBarPosition', { line: caret.line, column: caret.column })),
-                    React.createElement('span', { style: styles.statusItem }, fileMode.encoding),
-                    React.createElement('span', { style: styles.statusItem }, t('editor.lineCount', { count: lineStats.lines })),
+                    React.createElement(EditorStatusFacts, { t, file: statusFile, caret, fileMode, lineStats }),
                     React.createElement(
                       'button',
                       {

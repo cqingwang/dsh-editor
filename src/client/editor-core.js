@@ -35,6 +35,70 @@
     }
 
     /**
+     * Read the exact live editor selection for Find/Replace in Files.
+     *
+     * The query is not trimmed: IDEA preserves selected whitespace and
+     * multiline text in the content field. An empty/collapsed selection
+     * returns an empty string so callers keep their existing query.
+     * @param {object|null} editor - Monaco editor instance.
+     * @returns {string} selected text, or an empty string.
+     */
+    function selectedEditorFindQuery(editor) {
+      const model = editor?.getModel?.() ?? null;
+      const selection = editor?.getSelection?.() ?? null;
+      if (model === null || selection === null || typeof selection.isEmpty !== 'function' || selection.isEmpty()) return '';
+      return String(model.getValueInRange(selection) ?? '');
+    }
+
+    /**
+     * Convert a Monaco editor's live selection into a Harness reference range.
+     * @param {object|null} editor - Monaco editor instance.
+     * @returns {{path: string, line: number, column: number, endLine: number|null, endColumn: number|null}|null} reference location.
+     */
+    function harnessEditorLocation(editor) {
+      const model = editor?.getModel?.() ?? null;
+      const path = navigationPathForModel(model);
+      if (path === '') return null;
+      const selection = editor?.getSelection?.() ?? null;
+      const empty = selection === null || typeof selection.isEmpty !== 'function' || selection.isEmpty();
+      if (empty === false) {
+        let startLine = Math.max(1, Math.floor(Number(selection.startLineNumber) || 1));
+        let startColumn = Math.max(1, Math.floor(Number(selection.startColumn) || 1));
+        let endLine = Math.max(1, Math.floor(Number(selection.endLineNumber) || startLine));
+        let endColumn = Math.max(1, Math.floor(Number(selection.endColumn) || startColumn));
+        if (endLine < startLine || (endLine === startLine && endColumn < startColumn)) {
+          [startLine, endLine] = [endLine, startLine];
+          [startColumn, endColumn] = [endColumn, startColumn];
+        }
+        return { path, line: startLine, column: startColumn, endLine, endColumn };
+      }
+      const position = editor?.getPosition?.() ?? null;
+      return {
+        path,
+        line: Math.max(1, Math.floor(Number(position?.lineNumber) || 1)),
+        column: Math.max(1, Math.floor(Number(position?.column) || 1)),
+        endLine: null,
+        endColumn: null,
+      };
+    }
+
+    /**
+     * Build the authenticated same-origin URL for one workspace image.
+     * @param {string} path - workspace-relative image path.
+     * @param {number|null|undefined} version - file mtime used to invalidate the image cache.
+     * @returns {string} browser image source.
+     */
+    function imagePreviewUrl(path, version) {
+      const query = new URLSearchParams({
+        sessionId: currentSessionId(),
+        workspaceId: currentEditorWorkspaceId(),
+        path,
+        version: String(version ?? ''),
+      });
+      return `api/dsh-editor/image?${query}`;
+    }
+
+    /**
      * Stable key for terminal processes and terminal-only preferences.
      *
      * An Editor opened from a workspace row must not reuse the conversation
@@ -268,6 +332,124 @@
       );
     }
 
+    /**
+     * Render one image with the browser's native decoder inside an editor tab.
+     * @param {{t: Function, path: string, src: string, mediaType?: string}} props - image preview.
+     * @returns {object} React element.
+     */
+    function ImagePreviewPane({ t, path, src, mediaType = '' }) {
+      const [state, setState] = React.useState({ status: 'loading', width: 0, height: 0 });
+      React.useEffect(() => {
+        setState({ status: 'loading', width: 0, height: 0 });
+      }, [src]);
+      return React.createElement(
+        'div',
+        {
+          style: styles.imagePreviewPane,
+          role: 'group',
+          'aria-label': t('editor.imagePreview'),
+          'data-dsh-editor-image-preview': path,
+          'data-dsh-editor-image-media-type': mediaType,
+        },
+        state.status === 'loading'
+          ? React.createElement(
+              'div',
+              { style: styles.imagePreviewNotice, role: 'status' },
+              t('editor.imagePreviewLoading'),
+            )
+          : null,
+        state.status === 'error'
+          ? React.createElement(
+              'div',
+              { style: styles.imagePreviewError, role: 'alert' },
+              t('editor.imagePreviewFailed', { path }),
+            )
+          : null,
+        React.createElement('img', {
+          src,
+          alt: basename(path),
+          draggable: false,
+          style: {
+            ...styles.imagePreviewImage,
+            display: state.status === 'error' ? 'none' : 'block',
+          },
+          'data-dsh-editor-image-preview-asset': '',
+          onLoad: (event) => setState({
+            status: 'loaded',
+            width: event.currentTarget.naturalWidth,
+            height: event.currentTarget.naturalHeight,
+          }),
+          onError: () => setState({ status: 'error', width: 0, height: 0 }),
+        }),
+        state.status === 'loaded'
+          ? React.createElement(
+              'div',
+              { style: styles.imagePreviewMeta },
+              `${state.width} × ${state.height}`,
+            )
+          : null,
+      );
+    }
+
+    /**
+     * Build the workspace tab record returned by either text read or image metadata.
+     * @param {string} path - workspace-relative file path.
+     * @param {object} value - host response.
+     * @param {boolean} imagePreview - whether this path is rendered as an image.
+     * @returns {object} open-file state.
+     */
+    function workspaceFileFromResponse(path, value, imagePreview) {
+      return imagePreview
+        ? { path, content: '', dirty: false, mtime: value.mtime ?? null, kind: 'image', size: value.size ?? 0, mediaType: value.mediaType ?? '' }
+        : { path, content: value.content, dirty: false, mtime: value.mtime ?? null };
+    }
+
+    /** Choose the host reload operation for one open workspace tab. */
+    function workspaceReloadOperation(file) {
+      return file?.kind === 'image' ? 'image' : 'read';
+    }
+
+    /** Apply one host reload response while preserving the tab's media kind. */
+    function workspaceFileAfterReload(file, value) {
+      return file?.kind === 'image'
+        ? {
+            ...file,
+            dirty: false,
+            size: value.size ?? file.size,
+            mtime: value.mtime ?? file.mtime,
+            mediaType: value.mediaType ?? file.mediaType,
+          }
+        : {
+            ...file,
+            content: value.content,
+            dirty: false,
+            mtime: value.mtime ?? file.mtime,
+          };
+    }
+
+    /** Create the native image surface used by the editor and right split. */
+    function workspaceImagePreviewElement(t, path, file) {
+      return React.createElement(ImagePreviewPane, {
+        key: path,
+        t,
+        path,
+        src: imagePreviewUrl(path, file?.mtime),
+        mediaType: file?.mediaType ?? '',
+      });
+    }
+
+    /** Render text caret facts or the image-specific editor status. */
+    function EditorStatusFacts({ t, file, caret, fileMode, lineStats }) {
+      if (file?.kind === 'image') return React.createElement('span', { style: styles.statusItem }, t('editor.imagePreview'));
+      return React.createElement(
+        React.Fragment,
+        null,
+        React.createElement('span', { style: styles.statusItem }, t('editor.statusBarPosition', { line: caret.line, column: caret.column })),
+        React.createElement('span', { style: styles.statusItem }, fileMode.encoding),
+        React.createElement('span', { style: styles.statusItem }, t('editor.lineCount', { count: lineStats.lines })),
+      );
+    }
+
     /** Monotonic id source for per-editor Monaco context-key scopes. */
     let codeEditorGroupSequence = 0;
 
@@ -336,8 +518,8 @@
         language: 'plaintext',
         theme: detectTheme(),
         automaticLayout: true,
-        fontSize: 12,
-        lineHeight: 20,
+        fontSize: EDITOR_CODE_FONT_SIZE,
+        lineHeight: EDITOR_CODE_LINE_HEIGHT,
         minimap: { enabled: false },
         scrollBeyondLastLine: false,
         wordWrap: 'off',

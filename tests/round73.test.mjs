@@ -12,7 +12,7 @@ test('dragging onto the tree background means "move to the workspace root"', () 
      way a drag "fails" in IDEA's Project view is landing on empty space. */
   const start = source.indexOf('ref: treeRef,');
   assert.notEqual(start, -1);
-  const block = source.slice(start, start + 2200);
+  const block = source.slice(start, start + 2600);
   assert.match(block, /onDragOver: \(event\) => \{/);
   assert.match(block, /event\.preventDefault\(\);/);
   assert.match(block, /onDrop: \(event\) => \{/);
@@ -22,7 +22,7 @@ test('dragging onto the tree background means "move to the workspace root"', () 
 
 test('the background drop ignores a drag that did not come from the tree', () => {
   const start = source.indexOf('ref: treeRef,');
-  const block = source.slice(start, start + 2200);
+  const block = source.slice(start, start + 2600);
   /* Only our own rows set `text/plain` with newline-separated paths; a text drag
      from the terminal or the chat must not move files. */
   assert.match(block, /getData\('text\/plain'\)/);
