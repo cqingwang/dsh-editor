@@ -11,12 +11,14 @@ function treeMenu() {
   return source.slice(source.indexOf('const buildTreeMenu = React.useCallback('), source.indexOf('/* Move one entry into a directory by drag-and-drop'));
 }
 
-test('Project offers IDEA Open in Right Split for files only', () => {
+test('Project offers Split Open for files only', () => {
   const menu = treeMenu();
   assert.match(menu, /id: 'openRightSplit'/);
-  assert.match(menu, /label: t\('editor\.openInRightSplit'\)/);
+  assert.match(menu, /label: t\('editor\.openInSplit'\)/);
   assert.match(menu, /disabled: isRoot \|\| splitCandidates\.length === 0/);
   assert.match(menu, /openInRightSplit\(splitCandidates\)/);
+  assert.ok(source.includes("openInSplit: '分屏打开'"));
+  assert.ok(source.includes("openInSplit: 'Open in Split'"));
   assert.ok(source.includes("openInRightSplit: '在右侧拆分部分打开'"));
   assert.ok(source.includes("openInRightSplit: 'Open in Right Split'"));
 });

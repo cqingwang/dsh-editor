@@ -18,7 +18,7 @@ function projectOptions() {
 test('Project Behavior follows IDEA action order', () => {
   const options = projectOptions();
   const behavior = options.slice(options.indexOf("id: 'behavior'"), options.indexOf("id: 'appearance'"));
-  const ids = ['previewTab', 'singleClickOpen', 'openDirectoriesSingleClick', 'autoscroll'];
+  const ids = ['previewTab', 'singleClickOpen', 'openDirectoriesSingleClick'];
   const positions = ids.map((id) => behavior.indexOf(`id: '${id}'`));
   assert.ok(positions.every((position) => position >= 0));
   assert.deepEqual(positions, [...positions].sort((left, right) => left - right));

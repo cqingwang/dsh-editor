@@ -34,17 +34,13 @@ test('Open Files remains a stable projection of tab order with no stale rows', (
   assert.doesNotMatch(block, /localStorage/);
 });
 
-test('explicit row reveal suppresses Auto Scroll from reselecting the active tab', () => {
+test('explicit row reveal opens Project without an automatic follow pass', () => {
   const revealStart = source.indexOf('const revealPath = React.useCallback(');
   const revealEnd = source.indexOf('const revealPath = React.useCallback(', revealStart + 1);
   const revealBlock = source.slice(revealStart, revealEnd < 0 ? revealStart + 800 : revealEnd);
-  assert.match(revealBlock, /suppressAutoScrollRef\.current = true/);
-  assert.match(revealBlock, /window\.setTimeout\(\(\) => \{\s*suppressAutoScrollRef\.current = false;/);
-
-  const autoScrollStart = source.indexOf('if (suppressAutoScrollRef.current) return;');
-  assert.notEqual(autoScrollStart, -1);
-  const autoScrollBlock = source.slice(autoScrollStart, autoScrollStart + 700);
-  assert.match(autoScrollBlock, /if \(suppressAutoScrollRef\.current\) return;/);
-  assert.match(autoScrollBlock, /if \(!autoScroll \|\| !panelVisible \|\| activity !== 'project'\) return;/);
-  assert.doesNotMatch(autoScrollBlock, /projectTreeActionsAvailable, revealInProjectTree, rows/);
+  assert.match(revealBlock, /setActivity\('project'\)/);
+  assert.match(revealBlock, /setPanelVisible\(true\)/);
+  assert.match(revealBlock, /await revealInProjectTree\(path\)/);
+  assert.doesNotMatch(source, /suppressAutoScrollRef/);
+  assert.doesNotMatch(source, /void revealInProjectTree\(activePath\)/);
 });

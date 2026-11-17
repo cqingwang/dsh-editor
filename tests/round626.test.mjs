@@ -66,7 +66,7 @@ test('searchText unknown-operation retry and friendly fallback are wired', () =>
 
   assert.match(source, /payload\?\.op === 'searchText' && fileApiMissingOperation\(data, 'searchText'\)/);
   assert.match(source, /window\.setTimeout\(resolve, 60\)/);
-  assert.equal((source.match(/await requestFileApi\(payload\)/g) ?? []).length, 2);
+  assert.equal((source.match(/await requestFileApi\(payload, options\)/g) ?? []).length, 2);
 
   const failureMessage = new Function(
     `${extractFunction('searchTextFailureMessage')}; return searchTextFailureMessage;`,

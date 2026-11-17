@@ -105,15 +105,13 @@ test('the diff toolbar walks hunks with the buttons and F7', () => {
   assert.match(body, /walkHunk\(event\.shiftKey \? 'previous' : 'next'\)/);
 });
 
-/* ── IDEA's "Autoscroll from Source" ────────────────────────────────────── */
+/* ── Explicit Project reveal owns active-file navigation ─────────────────── */
 
-test('autoscroll follows the active tab without reopening the tool window', () => {
+test('opening tabs never moves the Project tree; explicit reveal does', () => {
   const body = source.slice(source.indexOf('function EditorWorkspace('));
-  /* The follow effect is gated on the Project view being on screen. */
-  assert.match(body, /if \(!autoScroll \|\| !panelVisible \|\| activity !== 'project'\) return;/);
-  assert.match(body, /void revealInProjectTree\(activePath\)/);
-  /* The shared half must not force the tool window open, or every tab click would
-     yank a Commit/closed panel back to Project. */
+  assert.doesNotMatch(body, /autoScroll/);
+  assert.doesNotMatch(body, /void revealInProjectTree\(activePath\)/);
+  /* The shared reveal helper must not force the tool window open. */
   const tree = body.slice(body.indexOf('const revealInProjectTree = React.useCallback('), body.indexOf('const revealPath = React.useCallback('));
   assert.doesNotMatch(tree, /setActivity\('project'\)/);
   assert.doesNotMatch(tree, /setPanelVisible\(true\)/);
@@ -124,15 +122,11 @@ test('autoscroll follows the active tab without reopening the tool window', () =
   assert.match(reveal, /setPanelVisible\(true\)/);
 });
 
-test('the autoscroll toggle is reachable and persists', () => {
-  assert.match(source, /dsh-editor\.project\.autoscroll/);
-  const toggle = source.slice(source.indexOf('const toggleAutoScroll = React.useCallback('), source.indexOf('/* Start the inline create row'));
-  assert.match(toggle, /localStorage\.setItem\('dsh-editor\.project\.autoscroll'/);
-  /* Round 177 moved this low-frequency switch under IDEA's Project Options
-     disclosure; the visible toolbar keeps creation, reveal, expand, collapse,
-     options and hide. The behavior and the persistence contract are unchanged. */
+test('Project no longer offers an automatic active-tab follow preference', () => {
+  assert.doesNotMatch(source, /const toggleAutoScroll = React\.useCallback/);
+  assert.doesNotMatch(source, /dsh-editor\.project\.autoscroll'/);
   const options = source.slice(source.indexOf('onOpenOptions: (event) => {'), source.indexOf('onCreateChange: (value) =>'));
-  assert.match(options, /id: 'autoscroll'[\s\S]{0,260}toggleAutoScroll\(\)/);
+  assert.doesNotMatch(options, /id: 'autoscroll'/);
 });
 
 /* ── IDEA's in-tree typeahead ───────────────────────────────────────────── */

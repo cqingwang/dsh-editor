@@ -281,6 +281,42 @@
       );
     }
 
+    /**
+     * Choose the next active tab after closing one visible dock terminal.
+     *
+     * Prefer a different dock terminal so an unrelated split can stay open.
+     * Terminals moved into the editor are not valid dock-tab fallbacks.
+     * @param {object[]} remaining - surviving terminal descriptions.
+     * @param {string|null} splitId - current right-pane terminal id.
+     * @param {string[]} editorIds - terminal ids rendered by the editor.
+     * @returns {string|null} next active dock terminal id.
+     */
+    function terminalActiveAfterClose(remaining, splitId, editorIds) {
+      const dock = remaining.filter((terminal) => !editorIds.includes(terminal.id));
+      return dock.find((terminal) => terminal.id !== splitId)?.id ?? dock[0]?.id ?? null;
+    }
+
+    /**
+     * Reconcile the host terminal list with local editor-area placements.
+     *
+     * Host list is authoritative for live PTYs. Stale editor ids are pruned,
+     * and the dock never keeps an editor terminal as its active tab.
+     * @param {object[]} listed - terminals currently retained by the host.
+     * @param {string[]} editorIds - locally remembered editor placements.
+     * @param {string|null} currentActive - current active dock terminal.
+     * @returns {{editorIds: string[], activeId: string|null}} reconciled state.
+     */
+    function reconcileTerminalDockState(listed, editorIds, currentActive) {
+      const live = new Set((Array.isArray(listed) ? listed : []).map((terminal) => terminal.id));
+      const retainedEditors = (Array.isArray(editorIds) ? editorIds : []).filter((id) => live.has(id));
+      const editorSet = new Set(retainedEditors);
+      const dock = (Array.isArray(listed) ? listed : []).filter((terminal) => !editorSet.has(terminal.id));
+      const activeId = currentActive !== null && dock.some((terminal) => terminal.id === currentActive)
+        ? currentActive
+        : dock[0]?.id ?? null;
+      return { editorIds: retainedEditors, activeId };
+    }
+
     function TerminalPanel({ t, generation, startDirectory, workspaceRoot = '', onStartDirectoryUsed, onRequestNew, onRequestClose, onOpenFile, onEditorTerminals, onSwitchFocusToEditor, focusGeneration = 0 }) {
       const [terminals, setTerminals] = React.useState([]);
       /* The live directory per terminal, updated from OSC 7. The menu builds its
@@ -288,6 +324,8 @@
          otherwise be missed. */
       const terminalCwdRef = React.useRef(new Map());
       const [activeId, setActiveId] = React.useState(null);
+      const closingTerminalIdsRef = React.useRef(new Set());
+      const terminalReorderRequestRef = React.useRef(0);
       const [available, setAvailable] = React.useState(true);
       /* Resolved README per terminal, so the tab menu can disable the item when the
          shell's directory has none (the cwd alone is always a non-empty string). */
@@ -570,12 +608,12 @@
       const refresh = React.useCallback(async () => {
         try {
           const value = await callTerminal({ op: 'list' });
+          const listed = Array.isArray(value?.terminals) ? value.terminals : [];
+          const reconciled = reconcileTerminalDockState(listed, editorIdsRef.current, activeRef.current);
           setAvailable(value.available !== false);
-          setTerminals(value.terminals ?? []);
-          setActiveId((current) => {
-            if (current !== null && (value.terminals ?? []).some((terminal) => terminal.id === current)) return current;
-            return value.terminals?.[0]?.id ?? null;
-          });
+          setTerminals(listed);
+          setEditorIds(reconciled.editorIds);
+          setActiveId(reconciled.activeId);
           setError(null);
         } catch (failure) {
           setError(failure instanceof Error ? failure.message : String(failure));
@@ -744,7 +782,7 @@
         const exists = await callTerminal({ op: 'shells' })
           .then((value) => (value.shells ?? []).some((shell) => shell.path === entry.shell))
           .catch(() => false);
-        await createTerminal(exists ? entry.shell : undefined);
+        await createTerminal(exists ? entry.shell : undefined, entry.cwd);
       }, [createTerminal]);
 
 
@@ -870,8 +908,11 @@
       }, [renaming]);
 
       const closeTerminal = React.useCallback(async (id) => {
+        if (closingTerminalIdsRef.current.has(id)) return;
+        closingTerminalIdsRef.current.add(id);
         /* Record it first: after the host reaps it there is nothing left to describe. */
         const closing = terminalsRef.current.find((terminal) => terminal.id === id);
+        const focusedId = focusedPaneRef.current === 'right' ? splitIdRef.current : activeRef.current;
         if (closing !== undefined) rememberClosed(closing);
         forgetTerminalLiveBuffer(id);
         setColors((current) => {
@@ -881,22 +922,27 @@
           writeTerminalColors(next);
           return next;
         });
+        const remaining = terminalsRef.current.filter((terminal) => terminal.id !== id);
+        const nextActive = terminalActiveAfterClose(remaining, splitIdRef.current, editorIdsRef.current);
+        if (remaining.length === 0) writeTerminalRestoreSnapshots([]);
+        setTerminals(remaining);
+        setActiveId((active) => (active === id ? nextActive : active));
+        if (focusedId === id) {
+          window.setTimeout(() => emulatorRef.current?.focus?.(), 0);
+        }
         try {
           await callTerminal({ op: 'close', id });
         } catch {
           /* a terminal the host already reaped needs no further cleanup */
+        } finally {
+          closingTerminalIdsRef.current.delete(id);
         }
-        setTerminals((current) => {
-          const remaining = current.filter((terminal) => terminal.id !== id);
-          if (remaining.length === 0) writeTerminalRestoreSnapshots([]);
-          setActiveId((active) => (active === id ? remaining[0]?.id ?? null : active));
-          return remaining;
-        });
       }, [rememberClosed]);
 
       /* Reorder the dock's tabs locally first, then persist the order on the host. */
       const moveTab = React.useCallback(
         async (sourceId, targetId) => {
+          const requestId = ++terminalReorderRequestRef.current;
           const current = terminalsRef.current.map((terminal) => terminal.id);
           const from = current.indexOf(sourceId);
           const to = current.indexOf(targetId);
@@ -907,6 +953,7 @@
           setTerminals((list) => [...list].sort((left, right) => next.indexOf(left.id) - next.indexOf(right.id)));
           try {
             const value = await callTerminal({ op: 'reorder', ids: next });
+            if (terminalReorderRequestRef.current !== requestId) return;
             if (Array.isArray(value?.terminals)) setTerminals(value.terminals);
           } catch {
             /* the local order still matches what the user just did */
@@ -918,13 +965,32 @@
       /* IDEA's "Close Other Terminals": keep one tab, reap the rest. */
       const closeOtherTerminals = React.useCallback(
         async (keepId) => {
-          const doomed = terminals.filter((terminal) => terminal.id !== keepId);
-          for (const terminal of doomed) forgetTerminalLiveBuffer(terminal.id);
-          await Promise.all(doomed.map((terminal) => callTerminal({ op: 'close', id: terminal.id }).catch(() => {})));
-          setTerminals((current) => current.filter((terminal) => terminal.id === keepId));
+          const current = terminalsRef.current;
+          if (!current.some((terminal) => terminal.id === keepId)) return;
+          const doomed = current.filter((terminal) => terminal.id !== keepId);
+          const remaining = current.filter((terminal) => terminal.id === keepId);
+          for (const terminal of doomed) {
+            closingTerminalIdsRef.current.add(terminal.id);
+            rememberClosed(terminal);
+            forgetTerminalLiveBuffer(terminal.id);
+          }
+          setColors((colors) => {
+            const next = { ...colors };
+            for (const terminal of doomed) delete next[terminal.id];
+            writeTerminalColors(next);
+            return next;
+          });
+          setTerminals(remaining);
           setActiveId(keepId);
+          setSplitId(null);
+          setFocusedPane('left');
+          window.setTimeout(() => emulatorRef.current?.focus?.(), 0);
+          await Promise.all(doomed.map((terminal) =>
+            callTerminal({ op: 'close', id: terminal.id })
+              .catch(() => {})
+              .finally(() => closingTerminalIdsRef.current.delete(terminal.id))));
         },
-        [terminals],
+        [rememberClosed],
       );
 
 
@@ -1282,6 +1348,7 @@
           setSplitId(null);
           setFocusedPane('left');
           if (keep !== null) setActiveId(keep);
+          window.setTimeout(() => emulatorRef.current?.focus?.(), 0);
           return;
         }
         const candidate = terminals.find((terminal) => terminal.id !== activeId);
@@ -2598,6 +2665,41 @@
     }
 
     /**
+     * Drop expansion state that is proven to point at deleted directories.
+     *
+     * A collapsed/unloaded parent listing is not enough evidence: its expanded
+     * descendants must survive so reopening the parent restores the user's folds.
+     * If an ancestor is removed, every expanded path below it is removed as well.
+     * @param {{expanded: Set<string>|null, rootEntries: object[]|null, children: object|null}} request - current tree cache.
+     * @returns {Set<string>} the same set when valid, or a pruned copy.
+     */
+    function pruneProjectExpandedPaths(request) {
+      const expanded = request?.expanded instanceof Set ? request.expanded : new Set();
+      if (expanded.size === 0) return expanded;
+      const knownListings = new Map();
+      knownListings.set('', Array.isArray(request?.rootEntries) ? request.rootEntries : []);
+      for (const [path, entries] of Object.entries(request?.children ?? {})) {
+        if (Array.isArray(entries)) knownListings.set(path, entries);
+      }
+      const removed = new Set();
+      const ordered = [...expanded]
+        .filter((path) => typeof path === 'string')
+        .sort((left, right) => left.split('/').length - right.split('/').length);
+      for (const path of ordered) {
+        if (path === '') continue;
+        const parent = dirname(path);
+        if (parent !== '' && removed.has(parent)) {
+          removed.add(path);
+          continue;
+        }
+        const listing = knownListings.get(parent);
+        if (Array.isArray(listing) && !listing.some((entry) => entry?.path === path)) removed.add(path);
+      }
+      if (removed.size === 0) return expanded;
+      return new Set([...expanded].filter((path) => !removed.has(path)));
+    }
+
+    /**
      * Versioned Project expansion key.
      *
      * Legacy `dsh-editor.expanded:<root>` values were also written by the old
@@ -3546,15 +3648,16 @@
      *
      * Switching from the full tree to Open Files or All Changed Files must not
      * leave hidden paths selected: toolbar and context actions would otherwise
-     * operate on rows the user cannot see. Prefer the active editor file when it
-     * belongs to the view, then the existing primary row, then the first row.
+     * operate on rows the user cannot see. Keep an existing visible primary,
+     * otherwise fall back to the remaining visible selection or first row.
+     * The active editor file is deliberately not a fallback: opening/switching
+     * files must not locate the Project tree without an explicit reveal.
      * @param {string[]} rowPaths - workspace-relative paths visible in the view.
      * @param {Set<string>|null} selection - current multi-selection.
      * @param {string|null} selectedPath - current primary row.
-     * @param {string|null} activePath - active editor file.
      * @returns {{selection: Set<string>, primary: string|null}} sanitized state.
      */
-    function filteredViewSelection(rowPaths, selection, selectedPath, activePath) {
+    function filteredViewSelection(rowPaths, selection, selectedPath) {
       const visible = new Set((Array.isArray(rowPaths) ? rowPaths : []).filter((path) => typeof path === 'string' && path !== ''));
       const source = selection instanceof Set ? selection : new Set();
       const next = new Set();
@@ -3564,13 +3667,89 @@
         else changed = true;
       }
       let primary = typeof selectedPath === 'string' && visible.has(selectedPath) ? selectedPath : null;
-      if (primary === null && typeof activePath === 'string' && visible.has(activePath)) primary = activePath;
       if (primary === null) primary = [...next][0] ?? [...visible][0] ?? null;
       if (primary !== null && !next.has(primary)) {
         next.add(primary);
         changed = true;
       }
       return { selection: changed ? next : source, primary };
+    }
+
+    /**
+     * Keep a real Project tree selection valid after its rows change.
+     *
+     * A selected row can disappear because the user collapsed an ancestor or
+     * because another process deleted/renamed it. Only the second case is stale:
+     * collapsed rows remain valid. For a real disappearance, prefer the nearest
+     * survivor from the previous visual order so the tree stays actionable without
+     * following the active editor file.
+     * @param {{selectedPath: string|null, previousPaths: string[], rowPaths: string[], expanded: Set<string>|null}} request - row transition.
+     * @returns {string|null} the current or replacement selection.
+     */
+    function projectSelectionAfterRowsChange(request) {
+      const selectedPath = typeof request?.selectedPath === 'string' && request.selectedPath !== ''
+        ? request.selectedPath
+        : null;
+      if (selectedPath === null) return request?.selectedPath ?? null;
+      const currentPaths = new Set(
+        (Array.isArray(request?.rowPaths) ? request.rowPaths : []).filter((path) => typeof path === 'string' && path !== ''),
+      );
+      if (currentPaths.has(selectedPath)) return selectedPath;
+      const previousPaths = (Array.isArray(request?.previousPaths) ? request.previousPaths : [])
+        .filter((path) => typeof path === 'string' && path !== '');
+      if (previousPaths.length === 0) return selectedPath;
+      const expanded = request?.expanded instanceof Set ? request.expanded : new Set();
+      let ancestor = dirname(selectedPath);
+      while (ancestor !== '') {
+        if (!expanded.has(ancestor)) return selectedPath;
+        ancestor = dirname(ancestor);
+      }
+      const previousIndex = previousPaths.indexOf(selectedPath);
+      /* A rename/move selects its destination before refreshTree() catches up.
+         That path cannot be in the previous rows yet and must not be cleared. */
+      if (previousIndex < 0) return selectedPath;
+      for (let distance = 1; distance < previousPaths.length; distance += 1) {
+        const next = previousPaths[previousIndex + distance];
+        if (currentPaths.has(next)) return next;
+        const previous = previousPaths[previousIndex - distance];
+        if (currentPaths.has(previous)) return previous;
+      }
+      return null;
+    }
+
+    /**
+     * Reconcile the complete Project selection, not only its primary row.
+     *
+     * Multi-selection may contain several rows removed by one external delete or
+     * directory operation. Keep every surviving/hidden selection, drop only rows
+     * proven stale, and move the primary to the nearest survivor when needed.
+     * @param {{selection?: Set<string>|null, selectedPath: string|null, previousPaths: string[], rowPaths: string[], expanded: Set<string>|null}} request - row transition.
+     * @returns {{selection: Set<string>, primary: string|null}} reconciled selection.
+     */
+    function projectSelectionSetAfterRowsChange(request) {
+      const source = request?.selection instanceof Set
+        ? request.selection
+        : new Set(
+            typeof request?.selectedPath === 'string' && request.selectedPath !== ''
+              ? [request.selectedPath]
+              : [],
+          );
+      const next = new Set();
+      let changed = false;
+      for (const path of source) {
+        const resolved = projectSelectionAfterRowsChange({ ...request, selectedPath: path });
+        if (resolved === path) next.add(path);
+        else changed = true;
+      }
+      const primary = projectSelectionAfterRowsChange(request);
+      if (primary !== null && !next.has(primary)) {
+        next.add(primary);
+        changed = true;
+      }
+      return {
+        selection: changed ? next : source,
+        primary,
+      };
     }
 
     /**

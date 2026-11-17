@@ -119,7 +119,7 @@ test('⌘A selects the whole terminal buffer and ⇧F6 renames the tab', () => {
 /* ── Project sort keeps the selected row on screen ──────────────────────── */
 
 test('a re-sort scrolls the selected row back into view', () => {
-  const block = slice('React.useEffect(() => {\n        if (sortAppliedRef.current === \'\')', '/**\n       * Flip IDEA\'s "Autoscroll from Source"');
+  const block = slice('React.useEffect(() => {\n        if (sortAppliedRef.current === \'\')', '/**\n       * Toggle IDEA\'s "Open Files with Single Click"');
   assert.match(block, /if \(sortAppliedRef\.current === sortMode\) return;/);
   assert.match(block, /const path = selectedPathRef\.current;/);
   assert.match(block, /row\.scrollIntoView\(\{ block: 'nearest' \}\);/);

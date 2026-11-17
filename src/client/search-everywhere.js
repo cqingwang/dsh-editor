@@ -201,11 +201,13 @@
       ];
       const activeIndex = normalizeSearchResultIndex(results, state.index);
       const activeResult = results[activeIndex] ?? null;
-      const searchResultStatus = textLoading
-        ? t('editor.loading')
-        : results.length === 0
-          ? (effectiveTab === 'text' && effectiveQuery.length < 2 ? t('editor.searchTextHint') : t('editor.searchNoMatches'))
-          : t('editor.searchResultCount', { count: results.length });
+      const searchResultStatus = error !== null
+        ? ''
+        : textLoading
+          ? t('editor.loading')
+          : results.length === 0
+            ? (effectiveTab === 'text' && effectiveQuery.length < 2 ? t('editor.searchTextHint') : t('editor.searchNoMatches'))
+            : t('editor.searchResultCount', { count: results.length });
       const showFindInFilesFallback = searchEverywhereOffersFindInFiles({
         tab: effectiveTab,
         query: effectiveQuery,
@@ -297,6 +299,7 @@
           return undefined;
         }
         let cancelled = false;
+        const previewAbort = new AbortController();
         setPreviewState({
           loading: true,
           kind: activeResult.kind,
@@ -305,7 +308,7 @@
           line: activeResult.line ?? 1,
           error: null,
         });
-        callFs({ op: 'read', path: activeResult.path })
+        callFs({ op: 'read', path: activeResult.path }, { signal: previewAbort.signal })
           .then((value) => {
             if (cancelled) return;
             setPreviewState({
@@ -319,6 +322,7 @@
           })
           .catch((failure) => {
             if (cancelled) return;
+            if (failure?.name === 'AbortError' || failure?.name === 'CanceledError') return;
             setPreviewState({
               loading: false,
               kind: activeResult.kind,
@@ -330,6 +334,7 @@
           });
         return () => {
           cancelled = true;
+          previewAbort.abort();
         };
       }, [previewOpen, activeResult?.rowKey, activeResult?.dirty, openFiles]);
       React.useLayoutEffect(() => {
@@ -1057,7 +1062,7 @@
             !textLoading && effectiveTab === 'text' && effectiveQuery.length > 0 && effectiveQuery.length < 2
               ? React.createElement('div', { style: styles.searchEverywhereMessage }, t('editor.searchTextHint'))
               : null,
-            results.length === 0 && !textLoading
+            results.length === 0 && !textLoading && error === null
               ? React.createElement(
                   'div',
                   { style: styles.searchEverywhereMessage },

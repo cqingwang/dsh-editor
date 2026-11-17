@@ -46,7 +46,7 @@ test('Replace history preserves the draft until the user chooses an item', () =>
 
 test('Search Everywhere exposes one non-duplicated live result status', () => {
   const dialog = searchEverywhere();
-  assert.match(dialog, /const searchResultStatus = textLoading/);
+  assert.match(dialog, /const searchResultStatus = error !== null\s+\? ''\s+: textLoading/u);
   assert.match(dialog, /'aria-live': 'polite'/);
   assert.match(dialog, /'aria-atomic': 'true'/);
   assert.match(dialog, /role: 'status'/);

@@ -24,12 +24,12 @@ const filteredViewSelection = new Function(
   `${extract('filteredViewSelection')}\nreturn filteredViewSelection;`,
 )();
 
-test('filtered views drop hidden selections and prefer the active visible file', () => {
+test('filtered views drop hidden selections without following the active file', () => {
   const rows = ['README.md', 'src/a.ts'];
   const current = new Set(['README.md', 'src/a.ts', 'hidden.txt']);
   const state = filteredViewSelection(rows, current, 'hidden.txt', 'src/a.ts');
   assert.deepEqual([...state.selection], ['README.md', 'src/a.ts']);
-  assert.equal(state.primary, 'src/a.ts');
+  assert.equal(state.primary, 'README.md');
 });
 
 test('filtered views retain the same selection object when it is already valid', () => {

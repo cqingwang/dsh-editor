@@ -28,7 +28,6 @@ test('Project Options commands return focus to the selected tree row', () => {
     assert.match(row, /run: \(\) => runProjectOption\(/, `${id} must restore focus`);
     assert.match(row, /restoreFocus: false/, `${id} must suppress the opener restore`);
   }
-  assert.match(options, /id: 'behavior'[\s\S]*?id: 'autoscroll'[\s\S]*?run: \(\) => runProjectOption/);
   assert.match(options, /id: 'singleClickOpen'[\s\S]*?run: \(\) => runProjectOption/);
   assert.match(options, /id: 'openDirectoriesSingleClick'[\s\S]*?run: \(\) => runProjectOption/);
   assert.match(options, /id: 'appearance'[\s\S]*?run: \(\) => runProjectOption/);

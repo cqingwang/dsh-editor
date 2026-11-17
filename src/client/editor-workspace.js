@@ -121,7 +121,9 @@
             const listed = Array.isArray(value?.terminals) ? value.terminals : [];
             /* Only ids the host still holds: a terminal closed while the page was
                away must not be resurrected as a dangling tab. */
-            setEditorTerminals(listed.filter((terminal) => remembered.includes(terminal.id)));
+            const restored = listed.filter((terminal) => remembered.includes(terminal.id));
+            setEditorTerminals(restored);
+            writeEditorTerminals(restored.map((terminal) => terminal.id));
           })
           .catch(() => {});
         return () => {
@@ -452,8 +454,6 @@
       React.useEffect(() => {
         setManualOrder(readProjectManualOrder(root));
       }, [root]);
-      /* IDEA's "Autoscroll from Source": the tree follows whichever tab is active. */
-      const [autoScroll, setAutoScroll] = React.useState(() => readStoredText('dsh-editor.project.autoscroll', '1') === '1');
       const [markdownMode, setMarkdownModeState] = React.useState(() => normalizeMarkdownMode(
         readStoredText('dsh-editor.markdown.mode', 'code'),
       ));
@@ -504,6 +504,13 @@
       const [conflict, setConflict] = React.useState(null);
       /* Open tabs whose file changed on disk since they were loaded. */
       const [externalChanges, setExternalChanges] = React.useState({});
+      /* A workspace change can replace a Markdown image without changing its
+         document text. Keep cache keys per changed directory so unrelated
+         edits do not make every image in the preview refetch. */
+      const [markdownAssetRevisions, setMarkdownAssetRevisions] = React.useState({ global: 0, directories: {} });
+      React.useEffect(() => {
+        setMarkdownAssetRevisions({ global: 0, directories: {} });
+      }, [root]);
       /* Open files that no longer exist on disk, shown with a strikethrough in the tree. */
       const [deletedPaths, setDeletedPaths] = React.useState(() => new Set());
       /* Files that appeared outside the editor since the last refresh. */
@@ -532,6 +539,7 @@
       const searchEverywhereFilesRef = React.useRef([]);
       const searchEverywhereFilesScopeRef = React.useRef(null);
       const searchEverywhereFilesRequestRef = React.useRef(0);
+      const searchEverywhereFilesAbortRef = React.useRef(null);
       const searchTextRequestRef = React.useRef(0);
       const doubleShiftAtRef = React.useRef(0);
       /* Monaco effects mount before Search Everywhere is declared below. Route
@@ -726,12 +734,10 @@
       /* Read by the window/Monaco shortcuts, which are registered once. */
       const diffActiveRef = React.useRef(true);
       const openFilesRef = React.useRef([]);
+      const entriesRef = React.useRef([]);
       const sessionRestoredFor = React.useRef('');
       const sessionRestoringRef = React.useRef(false);
       const sessionRestoreGeneration = React.useRef(0);
-      /* Project autoscroll is armed only after initial tab restoration settles;
-         restoring several saved paths must not expand their ancestors. */
-      const projectAutoScrollArmedRef = React.useRef(false);
       const childrenRef = React.useRef({});
       const expandedRef = React.useRef(expanded);
       const rootRef = React.useRef('');
@@ -762,9 +768,6 @@
       /* The sort the tree is currently laid out with, and the row to keep visible. */
       const sortAppliedRef = React.useRef('');
       const selectedPathRef = React.useRef(null);
-      /* Explicit row reveal wins over the next Auto Scroll pass caused by leaving
-         a filtered view; otherwise the active editor tab reselects itself. */
-      const suppressAutoScrollRef = React.useRef(false);
       React.useEffect(() => {
         activePathRef.current = activePath;
       }, [activePath]);
@@ -809,6 +812,9 @@
       React.useEffect(() => {
         openFilesRef.current = openFiles;
       }, [openFiles]);
+      React.useEffect(() => {
+        entriesRef.current = entries;
+      }, [entries]);
       React.useEffect(() => {
         previewPathRef.current = previewPath;
       }, [previewPath]);
@@ -1000,6 +1006,7 @@
         () => flattenRows(entries, children, expanded, projectName, root, compactDirectories, sortMode, manualOrder),
         [compactDirectories, entries, children, expanded, manualOrder, projectName, root, sortMode],
       );
+      const previousProjectRowsRef = React.useRef([]);
       const rows = React.useMemo(
         () => projectViewRows(projectView, projectRows, openFiles, git),
         [git, openFiles, projectRows, projectView],
@@ -1009,17 +1016,39 @@
         rowsRef.current = projectRows;
       }, [projectRows]);
       React.useEffect(() => {
+        if (root === '' || treeLoading) return;
+        setExpanded((current) => pruneProjectExpandedPaths({
+          expanded: current,
+          rootEntries: entries,
+          children,
+        }));
+      }, [children, entries, root, treeLoading]);
+      React.useEffect(() => {
         if (filteredView === false) return;
         const nextState = filteredViewSelection(
           rows.map((row) => row.path),
           selection,
           selectedPath,
-          activePath,
         );
         if (nextState.selection !== selection || nextState.primary !== selectedPath) {
           applyTreeSelection(nextState.selection, nextState.primary, nextState.primary);
         }
-      }, [activePath, applyTreeSelection, filteredView, rows, selectedPath, selection]);
+      }, [applyTreeSelection, filteredView, rows, selectedPath, selection]);
+      React.useEffect(() => {
+        const previousPaths = previousProjectRowsRef.current;
+        previousProjectRowsRef.current = projectRows.map((row) => row.path);
+        if (filteredView || root === '' || treeLoading || (selectedPath === null && selection.size === 0)) return;
+        const next = projectSelectionSetAfterRowsChange({
+          selection,
+          selectedPath,
+          previousPaths,
+          rowPaths: projectRows.map((row) => row.path),
+          expanded,
+        });
+        if (next.selection !== selection || next.primary !== selectedPath) {
+          applyTreeSelection(next.selection, next.primary, next.primary);
+        }
+      }, [applyTreeSelection, expanded, filteredView, projectRows, root, selectedPath, selection, treeLoading]);
 
       /**
        * Apply one click on a tree row, honouring IDEA's ⌘/Shift modifiers.
@@ -1809,7 +1838,6 @@
       }, []);
 
       const openFile = React.useCallback(async (path, options = {}) => {
-        setSelectedPath(path);
         /* The Commit diff is a tab of its own: picking a file shows that file and
            leaves the diff tab where it is, ready to be clicked back (IDEA). */
         setDiffActive(false);
@@ -1957,7 +1985,6 @@
         const generation = ++sessionRestoreGeneration.current;
         sessionRestoredFor.current = requestedRoot;
         sessionRestoringRef.current = true;
-        projectAutoScrollArmedRef.current = false;
         const stored = readEditorSession(requestedRoot);
         openFilesRef.current = [];
         splitTabsRef.current = [];
@@ -1997,9 +2024,6 @@
         } finally {
           if (sessionRestoreGeneration.current === generation) {
             sessionRestoringRef.current = false;
-            window.setTimeout(() => {
-              if (sessionRestoreGeneration.current === generation) projectAutoScrollArmedRef.current = true;
-            }, 0);
           }
         }
       }, [openFile, root]);
@@ -3153,7 +3177,13 @@
        */
       const requestSearchEverywhereFiles = React.useCallback((includeNonProject) => {
         const requestId = ++searchEverywhereFilesRequestRef.current;
-        void callFs({ op: 'files', includeExcluded: includeNonProject === true })
+        searchEverywhereFilesAbortRef.current?.abort();
+        const searchAbort = new AbortController();
+        searchEverywhereFilesAbortRef.current = searchAbort;
+        void callFs(
+          { op: 'files', includeExcluded: includeNonProject === true },
+          { signal: searchAbort.signal },
+        )
           .then((value) => {
             if (searchEverywhereFilesRequestRef.current !== requestId) return;
             const files = Array.isArray(value?.files) ? value.files : [];
@@ -3164,6 +3194,7 @@
               : { ...current, files }));
           })
           .catch((failure) => {
+            if (failure?.name === 'AbortError' || failure?.name === 'CanceledError') return;
             if (searchEverywhereFilesRequestRef.current !== requestId) return;
             setSearchEverywhere((current) => (current === null || current.includeNonProject !== (includeNonProject === true)
               ? current
@@ -3171,6 +3202,11 @@
                   ...current,
                   error: failure instanceof Error ? failure.message : String(failure),
                 }));
+          })
+          .finally(() => {
+            if (searchEverywhereFilesAbortRef.current === searchAbort) {
+              searchEverywhereFilesAbortRef.current = null;
+            }
           });
       }, []);
 
@@ -3239,17 +3275,21 @@
           return undefined;
         }
         setSearchEverywhere((current) => (current === null ? current : { ...current, textLoading: true, error: null }));
+        const searchAbort = new AbortController();
         const timer = window.setTimeout(() => {
-          void callFs({
-            op: 'searchText',
-            query: searchEverywhereTextQuery,
-            maxMatches: 200,
-            includeExcluded: searchEverywhere?.includeNonProject === true,
-            caseSensitive: searchEverywhere?.caseSensitive === true ? true : undefined,
-            wholeWords: searchEverywhere?.wholeWords === true,
-            regex: searchEverywhere?.regex === true,
-            fileMask: normalizeFileExtensionFilter(searchEverywhere?.fileMask),
-          })
+          void callFs(
+            {
+              op: 'searchText',
+              query: searchEverywhereTextQuery,
+              maxMatches: 200,
+              includeExcluded: searchEverywhere?.includeNonProject === true,
+              caseSensitive: searchEverywhere?.caseSensitive === true ? true : undefined,
+              wholeWords: searchEverywhere?.wholeWords === true,
+              regex: searchEverywhere?.regex === true,
+              fileMask: normalizeFileExtensionFilter(searchEverywhere?.fileMask),
+            },
+            { signal: searchAbort.signal },
+          )
             .then((value) => {
               if (searchTextRequestRef.current !== requestId) return;
               const hostMatches = Array.isArray(value?.matches) ? value.matches : [];
@@ -3279,6 +3319,7 @@
                   }));
             })
             .catch((failure) => {
+              if (failure?.name === 'AbortError' || failure?.name === 'CanceledError') return;
               if (searchTextRequestRef.current !== requestId) return;
               setSearchEverywhere((current) => (current === null
                 ? current
@@ -3291,7 +3332,10 @@
                   }));
             });
         }, 180);
-        return () => window.clearTimeout(timer);
+        return () => {
+          window.clearTimeout(timer);
+          searchAbort.abort();
+        };
       }, [
         searchEverywhereTextActive,
         searchEverywhereTextQuery,
@@ -3744,31 +3788,35 @@
         setFindTool((current) => (current === null
           ? current
           : { ...current, loading: true, error: null }));
+        const searchAbort = new AbortController();
         const timer = window.setTimeout(() => {
           const dirtyFiles = (openFilesRef.current ?? []).filter((file) =>
             file.dirty === true && typeof file.content === 'string');
-          void callFs({
-            op: 'searchText',
-            query: findToolQuery,
-            maxMatches: 200,
-            caseSensitive: findTool?.caseSensitive === true ? true : undefined,
-            wholeWords: findTool?.wholeWords === true,
-            regex: findTool?.regex === true,
-            includeExcluded: findTool?.includeExcluded === true,
-            fileMask: normalizeFileExtensionFilter(findTool?.fileMask),
-            contextFilter: normalizeTextSearchContextFilter(findTool?.contextFilter),
-            scopeIncludePatterns: findToolScopeIncludePatterns,
-            scopeExcludePatterns: findToolScopeExcludePatterns,
-            directory: findTool?.searchScopeMode === 'directory' ? findTool.searchScopeDirectory ?? '' : '',
-            recursive: findTool?.searchScopeMode === 'directory'
-              ? findTool?.searchScopeRecursive !== false
-              : true,
-            allowedPaths: findTool?.searchScopeMode === 'scope' && findTool?.searchScopePreset !== 'projectFiles'
-              ? findToolAllowedScopePaths
-              : undefined,
-            gitScope: findToolGitScope,
-            dirtyPaths: dirtyFiles.map((file) => file.path),
-          })
+          void callFs(
+            {
+              op: 'searchText',
+              query: findToolQuery,
+              maxMatches: 200,
+              caseSensitive: findTool?.caseSensitive === true ? true : undefined,
+              wholeWords: findTool?.wholeWords === true,
+              regex: findTool?.regex === true,
+              includeExcluded: findTool?.includeExcluded === true,
+              fileMask: normalizeFileExtensionFilter(findTool?.fileMask),
+              contextFilter: normalizeTextSearchContextFilter(findTool?.contextFilter),
+              scopeIncludePatterns: findToolScopeIncludePatterns,
+              scopeExcludePatterns: findToolScopeExcludePatterns,
+              directory: findTool?.searchScopeMode === 'directory' ? findTool.searchScopeDirectory ?? '' : '',
+              recursive: findTool?.searchScopeMode === 'directory'
+                ? findTool?.searchScopeRecursive !== false
+                : true,
+              allowedPaths: findTool?.searchScopeMode === 'scope' && findTool?.searchScopePreset !== 'projectFiles'
+                ? findToolAllowedScopePaths
+                : undefined,
+              gitScope: findToolGitScope,
+              dirtyPaths: dirtyFiles.map((file) => file.path),
+            },
+            { signal: searchAbort.signal },
+          )
             .then((value) => {
               if (!findToolRequestIsCurrent(requestId, requestRoot, findToolRequestRef.current, rootRef.current)) return;
               const hostMatches = Array.isArray(value?.matches) ? value.matches : [];
@@ -3810,6 +3858,7 @@
               rememberCurrentFindQuery(findToolQuery);
             })
             .catch((failure) => {
+              if (failure?.name === 'AbortError' || failure?.name === 'CanceledError') return;
               if (!findToolRequestIsCurrent(requestId, requestRoot, findToolRequestRef.current, rootRef.current)) return;
               setFindTool((current) => (current === null
                 ? current
@@ -3822,7 +3871,10 @@
                   }));
             });
         }, 180);
-        return () => window.clearTimeout(timer);
+        return () => {
+          window.clearTimeout(timer);
+          searchAbort.abort();
+        };
       }, [
         findToolOpen,
         findToolQuery,
@@ -3894,6 +3946,8 @@
 
       React.useEffect(() => {
         searchEverywhereFilesRequestRef.current += 1;
+        searchEverywhereFilesAbortRef.current?.abort();
+        searchEverywhereFilesAbortRef.current = null;
         findToolRequestRef.current += 1;
         searchEverywhereFilesRef.current = [];
         searchEverywhereFilesScopeRef.current = null;
@@ -3906,6 +3960,10 @@
         setRecentFindQueries(root === '' ? [] : readFindQueryHistory(root));
         setRecentFindUsages(root === '' ? [] : readFindUsagesHistory(root));
         setRecentReplacements(root === '' ? [] : readReplaceHistory(root));
+        return () => {
+          searchEverywhereFilesAbortRef.current?.abort();
+          searchEverywhereFilesAbortRef.current = null;
+        };
       }, [root]);
 
       /* Local Scopes live in browser storage; Shared Scopes are loaded only
@@ -5602,20 +5660,12 @@
       }, [dismissExternal, loadGit]);
 
       /**
-       * Reveal one path in the Project tree, expanding its ancestors.
-       *
-       * IDEA's "Select in Project View": the tree is where the file lives, so the
-       * reveal has to expand what is collapsed instead of only moving the
-       * selection to a row that may not be rendered yet.
-       * @param {string} path - workspace-relative path to show.
-       * @returns {Promise<void>} resolves once the tree shows the path.
-       */
-      /**
        * Make one path visible in the tree: expand its ancestors, select it, scroll to it.
        *
-       * Deliberately does NOT touch the tool window's activity or visibility —
-       * "Autoscroll from Source" runs this on every tab change and must not pop
-       * the Commit panel back to Project or open a hidden tool window.
+       * IDEA's "Select in Project View" expands collapsed ancestors instead of
+       * moving the selection to a row that may not be rendered yet.
+       * Deliberately does NOT touch the tool window's activity or visibility;
+       * only an explicit Project reveal action should switch to the Project panel.
        * @param {string} path - workspace-relative path to show.
        * @returns {Promise<void>} resolves once the row is on screen.
        */
@@ -5646,42 +5696,20 @@
 
       const revealPath = React.useCallback(async (path) => {
         if (typeof path !== 'string' || path === '') return;
-        suppressAutoScrollRef.current = true;
         /* IDEA returns to the last real tree view (Project or Project Files),
            not necessarily the default Project entry, when leaving a filtered view. */
         applyProjectView(lastProjectTreeViewRef.current);
         setActivity('project');
         setPanelVisible(true);
         await revealInProjectTree(path);
-        window.setTimeout(() => {
-          suppressAutoScrollRef.current = false;
-        }, 250);
       }, [applyProjectView, revealInProjectTree]);
 
       /**
-       * IDEA's "Autoscroll from Source": the Project tree follows the active tab.
+       * Locate the active tab only for explicit commands.
        *
-       * Only while the Project view is actually on screen — silently reselecting
-       * rows in a closed tool window would make the next glance at it feel random
-       * (a selection nobody asked for, moved while the user was reading code).
+       * The toolbar target and Alt+F1 call this. Plain tab switches must leave
+       * the Project view selection, expansion and scroll position untouched.
        */
-      React.useEffect(() => {
-        if (suppressAutoScrollRef.current) return;
-        if (!autoScroll || !panelVisible || activity !== 'project') return;
-        if (activePath === null || activePath === '') return;
-        /* Initial tab restoration can walk through several active paths before
-           the stored tab settles. Those paths are not user navigation and must
-           not expand Project directories on the first paint. */
-        if (sessionRestoringRef.current) return;
-        if (!projectAutoScrollArmedRef.current) return;
-        if (projectTreeActionsAvailable === false) {
-          if (rows.some((row) => row.path === activePath)) setSelectedPath(activePath);
-          return;
-        }
-        void revealInProjectTree(activePath);
-      }, [activePath, activity, autoScroll, panelVisible, revealInProjectTree, setSelectedPath]);
-
-      /* The tab menu's "Select in Project View" acts on the open file. */
       const revealActive = React.useCallback(async () => {
         const path = activePathRef.current;
         if (path === null) return;
@@ -5803,15 +5831,21 @@
        * structural filesystem change. `only` narrows it to the directories that
        * actually changed on disk, which is what the watcher reports.
        * @param {string[]|null} [only] - workspace-relative directories to re-read; omitted for every expanded one.
-       * @returns {Promise<void>} resolves once the listings are applied.
+       * @returns {Promise<string[]|null>} changed directories, or null when the host could not localize the change.
        */
       const refreshTree = React.useCallback(async (only) => {
         /* A toolbar button passes its click event here; anything but an array means
            "refresh everything". */
         const narrowed = Array.isArray(only) ? only : null;
+        const changedDirectories = narrowed === null ? null : [...new Set(narrowed)];
         /* Re-read the root first: everything below it is keyed by paths in that
            listing, and a delete can invalidate an expanded directory outright. */
         const listing = await loadRoot();
+        if (changedDirectories !== null
+          && keepUnchangedListing(entriesRef.current, listing ?? []) !== entriesRef.current
+          && !changedDirectories.includes('')) {
+          changedDirectories.push('');
+        }
         const nextChildren = {};
         /* Only expanded directories render rows, so re-reading a collapsed one buys
            nothing. `narrowed` may name collapsed directories (the watcher reports
@@ -5820,7 +5854,13 @@
           if (path === '' || !expandedRef.current.has(path)) continue;
           try {
             const value = await callFs({ op: 'list', path, showHidden, sort: sortMode, foldersFirst, showExcluded: showExcludedFiles });
-            nextChildren[path] = value.entries ?? [];
+            const rows = value.entries ?? [];
+            nextChildren[path] = rows;
+            if (changedDirectories !== null
+              && keepUnchangedListing(childrenRef.current[path], rows) !== childrenRef.current[path]
+              && !changedDirectories.includes(path)) {
+              changedDirectories.push(path);
+            }
           } catch {
             /* a directory that disappeared stays absent */
           }
@@ -5875,7 +5915,7 @@
         });
         /* A tab whose file vanished outside the editor is marked, not silently kept. */
         const open = openFilesRef.current;
-        if (open.length === 0) return;
+        if (open.length === 0) return changedDirectories;
         try {
           const described = await callFs({ op: 'exists', paths: open.map((file) => file.path) });
           const vanished = new Set((described ?? []).filter((entry) => entry.exists !== true).map((entry) => entry.path));
@@ -5887,6 +5927,7 @@
         } catch {
           /* an unreadable workspace keeps the previous marks */
         }
+        return changedDirectories;
       }, [foldersFirst, loadRoot, showExcludedFiles, showHidden, sortMode]);
 
       /**
@@ -6265,7 +6306,6 @@
             }
             await refreshTree();
             await loadGit();
-            applyTreeSelection(new Set(), null, null);
             const active = activePathRef.current;
             if (active !== null && targets.some((path) => active === path || active.startsWith(`${path}/`))) closeFile(active);
           } catch (failure) {
@@ -6274,7 +6314,7 @@
             setCommitBusy(false);
           }
         },
-        [applyTreeSelection, closeFile, dirtyUnder, loadGit, refreshTree, t],
+        [closeFile, dirtyUnder, loadGit, refreshTree, t],
       );
 
       /* Delete one entry after confirmation, then refresh the tree and git status. */
@@ -6288,7 +6328,6 @@
             await callFs({ op: 'delete', path: row.path });
             await refreshTree();
             await loadGit();
-            setSelectedPath(null);
             if (activePathRef.current !== null && (activePathRef.current === row.path || activePathRef.current.startsWith(`${row.path}/`))) {
               closeFile(activePathRef.current);
             }
@@ -6383,7 +6422,7 @@
         const handle = (event) => {
           if (disposed) return;
           if (event.type === 'change') {
-            const dirs = Array.isArray(event.dirs) ? event.dirs : null;
+            const changedDirectories = Array.isArray(event.dirs) ? event.dirs : null;
             /* Serialize: two overlapping refreshes would interleave their state
                writes and one could resurrect a listing the other just dropped. */
             chain = chain
@@ -6391,9 +6430,10 @@
                 if (disposed) return;
                 /* The watcher names the directories that changed; without that hint
                    only the root is re-read. */
-                await refreshTree(dirs === null ? undefined : dirs);
+                const changedListings = await refreshTree(changedDirectories === null ? undefined : changedDirectories);
                 await loadGit();
                 await checkExternalChanges();
+                setMarkdownAssetRevisions((current) => nextMarkdownAssetRevisions(current, changedListings));
               })
               .catch(() => {
                 /* a Session that went away mid-refresh just stops reporting */
@@ -6442,8 +6482,9 @@
             if (signature === signatureRef.current) return;
             signatureRef.current = signature;
             await loadGit();
-            await refreshTree();
+            const changedListings = await refreshTree();
             await checkExternalChanges();
+            setMarkdownAssetRevisions((current) => nextMarkdownAssetRevisions(current, changedListings));
           } catch {
             /* a workspace that is not a repository has nothing to poll */
           } finally {
@@ -6537,25 +6578,6 @@
         };
         window.requestAnimationFrame(tick);
       }, [sortMode]);
-
-      /**
-       * Flip IDEA's "Autoscroll from Source" and remember the choice.
-       *
-       * Turning it ON takes effect immediately (the effect re-runs on the new
-       * value), so the tree jumps to the open file without a second click.
-       * @returns {void}
-       */
-      const toggleAutoScroll = React.useCallback(() => {
-        setAutoScroll((current) => {
-          const next = !current;
-          try {
-            window.localStorage.setItem('dsh-editor.project.autoscroll', next ? '1' : '0');
-          } catch {
-            /* a storage-less browser keeps the in-memory choice */
-          }
-          return next;
-        });
-      }, []);
 
       /**
        * Toggle IDEA's "Open Files with Single Click" Project View preference.
@@ -6934,18 +6956,18 @@
                 run: () => void (batch.length > 1 ? removeEntries(batch.map((entry) => entry.path)) : removeEntry(row)),
               },
               null,
-              {
-                id: 'open',
-                label: isDirectory ? t('editor.expandFolder') : t('editor.openInEditor'),
-                shortcut: isDirectory ? '' : 'F4',
-                ariaKeyShortcuts: isDirectory ? undefined : 'F4',
-                /* Multi-row selections act in bulk, so the single-row action is disabled. */
-                disabled: isRoot || batch.length > 1,
-                run: () => (isDirectory ? void toggleDirectory(row.path) : void openFile(row.path)),
-              },
+              ...(isDirectory
+                ? [{
+                    id: 'open',
+                    label: t('editor.expandFolder'),
+                    /* Multi-row selections act in bulk, so the single-row action is disabled. */
+                    disabled: isRoot || batch.length > 1,
+                    run: () => void toggleDirectory(row.path),
+                  }]
+                : []),
               {
                 id: 'openRightSplit',
-                label: t('editor.openInRightSplit'),
+                label: t('editor.openInSplit'),
                 disabled: isRoot || splitCandidates.length === 0,
                 run: () => void openInRightSplit(splitCandidates),
               },
@@ -7034,7 +7056,7 @@
             ],
           };
         },
-        [compareWithClipboard, compareWithRevision, currentCodeEditor, currentCodePath, filteredView, git, openFile, openInRightSplit, openInTerminal, openMoveTo, refreshTree, removeEntries, removeEntry, restage, revealInFinder, revealPath, root, rows, selection, showFileHistory, startCreate, t, toggleDirectory, buildHarnessPathAction],
+        [compareWithClipboard, compareWithRevision, currentCodeEditor, currentCodePath, filteredView, git, openInRightSplit, openInTerminal, openMoveTo, refreshTree, removeEntries, removeEntry, restage, revealInFinder, revealPath, root, rows, selection, showFileHistory, startCreate, t, toggleDirectory, buildHarnessPathAction],
       );
       const uploadDropBusyRef = React.useRef(false);
       const uploadDroppedEntries = React.useCallback((handles, targetDirectory) => uploadWorkspaceDropToProject({
@@ -9225,18 +9247,7 @@
             queryHistory: recentFindQueries,
             replaceHistory: recentReplacements,
             onQuery: (query) => {
-              setFindTool((current) => (current === null
-                ? current
-                : {
-                    ...current,
-                    query,
-                    files: [],
-                    matches: [],
-                    index: 0,
-                    error: null,
-                    loadedGeneration: -1,
-                    searchGeneration: (current.searchGeneration ?? 0) + 1,
-                  }));
+              setFindTool((current) => current === null ? current : findToolQueryTransition(current, query));
             },
             onReplace: (replace) => setFindTool((current) => (current === null ? current : { ...current, replace })),
             onToggleCaseSensitive: () => setFindTool((current) => (current === null
@@ -9413,7 +9424,7 @@
               error: searchEverywhere.error ?? null,
               replaceBusy: searchEverywhere.replaceBusy === true,
               onQuery: (query) => setSearchEverywhere((current) => (current === null ? current : { ...current, query, index: 0 })),
-              onTab: (tab) => setSearchEverywhere((current) => (current === null ? current : { ...current, tab, index: 0 })),
+              onTab: (tab) => setSearchEverywhere((current) => current === null ? current : searchEverywhereTabTransition(current, tab)),
               onMove: (direction, count, absolute = null) =>
                 setSearchEverywhere((current) => {
                   if (current === null) return current;
@@ -9657,7 +9668,6 @@
                                 { id: 'previewTab', label: t('editor.projectPreviewTab'), shortcut: previewTabEnabled ? '✓' : '', restoreFocus: false, run: () => runProjectOption(() => togglePreviewTab()) },
                                 { id: 'singleClickOpen', label: t('editor.openFilesSingleClick'), shortcut: singleClickOpen ? '✓' : '', restoreFocus: false, run: () => runProjectOption(() => toggleSingleClickOpen()) },
                                 { id: 'openDirectoriesSingleClick', label: t('editor.openDirectoriesSingleClick'), shortcut: openDirectoriesSingleClick ? '✓' : '', restoreFocus: false, run: () => runProjectOption(() => toggleOpenDirectoriesSingleClick()) },
-                                { id: 'autoscroll', label: t('editor.alwaysSelectOpenedFile'), shortcut: autoScroll === false ? '' : '✓', restoreFocus: false, run: () => runProjectOption(() => toggleAutoScroll()) },
                               ],
                             },
                             {
@@ -9755,8 +9765,6 @@
                           }
                           return next;
                         }),
-                      autoScroll,
-                      onToggleAutoScroll: () => toggleAutoScroll(),
                       singleClickOpen,
                       onToggleSingleClickOpen: () => toggleSingleClickOpen(),
                       openDirectoriesSingleClick,
@@ -10391,6 +10399,8 @@
                         t,
                         path: activePath,
                         content: activeFile?.content ?? '',
+                        workspaceRoot: root,
+                        assetRevisions: markdownAssetRevisions,
                         visible: markdownPreviewVisible,
                         paneRef: markdownPreviewRef,
                         onOpenFile: (path) => (path === '' ? Promise.resolve(false) : openFile(path, { silentError: true })),

@@ -1,9 +1,1185 @@
 # dsh-editor 工程记忆
 
+## 2026-11-17 — Project 文件右键精简打开动作
+
+**作用域**：Project tree 文件/目录 context menu、EditSource 与分屏入口。
+
+**用户要求**：
+
+- 文件右键不再显示“在编辑器中打开”；
+- “在右侧拆分部分打开”改为“分屏打开”；
+- 键盘 EditSource 能力保留。
+
+**修复**：
+
+- Project file menu 条件化移除 `id: 'open'`；目录分支继续显示
+  “展开目录”并调用 `toggleDirectory`；
+- 新增 Project 专用 `openInSplit` 文案：中文“分屏打开”，英文
+  “Open in Split”；
+- 共享的 `openInRightSplit` key 保持不变，Commit/Search 等其它菜单不受影响；
+- `F4 / ⌘↓` 的 EditSource 键盘路径保持不变。
+
+**回归**：
+
+- RED：round783 **3 fail / 0 pass**；
+- GREEN：round783 / round293 / round449 / round330 / round336 /
+  round326 / round328 / static-order **26 pass / 0 fail**；
+- 全量 `npm test`：**2564 pass / 0 fail**；
+- build/语法/diff 门禁通过。
+
+**运行态证据**：
+
+- Ego Browser / 隔离 DSH Web：
+  - 文件右键菜单没有 Open in Editor；
+  - split action 显示 Open in Split；
+  - 目录右键仍显示 Expand folder。
+
+**适用边界**：
+
+- 只改变 Project tree context menu；
+- 普通双击、单击打开、`F4 / ⌘↓` 和分屏功能本身不变。
+
+## 2026-11-17 — 删除清空选择且多选 stale path 未收敛
+
+**作用域**：Project internal Delete/Backspace、external row removal、
+multi-selection、primary fallback 和删除后的键盘 row action。
+
+**症状/证据**：
+
+- 单文件 Delete 后旧实现直接清空选择，树虽然仍有焦点，但没有 primary，
+  F2/Delete/Open 等键盘续作无法作用；
+- reconciliation 只修正 `selectedPath`，multi-selection 中被外部删除的
+  其他路径仍保留，可能参与后续批量操作。
+
+**根因**：
+
+- 内部 removeEntry/removeEntries 与外部 watcher 走了两套选择策略；
+- selection set 与 primary 没有在同一个 reconciliation 结果中收敛。
+
+**修复**：
+
+- 新增 `projectSelectionSetAfterRowsChange()`：逐项过滤 stale selection，
+  保留可见/折叠/等待刷新项，并用同一 primary helper 补入最近 fallback；
+- EditorWorkspace reconciliation 一次更新完整 selection 与 primary；
+- removeEntry/removeEntries 删除后不再强制 clear，统一交给 rows transition；
+- 删除确认、dirty warning 和文件关闭语义不变。
+
+**回归**：
+
+- RED：round782 初始因 helper 不存在而失败；
+- GREEN：round782 / round781 / round780 / round779 / round64 /
+  round76 / static-order **19 pass / 0 fail**；
+- 全量 `npm test`：**2561 pass / 0 fail**；
+- build/语法/diff 门禁通过。
+
+**运行态证据**：
+
+- Ego Browser / 隔离 DSH Web：
+  - 内部 Delete 临时文件后 fallback 到 `README.md`；
+  - tree 保持焦点，F2 rename 输入值为 `README.md`；
+  - 多选两个文件后从 shell 删除 primary，另一个 selection 保留并成为
+    primary。
+
+**适用边界**：
+
+- external delete 与 internal delete 共用一套 rows reconciliation；
+- filtered view 仍由自己的 rows 收敛逻辑处理；
+- 折叠目录中的隐藏选择保持不动；
+- 删除仍先经过原确认与 dirty-buffer 警告。
+
+## 2026-11-17 — reconciliation 误清刚 rename/move 的新选择
+
+**作用域**：Project internal rename/move、selection reconciliation、
+refreshTree 时序。
+
+**症状/证据**：
+
+- rename/move 成功后先选择新路径，再异步刷新 rows；
+- 新路径尚未出现在旧 `projectRows` 时，round780 reconciliation 将其
+  当作 stale selection；
+- helper 返回 null，导致刚完成 rename/move 的条目丢失选择。
+
+**根因**：
+
+- reconciliation 只区分“selected 已在 current rows”和“selected 曾在此前
+  rows”，没有区分“这是一个等待刷新出现的新 target”；
+- `previousIndex < 0` 被直接解释为 stale。
+
+**修复**：
+
+- `projectSelectionAfterRowsChange()` 在 selectedPath 不存在于
+  previousPaths 时保留原值；
+- 只有 selectedPath 曾出现在 previousPaths、刷新后消失时，才寻找最近
+  幸存邻居；
+- round780 的外部删除行为保持不变。
+
+**回归**：
+
+- RED：round781 **1 fail / 1 pass**；
+- GREEN：round781 / round780 / round779 / round315 / round76 /
+  static-order **16 pass / 0 fail**；
+- 全量 `npm test`：**2559 pass / 0 fail**；
+- build/语法/diff 门禁通过。
+
+**运行态证据**：
+
+- Ego Browser / 隔离 DSH Web：
+  - 创建 `round781-rename.txt`；
+  - 通过 ⇧F6 改名为 `round781-renamed.txt`；
+  - rows 刷新完成后新路径保持选中。
+
+**适用边界**：
+
+- 外部删除仍回落到最近幸存邻居；
+- 折叠目录导致的隐藏仍保留原选择；
+- 普通 open/tab 切换和 filtered view 不受影响。
+
+## 2026-11-17 — 外部删除后 Project 保留不可见 stale selection
+
+**作用域**：Project tree watcher refresh、外部删除/rename、selection 和
+row action 可用性。
+
+**症状/证据**：
+
+- 选中 `round780-external.txt` 后从 shell 外部删除；
+- watcher 刷新 rows 后该 DOM row 消失，但 `aria-selected=true` 行变为 0；
+- selection state 仍保留旧路径，F2/Delete/Open 等 row action 可能继续
+  作用于已不存在的文件。
+
+**根因**：
+
+- rows 更新只重绘 DOM，没有对应 Project selection 的 reconciliation；
+- filtered view 已有不可见选择清理，但真实 Project tree 没有。
+
+**修复**：
+
+- 新增纯函数 `projectSelectionAfterRowsChange()`；
+- EditorWorkspace 记录上一轮 `projectRows`，仅在 selected row 真实消失时
+  收敛；
+- 祖先目录折叠造成的不可见保持原选择；
+- 真实删除/外部 rename 后，从上一轮视觉顺序寻找最近的前/后现存邻居，
+  找不到时返回 null。
+
+**回归**：
+
+- RED：round780 初始因 helper 不存在而失败；
+- GREEN：round780 / round779 / round778 / round757 / round721 /
+  round378 / round315 / static-order **27 pass / 0 fail**；
+- 全量 `npm test`：**2557 pass / 0 fail**；
+- build/语法/diff 门禁通过。
+
+**运行态证据**：
+
+- Ego Browser / 隔离 DSH Web：
+  - shell 删除当前选中文件后，selection 落到最近幸存行 `README.md`；
+  - 折叠包含选中 `src/app.js` 的 `src` 时 DOM 无选中行但 state 不误改；
+  - 重新展开 `src` 后 `app.js` 仍保持选中。
+
+**适用边界**：
+
+- 不跟随 active editor file；
+- 不改变普通 open/tab 切换或显式 reveal；
+- 目录折叠导致的隐藏不是 stale selection；
+- 外部 rename 只能回落到邻居，不伪造 old/new path 映射。
+
+## 2026-11-17 — filtered Project view 仍自动跟随活动文件
+
+**作用域**：Project `Open Files` / `All Changed Files` 视图、selection
+收敛、active editor tab 切换。
+
+**症状/证据**：
+
+- 普通 Project Files 已不跟随 active tab；
+- 切到 Open Files 时，若无有效 primary，会自动选中活动文件；
+- DSH Web 中活动 tab 是 `src/app.js`，切到 Open Files 后树直接选中
+  `app.js`，即使没有点击靶心或执行 reveal。
+
+**根因**：
+
+- `filteredViewSelection()` 把 `activePath` 作为 primary 的 fallback；
+- filtered-view effect 依赖 `activePath`，rows 或 active tab 更新时会再次
+  执行这层自动定位。
+
+**修复**：
+
+- `filteredViewSelection()` 不再接收 `activePath`；
+- 保留仍可见的 primary；primary 无效时才使用剩余可见 selection 或首行；
+- EditorWorkspace effect 去掉 `activePath` 参数和依赖；
+- round378 的旧“优先活动文件”契约同步改为“不跟随活动文件”。
+
+**回归**：
+
+- RED：round779 初始 **2 fail / 0 fail**；
+- GREEN：round779 / round378 / round778 / round757 / round721 /
+  round694 / static-order **25 pass / 0 fail**；
+- 全量 `npm test`：**2554 pass / 0 fail**；
+- build/语法/diff 门禁通过。
+
+**运行态证据**：
+
+- Ego Browser / 隔离 DSH Web：
+  - reload 后 Open Files 首行 `README.md` 选中，active tab 为
+    `src/app.js`，Project 未跟随 active；
+  - 切换 README/app tab 时树选择保持在 README；
+  - 点击靶心后才切到活动 `app.js`；
+  - 从 Project Files 选中 `nav-target.js` 后切回 Open Files，树落到首行
+    README，而不是 active app.js；
+  - Project 隐藏后 `Alt+F1 1` 恢复并显式选中 app.js。
+
+**适用边界**：
+
+- filtered view 仍会清理不可见 selection，保证工具动作不作用于隐藏行；
+- 可见选择和 rows 来源不变；
+- 靶心仍可在目标属于当前 filtered view 时显式选中活动文件。
+
+## 2026-11-17 — 普通 openFile 仍会改写 Project 树选择
+
+**作用域**：Editor 文件打开路径、Project 树选中行、tab overflow、
+搜索/最近文件等非树内入口。
+
+**症状/证据**：
+
+- 第 757 轮删除 activePath 自动 reveal effect 后，Project 仍会在打开文件时
+  改变选中行；
+- `openFile()` 入口开头无条件调用 `setSelectedPath(path)`；
+- 从编辑器 tab overflow 打开 README 时，原本选中的 `nav-target.js` 被
+  改写；目标行在视口内时看起来就是文件树“跳”到当前文件。
+
+**根因**：
+
+- 文件打开动作把“激活编辑器 tab”和“Project 显式定位”混在同一条路径；
+- 历史 Auto Scroll effect 虽已删除，但这个直接选择写入仍然绕过显式 reveal
+  边界。
+
+**修复**：
+
+- 从 `openFile()` 删除 `setSelectedPath(path)`；
+- 普通打开只更新 active tab、recent files 和 diff surface；
+- 树内点击仍由 `onSelect` 选择点击行；靶心、`Alt+F1 1`、右键定位继续走
+  `revealPath()` / `revealInProjectTree()`。
+
+**回归**：
+
+- RED：round778 初始 **1 fail / 1 pass**；
+- GREEN：round778 / round777 / round757 / round721 / round138 /
+  round378 / round446 / round694 / static-order **41 pass / 0 fail**；
+- 全量 `npm test`：**2552 pass / 0 fail**；
+- build/语法/diff 门禁通过。
+
+**运行态证据**：
+
+- Ego Browser / 隔离 DSH Web：
+  - Project 选中 `nav-target.js`；
+  - 从 tab overflow 打开 `README.md` 后，树仍选中 `nav-target.js`；
+  - 点击 `Select Opened File (⌥F1, 1)` 后才改选 `README.md`；
+  - 再打开 `src/app.js`，树仍保持 `README.md`。
+
+**适用边界**：
+
+- 普通文件打开不改 Project 选择、展开和滚动；
+- filtered Project view 对不存在行的合法选择收敛不变；
+- 显式 Project reveal 仍会展开祖先、选中并滚动目标行。
+
+## 2026-11-17 — reload 后 stale editor terminal 仍保留在本地
+
+**作用域**：EditorWorkspace 页面 reload、editor-area terminal placement
+持久化和 host terminal list。
+
+**症状/缺口**：
+
+- reload 恢复时会把 host 已不存在的 terminal 从 React state 中过滤掉；
+- 裁剪结果没有同步写回 `dsh-editor.terminal.editor:*`；
+- 用户不打开 Terminal dock 时，stale editorId 会永久留在 localStorage。
+
+**修复**：
+
+- 恢复 effect 先得到 `restored`；
+- `setEditorTerminals(restored)` 后立即
+  `writeEditorTerminals(restored.map((terminal) => terminal.id))`；
+- 同时更新 round145 的旧实现断言。
+
+**回归**：
+
+- RED：round777 初始 **1 fail / 0 fail**；
+- GREEN：round777 与 Project/filtered-view/static-order 定点回归
+  **41 pass / 0 fail**；
+- 全量 `npm test`：**2552 pass / 0 fail**；
+- build/语法/diff 门禁通过。
+
+**适用边界**：
+
+- 只清理 host 已不存在的 editor placement；
+- host 仍存活的 terminal 不关闭、不重启；
+- 不改变 dock refresh、PTY、Move to Editor 或焦点协议。
+
+## 2026-11-17 — Terminal editorIds 与 host list 未协调
+
+**作用域**：Terminal editor placements、host terminal list refresh、
+stale ids 和 dock active。
+
+**症状/缺口**：
+
+- localStorage editorIds 可能包含页面离开期间已在 host 关闭的 terminal；
+- refresh 只替换 terminals，不剪除 stale placement；
+- active fallback 可能选择 editor terminal，使 dock 无可见 active。
+
+**修复**：
+
+- 新增 `reconcileTerminalDockState(listed, editorIds, currentActive)`；
+- editorIds 只保留 host list 中仍存在的 id；
+- dock active 保留仍可见的 currentActive，否则选首个 non-editor；
+- refresh 应用协调结果。
+
+**回归**：
+
+- RED：round776 初始 **2 fail**；
+- GREEN：round776 / round775 / round145 / round237 /
+  static-order **21 pass / 0 fail**；
+- 全量 `npm test`：**2549 pass / 0 fail**；
+- build/语法/diff 门禁通过。
+
+**运行态证据**：
+
+- Ego Browser / 隔离 r526：
+  - 注入 missing-editor-terminal-id；
+  - 打开 Terminal 后 localStorage 自动恢复为 []；
+  - editor area 无 dangling terminal，dock tab 正常显示。
+
+**适用边界**：
+
+- 只协调 list/editorIds/active；
+- 不关闭仍存在的 editor terminal，不改 closed history/focus。
+
+## 2026-11-17 — Reopen Closed Terminal 丢失工作目录
+
+**作用域**：Terminal closed history、Reopen Closed Terminal、host
+create 的 startPath。
+
+**症状/缺口**：
+
+- rememberClosed 同时保存 shell 与 cwd；
+- reopenClosed 只使用 shell，没有把 cwd 传给 createTerminal；
+- 新 PTY 因此从 ambient startDirectory/工作区根启动，而不是关闭前目录。
+
+**修复**：
+
+- reopenClosed 调用 `createTerminal(shell, entry.cwd)`；
+- shell 不存在时仍回退默认 shell，但目录继续使用保存值。
+
+**回归**：
+
+- RED：round775 初始 **1 fail**；
+- GREEN：round775 / round774 / round29 / round26 /
+  static-order **16 pass / 0 fail**；
+- 全量 `npm test`：**2547 pass / 0 fail**；
+- build/语法/diff 门禁通过。
+
+**适用边界**：
+
+- 不清空 closed history，不改变 PTY、dock focus 或普通创建语义。
+
+## 2026-11-17 — Terminal close fallback 选中 split/editor terminal
+
+**作用域**：TerminalPanel active terminal close、split、Move to Editor
+和后续 active tab 选择。
+
+**症状/缺口**：
+
+- active dock terminal 关闭后使用 `remaining[0]`；
+- 该 terminal 可能是 split 右格，下一 render 触发相同 id guard，
+  错误收起本可保留的 split；
+- 也可能是 editor terminal，造成 active 指向不可见 dock 项；
+- 右侧下拉框已排除 activeId，所以 same-id 下拉本身安全。
+
+**修复**：
+
+- 新增 `terminalActiveAfterClose(remaining, splitId, editorIds)`；
+- 优先 non-editor 且 non-split 的 dock terminal；
+- 无 third terminal 时才回退到 split terminal；
+- 无 dock terminal 时返回 null；
+- closeTerminal 使用该 fallback。
+
+**回归**：
+
+- RED：round774 初始 **2 fail**；
+- GREEN：round774 / round773 / round770 / round237 /
+  static-order **9 pass / 0 fail**；
+- 全量 `npm test`：**2546 pass / 0 fail**；
+- build/语法/diff 门禁通过。
+
+**运行态限制**：
+
+- 当前运行态只剩一个可见 dock tab，无法构造三 terminal + split；
+- 边界由 `terminalActiveAfterClose` 纯函数回归锁定。
+
+**适用边界**：
+
+- 只修关闭后的 active fallback；
+- split guard、Move to Editor、PTY 和 close/reopen 不变。
+
+## 2026-11-17 — Terminal tab 重排响应竞态
+
+**作用域**：Terminal tab drag reorder、Move Tab Left/Right、host
+reorder 响应和本地顺序。
+
+**症状/缺口**：
+
+- moveTab 先本地重排，再发 host reorder；
+- 连续操作会产生多个并发 reorder；
+- 旧响应晚到后直接 setTerminals(value.terminals)，可能覆盖新顺序。
+
+**修复**：
+
+- 新增 `terminalReorderRequestRef`；
+- moveTab 发起前递增 request id；
+- 只有最新 request 的 host 响应可以更新 terminals；
+- 本地即时排序和 host 协议保持不变。
+
+**回归**：
+
+- RED：round773 初始 **1 fail**；
+- GREEN：round773 / round772 / round417 / terminal-round15 /
+  static-order **9 pass / 0 fail**；
+- 全量 `npm test`：**2544 pass / 0 fail**；
+- build/语法/diff 门禁通过。
+
+**运行态证据**：
+
+- Terminal 菜单操作后 active tab 保持 roving focus；
+- 窄化 tab strip 后出现 `»` 和隐藏 tabs；
+- End → ArrowRight 进入 overflow，Enter 打开菜单；
+- 选择隐藏 tab 后 active 与 roving focus 指向同一 tab，菜单关闭；
+- 顺序覆盖竞态由 generation 回归锁定。
+
+**适用边界**：
+
+- 只保护 host reorder 响应；本地拖拽/菜单顺序语义不变。
+
+## 2026-11-17 — Terminal 重复 Close 未去重
+
+**作用域**：TerminalPanel closeTerminal、Close Other Terminals、host
+PTY close 和重复事件竞态。
+
+**症状/缺口**：
+
+- 本地乐观关闭后，同一 id 重复调用仍会重复发 host close；
+- 快速双击或菜单/快捷键竞态可能多次关闭同一 PTY；
+- closeOtherTerminals 也没有统一的 in-flight id 去重。
+
+**修复**：
+
+- 新增 `closingTerminalIdsRef`；
+- closeTerminal 入口检查并登记 id，finally 清除；
+- closeOtherTerminals 登记所有 doomed ids，host close finally 清除；
+- 本地 UI 收敛与关闭历史语义保持不变。
+
+**回归**：
+
+- RED：round772 初始 **2 fail**；
+- GREEN：round772 / round771 / round770 / round302 /
+  static-order **8 pass / 0 fail**；
+- 全量 `npm test`：**2543 pass / 0 fail**；
+- build/语法/diff 门禁通过。
+
+**运行态证据**：
+
+- Ego Browser / 隔离 r526：
+  - 同一 Close Terminal 菜单项连续 click 两次；
+  - host 只收到 1 次 close；
+  - 最后一个 shell 关闭后 dock 收起，焦点回到编辑器。
+- Move to Editor 后焦点进入 editor terminal；Return to Dock 后 active
+  tab 正确，焦点回到 dock xterm。
+
+**适用边界**：
+
+- 只按 terminal id 去重正在进行的 close；
+- 不改 PTY、reopen、tab 顺序和 split 语义。
+
+## 2026-11-17 — Close Other Terminals 等待 host 且丢失关闭历史
+
+**作用域**：TerminalPanel Close Other Terminals、host close、closed
+history、split 和焦点。
+
+**症状/证据**：
+
+- closeOtherTerminals 在 await 所有 host close 后才更新 tabs；
+- host close 慢时 UI 长期不收敛；
+- 被关闭 term 没有 rememberClosed，Reopen Closed Terminal 历史缺失；
+- 操作后没有显式 focus survivor 或清 split。
+
+**修复**：
+
+- 使用 terminalsRef 快照计算 keep/doomed；
+- 先 rememberClosed、forget live buffer、清理颜色；
+- 本地 setTerminals/active/split/focused；
+- 下一 task focus survivor xterm；
+- host close 最后 best-effort await。
+
+**回归**：
+
+- RED：round771 初始 **2 fail**；
+- GREEN：round771 / round770 / round302 / round26 /
+  static-order **13 pass / 0 fail**；
+- 全量 `npm test`：**2541 pass / 0 fail**；
+- build/语法/diff 门禁通过。
+
+**运行态证据**：
+
+- Ego Browser / 隔离 r526：
+  - Close Other Terminals 后 300ms 内只剩目标 tab；
+  - activeElement=`Terminal input`；
+  - Reopen Closed Terminal 菜单项启用。
+
+**适用边界**：
+
+- 不改普通 close、PTY、tab 顺序或 restore 快照格式；
+- host close 保持 best-effort。
+
+## 2026-11-17 — Terminal close 等待 host 导致 UI 滞留
+
+**作用域**：TerminalPanel close、split pane、host terminal close 和
+键盘焦点恢复。
+
+**症状/证据**：
+
+- split 右格聚焦后执行 Close Terminal；
+- host close 请求已发出，但响应迟迟不返回；
+- closeTerminal 在 await host close 后才 setTerminals；
+- split/tab 因此在 UI 上持续保留；
+- 关闭持焦 pane 时也没有显式 focus 幸存 xterm。
+
+**修复**：
+
+- closeTerminal 先本地计算 remaining 并执行 setTerminals/setActiveId；
+- 关闭 focusedId 时下一 task focus emulatorRef；
+- host close 最后 await，保持 best-effort；
+- 主机失败不再阻止 UI 收敛。
+
+**回归**：
+
+- RED：round770 初始 **2 fail**；
+- GREEN：round770 / round769 / round302 / round300 /
+  static-order **7 pass / 0 fail**；
+- 全量 `npm test`：**2539 pass / 0 fail**；
+- build/语法/diff 门禁通过。
+
+**运行态证据**：
+
+- Ego Browser / 隔离 r526：
+  - 右格聚焦，2 panes；
+  - Close Terminal 后 250ms 内为 1 pane；
+  - activeElement=`Terminal input`，焦点在幸存 pane；
+  - host close 请求同时发出。
+
+**适用边界**：
+
+- 只改本地关闭顺序与焦点回落；
+- PTY 创建/write/resize、关闭历史和恢复快照语义不变。
+
+## 2026-11-17 — Terminal Unsplit 后焦点落到工具栏
+
+**作用域**：Terminal split pane、Unsplit、active terminal 和键盘焦点。
+
+**症状/证据**：
+
+- 右侧 split xterm 持焦时点击 `Unsplit Terminal`；
+- split 正确收起为 1 pane，幸存 terminal 也成为 active；
+- 但 `document.activeElement` 变为 `Split Terminal` 工具栏按钮，
+  键盘输入不再进入 shell。
+
+**根因**：
+
+- toggleSplit 只更新 `splitId/focusedPane/activeId`；
+- 没有在新布局提交后调用幸存 xterm 的 focus。
+
+**修复**：
+
+- Unsplit 状态更新后下一 task 调用
+  `emulatorRef.current?.focus?.()`；
+- 保留原有的 focused side / active terminal 选择逻辑。
+
+**回归**：
+
+- RED：round769 初始 **1 fail**；
+- GREEN：round769 / round417 / round252 / terminal-round15 /
+  static-order **8 pass / 0 fail**；
+- 全量 `npm test`：**2537 pass / 0 fail**；
+- build/语法/diff 门禁通过。
+
+**运行态证据**：
+
+- Ego Browser / 隔离 r526：
+  - before：2 panes，右格 xterm 持焦；
+  - after Unsplit：1 pane，activeElement=`Terminal input`，
+    焦点位于新 pane 内。
+
+**适用边界**：
+
+- 只修 Unsplit 的焦点回落；
+- 不改 split 保留侧、PTY、标签顺序或工具栏布局。
+
+## 2026-11-17 — Commit Diff 过期请求未取消
+
+**作用域**：Commit DiffPreview target 切换、`callGit` 外部取消、20 秒
+超时和 Monaco diff model 生命周期。
+
+**症状/缺口**：
+
+- DiffPreview 快速切换 target 时只有 `cancelled` 逻辑丢弃；
+- 旧 `git diff` fetch 没有 AbortSignal；
+- CDP 延迟下旧 README diff 在切到 nav-main 后仍继续；
+- UI 最终正确，但旧 git 请求及响应处理资源被浪费。
+
+**修复**：
+
+- `callGit(payload, options = {})` 接受外部 signal；
+- 外部 abort 转发到内部 controller；
+- 用独立 `timedOut` 区分 20 秒超时与用户/UI 取消，取消不会误报
+  超时；
+- finally 清理 timer 和外部 abort listener；
+- Diff load effect 创建 `diffAbort`，cleanup abort；
+- catch 忽略 AbortError / CanceledError。
+
+**回归**：
+
+- RED：round768 初始 **2 fail**；
+- GREEN：round768 / round308 / round208 / round156 / round162 /
+  static-order **29 pass / 0 fail**；
+- 动态单测验证 external abort 会让在途 callGit fetch 以 AbortError
+  拒绝；
+- 全量 `npm test`：**2536 pass / 0 fail**；
+- build/语法/diff 门禁通过。
+
+**运行态证据**：
+
+- Ego Browser / 隔离 r526：
+  - 旧 README diff 请求已发出；
+  - 切换 nav-main 后 diff-specific AbortController 的 abort 轨迹被捕获；
+  - 最终 selected change 为 nav-main，无 alert；
+  - CDP Network 没有把该取消统一标为 loadingFailed，因此以
+    controller 轨迹 + 动态 fetch 测试作为取消证据。
+
+**适用边界**：
+
+- 只给 Diff target 加载传入外部 signal；
+- 其他 git 操作仍只受内部 20 秒 timeout 约束。
+
+## 2026-11-17 — Search Everywhere 文件候选请求未取消
+
+**作用域**：Search Everywhere `op:files` 候选列表、Include non-project
+切换、workspace root 切换和请求 identity。
+
+**症状/缺口**：
+
+- 文件候选请求只有 requestId 校验，没有 AbortSignal；
+- CDP 1200ms 延迟下连续切换 Include true→false，两次 `files` 请求
+  同时在途，`loadingFailed=[]`；
+- 旧候选扫描继续占用连接和宿主文件遍历。
+
+**修复**：
+
+- 新增 `searchEverywhereFilesAbortRef`；
+- 新候选请求前 abort 旧 controller；
+- `callFs({ op:'files' }, { signal })`；
+- catch 忽略 AbortError / CanceledError；
+- finally 仅在 ref 仍指向当前 controller 时清空；
+- workspace root effect 和 cleanup 都 abort 候选请求。
+
+**回归**：
+
+- RED：round767 初始 **2 fail**；
+- GREEN：round767 / round766 / round627 / round591 /
+  static-order **13 pass / 0 fail**；
+- 全量 `npm test`：**2533 pass / 0 fail**；
+- build/语法/diff 门禁通过。
+
+**运行态证据**：
+
+- Ego Browser / 隔离 r526 / CDP Network latency=1200ms：
+  - Include true 的 files 请求 canceled=true、
+    `net::ERR_ABORTED`；
+  - Include false 的请求正常完成；
+  - toggle 最终 pressed=false，焦点保持在 Include 按钮。
+
+**适用边界**：
+
+- 只取消文件候选加载，不改文本搜索、筛选或 include 语义；
+- requestId 校验继续作为第二道防线。
+
+## 2026-11-17 — Find Preview 过期读取未取消
+
+**作用域**：Find in Files Preview、active row 切换、`read` fetch 和
+cancelled identity guard。
+
+**症状/缺口**：
+
+- Find Preview 的 read 只有 `cancelled` 布尔值，没有 AbortSignal；
+- CDP 1200ms 延迟下连续切换 3 个 Find result，实际发出
+  README、src/app.js、src/app.js 三次 read；
+- `loadingFailed=[]`，旧读取未取消；
+- UI 最终正确，但旧连接和宿主 I/O 被浪费。
+
+**修复**：
+
+- Find Preview file-read effect 创建 AbortController；
+- `callFs({ op:'read' }, { signal })`；
+- cleanup 保留 cancelled 标记并 abort；
+- catch 忽略 AbortError / CanceledError。
+
+**回归**：
+
+- RED：round766 初始 **1 fail**；
+- GREEN：round766 / round765 / round714 / round652 / round468 /
+  static-order **13 pass / 0 fail**；
+- 全量 `npm test`：**2531 pass / 0 fail**；
+- build/语法/diff 门禁通过。
+
+**运行态证据**：
+
+- Ego Browser / 隔离 r526 / CDP Network latency=1200ms：
+  - 前两个 read canceled=true、`net::ERR_ABORTED`；
+  - 第三个 read 正常完成；
+  - active descendant 与最终 Preview 均为
+    `src/app.js:1:26`。
+
+**适用边界**：
+
+- 不改 dirty buffer Preview、Find searchText 或其他结果导航；
+- active row identity 校验继续作为第二道防线。
+
+## 2026-11-17 — Search Everywhere Preview 过期读取未取消
+
+**作用域**：Search Everywhere text/file Preview、active result 切换、
+`read` fetch、cancelled identity guard。
+
+**症状/缺口**：
+
+- Preview 文件读取只有 `cancelled` 布尔值，没有 AbortSignal；
+- CDP 1200ms 延迟下连续切换 3 个 text result，实际发出
+  README、src/app.js、src/app.js 三次 read；
+- `loadingFailed=[]`，旧读取未取消；
+- UI 最终正确，但前两次读取以及宿主 I/O 被浪费。
+
+**修复**：
+
+- Preview read effect 创建 AbortController；
+- `callFs({ op:'read' }, { signal })`；
+- effect cleanup 保留 cancelled 标记并 abort 请求；
+- catch 忽略 AbortError / CanceledError。
+
+**回归**：
+
+- RED：round765 初始 **1 fail**；
+- GREEN：round765 / round764 / round709 / round706 / round465 /
+  static-order **18 pass / 0 fail**；
+- 全量 `npm test`：**2529 pass / 0 fail**；
+- build/语法/diff 门禁通过。
+
+**运行态证据**：
+
+- Ego Browser / 隔离 r526 / CDP Network latency=1200ms：
+  - 前两个 read canceled=true、`net::ERR_ABORTED`；
+  - 第三个 read 正常完成；
+  - active descendant 与最终 Preview 均为
+    `src/app.js:1:26`。
+
+**适用边界**：
+
+- 不改 action Preview、dirty buffer Preview 和 searchText 请求；
+- Preview 的 activeResult identity 校验仍保留为第二道防线。
+
+## 2026-11-17 — Search Everywhere 切换页签残留文本错误
+
+**作用域**：Search Everywhere provider tab、text error、textLoading、
+active index 和结果状态。
+
+**症状/证据**：
+
+- text search synthetic failure 后切到 Actions；
+- active tab 已变为 Actions，但可见 alert 仍是 text provider 的失败；
+- textLoading 期间切到 Actions/Files 时还可能留下悬空加载状态；
+- onTab 原实现只更新 tab/index，没有做 provider-specific cleanup。
+
+**修复**：
+
+- 新增纯函数 `searchEverywhereTabTransition(current, tab)`；
+- tab 切换重置 index 并清除 text error；
+- All/Text 都持有 text provider，互相切换时保留 `textLoading`；
+- Actions/Files 切换立即设置 `textLoading:false`；
+- EditorWorkspace onTab 统一使用该迁移。
+
+**回归**：
+
+- RED：round764 初始 **3 fail**；
+- GREEN：round764 / round763 / round600 / round624 /
+  static-order **13 pass / 0 fail**；
+- 全量 `npm test`：**2527 pass / 0 fail**；
+- build/语法/diff 门禁通过。
+
+**运行态证据**：
+
+- Ego Browser / 隔离 r526：
+  - All 页 synthetic failure 显示 alert；
+  - 切到 Actions 后 alert 清空；
+  - active tab 正确，Actions 状态收敛为 No matches；
+  - dialog 不残留 text failure。
+
+**适用边界**：
+
+- 不改变 query、结果集、active row 选择或 Preview 加载；
+- 只清理由 text provider 拥有且不适用于当前 tab 的 error/loading。
+
+## 2026-11-17 — Search Everywhere 错误与 No matches 冲突播报
+
+**作用域**：Search Everywhere text-search 错误、可见 alert、隐藏 polite
+live status 和空结果辅助区。
+
+**症状/证据**：
+
+- synthetic searchText failure 时可见 alert 为
+  `round763 synthetic failure`；
+- 隐藏 `role="status"` 同时为 `No matches`；
+- dialog 文本同时出现失败原因和 `No matches`；
+- 辅助技术会收到互相矛盾的两条状态，视觉上也会把失败误报为空结果。
+
+**根因**：
+
+- `searchResultStatus` 只判断 `textLoading` 和 `results.length`，没有
+  优先判断 error；
+- 空结果容器只检查 `results.length === 0 && !textLoading`，没有排除
+  error。
+
+**修复**：
+
+- `searchResultStatus` 在 error 时返回空字符串；
+- 可见 `role="alert"` 作为唯一错误 live announcement；
+- 空结果容器增加 `error === null`；
+- action/file 非文本结果不受影响，text provider 错误时仍可展示。
+
+**回归**：
+
+- RED：round763 初始 **2 fail**；
+- GREEN：round763 / round490 / round738 / round736 / round762 /
+  static-order **17 pass / 0 fail**；
+- 全量 `npm test`：**2524 pass / 0 fail**；
+- build/语法/diff 门禁通过。
+
+**运行态证据**：
+
+- Ego Browser / 隔离 r526 / synthetic searchText failure：
+  - alert 保留失败原因；
+  - 隐藏 status 文本为空；
+  - dialog 不再出现 `No matches`；
+  - 查询框焦点保持。
+
+**适用边界**：
+
+- 不改错误文案或搜索 API；
+- 只在 text provider 失败时抑制通用空结果区，已有非文本结果继续显示。
+
+## 2026-11-17 — Search Everywhere 在途文本搜索未取消
+
+**作用域**：Search Everywhere All/Text provider、text-search effect、
+180ms 防抖、AbortSignal 和 requestId 陈旧响应校验。
+
+**症状/缺口**：
+
+- 修复前 Search Everywhere 已有 requestId 校验，旧响应不会覆盖新结果；
+- 但 text-search effect 没有 AbortSignal；
+- CDP 1400ms 延迟下 `end` / `Scoped` 两个请求同时在途，
+  `loadingFailed=[]`，旧请求没有被取消；
+- Find in Files 已经取消请求，搜索族出现不一致的性能语义。
+
+**修复**：
+
+- Search Everywhere text-search effect 每次 generation 创建
+  AbortController；
+- `callFs(..., { signal })` 把 signal 传给 fetch；
+- cleanup 先清 180ms timer，再 abort 当前 text request；
+- catch 忽略 AbortError / CanceledError；
+- requestId 校验继续作为第二道防线。
+
+**回归**：
+
+- RED：round762 初始 **1 fail / 1 pass**；
+- GREEN：round762 / round761 / round708 / round709 / round627 /
+  static-order **26 pass / 0 fail**；
+- 全量 `npm test`：**2522 pass / 0 fail**；
+- build/语法/diff 门禁通过。
+
+**运行态证据**：
+
+- Ego Browser / 隔离 r526 / CDP Network latency=1400ms：
+  - 修复后旧 `end` 请求 canceled=true、
+    errorText=`net::ERR_ABORTED`；
+  - 新 `Scoped` 请求正常完成，Loading 和焦点保持；
+  - 连续 `end → Scoped → end` 时前两个请求均 canceled，第三个
+    `end` 使用新 controller 并正常完成。
+
+**适用边界**：
+
+- 只覆盖 Search Everywhere 的文本结果；
+- AbortSignal 取消客户端 fetch，宿主已开始的扫描是否立即终止仍由
+  Fetch 层决定。
+
+## 2026-11-17 — Find 在途搜索未取消
+
+**作用域**：Find in Files 查询 generation、`searchText` fetch、180ms
+防抖 cleanup 和旧响应丢弃。
+
+**症状/缺口**：
+
+- 查询变化时已有 requestId/workspace root 校验，旧响应不会覆盖新结果；
+- 但请求发出后没有任何 AbortSignal；
+- 用户两次输入间隔超过 180ms 时，旧 `searchText` 会继续占用浏览器
+  连接和宿主 workspace 扫描资源；
+- CDP 延迟网络下可以同时看到多个已发出的旧 query 请求，只有最终响应
+  在 UI 上被采用。
+
+**修复**：
+
+- `requestFileApi(payload, options = {})` 把 `options.signal` 传给
+  fetch；
+- `callFs(payload, options = {})` 在 searchText host 过渡重试时继续
+  转发同一 signal；
+- Find search effect 为每个 generation 创建 AbortController；
+- effect cleanup 先清 timer，再 abort 在途请求；
+- catch 忽略 AbortError / CanceledError；
+- 原有 requestId + workspace root 校验保留。
+
+**回归**：
+
+- RED：round761 初始 **3 fail**；
+- GREEN：round761 / round760 / round657 / round626 / round514 /
+  round734 / round736 / static-order **29 pass / 0 fail**；
+- 全量 `npm test`：**2520 pass / 0 fail**；
+- build/语法/diff 门禁通过。
+
+**运行态证据**：
+
+- Ego Browser / 隔离 r526，CDP Network latency=1400ms：
+  - 旧 `endValue` 请求已发出；
+  - 切换到 `Scoped` 后旧请求 canceled=true、
+    errorText=`net::ERR_ABORTED`；
+  - 新 `Scoped` 请求正常完成；
+  - 切换瞬间仍显示 Loading，查询框焦点保持；
+  - 最终结果只属于新 query。
+
+**适用边界**：
+
+- 不改 Search Everywhere 的独立 text-search 请求；
+- AbortSignal 只负责取消客户端 fetch，宿主已开始的扫描是否完全停止
+  仍由 Fetch 层决定；UI 与请求后续处理以 abort 为准。
+
+## 2026-11-17 — Find 查询去抖期间误报无匹配
+
+**作用域**：Find in Files 查询文本更新、180ms 搜索防抖、Loading/
+空结果 live status 和 Replace 禁用状态。
+
+**症状/证据**：
+
+- query=`end` 已有 1 条 `docs/notes.md` 命中；
+- 继续输入 `endValue` 时，第一个按键后列表立即显示
+  `Nothing found`，status 播报 `No matches`；
+- 此时 CDP Network 尚未出现新的 `searchText` 请求；
+- 连续输入最终只发出 1 次正确请求，说明 180ms 防抖本身正常，问题
+  是把去抖等待误表示为“搜索已完成且无匹配”；
+- IDEA Computer Use 对照中，查询文本变化会清空旧结果，但 Completing
+  search 后才给出新查询结果。
+
+**根因**：
+
+- EditorWorkspace 的 Find `onQuery` 同步清空 `files/matches`，但没有
+  同步设置 `loading`；
+- 搜索 effect 要到下一次 React 提交后才设置 `loading: true`；
+- Find 组件在 `loading === false` 时按空结果渲染，于是去抖窗口内出现
+  假阴性。
+
+**修复**：
+
+- 新增 `findToolQueryTransition(current, query)` 纯状态迁移；
+- 非空 query 在清空旧结果、推进 generation 的同时立即
+  `loading: true`；
+- 空 query 保持非 Loading；
+- 同时清除 `truncated` 和旧 error，Replace 动作沿用既有 Loading 禁用
+  规则；
+- EditorWorkspace 的 `onQuery` 只调用该唯一迁移函数。
+
+**回归**：
+
+- RED：round760 初始 **3 fail**；
+- GREEN：round760 / round514 / round734 / round736 / round731 /
+  round727 / round671 / static-order **25 pass / 0 fail**；
+- 全量 `npm test`：**2517 pass / 0 fail**；
+- `check:client-build`、`node --check lib/client.js`、
+  `node --check lib/index.js`、`git diff --check` 通过。
+
+**运行态证据**：
+
+- Ego Browser / 隔离 r526：
+  - 首键后 list 与 live region 都是 `Loading…`；
+  - Replace All disabled；
+  - `endValue` 连续输入只发出 1 次 `searchText`；
+  - 响应后才显示 `Nothing found / No matches`；
+- IDEA Computer Use：查询变化清空旧结果；Replace 动作在新搜索完成前
+  保持禁用。
+
+**适用边界**：
+
+- Scope 变化仍保留上一轮结果和 Preview，与本轮 query 文本变化语义
+  不同；
+- 不改搜索 API、防抖时长、结果上限或 Replace 写入链。
+
+## 2026-11-17 — 打开文件后 Project 树自动跳动
+
+**作用域**：Project 工具窗的活动 tab 跟随、选中行、展开目录和滚动位置。
+
+**症状/证据**：
+
+- 编辑器打开或切换文件后，Project 树会自动选中活动文件；
+- 若目标文件在折叠目录中，树还会自动展开祖先目录；
+- 最终通过 `scrollIntoView({ block: 'center' })` 把树跳到目标行；
+- 用户期望 Project 树保持当前选择和滚动位置，只有显式点击工具栏
+  `Select Opened File` 靶心时才定位活动文件。
+
+**根因**：
+
+- `activePath` 变化 effect 受默认开启的
+  `Always Select Opened File` / Auto Scroll 状态驱动；
+- effect 每次直接调用 `revealInProjectTree(activePath)`；
+- 同一 helper 同时负责展开祖先、改选择和居中滚动；
+- 因而普通 tab 切换被误当成用户要求“在 Project 中定位”。
+
+**修复**：
+
+- 删除 `autoScroll` state、跟随 effect、armed/suppress refs；
+- 删除 Project Behavior 中的 `Always Select Opened File` 菜单项；
+- 删除 ProjectPanel 的 `autoScroll/onToggleAutoScroll` 参数；
+- `revealPath()` 仅由显式定位动作调用；
+- 保留：
+  - 工具栏靶心；
+  - `Alt+F1 1`；
+  - tab/Project 右键的显式“在 Project 中定位”；
+  - 搜索结果等显式 reveal。
+
+**回归**：
+
+- RED：round757 初始 **2 fail / 1 pass**；
+- GREEN：round757 及受影响的 Project/选项/排序回归通过；
+- 全量 `npm test`：**2512 pass / 0 fail**；
+- 覆盖：
+  - 活动 tab 变化不再调用 `revealInProjectTree`;
+  - 自动跟随 UI 与持久化状态已移除；
+  - `onReveal: revealActive` 仍连接工具栏靶心。
+
+**运行态证据**：
+
+- 真实 desktop Harness：
+  - 同时打开 README 与 `docs/engineering-memory.md`;
+  - 手动把 Project 选择保持在 README；
+  - 切换活动编辑 tab 到 `engineering-memory.md` 后，Project
+    仍选中 README，目录未展开、滚动未跳；
+  - 点击靶心后，Project 选择才切到 `engineering-memory.md`;
+- Ego Browser / DSH Web：
+  - Project 选中 README，编辑区从 README tab 切到 `src/app.js`;
+  - Project 选择仍保持 README；
+  - 点击靶心后才切到 `src/app.js`;
+  - Project 隐藏时 `role=tree` 消失；`Alt+F1 1` 后 Project 重新
+    显示并选中活动文件 `src/app.js`;
+- desktop Harness 边界验证：
+  - Project 隐藏后显式 `Alt+F1 1` 可恢复并定位；
+  - Commit 活动时显式 `Alt+F1 1` 会切回 Project 并定位；
+  - Open Files 视图中切换 tab 不移动选择，点击靶心才定位；
+- IDEA 对照：
+  - 图片编辑器处于活动状态时，Project 仍选中项目根节点；
+  - 未开启自动跟随时不会因编辑器 tab 变化移动树选择。
+
+**边界**：
+
+- 不再提供自动跟随选项；Project 树只响应树内操作或显式定位命令；
+- 文件排序、Project View、选择模型和展开持久化未改变。
+
+**文档一致性**：
+
+- README 仍保留已删除的 `Always Select Opened File` 自动跟随说明；
+- 已改为“打开/切换文件不移动 Project 树，只有靶心、Alt+F1 1 或
+  右键定位才展开、选中和滚动”；
+- round757 增加 README 契约回归：RED **1 fail**，修复后 GREEN；
+- 全量测试更新为 **2514 pass / 0 fail**。
+
+## 2026-11-17 — Markdown 图片被外部替换后预览仍显示旧图
+
+**作用域**：Markdown 预览、workspace file watcher、图片 URL 缓存键和
+外部文件替换。
+
+**症状/证据**：
+
+- 临时 Markdown 引用 `round756-refresh.png`；
+- 初始预览为 `2952×1994`，URL 为
+  `api/file?...round756-refresh.png&load=1`；
+- 外部把图片替换为 1×1 PNG 并等待 watcher 后：
+  - 图片节点仍为 `2952×1994`；
+  - URL 仍是同一个 `load=1`；
+  - 浏览器没有获得新的图片 URL identity。
+
+**根因**：
+
+- 宿主 `MarkdownText` 依据 `text/pathImages` 的引用身份复用渲染结果；
+- `pathImages.resolve` 生成的图片 URL 只依赖文档路径和 workspace root；
+- `/api/file` 的 `load=n` 来自 primitive 实例，不与被引用图片文件的
+  mtime/workspace 变更绑定；
+- file watcher 已收到外部替换事件，但该事件没有进入 Markdown 图片
+  缓存键。
+
+**修复**：
+
+- EditorWorkspace 维护
+  `markdownAssetRevisions = { global, directories }`；
+- file watcher 携带目录时只推进对应目录的 revision；
+- 无法定位变化目录时才推进全局 revision；
+- `MarkdownPreviewPane` 接收 `assetRevisions`，并把它加入
+  `pathImages` 的 memo 依赖；
+- `markdownWorkspaceImageUrl` 用图片所在目录 revision 与全局 revision
+  之和作为 `v`，强制浏览器重新请求变化目录中的图片；
+- revision 为 0 时 URL 保持原样，不增加首屏无意义参数。
+
+**回归**：
+
+- RED：round756 初始 **2 fail**；
+- GREEN：round756 / round755 / round385 / round396 / round399 /
+  round404 **19 pass / 0 fail**；
+- 全量 `npm test`：**2514 pass / 0 fail**；
+- `check:client-build`、浏览器/宿主语法检查和 `git diff --check`
+  通过；
+- 覆盖 revision URL、watcher 递增、preview 参数和 memo 依赖。
+
+**运行态证据**：
+
+- 真实 desktop Harness：
+  - 初始 `2952×1994`；
+  - 外部替换后 URL 变为 `...&v=2&load=1`；
+  - DOM 自动更新为 `1×1`；
+- Ego Browser / DSH Web：
+  - 初始 `2952×1994`；
+  - 外部替换后 URL 变为 `...&v=1&load=1`；
+  - DOM 自动更新为 `1×1`；
+- IDEA 图像编辑器对照侧保持自动 file-event 处理，确认外部文件变化
+  应触发编辑器刷新，而不是要求关闭/重开文件；
+- 临时 fixture 已移至
+  `/private/tmp/dsh-r756-test-artifacts/`。
+
+**边界/取舍**：
+
+- 当前任何 workspace change 都会推进 revision，从而让已打开的
+  Markdown 预览中的本地图片获得新 URL；
+- 该方案不读取图片字节、不新增轮询，也不会影响未打开 Markdown 的
+  文件；
+- 后续若预览大图很多，可进一步按被引用图片路径做定向失效。
+
 ## 2026-11-17 — Markdown 预览没有渲染 README 相对路径图片
 
 **作用域**：Editor 的 Markdown 代码和预览 / 预览模式、README 图片、
-宿主 `MarkdownText` 的图片解析以及工作区图片路由。
+宿主 `MarkdownText` 的图片解析、URL 白名单以及 workspace file 路由。
 
 **症状/证据**：
 
@@ -12,9 +1188,11 @@
 - DevTools：
   - `[data-dsh-markdown-preview] img` 数量为 `0`；
   - 预览正文保留了图片替代文本；
-  - `/api/dsh-editor/image` 没有对应网络请求；
+  - 图片请求没有进入验证态；
 - 宿主 `MarkdownText` 的公开类型和官方 document preview 均支持
-  `pathImages.resolve`，编辑器只传了 `text` 和 `labels`。
+  `pathImages.resolve`，编辑器只传了 `text` 和 `labels`；
+- 仅使用 `dsh-app://app/api/dsh-editor/image?...` 时，浏览器请求可以
+  返回 `200 image/png`，但桌面预览仍显示 alt 文本。
 
 **根因**：
 
@@ -22,16 +1200,27 @@
   `pathImages`；
 - 宿主无法把 Markdown 图片目标转换为可访问的图片 URL，于是图片节点
   退化为普通文本；
+- 桌面 `MarkdownText` 的图片 URL 白名单只接受 `http:`、`https:`、
+  `blob:`、`data:`，以及
+  `dsh-app://app/api/file?` / 两个插件详情文件路由；插件自定义
+  `/api/dsh-editor/image` 的 `dsh-app://` URL 虽然可 fetch，仍被
+  Markdown primitive 当成不安全目标拒收；
+- 相对图片还缺少绝对 workspace root，无法直接生成宿主认可的
+  `/api/file?path=...`；
 - 这不是 CSS 隐藏、图片解码失败或 Monaco 预览模式本身的问题。
 
 **修复**：
 
-- 新增 `markdownWorkspaceImageUrl(basePath, target, baseUri)`：
+- 新增
+  `markdownWorkspaceImageUrl(basePath, target, workspaceRoot, baseUri)`：
   - 复用 `resolveMarkdownLink` 按当前文档目录解析；
   - 继续拒绝 `../` 越界、外部协议和锚点；
   - 只接受 `isImagePreviewPath` 白名单内的图片扩展名；
-  - 使用现有 `imagePreviewUrl` 生成带 Session/workspace 身份和
-    `version` 参数的 same-origin 图片 URL；
+  - 用绝对 workspace root 与相对路径拼出真实文件路径；
+  - 生成宿主 Markdown 白名单允许的
+    `api/file?path=<absolute-path>` URL；
+- `MarkdownPreviewPane` 增加 `workspaceRoot` 参数，EditorWorkspace
+  把真实 `root` 传入；
 - `MarkdownPreviewPane` 通过 `React.useMemo` 构造
   `pathImages = { resolve }` 并传给宿主 `MarkdownText`；
 - 保留 `MarkdownDelegateProvider` 的本地链接和外部链接行为不变；
@@ -39,7 +1228,11 @@
 
 **回归**：
 
-- RED：`tests/round755.test.mjs` 初始 **3 fail**；
+- RED 1：缺少 `pathImages` / helper 时
+  `tests/round755.test.mjs` **3 fail**；
+- 第一版自定义图片路由在 Web 下通过，但真实 desktop Harness 仍因
+  `dsh-app://` URL 白名单回退为 alt 文本；
+- RED 2：把回归改为要求 `/api/file` 绝对路径契约后再次 **3 fail**；
 - GREEN：round755 三项、round385、round396、round404、round399
   定向回归通过；
 - 全量 `npm test`：**2507 pass / 0 fail**；
@@ -49,21 +1242,23 @@
   - `README.md` + `docs/home.png`；
   - 子目录文档 + `../image.png`；
   - URL 编码路径与 query/fragment 剥离；
-  - 外部 URL、锚点、越界路径和非图片扩展名拒绝。
+  - 外部 URL、锚点、越界路径、缺失 root 和非图片扩展名拒绝；
+  - 桌面 `dsh-app://app/api/file?...` URL 契约。
 
 **运行态证据**：
 
-- 隔离 Harness（新 host 进程 + 当前 link 客户端）打开真实 README
-  的“代码和预览”；
+- 真实 desktop Harness 重启后打开 `/Users/chan/Documents/project/dsh-editor`
+  的 README“代码和预览”；
 - `[data-dsh-markdown-preview] img` 数量为 **3**；
 - 三张图片均 `complete=true`：
   - `docs/home.png`：`2952 × 1994`；
   - `docs/commit.png`：`2960 × 1994`；
   - `docs/search.png`：`2958 × 1994`；
 - `src` 均指向
-  `/api/dsh-editor/image?...&path=docs%2F...png&version=`；
+  `dsh-app://app/api/file?path=%2FUsers%2Fchan%2FDocuments%2Fproject%2Fdsh-editor%2Fdocs%2F...png&load=n`；
 - 预览正文中图片 Markdown 语法计数为 **0**；
-- 测试 fixture 已恢复，临时图片保存在
+- 隔离 Harness 同样验证三张图正常解码；
+- 临时 fixture 已恢复，临时图片保存在
   `/private/tmp/dsh-r755-test-artifacts/`。
 
 **边界**：

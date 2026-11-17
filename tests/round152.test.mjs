@@ -172,8 +172,8 @@ test('a watcher frame re-reads the parent of every changed directory', () => {
   assert.notEqual(changeAt, -1);
   /* Search FORWARD: `error` appears in unrelated handlers earlier in the file. */
   const effect = source.slice(changeAt, source.indexOf("if (event.type === 'error') {", changeAt));
-  assert.match(effect, /const dirs = Array\.isArray\(event\.dirs\) \? event\.dirs : null;/);
-  assert.match(effect, /await refreshTree\(dirs === null \? undefined : dirs\);/);
+  assert.match(effect, /const changedDirectories = Array\.isArray\(event\.dirs\) \? event\.dirs : null;/);
+  assert.match(effect, /await refreshTree\(changedDirectories === null \? undefined : changedDirectories\);/);
   assert.match(effect, /await loadGit\(\);/);
   assert.match(effect, /await checkExternalChanges\(\);/);
 });

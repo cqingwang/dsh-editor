@@ -99,6 +99,46 @@
     }
 
     /**
+     * Resolve the cache revision owned by one image's containing directory.
+     * @param {string} path - workspace-relative image path.
+     * @param {{global?: number, directories?: object}} revisions - workspace revisions.
+     * @returns {number} monotonic cache key component.
+     */
+    function markdownAssetRevisionForPath(path, revisions) {
+      const directory = dirname(path);
+      const global = Math.max(0, Math.floor(Number(revisions?.global) || 0));
+      const local = Math.max(0, Math.floor(Number(revisions?.directories?.[directory]) || 0));
+      return global + local;
+    }
+
+    /**
+     * Advance the revision for directories whose file listing or contents changed.
+     *
+     * A null directory hint means the host could not localize the change, so all
+     * Markdown images must be invalidated. An empty list is a confirmed no-op.
+     * @param {{global?: number, directories?: object}} current - workspace revisions.
+     * @param {string[]|null} changedListings - changed workspace-relative directories.
+     * @returns {{global: number, directories: object}} next revisions.
+     */
+    function nextMarkdownAssetRevisions(current, changedListings) {
+      const directories = { ...(current?.directories ?? {}) };
+      if (changedListings === null) {
+        return {
+          global: Math.max(0, Math.floor(Number(current?.global) || 0)) + 1,
+          directories,
+        };
+      }
+      for (const directory of new Set(Array.isArray(changedListings) ? changedListings : [])) {
+        if (typeof directory !== 'string') continue;
+        directories[directory] = Math.max(0, Math.floor(Number(directories[directory]) || 0)) + 1;
+      }
+      return {
+        global: Math.max(0, Math.floor(Number(current?.global) || 0)),
+        directories,
+      };
+    }
+
+    /**
      * Resolve one authored Markdown image destination beside the open document.
      *
      * The host Markdown primitive calls this only for image nodes. Keeping the
@@ -107,13 +147,20 @@
      * matches the host's native-preview whitelist.
      * @param {string} basePath - workspace-relative Markdown document path.
      * @param {string} target - authored image destination.
+     * @param {string} workspaceRoot - absolute workspace root reported by the host.
+     * @param {object} imageVersions - image path -> cache version map.
      * @param {string} [baseUri] - application base URI.
-     * @returns {string|undefined} authenticated same-origin image URL.
+     * @returns {string|undefined} image URL accepted by the host Markdown primitive.
      */
-    function markdownWorkspaceImageUrl(basePath, target, baseUri = document.baseURI) {
+    function markdownWorkspaceImageUrl(basePath, target, workspaceRoot, imageVersions = null, baseUri = document.baseURI) {
       const resolved = resolveMarkdownLink(basePath, target);
-      if (resolved === null || !isImagePreviewPath(resolved)) return undefined;
-      return new URL(imagePreviewUrl(resolved), baseUri).href;
+      if (resolved === null || !isImagePreviewPath(resolved) || typeof workspaceRoot !== 'string') return undefined;
+      const root = workspaceRoot.replaceAll('\\', '/').replace(/\/+$/u, '');
+      if (root === '') return undefined;
+      const query = new URLSearchParams({ path: `${root}/${resolved}` });
+      const revision = markdownAssetRevisionForPath(resolved, imageVersions);
+      if (revision > 0) query.set('v', String(revision));
+      return new URL(`api/file?${query}`, baseUri).href;
     }
 
     /**
@@ -162,9 +209,10 @@
     /**
      * Post one workspace file API request with the active workspace identity.
      * @param {object} payload - operation-specific request body.
+     * @param {{signal?: AbortSignal}} [options] - transport cancellation.
      * @returns {Promise<{response: Response, data: object}>} HTTP and JSON results.
      */
-    async function requestFileApi(payload) {
+    async function requestFileApi(payload, options = {}) {
       const sessionId = currentSessionId();
       const workspaceId = currentEditorWorkspaceId();
       if (sessionId === '' && workspaceId === '') throw new Error('no active Session or workspace');
@@ -172,20 +220,26 @@
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ sessionId, workspaceId, ...payload }),
+        signal: options.signal,
       });
       const data = await response.json().catch(() => ({}));
       return { response, data };
     }
 
-    /** Call the host workspace file API. */
-    async function callFs(payload) {
-      let { response, data } = await requestFileApi(payload);
+    /**
+     * Call the host workspace file API.
+     * @param {object} payload - operation-specific request body.
+     * @param {{signal?: AbortSignal}} [options] - transport cancellation.
+     * @returns {Promise<object>} host operation value.
+     */
+    async function callFs(payload, options = {}) {
+      let { response, data } = await requestFileApi(payload, options);
       if (payload?.op === 'searchText' && fileApiMissingOperation(data, 'searchText')) {
         /* Host hot-reload can briefly expose an older operation table. One
            bounded retry avoids turning that transition into a user-visible
            Search Everywhere error. */
         await new Promise((resolve) => window.setTimeout(resolve, 60));
-        ({ response, data } = await requestFileApi(payload));
+        ({ response, data } = await requestFileApi(payload, options));
       }
       if (!response.ok) throw new Error(`file API HTTP ${response.status}`);
       if (data?.ok !== true) throw new Error(data?.error?.message ?? 'file API failed');
@@ -193,12 +247,19 @@
     }
 
     /** Call the host git API. */
-    async function callGit(payload) {
+    async function callGit(payload, options = {}) {
       const sessionId = currentSessionId();
       const workspaceId = currentEditorWorkspaceId();
       if (sessionId === '' && workspaceId === '') throw new Error('no active Session or workspace');
       const controller = new AbortController();
-      const timer = window.setTimeout(() => controller.abort(), 20000);
+      let timedOut = false;
+      const timer = window.setTimeout(() => {
+        timedOut = true;
+        controller.abort();
+      }, 20000);
+      const abortExternal = () => controller.abort();
+      if (options.signal?.aborted === true) controller.abort();
+      else options.signal?.addEventListener('abort', abortExternal, { once: true });
       try {
         const response = await fetch('api/dsh-editor/git', {
           method: 'POST',
@@ -211,10 +272,11 @@
         if (data?.ok !== true) throw new Error(data?.error?.message ?? 'git API failed');
         return data.value;
       } catch (error) {
-        if (controller.signal.aborted) throw new Error('git request timed out after 20 seconds');
+        if (timedOut) throw new Error('git request timed out after 20 seconds');
         throw error;
       } finally {
         window.clearTimeout(timer);
+        options.signal?.removeEventListener('abort', abortExternal);
       }
     }
 
@@ -272,10 +334,19 @@
      *
      * Reusing MarkdownText keeps code fences, tables, task lists, links and
      * sanitisation consistent with Chat instead of introducing a second parser.
-     * @param {{t: Function, path: string, content: string, visible?: boolean, onOpenFile: Function, paneRef?: object}} props - preview state.
+     * @param {{t: Function, path: string, content: string, workspaceRoot: string, assetRevisions?: object, visible?: boolean, onOpenFile: Function, paneRef?: object}} props - preview state.
      * @returns {object} React element.
      */
-    function MarkdownPreviewPane({ t, path, content, visible = true, onOpenFile, paneRef = null }) {
+    function MarkdownPreviewPane({
+      t,
+      path,
+      content,
+      workspaceRoot,
+      assetRevisions = null,
+      visible = true,
+      onOpenFile,
+      paneRef = null,
+    }) {
       const MarkdownText = primitives?.MarkdownText ?? null;
       const Provider = primitives?.MarkdownDelegateProvider ?? null;
       const [linkError, setLinkError] = React.useState(null);
@@ -292,8 +363,8 @@
         footnotes: t('editor.markdownFootnotes'),
       }), [t]);
       const pathImages = React.useMemo(() => ({
-        resolve: (value) => markdownWorkspaceImageUrl(path, value),
-      }), [path]);
+        resolve: (value) => markdownWorkspaceImageUrl(path, value, workspaceRoot, assetRevisions),
+      }), [path, workspaceRoot, assetRevisions]);
       const getTriggerProps = React.useCallback(() => undefined, []);
       const openLocal = React.useCallback((target) => {
         const resolved = resolveMarkdownLink(path, target);

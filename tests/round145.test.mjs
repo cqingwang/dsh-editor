@@ -171,7 +171,9 @@ test('a reloaded page re-resolves its editor terminals from the host', () => {
      held the id, no tab appeared). The PTY is the HOST's, so asking it is enough. */
   const block = source.slice(source.indexOf('const remembered = readEditorTerminals();'), source.indexOf("}, []);\n\n      /* Restore the per-workspace MRU"));
   assert.match(block, /callTerminal\(\{ op: 'list' \}\)/);
-  assert.match(block, /setEditorTerminals\(listed\.filter\(\(terminal\) => remembered\.includes\(terminal\.id\)\)\)/);
+  assert.match(block, /const restored = listed\.filter\(\(terminal\) => remembered\.includes\(terminal\.id\)\)/);
+  assert.match(block, /setEditorTerminals\(restored\)/);
+  assert.match(block, /writeEditorTerminals\(restored\.map\(\(terminal\) => terminal\.id\)\)/);
   /* A terminal closed while the page was away must not come back as a dead tab. */
   assert.match(block, /listed = Array\.isArray\(value\?\.terminals\) \? value\.terminals : \[\]/);
 });

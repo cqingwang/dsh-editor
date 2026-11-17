@@ -39,7 +39,7 @@ test('Search Everywhere Preview reads the selected file and renders a highlighte
   const dialog = source.slice(source.indexOf('function SearchEverywhere('), source.indexOf('function QuickOpen('));
   assert.match(dialog, /const \[previewOpen, setPreviewOpen\] = React\.useState\(false\)/);
   assert.match(dialog, /t\('editor\.searchPreview'\)/);
-  assert.match(dialog, /callFs\(\{ op: 'read', path: activeResult\.path \}\)/);
+  assert.match(dialog, /callFs\(\{ op: 'read', path: activeResult\.path \}, \{ signal: previewAbort\.signal \}\)/);
   assert.match(dialog, /searchEverywherePreviewWindow\(/);
   assert.match(dialog, /'data-dsh-search-preview': ''/);
   assert.match(dialog, /t\('editor\.searchPreviewSoftWrap'\)/);

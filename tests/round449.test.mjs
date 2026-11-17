@@ -18,6 +18,6 @@ test('Project tree context actions expose their IDEA keyboard shortcuts', () => 
   assert.match(menu, /id: 'rename',[\s\S]*?ariaKeyShortcuts: 'Shift\+F6'/);
   assert.match(menu, /id: 'moveTo',[\s\S]*?ariaKeyShortcuts: 'F6'/);
   assert.match(menu, /id: 'delete',[\s\S]*?ariaKeyShortcuts: 'Backspace'/);
-  assert.match(menu, /id: 'open',[\s\S]*?ariaKeyShortcuts: isDirectory \? undefined : 'F4'/);
+  assert.doesNotMatch(menu, /ariaKeyShortcuts: isDirectory \? undefined : 'F4'/);
   assert.match(menu, /id: 'refresh',[\s\S]*?ariaKeyShortcuts: 'Meta\+R Control\+R'/);
 });

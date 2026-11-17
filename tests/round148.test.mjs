@@ -53,7 +53,7 @@ test('hidden entries are shown by default and the toggle is remembered', () => {
   /* A tree that hides `.env` behind a preference nobody finds is the same as a
      tree without it; the toggle now opts OUT of them instead. */
   assert.match(source, /const \[showHidden, setShowHidden\] = React\.useState\(\(\) => readStoredText\('dsh-editor\.project\.showHidden', '1'\) !== '0'\);/);
-  const toggle = slice('onToggleHidden: () =>', 'autoScroll,');
+  const toggle = slice('onToggleHidden: () =>', 'singleClickOpen,');
   assert.match(toggle, /window\.localStorage\.setItem\('dsh-editor\.project\.showHidden', next \? '1' : '0'\);/);
 });
 

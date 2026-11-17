@@ -64,15 +64,15 @@ test('Options keeps the hidden actions reachable in one grouped menu', () => {
   for (const id of ['refresh', 'gotoFile', 'recent', 'expandAll', 'behavior', 'appearance']) {
     assert.match(wiring, new RegExp(`id: '${id}'`));
   }
-  for (const id of ['autoscroll', 'singleClickOpen', 'openDirectoriesSingleClick', 'hidden']) {
+  for (const id of ['singleClickOpen', 'openDirectoriesSingleClick', 'hidden']) {
     assert.match(wiring, new RegExp(`id: '${id}'`));
   }
+  assert.doesNotMatch(wiring, /id: 'autoscroll'/);
   assert.match(wiring, /void refreshTree\(\)/);
   assert.match(wiring, /void openQuickOpen\(\)/);
   assert.match(wiring, /openRecent\(\)/);
   assert.match(wiring, /\['name', 'type', 'modified', 'modified-asc', 'manual'\]\.map/);
   assert.match(wiring, /applySortMode\(mode\)/);
-  assert.match(wiring, /toggleAutoScroll\(\)/);
 });
 
 test('the creation entry opens IDEA File and Directory choices', () => {

@@ -711,8 +711,6 @@
       showExcludedFiles,
       onCycleSort,
       onToggleHidden,
-      autoScroll,
-      onToggleAutoScroll,
       singleClickOpen,
       onToggleSingleClickOpen,
       openDirectoriesSingleClick,

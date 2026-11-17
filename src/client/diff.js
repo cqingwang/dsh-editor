@@ -1514,7 +1514,8 @@
               : target.combined === true
                 ? { op: 'combinedDiff', entries: target.entries }
               : { op: 'diff', path: target.path, staged: target.staged };
-        callGit(request)
+        const diffAbort = new AbortController();
+        callGit(request, { signal: diffAbort.signal })
           .then((value) => {
             if (cancelled || diffRef.current !== diff) return;
             if (value.binary) {
@@ -1608,6 +1609,7 @@
             syncHunksRef.current?.();
           })
           .catch((failure) => {
+            if (failure?.name === 'AbortError' || failure?.name === 'CanceledError') return;
             if (!cancelled) {
               diffLoadedRef.current = null;
               setState({ binary: false, error: failure instanceof Error ? failure.message : String(failure), missing: false });
@@ -1615,6 +1617,7 @@
           });
         return () => {
           cancelled = true;
+          diffAbort.abort();
         };
       }, [captureDiffViewState, persistRestored, reloadGeneration, restoreDiffViewState, target]);
 

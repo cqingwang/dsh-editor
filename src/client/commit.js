@@ -2251,6 +2251,58 @@
     }
 
     /**
+     * Enter a new Find query generation without claiming a completed search.
+     *
+     * IDEA clears the old query's rows as soon as the text changes. DSH keeps
+     * the same row-clearing semantics, but its 180 ms host debounce means the
+     * new result cannot be known yet: report Loading immediately rather than a
+     * false "No matches" state.
+     * @param {object|null} current - current Find state.
+     * @param {unknown} query - next raw query text.
+     * @returns {object|null} next Find state.
+     */
+    function findToolQueryTransition(current, query) {
+      if (current === null || typeof current !== 'object') return current;
+      const nextQuery = findToolContentQuery(query);
+      return {
+        ...current,
+        query: nextQuery,
+        files: [],
+        matches: [],
+        truncated: false,
+        index: 0,
+        loading: hasFindToolContentQuery(nextQuery),
+        error: null,
+        loadedGeneration: -1,
+        searchGeneration: (current.searchGeneration ?? 0) + 1,
+      };
+    }
+
+    /**
+     * Move Search Everywhere to another provider tab without leaking text state.
+     *
+     * A text-search error belongs only to All/Text. Leaving those providers
+     * must clear it immediately, and Actions/Files cannot inherit a hanging
+     * textLoading flag. All and Text both own the text request, so switching
+     * between them keeps an in-flight text search alive.
+     * @param {object|null} current - current Search Everywhere state.
+     * @param {unknown} tab - requested provider tab.
+     * @returns {object|null} next state.
+     */
+    function searchEverywhereTabTransition(current, tab) {
+      if (current === null || typeof current !== 'object') return current;
+      const nextTab = tab === 'files' || tab === 'text' || tab === 'actions' ? tab : 'all';
+      const textCapable = nextTab === 'all' || nextTab === 'text';
+      return {
+        ...current,
+        tab: nextTab,
+        index: 0,
+        error: null,
+        textLoading: textCapable ? current.textLoading === true : false,
+      };
+    }
+
+    /**
      * Format the bounded Find result count with correct file singular/plural.
      * @param {Function} t - locale translator.
      * @param {number} matches - visible occurrence count.

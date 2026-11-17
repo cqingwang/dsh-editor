@@ -18,11 +18,12 @@ test('Project tree uses IDEA EditSource F4 and ⌘↓ for the selected file', ()
   );
 });
 
-test('Project row menu advertises the same EditSource shortcut', () => {
+test('Project file row menu omits EditSource while keyboard EditSource remains', () => {
   const menuStart = source.indexOf('const buildTreeMenu = React.useCallback');
   const menuEnd = source.indexOf('const buildCommitFileMenu', menuStart);
   assert.notEqual(menuStart, -1);
   assert.notEqual(menuEnd, -1);
   const menu = source.slice(menuStart, menuEnd);
-  assert.match(menu, /id: 'open',[\s\S]*?label: isDirectory \? t\('editor\.expandFolder'\) : t\('editor\.openInEditor'\),[\s\S]*?shortcut: isDirectory \? '' : 'F4'/);
+  assert.doesNotMatch(menu, /t\('editor\.openInEditor'\)/);
+  assert.doesNotMatch(menu, /ariaKeyShortcuts: isDirectory \? undefined : 'F4'/);
 });

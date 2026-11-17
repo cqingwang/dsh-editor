@@ -1524,7 +1524,8 @@
           });
           return undefined;
         }
-        callFs({ op: 'read', path: active.path })
+        const previewAbort = new AbortController();
+        callFs({ op: 'read', path: active.path }, { signal: previewAbort.signal })
           .then((value) => {
             if (cancelled) return;
             setPreviewState({
@@ -1537,6 +1538,7 @@
           })
           .catch((failure) => {
             if (cancelled) return;
+            if (failure?.name === 'AbortError' || failure?.name === 'CanceledError') return;
             setPreviewState({
               loading: false,
               path: active.path,
@@ -1547,6 +1549,7 @@
           });
         return () => {
           cancelled = true;
+          previewAbort.abort();
         };
       }, [previewOpen, active?.rowKey, state.loading]);
       React.useLayoutEffect(() => {

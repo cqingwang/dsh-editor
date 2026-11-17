@@ -67,13 +67,12 @@ test('startup prefetch fills cache without expanding cached directories', () => 
   assert.match(source, /const \[expanded, setExpanded\] = React\.useState\(\(\) => new Set\(\[''\]\)\)/);
 });
 
-test('the first restored active tab does not expand Project ancestors', () => {
-  assert.match(
-    source,
-    /Initial tab restoration can walk through several active paths[\s\S]*?if \(sessionRestoringRef\.current\) return;/,
+test('restoring tabs cannot expand or select Project ancestors', () => {
+  assert.doesNotMatch(source, /projectAutoScrollArmedRef/);
+  assert.doesNotMatch(source, /void revealInProjectTree\(activePath\)/);
+  const restore = source.slice(
+    source.indexOf('const restoreEditorSession = React.useCallback('),
+    source.indexOf('React.useEffect(() => {\n        void restoreEditorSession();'),
   );
-  assert.match(source, /if \(!projectAutoScrollArmedRef\.current\) return;/);
-  assert.match(source, /projectAutoScrollArmedRef\.current = false/);
-  assert.match(source, /projectAutoScrollArmedRef\.current = true/);
-  assert.match(source, /void revealInProjectTree\(activePath\)/);
+  assert.doesNotMatch(restore, /revealInProjectTree/);
 });

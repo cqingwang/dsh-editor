@@ -23,14 +23,15 @@ test('Project Options uses IDEA Behavior and Appearance submenus', () => {
   assert.match(options, /label: t\('editor\.projectOptionsAppearance'\)/);
 });
 
-test('single-click and autoscroll preferences live under Behavior', () => {
+test('single-click preferences live under Behavior and autoscroll is gone', () => {
   const options = projectOptions();
   const start = options.indexOf("id: 'behavior'");
   const end = options.indexOf("id: 'appearance'", start);
   const behavior = options.slice(start, end);
-  for (const id of ['autoscroll', 'singleClickOpen', 'openDirectoriesSingleClick']) {
+  for (const id of ['singleClickOpen', 'openDirectoriesSingleClick']) {
     assert.match(behavior, new RegExp(`id: '${id}'`));
   }
+  assert.doesNotMatch(behavior, /id: 'autoscroll'/);
 });
 
 test('sort and hidden-file preferences live under Appearance', () => {
