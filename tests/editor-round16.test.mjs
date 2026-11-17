@@ -85,10 +85,12 @@ test('closing a dirty tab asks first and batch close asks once', () => {
   assert.match(client, /id: 'closeOthers', label: t\('editor\.closeOtherTabs'\)/);
 });
 
-test('the editor exposes breadcrumbs, go to line and a live status bar', () => {
+test('the editor exposes the file path in its status bar, go to line and live facts', () => {
   const client = read('lib/client.js');
-  assert.match(client, /const breadcrumbSegments = activeFile !== null && diffOpen === false/);
-  assert.match(client, /t\('editor\.breadcrumb'\)/);
+  assert.doesNotMatch(client, /breadcrumbSegments/);
+  assert.doesNotMatch(client, /t\('editor\.breadcrumb'\)/);
+  assert.match(client, /data-dsh-editor-status-path/);
+  assert.match(client, /React\.createElement\(MarkdownModeSwitch/);
   assert.match(client, /id: 'dsh-editor\.gotoLine'/);
   assert.match(client, /const gotoLine = React\.useCallback\(/);
   /* `123` and `12:7` both parse; the column is optional. */

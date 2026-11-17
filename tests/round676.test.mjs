@@ -7,7 +7,7 @@ const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf
 test('Editor tab close controls are larger and expose a rounded focus state', () => {
   const style = source.slice(
     source.indexOf('      tabClose: {'),
-    source.indexOf('      /* IDEA\'s breadcrumbs:', source.indexOf('      tabClose: {')),
+    source.indexOf('      statusButton:', source.indexOf('      tabClose: {')),
   );
   assert.match(style, /width: 20/u);
   assert.match(style, /height: 20/u);

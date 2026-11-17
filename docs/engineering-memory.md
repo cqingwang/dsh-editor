@@ -1,5 +1,1824 @@
 # dsh-editor 工程记忆
 
+## 2026-11-17 — Harness 一级发送入口与 Monaco 选区引用
+
+**作用域**：Project 文件树、编辑器标签、diff 标签、Monaco 正文右键菜单、
+Harness composer 的 `@` reference 插入。
+
+**症状/缺口**：
+
+- 现有 Project/标签菜单把发送动作藏在 `Harness ›` 二级菜单里，文件树
+  高频入口多一步；
+- Monaco 正文右键菜单没有 Harness 入口，无法直接引用光标或选区；
+- 运行态点击一级路径动作时 composer 返回
+  `Could not insert the Harness reference`：span-based `insertReference`
+  使用的 `draftRev` 在已有 Lexical chip/装饰稳定后已过期；
+- 只支持 `L行:列`，选中多行时缺少起止范围。
+
+**修复**：
+
+- Project 根/行、左右编辑器标签、diff 标签的首项统一改为一级
+  `Harness->`，删除 `sendPathToHarness` 等二级文案和菜单；
+- Monaco Action 使用 `navigation` 组内 `contextMenuOrder: -100`，确保
+  `Harness->` 位于右键菜单首项；
+- `harnessEditorLocation()` 从真实 Monaco selection 读取光标，或将反向
+  选区归一化为起止行列；
+- reference plan 支持 `endLine/endColumn`，输出
+  `L起行:起列-L止行:止列`，单点仍为 `L行:列`；
+- composer bridge 优先调用公开的 `input.addFiles(references, [])`，避免
+  span revision CAS 竞争；旧接口缺 `addFiles` 时才回退到原有插入链；
+- 插入后保留 draft、聚焦 composer，且从不调用 submit。
+
+**回归**：
+
+- 新增 round719：**7 pass / 0 fail**；
+- 定向 round717 / round719：**13 pass / 0 fail**；
+- 全量 `npm test`：**2414 pass / 0 fail**；
+- `npm run check:client-build`、`node --check lib/client.js`、
+  `node --check lib/index.js`、`git diff --check` 通过。
+
+**运行态证据**：
+
+- Ego Browser / 隔离 r526 / `127.0.0.1:63237`：
+  - Project 文件与目录右键菜单首项均为 `Harness->`，其后才是 New/Rename；
+  - Monaco 正文右键菜单首项为 `Harness->`，其后为 Go to Declaration 等；
+  - 光标 `5:2` 插入 `nav-target.js L5:2`；
+  - 选区 `L2:1-L3:5` 插入 `nav-target.js L2:1-L3:5`；
+  - 文件路径插入 `nav-target.js`，目录插入 `docs/`；
+  - 原 `root draft` chip 保留，composer 获焦，消息数保持 `0`；
+  - 验证后已用撤销恢复原 draft。
+
+**适用环境**：
+
+- DSH conversation input facade 提供 `addFiles` 的宿主；
+- Monaco 0.52.2；
+- 旧宿主若只有 `insertReference/insertText` 仍走兼容回退。
+
+## 2026-11-16 — Project 树 Command 多选与取消选择
+
+**作用域**：Project 文件树鼠标选择、`⌘/Ctrl` 单项增删、`Shift` 区间、
+选择锚点与选中 primary 的同步。
+
+**症状/风险**：
+
+- 用户报告 Command 单击无法稳定多选，也无法再次点击取消选中；
+- 普通点击应退出多选，只保留最后点击项；
+- 旧实现只在 `click` 后提交选择，`mousedown` 遇到修饰键直接返回，既延后
+  了视觉反馈，也没有在修饰键点击时主动把键盘焦点留在 Project 树；
+- `selectedPath` 在 `setSelection(current => ...)` 的 updater 内更新，
+  属于在状态计算期间产生另一个 state 副作用，重复/并发执行时容易出现
+  选择集合与 primary 不一致。
+
+**修复**：
+
+- 新增纯函数 `projectTreeSelectionAfterPointer()`，统一处理：
+  - 普通点击：`selection = { path }`；
+  - `⌘/Ctrl`：仅 toggle 当前行，保留其他选择；
+  - `Shift`：从 anchor 扩选可见连续区间；
+  - 取消当前 primary 时选择最近的剩余可见行作为 primary/anchor。
+- Project 行的选择迁移移到 `onMouseDown`，与 IDEA “按下即选”一致；所有
+  左键点击都会先聚焦树，再提交选择；
+- `onClick` 不再重复 toggle，只负责单击打开/目录展开等点击后语义；
+- 用 `selectionRef` / `selectionPrimaryRef` 同步当前选择，`applyTreeSelection`
+  在一次调用中同时更新 selection、primary 与 anchor，移除 state updater
+  内的跨状态写入；
+- filtered view、批量移动、删除、Shift+Arrow 等选择路径统一走同一迁移入口。
+
+**IDEA CUA 证据**：
+
+- 普通单击 `notes.md` 后单选；
+- `⌘+单击` `graph.ts` 后状态栏显示 `2 elements selected`；
+- 再 `⌘+单击` `r144-demo.ts` 后显示 `3 elements selected`；
+- 再次 `⌘+单击` 已选中的 `graph.ts` 后显示 `2 elements selected`，其余两项
+  保持选中；
+- 松开 Command 后普通单击另一文件，状态栏不再显示多选计数，只保留当前项。
+
+**回归**：
+
+- 新增 round718：**7 pass / 0 fail**；
+- RED：初始 **0 pass / 7 fail**；
+- 定向 round718 / toolwindow-round11 / round173 / round378 / round379 /
+  round563：**30 pass / 0 fail**；
+- 全量 `npm test`：**2407 pass / 0 fail**；
+- `npm run check:client-build`、`node --check lib/client.js`、
+  `node --check lib/index.js`、`git diff --check` 均通过。
+
+**运行态证据**：
+
+- Ego Browser / 隔离 r526，真实 `Meta` 按下/释放：
+  - 普通点击 `app.js` → `["src/app.js"]`；
+  - Command 点击 `nav-main.js` → `["src/app.js","src/nav-main.js"]`；
+  - Command 点击 `nav-target.js` → 三项；
+  - Command 再点 `nav-main.js` → 取消该项，保留两项；
+  - 松开 Command 后点击 `README.md` → 只剩 `README.md`；
+  - 每一步 `activeElement` 都在 Project `role="tree"` 内。
+
+## 2026-11-16 — Harness 右键菜单与 composer 文件引用
+
+**作用域**：Project 根/文件/目录右键菜单、左右编辑器文件标签页、
+差异标签页，以及 Harness Chat composer 的 `@` reference 插入。
+
+**缺口**：
+
+- 文件、目录和已打开文件没有把路径送入 Harness Chat 的菜单入口；
+- 现有 Copy Path/Reference 只复制文本，不能创建 DSH 草稿中的结构化
+  reference chip；
+- 直接模拟 textarea/contenteditable 输入会覆盖草稿、丢失 chip 语义，且
+  容易在菜单卸载时把焦点还给文件树。
+
+**修复**：
+
+- Project 根、Project 行、左/右编辑器标签和 diff 标签的首个菜单项统一
+  为 `Harness ›`，沿用共享 `ContextMenu` 的二级菜单与键盘导航；
+- `harnessReferencePlan()` 复用 DSH `@path` / `@"path with spaces"` 语法：
+  workspace 文件/目录使用相对路径，项目根使用绝对路径，目录保留 `/`；
+- 有真实 caret 时 `ref` 仍是合法 `@file`，chip 展示和消息投影加入
+  `L行:列`，避免把位置拼进 DSH 文件解析 id；
+- `insertHarnessReferencesIntoComposer()` 优先使用
+  `sessions.scope(...) → conversation.input.for(...) →
+  input.insertReference(...)`，保留已有 draft，只追加内容；
+- 菜单 action 设置 `restoreFocus:false`，并在 Lexical 提交 chip 后通过
+  timer / animation frame 重新聚焦 `[data-composer-input]`；
+- 旧宿主缺少公开 input shell 时才退回 `execCommand('insertText')`；
+- 插入链路从不调用 `submit`，因此不会自动发送消息。
+
+**回归**：
+
+- 新增 round717：**6 pass / 0 fail**；
+- RED：初始 **0 pass / 6 fail**；
+- 定向 round717 / 219 / 379：**14 pass / 0 fail**；
+- 全量 `npm test`：**2400 pass / 0 fail**；
+- `npm run check:client-build`、`node --check lib/client.js`、
+  `node --check lib/index.js`、`git diff --check` 均通过。
+
+**运行态证据**：
+
+- Ego Browser / 隔离 r526：
+  - Project 文件、目录、项目根和编辑器文件标签的首项均为
+    `Harness ›`；
+  - 目录插入 chip 为 `docs/`，保留 `folder draft`；
+  - 项目根插入 chip 为 `dsh-editor-r526-fixture/`，保留 `root draft`；
+  - `nav-target.js` 光标位于 `5:2` 时插入
+    `nav-target.js L5:2` reference chip；
+  - composer 获得焦点，已有 draft 未被覆盖，消息数保持 `0`。
+
+## 2026-11-16 — Context-bound Scope 可用性与 Geometry 边界
+
+**作用域**：Find in Files Scope selector 的 Git / Recently Viewed /
+Open Files / Current File / Changed Files disabled 与 fallback，以及弹框
+geometry 在超屏/缩窗时的 clamp。
+
+**缺口**：
+
+- Git 与 Recently Viewed 已按上下文 disabled，但 Open Files、Current File、
+  Changed Files 无论是否有 open/active/changed context 都保持可执行；
+- 持久化的不可用 Scope 虽有 effective fallback，但可用性函数没有覆盖新增
+  的三类上下文 Scope；
+- geometry 已有 resize clamp，但缺少源代码回归锁定 resize listener。
+
+**修复**：
+
+- `findSearchScopePresetAvailable()` 增加：
+  - `openFileCount > 0`
+  - `currentFileAvailable === true`
+  - `changedFileCount > 0`
+- FindToolWindow 把 `openFilePaths.length`、`activeFilePath !== null`、
+  `changedFilePaths.length` 传入可用性模型；
+- Scope option 使用同一条件设置 `disabled`；
+- 不可用持久 Scope 继续通过 `effectiveScopePreset = projectFiles` 回退，
+  不发出注定失败的搜索；
+- viewport resize effect 继续 clamp popup geometry。
+
+**回归**：
+
+- 新增 round716：**4 pass / 0 fail**；
+- RED：初始 **0 pass / 4 fail**；
+- 定向 round716 / 715 / 702 / 691：**20 pass / 0 fail**；
+- 全量 `npm test`：**2394 pass / 0 fail**；
+- `npm run check:client-build`、`node --check lib/client.js`、
+  `node --check lib/index.js`、`git diff --check` 均通过。
+
+**运行态证据**：
+
+- Ego Browser / 隔离 r526，临时清空 open session 与 MRU：
+  - Scope select 回退为 `Project Files`；
+  - `Recently Viewed Files`、`Open Files`、`Current File` 均为 disabled；
+  - 持久化 Open Files Scope 自动改回 Project Files；
+- 持久化超屏 geometry `{x:900,y:600,width:800,height:700}` 后：
+  - viewport 1044×657 中最终 rect 为 `{x:236,y:8,width:800,height:625}`；
+  - 右下边界保持在 8px 安全边距内；
+- 测试后已恢复 open session、30 条 MRU、Scope 与 geometry storage。
+
+## 2026-11-16 — Find in Files 可移动、可缩放并记忆 Geometry
+
+**作用域**：`Cmd+Shift+F` / `Shift+Cmd+R` Find in Files floating popup
+的位置、尺寸、标题栏拖动、八方向缩放和浏览器本地持久化。
+
+**实现**：
+
+- 默认 geometry 为 580×536 并按 viewport 居中；当前 viewport 太小时
+  自动收缩并保留 8px 安全边距；
+- 标题栏非交互区域拖动窗口，交互控件（button/input/select/link/menu item）
+  不启动拖动；
+- `n/s/e/w/ne/nw/se/sw` 八个内部 handle 提供缩放，最小尺寸 360×260；
+- 拖动/缩放只在 pointerup 时写入
+  `dsh-editor.find.popup.geometry.v1`，避免每帧 localStorage 写入；
+- 窗口 resize 时重新 clamp 内存 geometry；下次打开、关闭重开和页面刷新
+  都恢复上次位置与尺寸；
+- popup 使用 `box-sizing: border-box`，保存外框 rect 后再次恢复不会因为
+  border 宽高各加 2px 而持续膨胀。
+
+**回归**：
+
+- 新增 round715：**5 pass / 0 fail**；
+- RED：初始 **0 pass / 5 fail**；
+- 定向 round715 / 714 / 713：**14 pass / 0 fail**；
+- 全量 `npm test`：**2390 pass / 0 fail**；
+- `npm run check:client-build`、`node --check lib/client.js`、
+  `node --check lib/index.js`、`git diff --check` 均通过。
+
+**运行态证据**：
+
+- Ego Browser / 隔离 r526：
+  - 默认 popup 与 8 个 resize handle 正常渲染；
+  - 标题栏真实鼠标拖动后 popup/storage 同步到新 x/y；
+  - SE 放大与 NW 缩小后 width/height 与 storage 一致；
+  - 缩小后再次向上/左拖动成功；
+  - Escape 关闭再打开后恢复
+    `{x:452,y:121,width:544,height:488}`，与 persisted geometry 完全一致；
+  - border-box 修复前拖动一次会把 580×536 写成 582×538；修复后
+    round-trip 不再膨胀。
+
+## 2026-11-16 — Non-recursive Directory Scope Replace 验证
+
+**作用域**：Directory recursive=false 下的 Search、dirty Monaco buffer、
+Source Preview 与 Replace All 文件集一致性。
+
+**验证**：
+
+- host 搜索 direct scope fixture，recursive=false 只返回 `top.txt`；
+- 用该结果集直接调用 guarded replace，只修改 `top.txt`，
+  `nested/deep.txt` 保持原 token；
+- `findToolPathMatchesScope()` 对 recursive=false 接受目标目录直属文件，
+  拒绝 nested 子文件；recursive=true 两者都接受；
+- dirty merge 和 Replace All 继续共用同一 `scopedMatches`：
+  `scopedReplacementPaths` 只由 scoped matches 生成；
+- recursive/scope 切换都会清空 files/matches/index、递增 generation 并
+  立即清空 Preview active result。
+
+**回归**：
+
+- 新增 round714：**4 pass / 0 fail**；
+- 定向 round714 / 713 / 712 / 702：**21 pass / 0 fail**；
+- 全量 `npm test`：**2385 pass / 0 fail**；
+- `npm run check:client-build`、`node --check lib/client.js`、
+  `node --check lib/index.js`、`git diff --check` 均通过。
+
+**运行态证据**：
+
+- Ego Browser / 隔离 r526：
+  - recursive=false 搜索 `R714_REPLACE_TOKEN` 只有 `top.txt` 一条，
+    Preview 显示直属文件内容；
+  - Replace All 后 `top.txt` 变为 `R714_REPLACE_DONE top`，
+    `nested/deep.txt` 仍保留原 token；
+  - nested dirty buffer 含同 token 时，recursive=false 仍为 `No matches`；
+  - 直属 `top.txt` dirty buffer 含 token 时，结果重新出现 1 条，Preview
+    直接显示 live buffer 的 `R714_REPLACE_TOKEN top dirty`；
+- 临时 fixture、DSH host 与 Ego space 已清理。
+
+## 2026-11-16 — Directory Scope 递归搜索开关
+
+**作用域**：IDEA Find in Files 的 Directory scope、
+`Search recursively in subdirectories`、host 文件枚举、dirty buffer merge、
+Preview 和 Replace target。
+
+**IDEA CUA 证据**：
+
+- Directory scope 右侧存在独立目录树按钮，名称是
+  `Search recursively in subdirectories`；
+- fixture 的目录直属 `top.txt` 与 `nested/deep.txt` 都含同一 token；
+- 递归状态搜索返回 2 matches / 2 files，关闭递归后只保留直属文件；
+- 该状态属于 Find in Files Directory scope，而不是文件 mask 或 Filter。
+
+**缺口**：
+
+- 插件 Directory mode 一直递归 `listWorkspaceFiles()`；
+- 没有递归按钮、没有 workspace 级持久化；
+- host 和客户端 dirty merge 都没有 direct-child 约束；
+- 切换递归状态不会主动失效当前结果。
+
+**实现**：
+
+- host `listWorkspaceFiles()` 接收 `recursive`；false 时目录只入队初始
+  scope directory，不再 push 子目录；
+- `workspaceSearchScope()` / `workspaceSearchPathMatchesScope()` 在
+  recursive=false 时只接受 parent 等于 scope directory 的文件；
+- client request 只在 Directory mode 下转发用户递归值，Project/Scope
+  preset 始终按递归搜索，避免误伤 Open Files 等显式路径集；
+- dirty merge 使用同一 `findToolPathMatchesScope()` direct-child 规则；
+- 递归开关按 workspace 保存到
+  `dsh-editor.find.directoryRecursive:<root>`，默认 true；
+- 切换按钮有 `aria-pressed`，显示 IDEA 名称，变更后清空旧结果、重置 active
+  row/Preview 并递增 searchGeneration；
+- 按钮操作后焦点回到 Search query。
+
+**回归**：
+
+- 新增 round713：**5 pass / 0 fail**；
+- RED：初始 **0 pass / 5 fail**；
+- 定向 round713 / 712 / 702 / 630：**22 pass / 0 fail**；
+- 全量 `npm test`：**2381 pass / 0 fail**；
+- `npm run check:client-build`、`node --check lib/client.js`、
+  `node --check lib/index.js`、`git diff --check` 均通过。
+
+**运行态证据**：
+
+- Ego Browser / 隔离 r526：
+  - Directory=`r713-direct`、默认递归时返回 `top.txt` 与
+    `nested/deep.txt` 两条命中，按钮 `aria-pressed=true`；
+  - 关闭递归后只剩 `top.txt`，按钮 `aria-pressed=false`，
+    storage 值变为 `0`，焦点回到 Search；
+  - 页面 reload 后 Directory 与 recursive=false 均恢复，结果仍只有
+    `top.txt`。
+
+## 2026-11-16 — Find File mask / Filter / Scope 焦点闭环
+
+**作用域**：IDEA `Cmd+Shift+F` 的 File mask 启用/禁用、mask history、
+Filter Search Results、Directory/Scope mode 与 Scope preset 切换。
+
+**IDEA CUA 证据**：
+
+- File mask 从禁用切到启用后，焦点进入 mask 输入，可直接继续输入；
+- 再次禁用后焦点回到 Search query，已输入的 mask draft 仍保留；
+- File mask 历史和推荐项选择后应回到 mask 输入；
+- Filter Search Results 选择 In Comments 后，菜单关闭且焦点回到 Search；
+- 鼠标点击 Directory mode 后焦点仍在 Search，后续输入直接进入 query；
+- 切换到 Scope mode 及选择 Scope preset 后同样保持 query 所有权。
+
+**缺口**：
+
+- 插件启用 mask 后焦点停在 checkbox；禁用后同样停在 checkbox；
+- mask history/建议及 Clear 后焦点回到菜单 opener；
+- Filter 选项执行后焦点回到 Filter 按钮；
+- 鼠标切换 Scope mode / preset 后焦点停在按钮或 select。
+
+**修复**：
+
+- mask checkbox 根据 enabled 分支，在 state commit 后聚焦 mask 输入或
+  query 输入；draft 保留；
+- mask history、suggestion、Clear 统一 `acceptFileMask()` 后回焦 mask；
+- Filter 选择先关闭菜单、提交 context filter，再回焦 query；
+- Scope mode 的鼠标 `onClick` 在提交后回焦 query；键盘 `←/→` 仍由
+  `moveFindScopeMode()` 聚焦对应 roving button；
+- Scope preset `change` 提交后回焦 query；
+- Scope 切换仍增加 `searchGeneration` 并设置 `loadedGeneration=-1`，
+  旧 scope 的在途 response 不能写回新 scope。
+
+**回归**：
+
+- 新增 round712：**5 pass / 0 fail**；
+- RED：初始 **1 pass / 4 fail**；
+- 定向 round712 / 711 / 630 / 702：**23 pass / 0 fail**；
+- 全量 `npm test`：**2376 pass / 0 fail**；
+- `npm run check:client-build`、`node --check lib/client.js`、
+  `git diff --check` 均通过。
+
+**运行态证据**：
+
+- Ego Browser / 隔离 r526：
+  - 启用 mask 时 activeElement 为 mask 输入；禁用后为 Search，draft
+    `*.js` 保留；
+  - mask history 选择 `*.js` 后 mask 输入保持焦点；
+  - Filter 选择 In Comments 后菜单关闭、query 获得焦点；
+  - Directory mode 切换后 query 值 `R712_SCOPE_QUERY` 保留且获得焦点；
+  - Scope preset 切到 Open Files 后仍回焦 query。
+
+## 2026-11-16 — Search/Replace History 空条目与输入焦点
+
+**作用域**：IDEA `Cmd+Shift+F` / `Shift+Cmd+R` 的 Find query history、
+replacement history、Search Everywhere 替换历史，以及 History replay
+后的键盘所有权。
+
+**IDEA CUA 证据**：
+
+- Find in Files 的 Search History 列表包含可选择空行；
+- Down + Enter 选择空行后 query 被清空，焦点回到 Search 输入；
+- Replace History 也包含空行；
+- Down + Enter 选择空行后 replacement 被清空，焦点回到 Replace 输入；
+- 空 replacement 是真实删除操作，不能从历史中过滤。
+
+**缺口**：
+
+- `rememberFindQueryHistory()` 与 `rememberReplacementHistory()` 过滤
+  `''`，因此无法保存/回放 IDEA 的空条目；
+- workspace recorder 同样拒绝空 query / replacement；
+- read/write 使用 `''` 作为“只规范化、不新增”的哨兵，和合法空值冲突；
+- History replay 菜单关闭后焦点回到历史按钮，而不是 IDEA 的输入框。
+
+**修复**：
+
+- 两个 history helper 接受任意 string，包括 `''`，并保持 exact dedupe、
+  20 条上限和 newest-first；
+- 使用 `undefined` 表示“只规范化存储数组”，read/write 改传
+  `undefined`，避免读取时凭空新增空行；
+- `rememberWorkspaceFindQuery()` / `rememberWorkspaceReplacement()`
+  不再拒绝空字符串；
+- Search Everywhere、Find Tool 与编辑器 Find 的历史项执行后，分别把
+  焦点送回 query / replacement 输入；
+- 空菜单项保留 24px 可点击行，label/aria-label 为空，与 IDEA 的空白
+  历史行一致，不伪造“Delete History”等动作。
+
+**回归**：
+
+- 新增 round711：**6 pass / 0 fail**；
+- RED：round711 初始 **1 pass / 4 fail**；
+- 定向 round711 / 710 / 709 / 655 / 656 / 622 / 621 / 492 / 486：
+  **33 pass / 0 fail**；
+- 全量 `npm test`：**2371 pass / 0 fail**；
+- `npm run check:client-build`、`node --check lib/client.js`、
+  `git diff --check` 均通过。
+
+**运行态证据**：
+
+- Ego Browser / 隔离 r526，把 `R711_DELETE_TOKEN` Replace All 为空：
+  - 文件内容从 `R711_DELETE_TOKEN remains?` 变为 ` remains?`；
+  - `dsh-editor.replace.history:<root>` 首项为 `""`；
+  - Replace History 首行为可点击空行；
+  - 选择空行后 replacement 清空、菜单关闭、焦点回到 replacement 输入；
+- Enter search history 的空条目后 query 为空，焦点回到 Search 输入；
+- 从查询框按 `Alt+Down`、`Down`、`Enter` 也完成同一空 query replay；
+- 临时 fixture 文件已删除。
+
+## 2026-11-16 — Preview 首帧无跳动居中
+
+**作用域**：Search Everywhere 与持久 Find 的 Source Preview 在切换
+query/result、Soft-Wrap、resize 和 dock 重排时的滚动定位。
+
+**症状**：
+
+- 预览内容切换时，首个 paint 仍显示文件顶部；
+- 原实现只在 `useEffect` 中调度 `requestAnimationFrame`，下一帧才把
+  active match 滚到垂直中心，用户可感知一次跳动。
+
+**修复**：
+
+- 两处 Preview 居中改为 `React.useLayoutEffect`；
+- `centerNow()` 在 layout 阶段同步设置 `scrollTop`，paint 前完成首次定位；
+- 随后仍调用一次 rAF，按 ResizeObserver / Soft-Wrap 后的最终尺寸复核；
+- ResizeObserver 回调继续走同一 `recenter()`，不丢失 resize 纠偏。
+
+**回归**：
+
+- 新增 round710：**3 pass / 0 fail**；
+- 定向 round710 / 709 / 708 / 705 / 704：
+  **23 pass / 0 fail**。
+- 全量 `npm test`：**2365 pass / 0 fail**；
+- `npm run check:client-build`、`node --check lib/client.js`、
+  `git diff --check` 均通过。
+
+**运行态证据**：
+
+- Ego Browser / 隔离 r526，402 行文件；
+- 临时把 `requestAnimationFrame` 替换为空实现后，第 402 行预览仍为
+  `scrollTop=6738`、`scrollHeight=6860`、`clientHeight=122`，命中行可见；
+- 尾部 clamp 后中心偏差 `30.7px`，属于滚动终点物理边界；
+- 双击结果后编辑器状态栏定位 `402:10`。
+
+## 2026-11-16 — dirty 搜索保存后由磁盘结果接替
+
+**作用域**：Search Everywhere Text 的 dirty live buffer、保存、重新
+搜索和 Preview 生命周期。
+
+**验证**：
+
+- `savePath()` 以 `model.getValue()` 写入，成功后同一 openFiles entry
+  更新内容、`dirty=false` 和宿主返回的 mtime；
+- Search Everywhere text request 同时绑定递增 requestId 与 `openFiles`
+  dependency，旧 dirty response 不能覆盖保存后的状态；
+- `mergeFindToolDirtyMatches()` 以 dirty path Set 移除同路径 host row；
+  dirty result 和 disk result 不会并列重复；
+- dirty Preview 直接读取 openFiles 中的 live content，保存后重新读取
+  磁盘内容，仍按 active line 居中；
+- 402 行文件末行命中窗口为 2..402，底部由 `previewLineScrollTop()`
+  自然 clamp。
+
+**回归**：
+
+- 新增 round709：**6 pass / 0 fail**；
+- 定向 round709 / 708 / 707 / 706 / 704：
+  **24 pass / 0 fail**。
+
+**运行态证据**：
+
+- Ego Browser / 隔离 r526，402 行测试文件；
+- dirty token 只存在于第 300 行 Monaco buffer 时显示 1 条 live result，
+  Preview 居中且与 buffer 一致；
+- `Meta+S` 后 dirty dot 消失、磁盘 token 为 1 处，重新搜索只返回 1 条
+  host result；
+- 搜索第 402 行 token 时 Preview 命中行可见，双击后编辑器定位
+  `402:10`。
+
+## 2026-11-16 — Preview 首尾边界与 dirty 生命周期矩阵
+
+**作用域**：Search Everywhere / Find Preview 的 1 行、401 行、终端边界，
+以及 dirty result 在保存、重载、请求竞态下的失效顺序。
+
+**验证**：
+
+- `searchEverywherePreviewWindow()`：
+  - 1 行文件返回完整唯一行；
+  - 401 行文件完整显示；
+  - 402 行文件从 1..401 开始截断；
+  - 1000 行文件首行窗口 1..401、中间 300..700、尾行 600..1000；
+- `previewLineScrollTop()`：
+  - 首行/顶部命中 clamp 到 0；
+  - 尾行/底部命中 clamp 到 `scrollHeight-clientHeight`；
+- Search Everywhere text effect 的 `openFiles` dependency 与 requestId
+  失效保护仍存在；
+- dirty Preview 在 openFiles 更新后立即重新读取 live buffer；
+- save/reload 路径仍将 openFiles 的 `dirty` 置为 false；
+- 所有文本结果打开入口继续传 path/line/column。
+
+**回归**：
+
+- 新增 round708：**6 pass / 0 fail**；
+- 定向 round708 / 704 / 705 / 706 / 707：**22 pass / 0 fail**。
+- 全量 `npm test`：**2356 pass / 0 fail**；
+- `npm run check:client-build`：17 modules verified。
+
+**运行态证据**：
+
+- Ego Browser / 隔离 r526，1000 行文件：
+  - 第 1 行命中：`scrollTop=0`，命中行可见；
+  - 第 1000 行命中：`scrollTop=6738`，命中行可见；
+  - 再切回第 1 行：`scrollTop=0`，没有残留旧偏移；
+- 首尾行因 clamp 无法完全居中，但命中行始终在可视区；
+- 临时测试文件已删除，fixture 恢复原状态。
+
+## 2026-11-16 — Search Everywhere Replace 统一 Undo 历史
+
+**作用域**：Search Everywhere Replace All 的 clean/dirty operation、
+Find bounded Undo/Redo 历史和 dirty-only 不写盘语义。
+
+**缺口**：
+
+- Search Everywhere Replace All 已能通过 dirty plans 更新 Monaco model；
+- 成功后只清空 Find undo/redo 栈，没有把本次 operation 写回；
+- 因而 Search Everywhere 触发的修改无法进入统一 Undo Last Replace；
+- replace 成功路径的 finally 曾重复释放 write guard。
+
+**实现**：
+
+- Replace 前记录 dirty plans 的 before/after：
+  - before 来自 live model；
+  - after 来自 replacement plan；
+- 成功后生成与 Find 相同的 operation：
+  - 稳定 host `operationId`；
+  - clean 只在 host 实际修改文件时成立；
+  - dirty model before/after；
+  - files / replacements 数量；
+- 新 operation 写入 bounded Find undo stack，并截断 redo；
+- dirty model 仍通过 `commitFindToolDirtyPlans()` 建立独立 Monaco undo；
+- write guard 在所有终态只释放一次。
+
+**回归**：
+
+- 新增 round707：
+  - dirty before/after 记录；
+  - bounded operation wiring；
+  - dirty Monaco undo 独立；
+  - guard 终态释放次数。
+- round707：**4 pass / 0 fail**；
+- 定向 round707 / 701 / 700 / 699 / 666 / 706：
+  **29 pass / 0 fail**。
+- 全量 `npm test`：**2350 pass / 0 fail**；
+- `npm run check:client-build`：17 modules verified。
+
+**运行态证据**：
+
+- Ego Browser / 隔离 r526：
+  - `r707-replace.txt` 磁盘内容不含测试 token；
+  - Monaco dirty buffer 在第 20、40 行加入 `R707_DIRTY_TOKEN`；
+  - Replace All 后模型变为 `R707_REPLACED`，磁盘文件保持不变；
+  - Find toolbar 直接出现 `Undo Last Replace`；
+  - 点击 Undo 后模型恢复两处 `R707_DIRTY_TOKEN`，替换文本消失；
+  - 文件仍为 dirty，无 alert；
+  - 临时测试文件已删除，fixture 恢复原状态。
+
+## 2026-11-16 — Search Everywhere Text 合并 dirty buffer 与实时预览
+
+**作用域**：Search Everywhere Text provider、dirty Monaco buffer、
+Text result Preview 和后续 Replace All 结果集。
+
+**缺口**：
+
+- Find in Files 已合并宿主磁盘结果和 dirty Monaco buffer；
+- Search Everywhere Text 仍只使用宿主磁盘搜索；
+- dirty text result 的 Preview 仍通过 `read` 读取旧磁盘内容；
+- 因此 Search Everywhere 会漏掉 dirty-only 命中或显示陈旧预览。
+
+**实现**：
+
+- Search Everywhere 接收当前 `openFiles`；
+- Text effect 复用 `mergeFindToolDirtyMatches()`：
+  - dirty path 用 live Monaco 内容覆盖磁盘命中；
+  - Case / Whole Words / Regex / File Mask 与 Find 同一条件；
+  - 复用同一 200 条结果上限和稳定排序；
+- text result 增加 `dirty` 标记；
+- Preview effect 对 dirty text result 直接读取 `openFiles` 的 live
+  content，不调用磁盘 `read`；
+- dirty buffer 内容变化会更新 Search Everywhere 搜索 effect，
+  继续经过 180ms debounce；
+- 现有中心滚动、ResizeObserver 和精确行列打开逻辑保持不变。
+
+**回归**：
+
+- 新增 round706：
+  - dirty host result merge wiring；
+  - dirty text preview live-content wiring；
+  - Editor 向 Search Everywhere 传 `openFiles`；
+  - dirty merge 的 search options 与 200 cap。
+- round706：**4 pass / 0 fail**；
+- 定向 round706 / 704 / 705 / 645 / 666：**18 pass / 0 fail**。
+- 全量 `npm test`：**2346 pass / 0 fail**；
+- `npm run check:client-build`：17 modules verified。
+
+**运行态证据**：
+
+- Ego Browser / 隔离 r526：
+  - 磁盘 `r706-dirty.txt` 只有普通 `line-*`；
+  - Monaco 未保存内容在第 60 行加入 `R706_DIRTY_TOKEN dirty only`；
+  - Search Everywhere Text 返回 1 个 dirty-only 结果：
+    `r706-dirty.txt:60:1`；
+  - Preview 从 live buffer 显示 `R706_DIRTY_TOKEN`；
+  - Preview `scrollTop=911`，命中行可见，中心偏差 `-0.3px`；
+  - 无 alert；
+  - 临时测试文件已删除，fixture 恢复原状态。
+
+## 2026-11-16 — 预览布局变化后保持命中行居中
+
+**作用域**：Search Everywhere / Find in Files 预览在 Soft-Wrap、面板尺寸
+和 dock/popup 布局变化后的滚动定位。
+
+**缺口**：
+
+- 首次 active result 定位已居中，但只执行一次 requestAnimationFrame；
+- Soft-Wrap 会改变匹配行高度，dock/popup resize 会改变预览可视区；
+- 原 scrollTop 在新布局下会偏离命中行中心。
+
+**实现**：
+
+- 两处预览 effect 抽出本地 `recenter()`；
+- preview body 增加 ResizeObserver；
+- observer 回调重新执行同一 `centerPreviewLineInContainer()`；
+- Search Everywhere / Find in Files 的 effect 显式依赖
+  `previewSoftWrap`；
+- effect cleanup 同时取消 pending frame 并 disconnect observer；
+- `ResizeObserver` 不存在时仍保留首次 requestAnimationFrame 定位。
+
+**回归**：
+
+- 新增 round705：
+  - 首行、尾行和零可滚动高度 clamp；
+  - 两处 ResizeObserver wiring 与 observer cleanup；
+  - soft-wrap dependency；
+  - observer 可选降级。
+- round705：**4 pass / 0 fail**；
+- 定向 round705 / 704 / 465 / 498：**16 pass / 0 fail**。
+- 全量 `npm test`：**2342 pass / 0 fail**；
+- `npm run check:client-build`：17 modules verified。
+
+**运行态证据**：
+
+- Ego Browser / 隔离 r526，Find in Files 命中第 240 行；
+- 初始 preview 高度 `121.6px`、`scrollTop=4018`、中心偏差 `-2.3px`；
+- 将 preview body 调整为 `230px` 后：
+  - ResizeObserver 自动重算 `scrollTop=3964`；
+  - 命中行仍可见；
+  - 中心偏差 `-2.5px`；
+- 临时测试文件已删除，fixture 恢复原状态。
+
+## 2026-11-16 — 搜索结果预览滚动到命中行中心
+
+**作用域**：Search Everywhere / Find in Files 文本结果预览，以及从结果
+打开文件到精确行列。
+
+**症状与根因**：
+
+- `searchEverywherePreviewWindow()` 已经把行窗口截在命中行附近；
+- 但当文件短于 401 行时窗口包含整份文件，预览滚动容器仍保持
+  `scrollTop=0`，因此只显示文件开头；
+- Search Everywhere 与 Find in Files 都没有在 active result 变化后把
+  命中行滚入可视区。
+
+**实现**：
+
+- 新增 `previewLineScrollTop()`：
+  - 用匹配行中心与容器中心之差计算目标 `scrollTop`；
+  - clamp 到 `0..scrollHeight-clientHeight`；
+  - 文件首尾行自然贴边；
+- 新增 `centerPreviewLineInContainer()`，在两处预览 effect 的下一帧执行；
+- Search Everywhere 与 Find in Files 的预览行增加稳定
+  `data-dsh-preview-line`；
+- active result、preview content、focus line 或 loading 状态变化都会重算；
+- 打开文本结果继续统一走 `openFileAtLocation()`：
+  - Monaco caret/selection 使用命中行列；
+  - `revealLineInCenter()` 把命中行放到编辑器中心；
+  - 右侧 split 使用同一 `revealSplitLocation()`。
+
+**回归**：
+
+- 新增 round704：
+  - 中心滚动数学和首尾 clamp；
+  - Search Everywhere preview ref/effect/行号 wiring；
+  - Find in Files preview ref/effect/行号 wiring；
+  - 所有文本搜索结果保留 line-centered 打开路径。
+- round704：**4 pass / 0 fail**；
+- 定向 round704 / 465 / 498 / 464 / 687：**22 pass / 0 fail**。
+- 全量 `npm test`：**2338 pass / 0 fail**；
+- `npm run check:client-build`：17 modules verified。
+
+**运行态证据**：
+
+- Ego Browser / 隔离 r526：300 行 `r704-preview.txt`，命中第 240 行；
+- 修复前：preview `scrollTop=0`，active line `top=4497.9`，
+  可视区 `429.9..551.5`，`visible=false`；
+- 修复后：preview `scrollTop=4016`，active line `481.9..498.9`，
+  可视区 `429.9..551.5`，中心偏差 `-0.3px`；
+- 双击结果打开右侧 split 后：
+  - 右侧 textarea 从 `line-231` 开始展示；
+  - caret/status 为 `240:1`；
+  - Monaco 可见窗口包含第 240 行。
+
+## 2026-11-16 — Find in Files File Mask 建议、快捷键隔离与弹框菜单命中
+
+**作用域**：`Cmd+Shift+F` File mask 下拉、Project speed search、
+Find 弹框 History/Filter/Mask 菜单定位和 Scope 可用态。
+
+**症状与根因**：
+
+- Project 的 `Cmd/Ctrl+F` 捕获器没有排除 Shift，会先于 Editor 的
+  `Cmd/Ctrl+Shift+F` 处理并打开 Project speed search；
+- IDEA File mask 下拉除历史外还显示项目扩展名建议，DSH 只有历史；
+- Find 弹框的 transform 让 fixed 菜单的 `left/top` 实际按弹框局部坐标
+  解释，ContextMenu 只按 viewport clamp，导致菜单绘制到弹框右侧/下方，
+  但指针 hit-test 落到背后的聊天页面；
+- 长 Search History 菜单没有 max-height，近底部条目不可点击。
+
+**实现**：
+
+- Project speed search 仅在 `meta/ctrl + f` 且未按 Shift 时接管；
+- 新增 bounded `suggestFileMasks()`：
+  - 复用 active/open/recent/changed 与当前搜索结果路径；
+  - 按扩展出现频率生成 `*.ext`；
+  - 不启动额外文件系统 walk；
+  - 已存在历史 mask 去重；
+- File mask 菜单顺序为 history → suggestions → Clear；
+- 新增 `findToolMenuLeft/Top/MaxHeight()`：
+  - 将 viewport anchor 转为弹框 transform 的本地坐标；
+  - 左右和顶部限制在 Find 弹框内；
+  - 高度按剩余弹框空间设置 max-height，长菜单内部滚动；
+- ContextMenu 支持业务传入 `maxHeight` 与 `overflowY`；
+- Git Scope 依据真实 Git 可用性 disabled，Recently Viewed 依据 MRU
+  是否为空 disabled，不可用的持久化 Scope 回退 Project Files。
+
+**回归**：
+
+- 新增 round703：
+  - File mask 建议排序、去重、非法扩展名过滤；
+  - 菜单顺序与无额外 filesystem walk；
+  - Project speed search 不截获 Shift chord；
+  - Find 菜单局部坐标和高度 clamp；
+  - Git/Recently Viewed Scope availability 与 fallback。
+- round703：**7 pass / 0 fail**；
+- 定向 round703 / 630 / 702 / 691：**23 pass / 0 fail**。
+- 全量 `npm test`：**2334 pass / 0 fail**；
+- `npm run check:client-build`：17 modules verified。
+
+**运行态证据**：
+
+- Ego Browser / 隔离 r526 / `127.0.0.1:63237`：
+  - `Meta+Shift+F` 只打开 Find in Files，Project search input 不存在；
+  - File mask 菜单显示 `*.txt`、`*.js`、`*.md`、`*.mjs`、`*.yml`；
+  - 点击 `*.js` 后 mask checkbox 启用、输入值变为 `*.js`；
+  - 菜单和 Search History 均完全位于 Find 弹框内；
+  - Search History 菜单 `bottom=586.5`，Find 弹框 `bottom=596.5`；
+  - `elementFromPoint` 命中菜单项本身，点击不再穿透到聊天页面；
+  - Search History 菜单在弹框内滚动，首项可点击。
+
+## 2026-11-16 — Find in Files IDEA Scope 预设补齐
+
+**作用域**：`Cmd+Shift+F` Find/Replace 弹框的 Scope、Git 文件集、
+Recently Viewed Files、dirty buffer 合并与替换范围。
+
+**IDEA 对照**：
+
+- IDEA 2026.2 `Replace in Files` Scope 列表包含
+  `Project Files Excluding Git-ignored`、`Project Files Tracked by Git`、
+  `Recently Viewed Files`、`Open Files`、`Current File`、
+  `All Changed Files` 等；
+- libraries、scratches、language class hierarchy 需要当前插件没有的语言
+  索引，本轮不伪造。
+
+**实现**：
+
+- Scope 持久化与选择器新增 `recentlyViewedFiles`、`gitTrackedFiles`、
+  `gitNonIgnoredFiles`；
+- Recently Viewed Files 直接复用 workspace 的 30 条 MRU 文件列表；
+- tracked scope 使用 `git ls-files --cached -z`；
+- excluding ignored scope 使用
+  `git ls-files --cached --others --exclude-standard -z`；
+- 两个 Git scope 在宿主搜索开始前限制候选文件，避免范围外结果占满
+  200 条上限；
+- workspace 可能位于仓库子目录，Git 输出先按 `--show-prefix` 归一化；
+- 浏览器把 dirty/open buffer 路径发给宿主；宿主返回这些路径与 Git scope
+  的交集，客户端只合并交集内的未保存内容；
+- Preview、单处 Replace 与 Replace All 继续消费同一批 scoped matches，
+  不增加第二条范围判断链。
+
+**回归**：
+
+- 新增 round702：
+  - 新 Scope 归一化与本地化入口；
+  - tracked scope 只返回 Git 跟踪文件；
+  - non-ignored scope 返回 tracked + untracked，不返回 gitignored；
+  - workspace 子目录范围；
+  - dirty buffer membership；
+  - 客户端与宿主请求字段 wiring。
+- round702：**7 pass / 0 fail**；
+- 全量 `npm test`：**2327 pass / 0 fail**；
+- `npm run check:client-build`：17 modules verified。
+
+**运行态证据**：
+
+- IDEA CUA 对照确认 Scope 名称与可用数据边界；
+- Ego Browser / 隔离 r526 / `127.0.0.1:63237`：
+  - tracked scope 搜索 `R702_SCOPE_TOKEN` 返回 1 文件；
+  - excluding ignored 返回 tracked + untracked 共 2 文件；
+  - Recently Viewed 返回刚打开的 `r702-tracked.txt`；
+  - Replace All 写入 tracked + untracked，gitignored 文件不变；
+  - 临时 fixture 文件与暂存项已清理。
+
+## 2026-11-16 — Find in Files Bounded Multi-step Replace History
+
+**作用域**：Find in Files / Replace in Files 的连续 Undo / Redo、clean
+事务、dirty Monaco buffer、混合替换和历史内存预算。
+
+**症状与根因**：
+
+- 单槽 Undo/Redo 无法连续撤销多次 Replace；
+- 客户端 dirty 历史使用 `length * 2` 估算内存，且单条超预算时仍会保留；
+- 宿主新 Replace 清空 redo 数组时没有扣回其字节数，导致后续 history
+  被错误淘汰；
+- Undo/Redo 状态复用了 `{matches}` 参数，但文案使用 `{count}`，运行态
+  显示字面量 `Undid {count} replacements...`。
+
+**实现**：
+
+- 宿主改为 per-workspace undo/redo 栈：20 条、16 MiB、64 workspace；
+  clean operation 返回稳定 `operationId`，Undo/Redo 用该 id 校验目标；
+- 新 Replace 先释放 redo 分支字节，再追加 undo；
+- 客户端 dirty 栈使用 UTF-8 字节预算，严格清理超预算及更旧记录；
+- clean 只有在 `operationId` 非空且确有宿主文件变化时才可走宿主 Undo，
+  避免 dirty-only 操作误消费另一条 clean 历史；
+- dirty-only、clean-only、mixed 操作分别以 before/after 校验后提交；
+- Undo/Redo 完成文案改用 `{matches} / {matchUnit} / {files} / {fileUnit}`。
+
+**回归**：
+
+- 新增 round701：
+  - 客户端 20 条上限、UTF-8 字节预算和超大最新记录清理；
+  - 宿主 20 条淘汰、16 MiB 淘汰、连续 Undo/Redo；
+  - 新 Replace 截断 redo、旧/错误 operationId 拒绝；
+  - clean 记录必须绑定稳定 operationId、redo 字节释放；
+  - Undo/Redo 单复数文案占位符。
+- round701：**10 pass / 0 fail**；
+- 全量 `npm test`：**2320 pass / 0 fail**；
+- `npm run check:client-build`：17 modules verified；
+- `node --check` 与 `git diff --check` 通过。
+
+**运行态证据**：
+
+- Ego Browser / 隔离 r526，clean-only：
+  - Replace A、Replace B 后连续 Undo B、Undo A，再 Redo A、Redo B；
+  - 新 Replace 后 overflow 中不再出现 Redo，分支被截断；
+  - 外部修改后 Undo 报 `cannot undo because the file changed after replacement`，
+    另一文件不写入。
+- mixed clean + dirty：
+  - 同一 Replace All 同时写 clean 文件和 dirty Monaco model；
+  - Undo 同时恢复两侧，Redo 同时重放两侧。
+- dirty-only：
+  - Replace / Undo / Redo 只改 Monaco model，磁盘 clean 文件保持不变。
+- 文案：
+  - `Undid 1 occurrence in 1 file`；
+  - `Redid 1 occurrence in 1 file`。
+
+## 2026-11-16 — Find in Files Redo Last Replace
+
+**作用域**：Replace / Replace All 的最近一次 Undo 与 Redo 往返。
+
+**实现**：
+
+- 宿主增加 per-workspace redo slot，与 undo slot 使用同一 16 MiB /
+  64 workspace 上限；
+- Undo 成功后把原 operation 转入 redo；Redo 前逐文件校验当前内容
+  仍等于 undo 后 originalContent；
+- Redo 成功写回 afterContent，再把同一 operation 转回 undo；
+- 新 Replace 清理 redo；
+- dirty Monaco 同样保存 before/after；Undo 校验 after，Redo 校验 before；
+- floating Find header 只显示当前可用的 Undo 或 Redo 之一，
+  保持 title row 不溢出；dock 中两项并存但按状态禁用。
+
+**回归**：
+
+- 新增 round700：
+  - clean 多文件 Replace → Undo → Redo → Undo 往返；
+  - Undo 后外部修改导致 Redo conflict；
+  - UI 和 host operation wiring；
+  - dirty before/after 方向校验。
+- round700：**4 pass / 0 fail**；
+- 全量 `npm test`：**2310 pass / 0 fail**；
+- `npm run check:client-build`：17 modules verified；
+- `node --check` 与 `git diff --check` 通过。
+
+**运行态证据**：
+
+- Ego Browser / 隔离 r526：
+  - Replace All 2 文件后 header 显示 Undo；
+  - Undo 后显示 Redo，文件恢复 needle；
+  - Redo 后文件重新变为 omega，header 转回 Undo；
+  - 再 Undo 后外部修改一个目标，Redo 报
+    `cannot redo because the file changed after undo`，另一文件不写入。
+
+## 2026-11-16 — Find in Files Undo Last Replace
+
+**作用域**：Find in Files 单处 Replace、Replace All、dirty Monaco
+buffer、clean 文件事务和外部修改冲突。
+
+**实现**：
+
+- 宿主仅为每个 workspace 保留最近一次 clean 文件替换快照，
+  总内容上限 16 MiB，最多 64 个 workspace；
+- 快照包含 originalContent、afterContent、after mtime 和 count，
+  不通过 API 回传文件内容；
+- `undoReplaceText` 在任何写入前逐文件校验当前内容仍等于 afterContent；
+  文件缺失或外部修改返回 conflict，且不会部分回滚；
+- clean 回滚复用 `commitWorkspaceReplacements()` 事务，失败时恢复
+  afterContent；
+- 浏览器记录同一操作的 dirty model before/after 内容；
+- `Undo Last Replace` 先预检 dirty model，再调用宿主 clean 回滚，
+  最后以独立 Monaco undo boundary 恢复 dirty buffer；
+- Search Everywhere Replace 使用同一宿主 undo slot，因此开始新替换时
+  会清空旧 Find undo；
+- 页面 reload 清空客户端可撤销状态；宿主快照只保留最近一次替换。
+
+**回归**：
+
+- 新增 round699：
+  - clean 多文件 Replace → Undo 精确恢复；
+  - 外部修改后 Undo 拒绝且其他文件不先回滚；
+  - UI action 只在快照存在时启用；
+  - dirty 预检、host undo、dirty commit 和快照清空。
+- round699：**4 pass / 0 fail**；
+- 全量 `npm test`：**2306 pass / 0 fail**；
+- `npm run check:client-build`：17 modules verified；
+- `node --check` 与 `git diff --check` 通过。
+
+**运行态证据**：
+
+- Ego Browser / 隔离 r526：
+  - `r699-undo/a.ts`（2 处）与 `b.ts`（1 处）执行 Replace All；
+  - Undo 按钮启用，点击后两文件恢复为原始 `needle`；
+  - 第二次 Replace All 后外部修改 `b.ts`；
+  - Undo 显示 `cannot undo because the file changed after replacement`，
+    `a.ts` 保持 `omega`，未被部分回滚。
+
+## 2026-11-16 — Scope XML 显式导入/导出
+
+**作用域**：Find in Files `Edit Scopes…` 的 IDEA Scope XML 互操作。
+
+**实现**：
+
+- Scope 编辑器新增 Import / Export 入口；
+- 路径必须是 workspace-relative、长度有界、以 `.xml` 结尾且不含 `..`；
+- 流程固定为 Path → Preview → 显式 Import/Export，不在选择文件后自动写入；
+- Import：
+  - 最多读取 256 KiB；
+  - 预览支持 Scope 数、跳过的不支持表达式数和同名覆盖数；
+  - 同名 Scope 由导入项替换，其他 Scope 保留；
+- Export：
+  - 只导出 `shared=true` 的 Scope；
+  - Preview 显示最终 IDEA XML；
+  - 用户点击 Export 后才调用现有 guarded write；
+- 复杂 package/language scope 表达式继续跳过，不伪造成 file glob。
+
+**回归**：
+
+- round696 新增 transfer path 校验、skipped report、Import/Export UI
+  和写文件 wiring；
+- round696：**9 pass / 0 fail**；
+- 全量 `npm test`：**2302 pass / 0 fail**；
+- `npm run check:client-build`：17 modules verified；
+- `node --check` 与 `git diff --check` 通过。
+
+**运行态证据**：
+
+- Ego Browser / 隔离 r526：
+  - `.idea/scopes/imported.xml` 含 1 个支持 Scope + 1 个 package Scope；
+  - Import Preview 显示 `Scopes: 1; skipped: 1; replacements: 0`；
+  - 导入后 `Imported Sources` 出现在 Scope 列表，include=`r698-src/**`；
+  - 搜索 2 files → 1 file；
+  - Export Preview 显示 1 个 Shared Scope 和最终 XML；
+  - `.idea/scopes/exported.xml` 与 Preview 一致。
+
+## 2026-11-16 — Find in Files Shared Scope 与 IDEA XML
+
+**作用域**：`Edit Scopes…` Shared Scope、workspace scope XML、
+Local/Shared id 穩定性和 reload 恢复。
+
+**问题**：
+
+- Local Scope 先用浏览器生成 id，转成 Shared 后 XML 只保存
+  name/pattern；刷新后重新解析会得到另一个 id，当前 Scope 选择丢失；
+- Shared Scope 不能只是一个 UI 复选框，否则会留下“看似共享、
+  实际只在本浏览器”的假状态。
+
+**实现**：
+
+- Scope 对象增加 `shared`；
+- Shared Scope id 由名称稳定派生 `shared-<fnv36>`，保存前后与
+  reload 后一致；
+- `Share through VCS` 仅在用户保存 Scope 时写
+  `.idea/scopes/dsh-editor.xml`，未勾选 Shared 的普通编辑不会创建文件；
+- 启动时只读取该明确文件，Local 继续保存在
+  `dsh-editor.find.customScopes.v1:<root>`；
+- 实现无第三方依赖的有界 IDEA XML subset：
+  - 读取 `<scope name pattern>`；
+  - 支持 `file:path//*`、`file[...]:`、`||`、`&&!file:...`、
+    XML entity；
+  - 序列化 Shared Scope 为同一简单 file-scope 形式；
+  - 含 package/language 或括号的复杂表达式跳过，不伪造语义；
+- 文件内容最大读取 256 KiB，Scope/pattern 数量沿用既有上限。
+
+**回归**：
+
+- round696 新增 XML round-trip、shared id、local storage 隔离
+  和 `.idea/scopes/dsh-editor.xml` wiring 断言；
+- round696：**8 pass / 0 fail**；
+- 全量 `npm test`：**2301 pass / 0 fail**；
+- `npm run check:client-build`：17 modules verified；
+- `node --check` 与 `git diff --check` 通过。
+
+**运行态证据**：
+
+- Ego Browser / 隔离 r526：
+  - 创建 Shared Sources：include=`r697-src/**`，
+    `Share through VCS=true`；
+  - `.idea/scopes/dsh-editor.xml` 写入
+    `pattern="file:r697-src/**"`；
+  - 搜索结果 2 files → 1 file；
+  - 整页 reload 后 Shared Scope 仍在，`custom:shared-lubpxq`
+    保持选中，搜索仍为 1 file；
+- 临时 fixture、scope XML 和本地 storage 测试项已移出/清理。
+
+## 2026-11-16 — Find in Files Edit Scopes
+
+**作用域**：IDEA Find in Files `Scope → Edit Scopes…`、
+本地命名 Scope、include/exclude glob、宿主搜索和替换范围。
+
+**IDEA 对照**：
+
+- Scopes 对话框提供 Add Scope（Local/Shared）、Delete、Copy、
+  Move Up/Down；
+- Scope 详情包含 Name、include/exclude 树、pattern 输入和
+  Share through VCS；
+- DSH 只实现可通过浏览器 workspace 真实保存的 Local Scope，
+  不伪造 Shared/VCS 或语言 module scope。
+
+**实现**：
+
+- `dsh-editor.find.customScopes.v1:<root>` 按 workspace 保存最多 30 个
+  Scope；名称 80 字符、include/exclude 各最多 40 条且单条 512 字符；
+- Scope preset 使用 `custom:<id>`，normalize 只接受安全 id；
+- `Edit Scopes…` 浮层支持新增、复制、删除、上移、下移、Name、
+  Include patterns、Exclude patterns；Cancel 不改 live state；
+- glob 支持 `*`、`**`、`?`、basename/path 和 `file:path//*` 形式；
+  空 include 表示全部，exclude 优先；
+- host searchText、dirty buffer merge、handoff、单处 Replace、
+  Replace All 和 host replaceText 全部使用同一 Scope 边界；
+- 范围外 clean target 在 host preflight 被拒绝，不会写入；
+- 删除当前选中的 Scope 后回退 Project Files。
+
+**回归**：
+
+- 新增 round696：
+  - malformed/localStorage Scope 归一化；
+  - custom preset 校验；
+  - browser/host glob 语义一致；
+  - host search 与 replace 的 include/exclude 边界；
+  - Edit Scopes 对话框和请求传播。
+- 定向 round696 / 695 / 644 / 691 / 634：
+  **24 pass / 0 fail**；
+- 全量 `npm test`：**2300 pass / 0 fail**；
+- `npm run check:client-build`：17 modules verified；
+- `node --check` 与 `git diff --check` 通过。
+
+**运行态证据**：
+
+- Ego Browser / 隔离 r526：
+  - 创建 `Fixture Sources`，include=`r696-src/**`，
+    exclude=`r696-src/generated/**`；
+  - Scope 下拉出现 custom option，搜索由 3 files 收敛为 1 file；
+  - Replace All 确认 `1 occurrence in 1 file` 后，
+    `r696-src/a.ts` 变为 `omega`，generated/b.ts 与 docs/c.ts
+    保持 `needle`。
+
+## 2026-11-16 — Find in Files 词法上下文过滤
+
+**作用域**：`Cmd/Ctrl+Shift+F` Find in Files 的
+`Filter Search Results`、宿主 `searchText` / `replaceText`、
+脏 Monaco buffer 搜索与替换。
+
+**IDEA 对照**：
+
+- 菜单固定六项：Anywhere、In Comments、In String Literals、
+  Except Comments、Except String Literals、
+  Except Comments and String Literals；
+- IDEA 选择行后以 `Return` 应用并关闭过滤菜单，结果数立即重算；
+- Anywhere → In Comments 后，结果从代码/字符串/注释混合集缩为注释命中。
+
+**实现**：
+
+- 新增共享语义但分别落在宿主与浏览器 bundle 的有界词法扫描：
+  - 0=代码，1=注释，2=字符串；
+  - 支持常见 C 系、Python、Shell/YAML、CSS、HTML/XML、
+    SQL/Lua、PHP、Rust、Markdown；
+  - 带转义、三引号、反引号、块注释、Rust 嵌套块注释处理；
+  - 未知文件类型不猜测，按普通代码处理；
+- 过滤发生在 200 条结果上限之前，前若干注释命中不会挤掉后续
+  字符串或代码命中；
+- `contextFilter` 写入搜索选项持久化；Find 搜索、dirty merge、
+  单处 Replace、Replace All 和宿主替换全部传递同一值；
+- 脏 Monaco buffer 的 `editorFindResult` / `editorReplaceAll` /
+  `editorReplaceAt` 使用同一模式；
+- 宿主正则 Replace All 对允许记录逆序重写；普通文本 Replace All
+  只拼接允许 offset；单处 Replace 对 disallowed occurrence 报
+  stale/conflict，不会误写。
+
+**回归**：
+
+- 新增 round695：
+  - TS fixture 的六种模式分别返回 5/2/2/3/3/1 条；
+  - Replace All 只改注释或只改纯代码；
+  - disallowed exact occurrence 被拒绝；
+  - dirty buffer 搜索与 Replace All 使用同一分类；
+  - UI 六项均非 disabled，选中项显示 `✓`；
+  - Find 搜索和四条替换请求全部携带 `contextFilter`。
+- 定向 round695 / 632 / 479 / 480 / 481 / 482 / 483 / 484 /
+  585 / 646 / 647 / 670：**49 pass / 0 fail**；
+- 全量 `npm test`：**2293 pass / 0 fail**；
+- `npm run check:client-build`：17 modules verified；
+- `node --check` 与 `git diff --check` 通过。
+
+**运行态证据**：
+
+- IDEA CUA：Filter Search Results 六项真实可见；Anywhere 默认 checked；
+  选择 In Comments 后结果数由 100+ / 13+ files 变为
+  100+ / 44+ files，命中内容以注释为主；
+- Ego Browser / 隔离 r526 重启宿主后：
+  - `r695-context.ts` query=`needle`，Anywhere=5；
+  - In Comments=2（第 2、4 行）；
+  - In String Literals=2（第 1、3 行）；
+  - Except Comments and String Literals=1（第 5 行）；
+  - filter 菜单选中项为 `Except Comments and String Literals`；
+  - Replace All 确认 `1 occurrence in 1 file` 后仅第 5 行变为
+    `const c = omega;`，注释和字符串中的 needle 保留。
+
+## 2026-11-16 — Project 三层懒加载澄清与 pinned Select Opened File
+
+**作用域**：Project 初始目录读取、目录点击、展开手势和
+`Select Opened File (⌥F1, 1)` 工具栏动作。
+
+**用户澄清**：
+
+- “默认加载三层”是指目录节点信息的递归读取上限，不是自动展开三层；
+- 点击目录后以 clicked path 为新起点，执行同样的三层有界读取；
+- 展开/收起仍遵循 IDEA：单击选择、双击展开，
+  开启 `Open Directories with Single Click` 后才单击展开；
+- Project 工具栏应有 IDEA 的靶心按钮，并在窄窗格中可见。
+
+**原有缺口**：
+
+- 三层 BFS 与 clicked-anchor 已存在，但缺少独立契约明确
+  “prefetch 不得写 expanded”；
+- Project 标题动作最大宽度为 76%，在最小 200px 工具窗中会占满
+  可用宽度，靶心按钮被优先推进 `»`；
+- `PanelToolbar` 只按前缀保留 left actions，不能表达 pinned 动作。
+
+**修复**：
+
+- Project title action 最大宽度收敛到 68%，为 pinned action
+  预留实际槽位；
+- `panelToolbarFit()` 新增 `pinnedLeftCount`，先为 pinned action
+  留位，再按原规则保留右侧 Options / Hide 与 overflow；
+- `PanelToolbar` 使用 `selectCompactActions()` 选择 left actions，
+  pinned 靶心不会因为位置靠后而先溢出；
+- Project `reveal` action 标记 `pinned: true`，继续复用
+  `revealActive()`：切到 Project、打开面板、展开祖先、
+  选中并滚动到当前文件；
+- 三层加载继续只写 children，不写 expanded；点击目录只把
+  用户点击的节点加入 expanded。
+
+**回归**：
+
+- 新增 round694：
+  - 200px 宽度下 pinned action 优先保留；
+  - `PanelToolbar` 使用共享 compact selection；
+  - 靶心 action 的 pinned、disabled 和 reveal wiring；
+  - prefetch helper 默认 `maxDepth=3` 且不调用 `setExpanded`；
+  - clicked directory 仍以 `[path]` 为预取起点；
+- 定向 round694 / 688 / 690 / 392 / 394 / 177 / 194 / 206：
+  **34 pass / 0 fail**。
+- 全量 `npm test`：**2287 pass / 0 fail**；
+- `npm run check:client-build`：17 modules verified；
+- `node --check` 与 `git diff --check` 通过。
+
+**运行态证据**：
+
+- Ego Browser / 隔离 r526，Project 宽 200px：
+  - 工具栏直接显示 `Select Opened File (⌥F1, 1)`；
+  - 虽仍有 `»`，靶心不再被标题路径挤掉；
+- 创建 `r694-depth1/depth2/depth3/depth4/marker.txt`：
+  - 初次刷新只显示 `r694-depth1`，且 `aria-expanded=false`；
+  - 双击 `r694-depth1` 后仅该节点展开，
+    `depth2` 仍为 `aria-expanded=false`；
+  - 没有 alert、栈溢出或 render boundary；
+- 收起 `src` 后点击靶心：
+  - `src` 自动展开；
+  - `src/nav-target.js` 可见且 `aria-selected=true`。
+
+## 2026-11-16 — TypeScript extensionless import 假错误
+
+**作用域**：Monaco TS/JS language defaults、`class_pool.ts` 等
+workspace 相对 import 和 diagnostics。
+
+**症状**：
+
+- `import {logging} from "../../logging/logging";` 可正常 Go to
+  Declaration；
+- Monaco 同时显示 TS2792 `Cannot find module`，并建议
+  `moduleResolution: nodenext` 或 `paths`。
+
+**根因**：
+
+- Monaco TS worker 只注册当前打开的 model，没有插件 workspace 的
+  完整 tsconfig/project service；
+- extensionless 相对 import 指向未打开文件时，worker 无法解析；
+- 插件自己的 workspace 导航先读候选路径，所以点击可以成功，
+  与 worker 的 module-not-found 诊断产生冲突。
+
+**修复**：
+
+- 新增 `configureMonacoLanguageDiagnostics()`；
+- TS/JS defaults 设置：
+  - `moduleResolution: NodeJs`；
+  - `module: ESNext`；
+  - `allowSyntheticDefaultImports` / `resolveJsonModule`；
+- 只忽略 `TS2307` 与 `TS2792` 两类 module-not-found；
+- 不设置 `noSemanticValidation` / `noSyntaxValidation`，
+  其他语义错误和语法错误继续显示；
+- Monaco 已加载与首次 AMD 加载两条路径都会应用配置。
+
+**回归**：
+
+- 新增 round693：
+  - fake TS/JS defaults 验证诊断码与 compilerOptions；
+  - loader 在 resolve Monaco 前调用配置；
+- 定向 round693 / editor-round16 / round329 / static-order：
+  **20 pass / 0 fail**；
+- 全量 `npm test`：**2283 pass / 0 fail**；
+- `npm run check:client-build`：17 modules verified；
+- `node --check` 与 `git diff --check` 通过。
+
+**运行态证据**：
+
+- Ego Browser / 隔离 r526 加载真实
+  `src/lang/base/object/class_pool.ts` 和 `logging.ts`：
+  - `moduleErrors=[]`；
+  - 剩余 markers 仅为 `6133` unused suggestions；
+  - 人为追加 `const = ;` 后仍出现 `TS1134` 语法错误；
+  - compilerOptions=`moduleResolution:2,module:99`。
+
+## 2026-11-16 — Find in Files Current File Scope 与 Replace 行
+
+**作用域**：`Cmd/Ctrl+Shift+F` floating Find in Files、Scope preset、
+Replace 行和 Replace All allowedPaths。
+
+**IDEA CUA 对照**：
+
+- IDEA Find in Files 在 Search 模式也直接显示 Replace 行；
+- IDEA Scope 预设包含 Current File；
+- DSH 之前 floating 默认隐藏 Replace 行，Scope 只有
+  Project Files / Open Files / Changed Files。
+
+**实现**：
+
+- `normalizeFindSearchScope()` 接受并持久化 `currentFile`；
+- Scope 下拉新增 Current File；
+- FindTool 的 currentFile allowedPaths 为当前 active file；
+- EditorWorkspace 的 host searchText、dirty merge、单点 Replace、
+  Replace All 共用 `currentCodePath()` 生成的 Current File allowedPaths；
+- floating Find in Files 的 `replaceExpanded` 初始为 true；
+- 持久 Find dock 仍从 compact search mode 开始，只在 replace mode 展开；
+- 用户可继续使用 Replace toggle 收起 floating Replace 行。
+
+**回归**：
+
+- 新增 round691：
+  - currentFile scope normalization；
+  - Scope option；
+  - host allowedPaths；
+  - floating Replace default；
+- 更新 round631 floating/dock contract；
+- 定向 round691 / 628 / 630 / 631 / 633 / 644 / 651 /
+  static-order：**39 pass / 0 fail**。
+
+**运行态证据**：
+
+- Ego Browser / 隔离 r526：
+  - `Cmd+Shift+F` 初始 Replace 输入可见；
+  - Scope 下拉含 `Current File`；
+  - active file 为 `src/nav-main.js`；
+  - query=`TerminalHub` 时只返回 2 matches in 1 file；
+  - 结果两行都来自 `nav-main.js`，无 nav-target.js 命中。
+
+## 2026-11-16 — Project 默认三层目录预取
+
+**作用域**：Project 首次加载、目录点击、children 缓存、
+expanded 状态和共享目录遍历 helper。
+
+**用户要求**：
+
+- 默认预加载前 3 层子目录的节点信息；
+- 预加载不等于展开，后代目录仍保持 collapsed；
+- 点击目录时以 clicked node 为根执行同样的预取；
+- UI 只展开用户点击的目录，更深内容继续按需加载。
+
+**实现**：
+
+- 新增 `prefetchDirectorySubtrees()`：
+  - 只返回 children 缓存；
+  - 不包含 expanded；
+  - 起点按第 1 层计算，默认预取 3 层；
+- 新增 `PROJECT_PREFETCH_DEPTH = 3` 与
+  `PROJECT_PREFETCH_VISIT_LIMIT = 200`；
+- workspace 加载后从顶层目录静默预取三层，不写 expanded storage；
+- `toggleDirectory()`：
+  - 刷新 clicked directory；
+  - 以 clicked path 为起点继续预取三层；
+  - 只把 clicked path 加入 expanded；
+  - Compact Directories 会把同一视觉单链路径视作一个节点；
+- `expandDirectorySubtrees()` 继续只服务 Expand Selected / Expand All；
+- flattenRows 的 iterative DFS、cycle guard 和 depth/row cap 保持不变。
+
+**回归**：
+
+- 新增 round690：
+  - prefetch 精确读取 3 层；
+  - prefetch 返回值没有 expanded；
+  - clicked directory anchored prefetch；
+  - startup prefetch 不修改可见 expanded；
+  - compact chain 仍作为单一视觉节点；
+- 更新 round206 compact-chain 契约；
+- 定向 round690 / 327 / 206 / 27 / 688：
+  **36 pass / 0 fail**；
+- 全量 `npm test`：**2281 pass / 0 fail**；
+- `npm run check:client-build`：17 modules verified；
+- `node --check` 与 `git diff --check` 通过。
+
+**运行态证据**：
+
+- Ego Browser / 隔离 r526 创建
+  `depth1/depth2/depth3/depth4` 临时链：
+  - 首次打开只有 depth1/docs/src 等顶层 row；
+  - depth1 保持 `aria-expanded=false`，三层后代没有出现在 UI；
+  - 点击 depth1 后只展开 depth1，depth2 仍为 collapsed；
+  - expanded 只新增 `depth1`；
+  - 无 alert、无栈溢出。
+
+## 2026-11-16 — Focused 文件 Tab 的 Go to Line/Column
+
+**作用域**：Editor 文件 tab、左侧/右侧 Monaco、`⌘/Ctrl+L`
+行列跳转浮层。
+
+**用户要求**：
+
+- focused 的文件 tab 中按 `⌘L` 打开行列输入框；
+- 输入行或 `行:列` 后跳到对应编辑器位置；
+- 交互参考 IDEA：Enter 跳转、Esc 关闭、非法输入可继续修正。
+
+**根因 / 缺口**：
+
+- `⌘L` 只存在于 Monaco action，焦点在 tab DOM 时不触发；
+- 文件 tab 没有 `role="tab"` / `tabIndex`，不存在真正的 focused tab；
+- 原 Go to Line 是插入文档流的 30px bar，会推动编辑器；
+- invalid 输入会关闭输入条并复用“名称不能含斜杠”的错误。
+
+**实现**：
+
+- 新增 `parseGotoLinePosition()`：
+  - 接受 `12`、`12:7`、`12,7`；
+  - 行列必须为从 1 开始的安全整数；
+- 新增 `gotoLineShortcutMatches()`，只匹配无 Alt/Shift 的
+  `⌘/Ctrl+L`；
+- 左右文件 tab 增加 `role="tab"`、`aria-selected`、
+  active-tab roving `tabIndex` 和 focus-visible；
+- tab 自身及 Editor workspace 捕获快捷键；Terminal、Diff、
+  Find dock、Search Everywhere 保持自己的键盘域；
+- `gotoState` 保存目标 `path` 与 `pane`，不再依赖随后变化的
+  `focusedEditorRef`；
+- Go to Line/Column 改为绝对定位浮层，不改变编辑器布局；
+- 非法输入保留浮层、标记 `aria-invalid`、显示 alert 并选中输入；
+- Enter 复用 `revealLines(path,line,column,pane)`，Esc 关闭并
+  回焦对应 Monaco。
+
+**回归**：
+
+- 新增 round689 覆盖 parser、快捷键、tab 可聚焦、
+  popup 语义、目标 path/pane 和 invalid 保留；
+- 更新 round331 的 focused reveal 与 commit 契约；
+- 定向 round689 / 331 / 329 / editor-round16 / round148 /
+  static-order：**36 pass / 0 fail**；
+- 全量 `npm test`：**2273 pass / 0 fail**；
+- `npm run check:client-build`：17 modules verified；
+- `node --check` 与 `git diff --check` 通过。
+
+**运行态证据**：
+
+- Ego Browser / 隔离 r526：
+  - 点击 `nav-main.js` 后 activeElement 为该 `role="tab"`；
+  - `⌘L` 打开 `role="dialog"`，输入框获得焦点；
+  - 输入 `3:5` 后 Enter，Monaco caret=`3:5`，状态栏同步 `3:5`；
+  - `⌘L` 输入 `bad` 后 Enter，浮层保留并显示
+    `Enter a valid line or line:column`；
+  - Esc 关闭浮层并回焦 Monaco；
+  - 页面 URL 未变成浏览器地址栏编辑状态。
+
+## 2026-11-16 — Project 树递归栈溢出
+
+**作用域**：Editor Project view 的 `flattenRows()`、异常
+`children` / `expanded` 数据和 React workspace error boundary。
+
+**症状 / 原始错误**：
+
+- `RangeError: Maximum call stack size exceeded`；
+- 调用链在 `append -> Array.forEach -> append` 之间反复递归；
+- 随后触发 `dsh-editor: workspace render failed`，整个 Editor
+  surface 被 error boundary 替换。
+
+**根因**：
+
+- `flattenRows()` 使用函数递归展开目录；
+- 如果 children 数据出现自身/祖先环，或 expanded 中存在超深路径，
+  递归没有 visited、深度和总行数 guard；
+- 该异常发生在 React render 期间，不能依赖运行后恢复。
+
+**修复**：
+
+- 将递归 `append()` 改为显式 DFS frame 栈；
+- frame 保存 `depth`、祖先 `continues`、`pathTrace` 和手动排序位置；
+- 子目录路径命中自身祖先链时跳过重复行，阻断 self/ancestor cycle；
+- 最大展开深度 128，总行数上限 20000；
+- 保留原排序、Compact Directories、空目录 placeholder、
+  `depth` / `continues`、键盘和 A11y 数据契约。
+
+**回归**：
+
+- 新增 round688：
+  - self-cycle 不再栈溢出；
+  - 间接 ancestor cycle 被截断；
+  - 300 层 chain 输出有界；
+  - sibling + Compact Directory 输出保持稳定；
+- RED：round688 初始 **1 pass / 3 fail**，两个 cycle 均复现
+  `Maximum call stack size exceeded`；
+- 定向 round688 / 27 / 132 / 206 / 242 / 272 / 562 / 664：
+  **36 pass / 0 fail**；
+- 全量 `npm test`：**2268 pass / 0 fail**；
+- `npm run check:client-build`：17 modules verified；
+- `node --check` 与 `git diff --check` 通过。
+
+**同页 manifest 401 边界**：
+
+- `http://192.168.2.172:3081/manifest.webmanifest` 返回 401，
+  是 DSH Pocket 登录保护层在静态资源之前拦截；
+- 该请求由浏览器在插件加载前后独立发出，`dsh-editor`
+  客户端无法修改已经发生的 401；
+- 正确 host 修复是让 `/manifest.webmanifest`（连同 favicon）
+  通过未认证静态 allowlist，再交给 web frontend 的
+  `serveWebDocument`；当前工作区没有 DSH Pocket host 源码，
+  因此本轮不在插件里添加无效 workaround。
+
+## 2026-11-16 — 声明跳转与编辑器 Back / Forward 历史
+
+**作用域**：Editor 的 Go to Declaration、跨文件 import 定位、
+多语言声明识别，以及 `⌘[ / ⌘]` 编辑位置导航历史。
+
+**用户要求**：
+
+- 点击 `TerminalHub` 时从
+  `import { TerminalHub, encodeSse } from './terminal.js';`
+  跳到 `terminal.js` 的 class 声明；
+- 其他语言的函数、方法和类型也应类似解析；
+- 跳转后 `⌘[` 后退、`⌘]` 前进，类似浏览器或 IDEA Back / Forward。
+
+**实现**：
+
+- JS/TS 命名 import、alias、default、namespace、CommonJS 和
+  Python import 继续精确解析目标模块；
+- 声明 regex 扩展到：
+  JS/TS class method、Java/Kotlin/C#/Scala/Dart method、
+  Swift function、C/C++ function/type、Go/Rust/PHP/Ruby/Shell；
+- 工作区搜索回退增加 `symbol(` 查询，再由
+  `findDefinitionInText()` 二次确认真实声明，覆盖自定义返回类型；
+- 新增 `normalizeNavigationLocation()`、
+  `navigationHistoryRecord()`、`navigationHistoryStep()`：
+  - 新导航清空 forward；
+  - back / forward 互相搬运当前位置；
+  - 历史上限 200；
+- `openFileAtLocation()` 统一记录来源；声明跳转传入实际点击
+  `{path,line,column}`；
+- 两个 Monaco editor group 均注册：
+  `⌘[ / Ctrl+[` Back，`⌘] / Ctrl+]` Forward；
+- `navigationCurrentLocationRef` 保持最近一次真实导航目标，
+  避免异步 model 绑定期间读取到默认 `1:1`；
+- 文件定位改用 `pendingReveal`，只在目标 model 已绑定后设置
+  selection，修复“文件切换成功但光标落在第 1 行第 1 列”的竞态。
+
+**回归**：
+
+- round685 增加 Java 自定义返回类型、JS class method、C function、
+  Swift function 和工作区回退确认；
+- 新增 round687 覆盖历史栈、清空 forward、边界、快捷键、
+  来源记录和历史遍历不递归；
+- 更新 round530 / 545 / 547 / 548 / 671 的旧数量和模块清单；
+- 定向 round685 / 687 / 530 / 545 / 547 / 548 / 671 /
+  static-order：**38 pass / 0 fail**；
+- 全量 `npm test`：**2264 pass / 0 fail**；
+- `npm run check:client-build`：17 modules verified；
+- `node --check` 与 `git diff --check` 通过。
+
+**运行态证据**：
+
+- Ego Browser / 隔离 r526：
+  - `⌘+点击 TerminalHub` 后打开 `src/nav-target.js`，
+    caret=`1:14`，落在 class `TerminalHub`；
+  - `⌘[` 回到 `src/nav-main.js` 原点击位置 `1:11`；
+  - `⌘]` 再回到 `src/nav-target.js` `1:14`；
+  - `⌘+点击 encodeSse` 定位 function 声明 `7:17`；
+  - 三次跳转后焦点均保持在 Monaco；
+  - 无 alert / status 错误。
+
+## 2026-11-16 — 状态栏路径前移与点击复制
+
+**作用域**：Editor 底部状态栏、中文 locale、状态路径按钮和
+剪贴板反馈。
+
+**本轮最终行为**：
+
+- 行列使用纯 `row:column`，中文和英文都不再附带“行 / 列”或
+  `Ln / Col` 单位；
+- 状态栏顺序固定为 `行列 → UTF-8 → 总行数 → 绝对路径 → 选区 → 操作`；
+- 绝对路径改为原生 `button`，保留完整 `title`、
+  `data-dsh-editor-status-path`、可见 hover/focus 状态和键盘激活；
+- 点击成功后通过既有 transient status notice 显示精确文案
+  `已复制`，失败显示 `浏览器拒绝了剪贴板写入`；
+- 新增 `statusPathCopied` / `copyStatusPath` 双语文案，
+  round114 将 `{line}:{column}` 视为语言中立的占位格式。
+
+**回归**：
+
+- 更新 round684，锁定中文 `{line}:{column}` 不再含单位；
+- 新增 round686，锁定编码/行数位于路径前、路径按钮、
+  clipboard 调用、精确 toast 和 hover/focus 契约；
+- 定向 round114 / 684 / 686 / editor-round14 / editor-round16 /
+  round148 / round676：**35 pass / 0 fail**；
+- `node scripts/build-client.mjs`：17 modules；
+- `git diff --check` 通过。
+
+**运行态证据与边界**：
+
+- Ego Browser / 隔离 r526 刷新后实际显示
+  `1:1`、`UTF-8`、`10 lines`、绝对路径，顺序符合要求；
+- 路径元素为带 `Copy path: <absolute>` 可访问名称的按钮；
+- Ego 对随后用于回读的 `navigator.clipboard.readText()` 弹出
+  浏览器剪贴板权限提示，因此本轮未完成 clipboard read-back；
+  点击写入逻辑由 round686 契约覆盖；
+- 全量测试为 **2252 pass / 6 fail**；6 项均为本任务之前已存在的
+  round548 / round671 / round685 未完成契约，不属于本次状态栏改动。
+
+## 2026-11-16 — 压缩文件路径栏与编辑器状态栏
+
+**作用域**：Editor 文件 tabs、tabs 下方导航路径、状态栏、Markdown
+模式切换和 Project 打开文件后的焦点归属。
+
+**用户要求**：
+
+- 删除文件内容上方单独的全路径/导航路径行；
+- 绝对路径显示在状态栏行列之后；
+- 行列使用 `行:列` 紧凑形式；
+- 移除 `␣N`、`LF`、`Saved/Unsaved` 状态文字。
+
+**实现**：
+
+- 删除 breadcrumb render 与对应样式；
+- 状态栏顺序改为 `行:列`、绝对路径、编码、行数；
+- 中文 locale 使用 `{line}行:{column}列`，英文使用 `{line}:{column}`；
+- 状态路径保留完整 `title` 和 `data-dsh-editor-status-path`；
+- Markdown 模式切换迁移到 tabs 右侧 sticky 尾区，避免额外占一行；
+- 状态文件改为“右侧 split 聚焦时取 split，否则取 active 文件”，
+  防止 Project 打开新文件但焦点仍在树上时继续显示旧路径。
+
+**运行态证据**：
+
+- Ego Browser / 隔离 r526：
+  - `Navigation path` 数量为 0；
+  - `app.js` 状态栏显示 `1:1` 和绝对路径；
+  - 切到 `README.md` 后路径同步更新；
+  - 无 `␣N`、`LF`、`Saved/Unsaved`；
+  - Markdown 三模式按钮在 tab strip 内可见；
+  - 无 alert。
+
+**回归**：
+
+- 新增 round684，锁定状态栏路径顺序、路径行移除、紧凑 locale 和
+  状态项删除；
+- 更新 round332 的 split 焦点表达式；
+- 更新 round59 tab strip 溢出断言覆盖新增 sticky 尾区。
+
+**验证**：
+
+```bash
+npm run build:client
+node --test tests/round684.test.mjs tests/editor-round14.test.mjs \
+  tests/editor-round16.test.mjs tests/round148.test.mjs \
+  tests/round676.test.mjs
+git diff --check
+```
+
+- RED：round684 初始 **0 pass / 4 fail**；
+- 定向：**28 pass / 0 fail**；
+- 全量：**2246 pass / 0 fail**；
+- 构建检查：16 modules verified。
+
+## 2026-11-16 — Search Everywhere 零结果仍可转入 Find dock
+
+**作用域**：Search Everywhere 的
+`Open in Find Tool Window` 入口、零结果 handoff 和底部 Find dock。
+
+**症状 / 根因**：
+
+- 入口曾把 `fileMatches.length === 0` 也作为禁用条件；
+- 这与 IDEA 不一致：非空 query 即使没有 Files/Text 结果，仍允许将查询
+  转入持久 Find 工具窗；只有空 query 才应禁用。
+
+**修复**：
+
+- 禁用条件收窄为 `effectiveQuery === ''`；
+- 零结果 handoff 继续传递原 query、搜索选项和空 `files` / `matches`；
+- round683 锁定该条件，round467 / round488 同步更新。
+
+**运行态证据**：
+
+- IDEA CUA：输入不存在的非空 query 时入口可用，清空后才禁用；
+- Ego Browser / 隔离 r526：
+  - `r683_no_such_symbol_zzzz` 显示 `No matches`；
+  - Open in Find Tool Window `disabled=false`；
+  - 点击后 dock query 完全一致，active row 为 0；
+  - layout=`split`，Preview 显示选择左侧结果提示，无 alert。
+
+**验证**：
+
+```bash
+node --test tests/round683.test.mjs tests/round488.test.mjs \
+  tests/round467.test.mjs tests/round500.test.mjs \
+  tests/round501.test.mjs tests/round635.test.mjs
+npm run check:client-build
+git diff --check
+```
+
+- 定向：**24 pass / 0 fail**；
+- 全量：**2242 pass / 0 fail**；
+- 构建检查：16 modules verified。
+
+## 2026-11-16 — 补齐文件名与扩展名语言着色映射
+
+**作用域**：Monaco 编辑器、Diff、Search Preview 共用的
+`languageFor()` / `safeLanguage()`。
+
+**症状 / 根因**：
+
+- `.mjs` 和 `.yml` 已有扩展名映射，但 `Cargo.lock`、`deno.lock`
+  仅按 `lock` 扩展名解析，最终落到 plaintext；
+- 特殊完整文件名、dotfile 和多种常见格式没有统一映射。
+
+**修复**：
+
+- 新增大小写不敏感的 `LANGUAGE_BY_FILENAME`；
+- 明确：
+  - `Cargo.lock -> yaml`；
+  - `deno.lock -> json`；
+  - Dockerfile/Containerfile、Gemfile/Rakefile/Podfile、
+    go.mod/go.sum、常见 lock 和 rc 文件；
+- `.env.*` 映射 INI；`Dockerfile.*` / `Containerfile.*` 映射 Dockerfile；
+- 扩展映射补充 JSON5/JSONL/NDJSON/GeoJSON、GraphQL、Protobuf、
+  HCL/Terraform、Solidity、reStructuredText、F#、Scala、Clojure、
+  Elixir、Julia、CoffeeScript、Liquid、Handlebars、Pug、Razor、
+  Tcl、VB、Pascal、Perl、BAT/CMD 等；
+- MDX 改用 Monaco 原生 `mdx` language id；
+- `safeLanguage()` 继续确保 Monaco 不支持的语言安全回退 plaintext。
+
+**运行态证据**：
+
+- Ego Browser / 隔离 r526：
+  - `Cargo.lock` model language=`yaml`；
+  - `deno.lock`=`json`；
+  - `r682-config.YML`=`yaml`；
+  - `r682-module.MJS`=`javascript`；
+- 无 alert。
+
+**验证**：
+
+```bash
+node --test tests/round682.test.mjs tests/round375.test.mjs \
+  tests/round671.test.mjs
+npm run build:client
+```
+
+- RED：round682 初始 **1 fail**；
+- 定向：**9 pass / 0 fail**；
+- 全量：**2240 pass / 0 fail**；
+- 构建检查：16 modules verified。
+
+## 2026-11-16 — 移除 Project 树 L 形缩进拐角
+
+**作用域**：Editor Project tree 的缩进 guide，尤其是
+`src/client/*.js` 这类深层文件行。
+
+**症状 / 根因**：
+
+- 子树最后一项被 `guideKind()` 标记为 `corner`；
+- renderer 用 `indentGuideCorner` 同时绘制左边线和底部短线，形成 `└`；
+- 深层目录文件最明显，看起来像文件左侧多了一个 `L` 图标。
+
+**修复**：
+
+- `guideKind()` 对最后一项返回 `none`；
+- renderer 只保留 `indentGuide` 与 `indentGuideStop`；
+- 删除 `indentGuideCorner` 样式，保留 14px 占位以维持层级对齐；
+- round133 / round139 更新为禁止 elbow，round681 锁定该反馈。
+
+**运行态证据**：
+
+- fixture 中展开 `src/client/sample.js` 后：
+  - guide `borderLeft: 1px`；
+  - `borderBottom: 0px`；
+  - `borderBottomLeftRadius: 0px`；
+- JS 文件图标、名称和选中态正常，无 alert。
+
+**验证**：
+
+```bash
+node --test tests/round681.test.mjs tests/round133.test.mjs \
+  tests/round139.test.mjs
+npm run build:client
+```
+
+- RED：round681 初始 **1 fail**；
+- 全量：**2237 pass / 0 fail**；
+- 构建检查：16 modules verified。
+
+## 2026-11-16 — Project 顶层多选移动与删除保护
+
+**作用域**：Project Files 顶层多选、F6 Move to…、批量 Delete 与
+未保存 Editor tab。
+
+**运行态证据**：
+
+- 隔离 r526 顶层 `r680-a.txt`、`r680-b.txt` 与 `r680-dest`；
+- Meta 多选两个文件后 F6 选择 `r680-dest`，两个文件都移动到该目录；
+- 打开 `r680-dest/r680-a.txt` 并写入未保存内容；
+- 多选两项 Delete：
+  - 第一个确认显示 2 个选中项；
+  - 第二个确认点名 dirty 文件；
+  - 取消 dirty 确认后文件和 dirty tab 都保留；
+- 无 alert；临时目录已清理。
+
+**结论**：现有批量规划、move picker、dirty 二次确认顺序正确，本轮
+不需要产品代码修改。对应契约由 round27 / round51 / round64 /
+round113 覆盖。
+
+**当前全量**：**2236 pass / 0 fail**。
+
 ## 2026-11-16 — 深色 tab close 焦点态与中键关闭
 
 **作用域**：Editor 文件 tab close 控件、深色主题 media emulation 与
@@ -1020,7 +2839,9 @@ git diff --check
 - 不在 replacement history 中 trim 后保存；
 - 不因为 `trim() === ''` 丢弃纯空白替代文本；
 - 不用 query history 代替 replacement history；
-- 不把空字符串也保留成可回放条目，空 replacement 仍由当前输入直接表达。
+- ~~不把空字符串也保留成可回放条目，空 replacement 仍由当前输入直接
+  表达。~~ **已被第 711 轮修正**：IDEA CUA 证明空 replacement 是真实
+  删除操作，当前实现保留空历史条目并支持 replay。
 
 ## 2026-11-16 — Find 历史精确 replay 与 Workspace 隔离
 
@@ -1041,7 +2862,8 @@ History replay、workspace 切换。
   `rememberFindQueryHistory()`；
 - 按 workspace 保存到
   `dsh-editor.find.query.history:<workspace-root>`，newest-first、
-  exact dedupe、最多 20 条，只拒绝真正的空字符串；
+  exact dedupe、最多 20 条；第 711 轮进一步允许 IDEA 可回放的空 query
+  条目；
 - Find 搜索、Replace All 和单点 Replace 成功后写入该历史；
   `FindToolWindow.queryHistory` 使用 `recentFindQueries`；
 - workspace root effect 切换时重新加载当前项目的精确历史；

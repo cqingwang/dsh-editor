@@ -85,7 +85,9 @@
       /* ⌘/Ctrl+F inside the tool window filters the tree in place, like IDEA. */
       React.useEffect(() => {
         const onKeyDown = (event) => {
-          if (!(event.metaKey || event.ctrlKey) || event.altKey || event.key.toLowerCase() !== 'f') return;
+          /* Shift+Cmd/Ctrl+F is IDEA's Find in Files. The Project speed search
+             owns only the unshifted chord, even when focus is outside Monaco. */
+          if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey || event.key.toLowerCase() !== 'f') return;
           const host = event.target instanceof Element ? event.target.closest('[data-dsh-editor-workspace]') : null;
           if (host === null) return;
           /* The editor owns ⌘F when its textarea has focus. */
@@ -222,7 +224,10 @@
           ariaLabel: t('editor.project'),
           icon: 'project',
           title: t('editor.project'),
-          titleActionStyle: { maxWidth: '76%' },
+          /* Leave one measured slot for the pinned Select Opened File action.
+           * At the minimum Project width, 76% let the project path consume the
+           * entire action row and pushed the target into "»". */
+          titleActionStyle: { maxWidth: '68%' },
           titleAction: React.createElement(
             'span',
             { style: styles.projectViewTitle },
@@ -293,6 +298,10 @@
               group: 'navigation',
               icon: 'target',
               label: t('editor.reveal'),
+              /* IDEA keeps Select Opened File in the direct Project toolbar;
+                 unlike New/Expand/Collapse it must not disappear first when the
+                 tool window narrows. */
+              pinned: true,
               disabled: hasActiveFile !== true,
               ariaKeyShortcuts: 'Alt+F1 1',
               onClick: onReveal,
@@ -541,7 +550,6 @@
                 'aria-expanded': isDirectory ? open : undefined,
                 'aria-selected': selected,
                 onClick: (event) => {
-                  onSelect(row, event);
                   if (event.metaKey || event.ctrlKey || event.shiftKey) return;
                   if (isDirectory) {
                     if (row.root !== true && openDirectoriesSingleClick === true) onToggle(row.path);
@@ -554,9 +562,9 @@
                    advertised keys (F2, Delete, ⌘F, typeahead) never reached it. */
                 onMouseDown: (event) => {
                   if (event.button !== 0) return;
-                  if (event.metaKey || event.ctrlKey || event.shiftKey) return;
                   if (event.target instanceof Element && event.target.closest('input') !== null) return;
                   treeRef.current?.focus();
+                  onSelect(row, event);
                 },
                 /* IDEA's default Project gesture opens a file on double-click;
                    "Open Files with Single Click" is an explicit preference. This
@@ -634,8 +642,7 @@
                     const kind = guideKind({ continues: row.continues, index, depth: row.depth });
                     return React.createElement('span', {
                       key: index,
-                      /* The last child elbows into its row (└), IDEA's tree. */
-                      style: kind === 'corner' ? styles.indentGuideCorner : kind === 'line' ? styles.indentGuide : styles.indentGuideStop,
+                      style: kind === 'line' ? styles.indentGuide : styles.indentGuideStop,
                     });
                   })
                 : null,

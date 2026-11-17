@@ -1532,6 +1532,50 @@
     }
 
     /**
+     * Scroll offset that places one preview line at the vertical centre.
+     *
+     * The rendered window may contain the complete short file, but the scroll
+     * container still starts at zero. This helper converts absolute viewport
+     * boxes into a clamped scrollTop so both short and truncated previews focus
+     * the active match instead of the first physical line.
+     * @param {{containerTop:number, containerHeight:number, scrollTop:number, scrollHeight:number, lineTop:number, lineHeight:number}} metrics - layout boxes.
+     * @returns {number} clamped scrollTop.
+     */
+    function previewLineScrollTop(metrics = {}) {
+      const containerTop = Number(metrics.containerTop);
+      const containerHeight = Math.max(0, Number(metrics.containerHeight) || 0);
+      const current = Math.max(0, Number(metrics.scrollTop) || 0);
+      const scrollHeight = Math.max(containerHeight, Number(metrics.scrollHeight) || containerHeight);
+      const lineTop = Number(metrics.lineTop);
+      const lineHeight = Math.max(0, Number(metrics.lineHeight) || 0);
+      if (![containerTop, lineTop].every(Number.isFinite)) return current;
+      const centred = current + lineTop - containerTop - (containerHeight - lineHeight) / 2;
+      return Math.max(0, Math.min(scrollHeight - containerHeight, centred));
+    }
+
+    /**
+     * Centre one rendered preview line inside its own scroll container.
+     * @param {HTMLElement|null} container - preview scroll body.
+     * @param {HTMLElement|null} lineNode - active preview line.
+     * @returns {boolean} whether the container was scrolled.
+     */
+    function centerPreviewLineInContainer(container, lineNode) {
+      if (container === null || lineNode === null) return false;
+      if (typeof container.getBoundingClientRect !== 'function' || typeof lineNode.getBoundingClientRect !== 'function') return false;
+      const containerRect = container.getBoundingClientRect();
+      const lineRect = lineNode.getBoundingClientRect();
+      container.scrollTop = previewLineScrollTop({
+        containerTop: containerRect.top,
+        containerHeight: container.clientHeight,
+        scrollTop: container.scrollTop,
+        scrollHeight: container.scrollHeight,
+        lineTop: lineRect.top,
+        lineHeight: lineRect.height,
+      });
+      return true;
+    }
+
+    /**
      * Record the absolute offset where every physical text line starts.
      * @param {string} content - complete text.
      * @returns {number[]} zero-based line-start offsets.
@@ -1952,7 +1996,7 @@
      * Scope narrows to the selected truthful preset.
      * @param {string} path - workspace-relative path.
      * @param {'project'|'directory'|'scope'} mode - selected scope family.
-     * @param {{directory?: string, preset?: 'projectFiles'|'openFiles'|'changedFiles', allowedPaths?: Set<string>|string[]}} options - scope data.
+     * @param {{directory?: string, recursive?: boolean, preset?: 'projectFiles'|'openFiles'|'changedFiles'|'currentFile'|'recentlyViewedFiles'|'gitTrackedFiles'|'gitNonIgnoredFiles', allowedPaths?: Set<string>|string[]}} options - scope data.
      * @returns {boolean} whether the path participates.
      */
     function findToolPathMatchesScope(path, mode, options = {}) {
@@ -1962,15 +2006,57 @@
         const directory = rawDirectory === '.' || rawDirectory === '/'
           ? ''
           : rawDirectory.replace(/^\.\/+/u, '').replace(/\/+$/u, '');
+        if (options.recursive === false) {
+          const parent = path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '';
+          return parent === directory;
+        }
         if (directory === '') return true;
         return path === directory || path.startsWith(`${directory}/`);
       }
       if (mode === 'scope') {
-        if (options.preset === 'projectFiles') return true;
+        if (options.customScope !== null && typeof options.customScope === 'object') {
+          return findScopePatternsMatch(
+            path,
+            options.customScope.includePatterns,
+            options.customScope.excludePatterns,
+          );
+        }
+        if (
+          options.preset === 'projectFiles'
+          || options.preset === 'gitTrackedFiles'
+          || options.preset === 'gitNonIgnoredFiles'
+        ) return true;
         const allowed = options.allowedPaths instanceof Set
           ? options.allowedPaths
           : new Set(Array.isArray(options.allowedPaths) ? options.allowedPaths : []);
         return allowed.has(path);
+      }
+      return true;
+    }
+
+    /**
+     * Whether one Find Scope preset has the data it needs to be actionable.
+     * The option remains visible but disabled when unavailable, matching IDEA's
+     * "present but not currently selectable" behavior for context-bound scopes.
+     * @param {string} preset - normalized Scope preset.
+     * @param {{gitAvailable?: boolean, recentFileCount?: number, openFileCount?: number, currentFileAvailable?: boolean, changedFileCount?: number}} context - availability.
+     * @returns {boolean} true when the preset can produce a real result set.
+     */
+    function findSearchScopePresetAvailable(preset, context = {}) {
+      if (preset === 'gitTrackedFiles' || preset === 'gitNonIgnoredFiles') {
+        return context?.gitAvailable === true;
+      }
+      if (preset === 'recentlyViewedFiles') {
+        return Math.max(0, Number(context?.recentFileCount) || 0) > 0;
+      }
+      if (preset === 'openFiles') {
+        return Math.max(0, Number(context?.openFileCount) || 0) > 0;
+      }
+      if (preset === 'currentFile') {
+        return context?.currentFileAvailable === true;
+      }
+      if (preset === 'changedFiles') {
+        return Math.max(0, Number(context?.changedFileCount) || 0) > 0;
       }
       return true;
     }
@@ -2003,28 +2089,27 @@
     /**
      * Preserve one exact Find query, including newline and surrounding space.
      * @param {unknown} entry - stored or newly entered query.
-     * @returns {string} exact query, or an empty sentinel.
+     * @returns {string} exact query, including IDEA's replayable empty entry.
      */
     function normalizeFindQueryHistoryEntry(entry) {
-      return typeof entry === 'string' && entry !== '' ? entry : '';
+      return typeof entry === 'string' ? entry : '';
     }
 
     /**
      * Keep bounded, exact, newest-first Find query history.
      * @param {unknown[]} history - stored entries.
-     * @param {string} [query=''] - newly executed exact query.
+     * @param {string|undefined} query - newly executed exact query; undefined
+     *   when only normalizing stored entries.
      * @param {number} [limit=20] - maximum retained queries.
      * @returns {string[]} exact query history.
      */
-    function rememberFindQueryHistory(history, query = '', limit = 20) {
+    function rememberFindQueryHistory(history, query, limit = 20) {
       const entries = (Array.isArray(history) ? history : [])
-        .map((entry) => normalizeFindQueryHistoryEntry(entry))
-        .filter((entry) => entry !== '');
-      const next = normalizeFindQueryHistoryEntry(query);
-      if (next === '') {
+        .filter((entry) => typeof entry === 'string');
+      if (typeof query !== 'string') {
         return [...new Set(entries)].filter((entry, index, list) => list.indexOf(entry) === index).slice(0, limit);
       }
-      return [next, ...entries.filter((entry) => entry !== next)]
+      return [query, ...entries.filter((entry) => entry !== query)]
         .filter((entry, index, list) => list.indexOf(entry) === index)
         .slice(0, limit);
     }
@@ -2326,7 +2411,7 @@
             errorMessage: null,
           };
         }
-        const rewritten = editorReplaceAll(model.getValue(), query, replacement, options);
+        const rewritten = editorReplaceAll(model.getValue(), query, replacement, { ...options, path });
         if (rewritten.error !== null) {
           return {
             dirtyMatches,
@@ -2413,6 +2498,43 @@
     }
 
     /**
+     * Count UTF-8 bytes without depending on Node's Buffer in the browser.
+     * @param {unknown} value - text retained by a replace snapshot.
+     * @returns {number} encoded byte length.
+     */
+    function replaceHistoryTextBytes(value) {
+      const text = String(value ?? '');
+      if (typeof TextEncoder === 'function') return new TextEncoder().encode(text).byteLength;
+      return text.length * 2;
+    }
+
+    /**
+     * Append one Find replace operation to a bounded client history stack.
+     * The host applies the same 20-operation / 16 MiB limits to clean content;
+     * this budget covers dirty buffer payload retained by the browser.
+     * History stays contiguous: once the budget is exceeded, that operation
+     * and every older operation are discarded instead of keeping an undoable
+     * newest item over budget.
+     */
+    function boundedReplaceHistory(history, operation, limit = 20, maxBytes = 16 * 1024 * 1024) {
+      const next = [...(Array.isArray(history) ? history : []), operation].slice(-Math.max(1, limit));
+      const byteLimit = Math.max(0, Number(maxBytes) || 0);
+      let totalBytes = 0;
+      const retained = [];
+      for (let index = next.length - 1; index >= 0; index -= 1) {
+        const entry = next[index];
+        const dirtyBytes = (Array.isArray(entry?.dirty) ? entry.dirty : [])
+          .reduce((total, item) => total
+            + replaceHistoryTextBytes(item?.beforeContent)
+            + replaceHistoryTextBytes(item?.afterContent), 0);
+        if (totalBytes + dirtyBytes > byteLimit) break;
+        totalBytes += dirtyBytes;
+        retained.push(entry);
+      }
+      return retained.reverse();
+    }
+
+    /**
      * Add one query to the bounded recent-search list.
      * @param {string[]} history - existing newest-first queries.
      * @param {string} query - query that produced a result the user opened.
@@ -2433,26 +2555,25 @@
      * text. IDEA stores the replacement that was actually executed, so trimming
      * it here would make History replay a different operation.
      * @param {unknown} entry - stored or newly entered replacement.
-     * @returns {string} exact replacement, or an empty sentinel.
+     * @returns {string} exact replacement, including the empty deletion value.
      */
     function normalizeReplacementHistoryEntry(entry) {
-      return typeof entry === 'string' && entry !== '' ? entry : '';
+      return typeof entry === 'string' ? entry : '';
     }
 
     /**
      * Add one replacement to its bounded history.
      * @param {string[]} history - existing newest-first replacements.
-     * @param {string} replacement - executed replacement text.
+     * @param {string|undefined} replacement - executed replacement text;
+     *   undefined when only normalizing stored entries.
      * @param {number} [limit=20] - maximum retained entries.
      * @returns {string[]} exact newest-first history.
      */
     function rememberReplacementHistory(history, replacement, limit = 20) {
       const entries = (Array.isArray(history) ? history : [])
-        .map((entry) => normalizeReplacementHistoryEntry(entry))
-        .filter((entry) => entry !== '');
-      const next = normalizeReplacementHistoryEntry(replacement);
-      if (next === '') return [...new Set(entries)].slice(0, limit);
-      return [next, ...entries.filter((entry) => entry !== next)]
+        .filter((entry) => typeof entry === 'string');
+      if (typeof replacement !== 'string') return [...new Set(entries)].slice(0, limit);
+      return [replacement, ...entries.filter((entry) => entry !== replacement)]
         .filter((entry, index, list) => list.indexOf(entry) === index)
         .slice(0, limit);
     }
@@ -3060,6 +3181,101 @@
         .slice(0, limit);
     }
 
+    /**
+     * Suggest File masks from paths the Find surface already knows about.
+     *
+     * IDEA's mask dropdown offers project file types in addition to recent
+     * input. DSH must not start a second workspace walk merely to open this
+     * menu, so active/open/recent/changed/result paths are the bounded source.
+     * More frequent extensions come first; accepted history is not repeated.
+     * @param {unknown[]} paths - known workspace-relative paths.
+     * @param {string[]} [history=[]] - accepted masks, newest first.
+     * @param {number} [limit=12] - maximum suggestions.
+     * @returns {string[]} IDEA-style `*.ext` suggestions.
+     */
+    function suggestFileMasks(paths, history = [], limit = 12) {
+      const counts = new Map();
+      for (const value of Array.isArray(paths) ? paths : []) {
+        if (typeof value !== 'string' || value === '') continue;
+        const path = value.replaceAll('\\', '/');
+        const name = path.slice(path.lastIndexOf('/') + 1);
+        const dot = name.lastIndexOf('.');
+        if (dot <= 0 || dot === name.length - 1) continue;
+        const extension = name.slice(dot + 1).toLowerCase();
+        if (!/^[a-z0-9][a-z0-9_+-]{0,15}$/u.test(extension)) continue;
+        counts.set(extension, (counts.get(extension) ?? 0) + 1);
+      }
+      const excluded = new Set((Array.isArray(history) ? history : [])
+        .filter((entry) => typeof entry === 'string')
+        .map((entry) => entry.trim().toLowerCase()));
+      return [...counts.entries()]
+        .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
+        .map(([extension]) => `*.${extension}`)
+        .filter((mask) => !excluded.has(mask))
+        .slice(0, Math.max(0, Math.floor(Number(limit) || 0)));
+    }
+
+    /**
+     * Keep a Find popup menu inside its owning dialog.
+     *
+     * The menu is fixed-positioned but remains in the dialog's overflow clip.
+     * Viewport-only clamping can therefore paint a row over the dialog edge
+     * while pointer hit-testing falls through to the page behind it.
+     * @param {number} preferredLeft - desired viewport left coordinate.
+     * @param {number} surfaceLeft - owning dialog's left edge.
+     * @param {number} surfaceRight - owning dialog's right edge.
+     * @param {number} [width=220] - reserved menu width.
+     * @returns {number} clamped dialog-local left coordinate.
+     */
+    function findToolMenuLeft(preferredLeft, surfaceLeft, surfaceRight, width = 220) {
+      const left = Number(preferredLeft);
+      const boundaryLeft = Number(surfaceLeft);
+      const right = Number(surfaceRight);
+      const reserved = Math.max(120, Number(width) || 220);
+      if (!Number.isFinite(left)) return 4;
+      if (!Number.isFinite(boundaryLeft) || !Number.isFinite(right)) return Math.max(4, left);
+      const localLeft = left - boundaryLeft;
+      const maxLeft = Math.max(4, right - boundaryLeft - reserved - 4);
+      return Math.max(4, Math.min(localLeft, maxLeft));
+    }
+
+    /**
+     * Convert a viewport anchor into the transformed dialog's local Y space.
+     * Reserve enough room for a usable menu instead of letting it fall below
+     * the dialog's clipped hit-testing surface.
+     * @param {number} preferredTop - desired viewport top.
+     * @param {number} surfaceTop - owning dialog's top edge.
+     * @param {number} surfaceBottom - owning dialog's bottom edge.
+     * @returns {number} clamped dialog-local top.
+     */
+    function findToolMenuTop(preferredTop, surfaceTop, surfaceBottom) {
+      const top = Number(preferredTop);
+      const boundaryTop = Number(surfaceTop);
+      const boundaryBottom = Number(surfaceBottom);
+      if (!Number.isFinite(top)) return 4;
+      if (!Number.isFinite(boundaryTop) || !Number.isFinite(boundaryBottom)) return Math.max(4, top);
+      const localTop = top - boundaryTop;
+      const maxTop = Math.max(4, boundaryBottom - boundaryTop - 164);
+      return Math.max(4, Math.min(localTop, maxTop));
+    }
+
+    /**
+     * Bound a Find menu to the remaining dialog height so long histories scroll.
+     * @param {number} surfaceTop - owning dialog's top edge.
+     * @param {number} surfaceBottom - owning dialog's bottom edge.
+     * @param {number} localTop - menu's dialog-local top.
+     * @returns {number} maximum rendered height.
+     */
+    function findToolMenuMaxHeight(surfaceTop, surfaceBottom, localTop) {
+      const top = Number(surfaceTop);
+      const bottom = Number(surfaceBottom);
+      const y = Number(localTop);
+      if (!Number.isFinite(top) || !Number.isFinite(bottom) || !Number.isFinite(y)) return 320;
+      /* The menu's own padding and border are outside its content-box
+         max-height, so reserve that chrome as well as the edge gutter. */
+      return Math.max(120, bottom - top - y - 20);
+    }
+
     /** Read recent File extension masks from browser storage. */
     function readFileMaskHistory() {
       try {
@@ -3083,7 +3299,7 @@
     /**
      * Keep persisted search options within the values the UI can represent.
      * @param {unknown} value - parsed storage value or option-bearing state.
-     * @returns {{caseSensitive: boolean, wholeWords: boolean, regex: boolean, preserveCase: boolean, includeExcluded: boolean, fileMask: string}} normalized options.
+     * @returns {{caseSensitive: boolean, wholeWords: boolean, regex: boolean, preserveCase: boolean, includeExcluded: boolean, fileMask: string, contextFilter?: string}} normalized options.
      */
     function normalizeSearchOptions(value) {
       const source = value !== null && typeof value === 'object' && !Array.isArray(value) ? value : {};
@@ -3091,6 +3307,9 @@
       const includeExcluded = typeof source.includeNonProject === 'boolean'
         ? source.includeNonProject === true
         : source.includeExcluded === true;
+      const contextFilter = ['comments', 'strings', 'exceptComments', 'exceptStrings', 'exceptBoth'].includes(source.contextFilter)
+        ? source.contextFilter
+        : 'anywhere';
       return {
         caseSensitive: source.caseSensitive === true,
         wholeWords: regex ? false : source.wholeWords === true,
@@ -3098,12 +3317,13 @@
         preserveCase: source.preserveCase === true,
         includeExcluded,
         fileMask: typeof source.fileMask === 'string' && source.fileMask.length <= 512 ? source.fileMask : '',
+        ...(contextFilter === 'anywhere' ? {} : { contextFilter }),
       };
     }
 
     /**
      * Read the last valid search options for this browser.
-     * @returns {{caseSensitive: boolean, wholeWords: boolean, regex: boolean, preserveCase: boolean, includeExcluded: boolean, fileMask: string}} stored or default options.
+     * @returns {{caseSensitive: boolean, wholeWords: boolean, regex: boolean, preserveCase: boolean, includeExcluded: boolean, fileMask: string, contextFilter?: string}} stored or default options.
      */
     function readSearchOptions() {
       try {
@@ -3130,15 +3350,24 @@
      * Normalize the last IDEA Find scope into values the UI can restore.
      * Invalid Directory paths fall back to Project rather than the workspace root.
      * @param {unknown} value - parsed storage value or scope request.
-     * @returns {{mode: 'project'|'directory'|'scope', preset: 'projectFiles'|'openFiles'|'changedFiles', directory: string}} normalized scope.
+     * @returns {{mode: 'project'|'directory'|'scope', preset: string, directory: string}} normalized scope.
      */
     function normalizeFindSearchScope(value) {
       const source = value !== null && typeof value === 'object' && !Array.isArray(value) ? value : {};
       const requestedMode = source.mode;
       const mode = requestedMode === 'directory' || requestedMode === 'scope' ? requestedMode : 'project';
-      const preset = source.preset === 'openFiles' || source.preset === 'changedFiles'
+      const customPreset = typeof source.preset === 'string'
+        && /^custom:[a-z0-9][a-z0-9-]{0,63}$/u.test(source.preset)
         ? source.preset
-        : 'projectFiles';
+        : null;
+      const preset = source.preset === 'openFiles'
+        || source.preset === 'changedFiles'
+        || source.preset === 'currentFile'
+        || source.preset === 'recentlyViewedFiles'
+        || source.preset === 'gitTrackedFiles'
+        || source.preset === 'gitNonIgnoredFiles'
+        ? source.preset
+        : customPreset ?? 'projectFiles';
       if (mode !== 'directory') return { mode, preset, directory: '' };
       const raw = typeof source.directory === 'string' ? source.directory.trim().replaceAll('\\', '/') : '';
       const directory = raw.replace(/^\.\/+/u, '').replace(/\/+$/u, '');
@@ -3162,10 +3391,136 @@
       return `dsh-editor.find.scope.v1:${typeof root === 'string' ? root : ''}`;
     }
 
+    /** Browser-local geometry for the movable Find in Files popup. */
+    const FIND_POPUP_GEOMETRY_STORAGE_KEY = 'dsh-editor.find.popup.geometry.v1';
+
+    /**
+     * Keep the movable Find popup inside the current viewport.
+     * @param {unknown} value - saved or requested geometry.
+     * @param {number} viewportWidth - current viewport width.
+     * @param {number} viewportHeight - current viewport height.
+     * @returns {{x: number, y: number, width: number, height: number}} safe geometry.
+     */
+    function clampFindPopupGeometry(value, viewportWidth, viewportHeight) {
+      const source = value !== null && typeof value === 'object' ? value : {};
+      const viewportW = Math.max(1, Number(viewportWidth) || 1);
+      const viewportH = Math.max(1, Number(viewportHeight) || 1);
+      const margin = viewportW >= 32 && viewportH >= 32 ? 8 : 0;
+      const availableWidth = Math.max(1, viewportW - margin * 2);
+      const availableHeight = Math.max(1, viewportH - margin * 2);
+      const minimumWidth = Math.min(360, availableWidth);
+      const minimumHeight = Math.min(260, availableHeight);
+      const requestedWidth = Number(source.width);
+      const requestedHeight = Number(source.height);
+      const width = Math.round(Math.max(minimumWidth, Math.min(availableWidth, Number.isFinite(requestedWidth) ? requestedWidth : 580)));
+      const height = Math.round(Math.max(minimumHeight, Math.min(availableHeight, Number.isFinite(requestedHeight) ? requestedHeight : 536)));
+      const requestedX = Number(source.x);
+      const requestedY = Number(source.y);
+      const maximumX = Math.max(margin, viewportW - margin - width);
+      const maximumY = Math.max(margin, viewportH - margin - height);
+      const x = Math.round(Math.max(margin, Math.min(maximumX, Number.isFinite(requestedX) ? requestedX : (viewportW - width) / 2)));
+      const y = Math.round(Math.max(margin, Math.min(maximumY, Number.isFinite(requestedY) ? requestedY : (viewportH - height) / 2)));
+      return { x, y, width, height };
+    }
+
+    /** Move the Find popup by a pointer delta and clamp it to the viewport. */
+    function moveFindPopupGeometry(start, deltaX, deltaY, viewportWidth, viewportHeight) {
+      const geometry = clampFindPopupGeometry(start, viewportWidth, viewportHeight);
+      return clampFindPopupGeometry({
+        ...geometry,
+        x: geometry.x + (Number(deltaX) || 0),
+        y: geometry.y + (Number(deltaY) || 0),
+      }, viewportWidth, viewportHeight);
+    }
+
+    /** Resize the Find popup from one edge/corner without crossing minimum size. */
+    function resizeFindPopupGeometry(start, deltaX, deltaY, direction, viewportWidth, viewportHeight) {
+      const geometry = clampFindPopupGeometry(start, viewportWidth, viewportHeight);
+      const viewportW = Math.max(1, Number(viewportWidth) || 1);
+      const viewportH = Math.max(1, Number(viewportHeight) || 1);
+      const margin = viewportW >= 32 && viewportH >= 32 ? 8 : 0;
+      const minimumWidth = Math.min(360, Math.max(1, viewportW - margin * 2));
+      const minimumHeight = Math.min(260, Math.max(1, viewportH - margin * 2));
+      const horizontal = String(direction ?? '');
+      let left = geometry.x;
+      let top = geometry.y;
+      let right = geometry.x + geometry.width;
+      let bottom = geometry.y + geometry.height;
+      if (horizontal.includes('w')) left = Math.max(margin, Math.min(right - minimumWidth, left + (Number(deltaX) || 0)));
+      if (horizontal.includes('e')) right = Math.min(viewportW - margin, Math.max(left + minimumWidth, right + (Number(deltaX) || 0)));
+      if (horizontal.includes('n')) top = Math.max(margin, Math.min(bottom - minimumHeight, top + (Number(deltaY) || 0)));
+      if (horizontal.includes('s')) bottom = Math.min(viewportH - margin, Math.max(top + minimumHeight, bottom + (Number(deltaY) || 0)));
+      return clampFindPopupGeometry({
+        x: left,
+        y: top,
+        width: right - left,
+        height: bottom - top,
+      }, viewportW, viewportH);
+    }
+
+    /** Read the last movable Find popup geometry. */
+    function readFindPopupGeometry(viewportWidth = window.innerWidth, viewportHeight = window.innerHeight) {
+      try {
+        return clampFindPopupGeometry(
+          JSON.parse(window.localStorage.getItem(FIND_POPUP_GEOMETRY_STORAGE_KEY) ?? '{}'),
+          viewportWidth,
+          viewportHeight,
+        );
+      } catch {
+        return clampFindPopupGeometry({}, viewportWidth, viewportHeight);
+      }
+    }
+
+    /** Persist the completed movable Find popup geometry. */
+    function writeFindPopupGeometry(geometry) {
+      try {
+        window.localStorage.setItem(
+          FIND_POPUP_GEOMETRY_STORAGE_KEY,
+          JSON.stringify(clampFindPopupGeometry(geometry, window.innerWidth, window.innerHeight)),
+        );
+      } catch {
+        /* storage-less browsers keep the in-memory geometry */
+      }
+    }
+
+    /** Per-workspace Directory scope recursion preference. */
+    function findDirectoryRecursiveStorageKey(root) {
+      return `dsh-editor.find.directoryRecursive:${typeof root === 'string' ? root : ''}`;
+    }
+
+    /**
+     * Read IDEA's Directory recursion toggle.
+     * @param {string} root - workspace root.
+     * @returns {boolean} true unless this workspace explicitly disabled it.
+     */
+    function readFindDirectoryRecursive(root) {
+      try {
+        return window.localStorage.getItem(findDirectoryRecursiveStorageKey(root)) !== '0';
+      } catch {
+        return true;
+      }
+    }
+
+    /**
+     * Persist IDEA's Directory recursion toggle.
+     * @param {string} root - workspace root.
+     * @param {unknown} recursive - requested toggle value.
+     * @returns {boolean} normalized value.
+     */
+    function writeFindDirectoryRecursive(root, recursive) {
+      const normalized = recursive !== false;
+      try {
+        window.localStorage.setItem(findDirectoryRecursiveStorageKey(root), normalized ? '1' : '0');
+      } catch {
+        /* storage-less browsers keep the in-memory toggle */
+      }
+      return normalized;
+    }
+
     /**
      * Read the last valid scope for one workspace.
      * @param {string} root - workspace root.
-     * @returns {{mode: 'project'|'directory'|'scope', preset: 'projectFiles'|'openFiles'|'changedFiles', directory: string}} stored scope.
+     * @returns {{mode: 'project'|'directory'|'scope', preset: 'projectFiles'|'openFiles'|'changedFiles'|'currentFile', directory: string}} stored scope.
      */
     function readFindScope(root) {
       try {
@@ -3189,6 +3544,215 @@
         /* storage-less browsers keep the current in-memory scope */
       }
       return normalized;
+    }
+
+    /**
+     * Normalize a local named Scope's glob patterns.
+     * Patterns are entered one per line, bounded so malformed localStorage
+     * cannot turn every Find request into an unbounded matcher.
+     * @param {unknown} value - array or newline/comma separated text.
+     * @returns {string[]} unique trimmed patterns.
+     */
+    function normalizeFindScopePatterns(value) {
+      const entries = Array.isArray(value)
+        ? value
+        : typeof value === 'string'
+          ? value.split(/[\n,]/u)
+          : [];
+      return [...new Set(entries
+        .filter((entry) => typeof entry === 'string')
+        .map((entry) => entry.trim().replaceAll('\\', '/'))
+        .filter((entry) => entry !== '' && entry.length <= 512))]
+        .slice(0, 40);
+    }
+
+    /**
+     * Normalize local custom Scopes read from browser storage.
+     * @param {unknown} value - stored scope list.
+     * @returns {Array<{id: string, name: string, includePatterns: string[], excludePatterns: string[]}>} bounded scopes.
+     */
+    function normalizeCustomFindScopes(value) {
+      const source = Array.isArray(value) ? value : [];
+      const seen = new Set();
+      const scopes = [];
+      for (let index = 0; index < source.length && scopes.length < 30; index += 1) {
+        const entry = source[index];
+        if (entry === null || typeof entry !== 'object' || Array.isArray(entry)) continue;
+        const name = typeof entry.name === 'string' ? entry.name.trim().slice(0, 80) : '';
+        const requestedId = typeof entry.id === 'string' && /^[a-z0-9][a-z0-9-]{0,63}$/u.test(entry.id)
+          ? entry.id
+          : `scope-${index + 1}`;
+        const id = entry.shared === true
+          ? sharedFindScopeId(name === '' ? `Scope ${index + 1}` : name)
+          : requestedId;
+        if (seen.has(id)) continue;
+        seen.add(id);
+        scopes.push({
+          id,
+          name: name === '' ? `Scope ${index + 1}` : name,
+          includePatterns: normalizeFindScopePatterns(entry.includePatterns ?? entry.include),
+          excludePatterns: normalizeFindScopePatterns(entry.excludePatterns ?? entry.exclude),
+          shared: entry.shared === true,
+        });
+      }
+      return scopes;
+    }
+
+    /** Per-workspace storage key for custom local Find Scopes. */
+    function customFindScopesStorageKey(root) {
+      return `dsh-editor.find.customScopes.v1:${typeof root === 'string' ? root : ''}`;
+    }
+
+    /** Read bounded local custom Scopes for one workspace. */
+    function readCustomFindScopes(root) {
+      try {
+        return normalizeCustomFindScopes(JSON.parse(window.localStorage.getItem(customFindScopesStorageKey(root)) ?? '[]'))
+          .filter((scope) => scope.shared !== true);
+      } catch {
+        return [];
+      }
+    }
+
+    /** Persist bounded local custom Scopes for one workspace. */
+    function writeCustomFindScopes(root, value) {
+      const normalized = normalizeCustomFindScopes(value);
+      try {
+        window.localStorage.setItem(
+          customFindScopesStorageKey(root),
+          JSON.stringify(normalized.filter((scope) => scope.shared !== true)),
+        );
+      } catch {
+        /* storage-less browsers keep the in-memory scope list */
+      }
+      return normalized;
+    }
+
+    /** Stable id for one shared Scope imported from IDEA XML. */
+    function sharedFindScopeId(name) {
+      let hash = 2166136261;
+      for (const character of String(name ?? '')) {
+        hash ^= character.codePointAt(0);
+        hash = Math.imul(hash, 16777619);
+      }
+      return `shared-${(hash >>> 0).toString(36)}`;
+    }
+
+    /** Decode the five XML entities IDEA writes in scope attributes. */
+    function decodeScopeXmlText(value) {
+      return String(value ?? '')
+        .replaceAll('&lt;', '<')
+        .replaceAll('&gt;', '>')
+        .replaceAll('&quot;', '"')
+        .replaceAll('&apos;', "'")
+        .replaceAll('&amp;', '&');
+    }
+
+    /** Encode one IDEA scope attribute value. */
+    function encodeScopeXmlText(value) {
+      return String(value ?? '')
+        .replaceAll('&', '&amp;')
+        .replaceAll('"', '&quot;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;');
+    }
+
+    /** Convert one simple IDEA file-scope term into the editor's glob form. */
+    function ideaScopeTermToPattern(term) {
+      let pattern = String(term ?? '').trim().replace(/^!/u, '');
+      if (pattern === '') return '';
+      const fileMatch = /^file(?:\[[^\]]+\])?:(.*)$/u.exec(pattern);
+      if (fileMatch !== null) pattern = fileMatch[1];
+      else if (pattern.includes(':') || pattern.includes('(') || pattern.includes(')')) return null;
+      pattern = pattern.replace(/^\.\/+/u, '').replace(/\/+$/u, '');
+      pattern = pattern.replace(/\/\/\*$/u, '/**');
+      return pattern;
+    }
+
+    /**
+     * Parse bounded IDEA scope XML files.
+     *
+     * Only the common `file:path//*` and `&& !file:...` shape is imported.
+     * Unsupported package/language expressions are skipped instead of being
+     * silently reinterpreted as different file scopes.
+     */
+    function parseIdeaScopeXml(text) {
+      const source = typeof text === 'string' ? text.slice(0, 256 * 1024) : '';
+      const scopes = [];
+      for (const tag of source.matchAll(/<scope\b([^>]*)\/?>/giu)) {
+        const attributes = tag[1];
+        const nameMatch = /\bname\s*=\s*"([^"]*)"/iu.exec(attributes);
+        const patternMatch = /\bpattern\s*=\s*"([^"]*)"/iu.exec(attributes);
+        if (nameMatch === null || patternMatch === null) continue;
+        const name = decodeScopeXmlText(nameMatch[1]).trim().slice(0, 80);
+        if (name === '') continue;
+        const expression = decodeScopeXmlText(patternMatch[1]);
+        if (/[()]/u.test(expression)) continue;
+        const positive = [];
+        const negative = [];
+        let supported = true;
+        for (const rawTerm of expression.split(/\s*(?:&&|\|\|)\s*/u)) {
+          if (rawTerm === '') continue;
+          const pattern = ideaScopeTermToPattern(rawTerm);
+          if (pattern === null) {
+            supported = false;
+            break;
+          }
+          (rawTerm.startsWith('!') ? negative : positive).push(pattern);
+        }
+        if (!supported) continue;
+        scopes.push({
+          id: sharedFindScopeId(name),
+          name,
+          includePatterns: normalizeFindScopePatterns(positive),
+          excludePatterns: normalizeFindScopePatterns(negative),
+          shared: true,
+        });
+      }
+      return normalizeCustomFindScopes(scopes).slice(0, 30);
+    }
+
+    /** Serialize shared Scopes to the simple IDEA file-scope XML subset we import. */
+    function serializeIdeaScopeXml(value) {
+      const scopes = normalizeCustomFindScopes(value).filter((scope) => scope.shared === true);
+      const lines = ['<component name="DependencyValidationManager">'];
+      for (const scope of scopes) {
+        const positives = scope.includePatterns.map((pattern) => `file:${pattern}`);
+        const negatives = scope.excludePatterns.map((pattern) => `!file:${pattern}`);
+        let expression = [...positives, ...negatives].join('&&');
+        if (positives.length === 0 && negatives.length === 0) expression = 'file:*';
+        if (positives.length > 1) {
+          expression = `${positives.join('||')}${negatives.length > 0 ? `&&${negatives.join('&&')}` : ''}`;
+        }
+        lines.push(`  <scope name="${encodeScopeXmlText(scope.name)}" pattern="${encodeScopeXmlText(expression)}" />`);
+      }
+      lines.push('</component>', '');
+      return lines.join('\n');
+    }
+
+    /** Normalize one explicit workspace-relative IDEA scope XML transfer path. */
+    function normalizeScopeXmlTransferPath(value) {
+      const raw = typeof value === 'string' ? value.trim().replaceAll('\\', '/') : '';
+      const path = raw.replace(/^\.\/+/u, '').replace(/\/+$/u, '');
+      if (
+        path === ''
+        || path.length > 512
+        || path.startsWith('/')
+        || !path.toLowerCase().endsWith('.xml')
+        || path.split('/').some((segment) => segment === '' || segment === '..')
+      ) return '';
+      return path;
+    }
+
+    /** Parse one scope XML file and report how many scope tags were unsupported. */
+    function inspectIdeaScopeXml(value) {
+      const source = typeof value === 'string' ? value.slice(0, 256 * 1024) : '';
+      const total = [...source.matchAll(/<scope\b/giu)].length;
+      const scopes = parseIdeaScopeXml(source);
+      return {
+        scopes,
+        total,
+        skipped: Math.max(0, total - scopes.length),
+      };
     }
 
     /**
@@ -3227,7 +3791,7 @@
     function readFindQueryHistory(root) {
       try {
         const parsed = JSON.parse(window.localStorage.getItem(findQueryHistoryStorageKey(root)) ?? '[]');
-        return rememberFindQueryHistory(parsed, '', 20);
+        return rememberFindQueryHistory(parsed, undefined, 20);
       } catch {
         return [];
       }
@@ -3241,7 +3805,7 @@
      */
     function writeFindQueryHistory(root, history) {
       try {
-        window.localStorage.setItem(findQueryHistoryStorageKey(root), JSON.stringify(rememberFindQueryHistory(history, '', 20)));
+        window.localStorage.setItem(findQueryHistoryStorageKey(root), JSON.stringify(rememberFindQueryHistory(history, undefined, 20)));
       } catch {
         /* a storage-less browser keeps the in-memory list */
       }
@@ -3292,7 +3856,7 @@
     function readReplaceHistory(root) {
       try {
         const parsed = JSON.parse(window.localStorage.getItem(replaceHistoryStorageKey(root)) ?? '[]');
-        return rememberReplacementHistory(parsed, '', 20);
+        return rememberReplacementHistory(parsed, undefined, 20);
       } catch {
         return [];
       }
@@ -3306,7 +3870,7 @@
      */
     function writeReplaceHistory(root, history) {
       try {
-        window.localStorage.setItem(replaceHistoryStorageKey(root), JSON.stringify(rememberReplacementHistory(history, '', 20)));
+        window.localStorage.setItem(replaceHistoryStorageKey(root), JSON.stringify(rememberReplacementHistory(history, undefined, 20)));
       } catch {
         /* storage-less browsers keep the in-memory list */
       }
@@ -3334,7 +3898,7 @@
      * @returns {string[]|null} exact history, or null without workspace/query.
      */
     function rememberWorkspaceFindQuery(root, query) {
-      if (typeof root !== 'string' || root === '' || typeof query !== 'string' || query === '') return null;
+      if (typeof root !== 'string' || root === '' || typeof query !== 'string') return null;
       const next = rememberFindQueryHistory(readFindQueryHistory(root), query, 20);
       writeFindQueryHistory(root, next);
       return next;
@@ -3347,7 +3911,7 @@
      * @returns {string[]|null} exact history, or null without workspace/replacement.
      */
     function rememberWorkspaceReplacement(root, replacement) {
-      if (typeof root !== 'string' || root === '' || typeof replacement !== 'string' || replacement === '') return null;
+      if (typeof root !== 'string' || root === '' || typeof replacement !== 'string') return null;
       const next = rememberReplacementHistory(readReplaceHistory(root), replacement, 20);
       writeReplaceHistory(root, next);
       return next;

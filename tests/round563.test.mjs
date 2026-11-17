@@ -41,7 +41,7 @@ test('Project tree owns Alt+Up/Down only in Manual Order', () => {
   assert.match(treeKey, /manualReorderBoundary\(/);
   assert.match(treeKey, /reorderManualProject\(sources, boundary\.target, boundary\.edge\)/);
   assert.match(treeKey, /scrollIntoView\?\.\(\{ block: 'nearest' \}\)/);
-  assert.match(treeKey, /\[children, entries, expanded, manualOrder,[\s\S]*?reorderManualProject,[\s\S]*?sortMode,/);
+  assert.match(treeKey, /\[(?:applyTreeSelection, )?children, entries, expanded, manualOrder,[\s\S]*?reorderManualProject,[\s\S]*?sortMode,/);
 });
 
 test('Sort By can reset manual order without leaving Manual Order mode', () => {

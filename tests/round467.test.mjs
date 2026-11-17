@@ -41,7 +41,7 @@ test('Search Everywhere can hand current results to the persistent Find tool win
   assert.match(dialog, /t\('editor\.openInFindToolWindow'\)/);
   assert.match(dialog, /onOpenInFindToolWindow\(/);
   assert.match(dialog, /data-dsh-search-open-find-tool-window/);
-  assert.match(dialog, /disabled: effectiveQuery === '' \|\| \(fileMatches\.length === 0 && textResults\.length === 0\)/);
+  assert.match(dialog, /disabled: effectiveQuery === '',/);
 });
 
 test('Find and Replace in Files use the IDEA-style search popup', () => {

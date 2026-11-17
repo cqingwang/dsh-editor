@@ -8,16 +8,14 @@ const findTool = source.slice(
   source.indexOf('function QuickOpen('),
 );
 
-test('Filter Search Results exposes truthful availability', () => {
+test('Filter Search Results exposes the six implemented IDEA context modes', () => {
   assert.match(findTool, /id: 'filterSearch'/);
   assert.match(findTool, /label: t\('editor\.findFilterResults'\)/);
   assert.match(findTool, /const openFilterMenu = \(event\) =>/);
-  assert.match(findTool, /id: 'anywhere'/);
-  assert.match(findTool, /id: 'comments'[\s\S]*?disabled: true/);
-  assert.match(findTool, /id: 'strings'[\s\S]*?disabled: true/);
-  assert.match(findTool, /id: 'exceptComments'[\s\S]*?disabled: true/);
-  assert.match(findTool, /id: 'exceptStrings'[\s\S]*?disabled: true/);
-  assert.match(findTool, /id: 'exceptBoth'[\s\S]*?disabled: true/);
+  for (const id of ['anywhere', 'comments', 'strings', 'exceptComments', 'exceptStrings', 'exceptBoth']) {
+    assert.match(findTool, new RegExp(`id: '${id}'[\\s\\S]*?run: \\(\\) => select\\('${id}'\\)`));
+  }
+  assert.doesNotMatch(findTool, /id: 'comments'[\s\S]{0,120}disabled: true/);
   assert.match(source, /findFilterResults: '筛选搜索结果'/);
   assert.match(source, /findFilterResults: 'Filter Search Results'/);
 });

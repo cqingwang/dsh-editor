@@ -9,9 +9,12 @@ const read = (path) => readFileSync(join(root, path), 'utf8');
 
 test('project tree supports meta and shift extended selection', () => {
   const client = read('lib/client.js');
+  assert.match(client, /function projectTreeSelectionAfterPointer\(/);
+  assert.match(client, /request\?\.shiftKey === true && anchor !== null/);
+  assert.match(client, /request\?\.metaKey === true \|\| request\?\.ctrlKey === true/);
+  assert.match(client, /new Set\(paths\.slice\(start, end \+ 1\)\)/);
   assert.match(client, /const selectRow = React\.useCallback/);
-  assert.match(client, /event\.shiftKey === true && selectionAnchor\.current !== null/);
-  assert.match(client, /setSelection\(new Set\(rows\.slice\(start, end \+ 1\)/);
+  assert.match(client, /onMouseDown: \(event\) => \{[\s\S]*?onSelect\(row, event\);/);
   assert.match(client, /treeRowSelectedSoft/);
   assert.match(client, /onSelect: selectRow/);
 });

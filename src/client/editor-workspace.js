@@ -1,5 +1,41 @@
 /* editor-workspace.js: dsh-editor client module. Generated into lib/client.js by scripts/build-client.mjs. */
-    function EditorWorkspace({ t, workspaceId = '', initialHarnessCollapsed = false, onToggleHarness, onCloseEditor }) {
+    /**
+     * Convert a Monaco editor's live selection into a Harness reference range.
+     *
+     * A caret has no range and is projected as one line-column pair. A real
+     * selection keeps both ends so Chat can name the exact rows and columns the
+     * user selected instead of borrowing another tab's remembered position.
+     * @param {object|null} editor - Monaco editor instance.
+     * @returns {{path: string, line: number, column: number, endLine: number|null, endColumn: number|null}|null} reference location.
+     */
+    function harnessEditorLocation(editor) {
+      const model = editor?.getModel?.() ?? null;
+      const path = navigationPathForModel(model);
+      if (path === '') return null;
+      const selection = editor?.getSelection?.() ?? null;
+      const empty = selection === null || typeof selection.isEmpty !== 'function' || selection.isEmpty();
+      if (empty === false) {
+        let startLine = Math.max(1, Math.floor(Number(selection.startLineNumber) || 1));
+        let startColumn = Math.max(1, Math.floor(Number(selection.startColumn) || 1));
+        let endLine = Math.max(1, Math.floor(Number(selection.endLineNumber) || startLine));
+        let endColumn = Math.max(1, Math.floor(Number(selection.endColumn) || startColumn));
+        if (endLine < startLine || (endLine === startLine && endColumn < startColumn)) {
+          [startLine, endLine] = [endLine, startLine];
+          [startColumn, endColumn] = [endColumn, startColumn];
+        }
+        return { path, line: startLine, column: startColumn, endLine, endColumn };
+      }
+      const position = editor?.getPosition?.() ?? null;
+      return {
+        path,
+        line: Math.max(1, Math.floor(Number(position?.lineNumber) || 1)),
+        column: Math.max(1, Math.floor(Number(position?.column) || 1)),
+        endLine: null,
+        endColumn: null,
+      };
+    }
+
+    function EditorWorkspace({ t, workspaceId = '', initialHarnessCollapsed = false, onToggleHarness, onCloseEditor, onInsertHarnessReference }) {
       const [monacoReady, setMonacoReady] = React.useState(false);
       const [monacoError, setMonacoError] = React.useState(null);
       const [root, setRoot] = React.useState('');
@@ -9,15 +45,29 @@
       const [expanded, setExpanded] = React.useState(() => new Set(['']));
       /* Restored once the workspace root is known, so keys can include it. */
       const expandedRestoredRef = React.useRef('');
+      /* 三层目录预取每个 workspace 只执行一次，轮询刷新不得重复请求。 */
+      const prefetchedRootRef = React.useRef('');
       /* IDEA's project tree is multi-select: one primary row plus shift/⌘ extended rows. */
       const [selectedPath, setSelectedPathRaw] = React.useState(null);
       const [selection, setSelection] = React.useState(() => new Set());
       const selectionAnchor = React.useRef(null);
-      const setSelectedPath = React.useCallback((next) => {
-        setSelectedPathRaw(next);
-        setSelection(next === null ? new Set() : new Set([next]));
-        selectionAnchor.current = next;
+      const selectionRef = React.useRef(new Set());
+      const selectionPrimaryRef = React.useRef(null);
+      const applyTreeSelection = React.useCallback((nextSelection, nextPrimary, nextAnchor = nextPrimary) => {
+        const normalized = nextSelection instanceof Set ? nextSelection : new Set(nextSelection ?? []);
+        selectionRef.current = normalized;
+        selectionPrimaryRef.current = nextPrimary ?? null;
+        selectionAnchor.current = nextAnchor ?? null;
+        setSelection(normalized);
+        setSelectedPathRaw(nextPrimary ?? null);
       }, []);
+      const setSelectedPath = React.useCallback((next) => {
+        applyTreeSelection(next === null ? new Set() : new Set([next]), next, next);
+      }, [applyTreeSelection]);
+      React.useEffect(() => {
+        selectionRef.current = selection;
+        selectionPrimaryRef.current = selectedPath;
+      }, [selectedPath, selection]);
       const [treeLoading, setTreeLoading] = React.useState(true);
       /* The flattened rows as of the last render, so the loader can decide whether a
          refresh needs a visible placeholder. */
@@ -508,6 +558,10 @@
       const [recentFindQueries, setRecentFindQueries] = React.useState([]);
       const [recentFindUsages, setRecentFindUsages] = React.useState([]);
       const [recentReplacements, setRecentReplacements] = React.useState([]);
+      const [customFindScopes, setCustomFindScopes] = React.useState([]);
+      const sharedFindScopesRef = React.useRef([]);
+      const [findReplaceUndoStack, setFindReplaceUndoStack] = React.useState([]);
+      const [findReplaceRedoStack, setFindReplaceRedoStack] = React.useState([]);
       const [recentCommands, setRecentCommands] = React.useState(() => readCommandHistory());
       const searchEverywhereFilesRef = React.useRef([]);
       const searchEverywhereFilesScopeRef = React.useRef(null);
@@ -519,12 +573,83 @@
       const openSearchEverywhereRef = React.useRef(() => {});
       /* IDEA's persistent Find tool window, shared by Find/Replace in Files. */
       const [findTool, setFindTool] = React.useState(null);
+      const [findToolPopupGeometry, setFindToolPopupGeometry] = React.useState(() => readFindPopupGeometry());
       const [findToolDockHeight, setFindToolDockHeight] = React.useState(() =>
         clampFindDockHeight(readStoredNumber('dsh-editor.find.height', 280)));
       const findToolDockHeightRef = React.useRef(findToolDockHeight);
       React.useEffect(() => {
         findToolDockHeightRef.current = findToolDockHeight;
       }, [findToolDockHeight]);
+      React.useEffect(() => {
+        const onViewportResize = () => {
+          setFindToolPopupGeometry((current) => clampFindPopupGeometry(
+            current,
+            window.innerWidth,
+            window.innerHeight,
+          ));
+        };
+        window.addEventListener('resize', onViewportResize);
+        return () => window.removeEventListener('resize', onViewportResize);
+      }, []);
+      const startFindPopupInteraction = React.useCallback((event, direction = 'move') => {
+        if (event.button !== 0) return;
+        const action = direction === 'move'
+          ? 'move'
+          : ['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'].includes(direction) ? direction : null;
+        if (action === null) return;
+        const target = event.target instanceof Element ? event.target : null;
+        if (
+          action === 'move'
+          && target !== null
+          && target.closest('button, input, textarea, select, a, [role="menuitem"]') !== null
+        ) return;
+        const surface = event.currentTarget?.closest?.('[data-dsh-find-tool-popup]') ?? null;
+        if (surface === null) return;
+        event.preventDefault();
+        event.stopPropagation();
+        const rect = surface.getBoundingClientRect();
+        const startGeometry = clampFindPopupGeometry(
+          { x: rect.left, y: rect.top, width: rect.width, height: rect.height },
+          window.innerWidth,
+          window.innerHeight,
+        );
+        const startX = event.clientX;
+        const startY = event.clientY;
+        let latest = startGeometry;
+        let moved = false;
+        const previousCursor = document.body.style.cursor;
+        document.body.style.cursor = action === 'move' ? 'move' : `${action}-resize`;
+        const onPointerMove = (moveEvent) => {
+          moved = true;
+          latest = action === 'move'
+            ? moveFindPopupGeometry(
+                startGeometry,
+                moveEvent.clientX - startX,
+                moveEvent.clientY - startY,
+                window.innerWidth,
+                window.innerHeight,
+              )
+            : resizeFindPopupGeometry(
+                startGeometry,
+                moveEvent.clientX - startX,
+                moveEvent.clientY - startY,
+                action,
+                window.innerWidth,
+                window.innerHeight,
+              );
+          setFindToolPopupGeometry(latest);
+        };
+        const finish = () => {
+          window.removeEventListener('pointermove', onPointerMove, true);
+          window.removeEventListener('pointerup', finish, true);
+          window.removeEventListener('pointercancel', finish, true);
+          document.body.style.cursor = previousCursor;
+          if (moved) writeFindPopupGeometry(latest);
+        };
+        window.addEventListener('pointermove', onPointerMove, true);
+        window.addEventListener('pointerup', finish, true);
+        window.addEventListener('pointercancel', finish, true);
+      }, []);
       const findToolRequestRef = React.useRef(0);
       const findToolHandoffSequenceRef = React.useRef(0);
       const replaceWriteBusyRef = React.useRef(false);
@@ -621,6 +746,8 @@
       const focusedEditorRef = React.useRef(null);
       const focusedPathRef = React.useRef(null);
       const modelsRef = React.useRef(new Map());
+      const navigationHistoryRef = React.useRef({ back: [], forward: [] });
+      const navigationCurrentLocationRef = React.useRef(null);
       const activePathRef = React.useRef(null);
       const splitPathRef = React.useRef(null);
       const splitTabsRef = React.useRef([]);
@@ -687,6 +814,21 @@
       const currentCodePath = React.useCallback(() => (
         focusedEditorRef.current?.path ?? focusedPathRef.current ?? activePathRef.current
       ), []);
+      const currentNavigationLocation = React.useCallback(() => {
+        const focused = focusedEditorRef.current;
+        const editor = focused?.editor ?? editorRef.current;
+        const model = editor?.getModel?.() ?? null;
+        const position = editor?.getPosition?.() ?? null;
+        return normalizeNavigationLocation({
+          path: navigationPathForModel(model)
+            || focused?.path
+            || focusedPathRef.current
+            || activePathRef.current
+            || '',
+          line: position?.lineNumber ?? 1,
+          column: position?.column ?? 1,
+        });
+      }, []);
       React.useEffect(() => {
         diffActiveRef.current = diffActive;
       }, [diffActive]);
@@ -793,10 +935,11 @@
       const effectiveMarkdownMode = markdownAvailable ? markdownMode : 'code';
       const markdownPreviewVisible = markdownAvailable && effectiveMarkdownMode !== 'code';
       const splitFile = splitPath === null ? null : openFiles.find((file) => file.path === splitPath) ?? null;
-      const statusFile = focusedPath === null
-        ? activeFile
-        : openFiles.find((file) => file.path === focusedPath) ?? activeFile;
-      const splitFocused = focusedPath === splitFile?.path;
+      const splitFocused = splitFile !== null && focusedPath === splitFile.path;
+      const statusFile = splitFocused ? splitFile : activeFile ?? splitFile;
+      const statusPath = statusFile === null
+        ? ''
+        : root === '' ? statusFile.path : `${root}/${statusFile.path}`;
       const leftFocused = focusedPath === activePath && splitFocused === false;
       /* The diff preview is rendered only while its tab (or a freshly opened
          change) owns the code area. */
@@ -893,10 +1036,10 @@
           selectedPath,
           activePath,
         );
-        if (nextState.selection !== selection) setSelection(nextState.selection);
-        if (nextState.primary !== selectedPath) setSelectedPath(nextState.primary);
-        selectionAnchor.current = nextState.primary;
-      }, [activePath, filteredView, rows, selectedPath, selection, setSelectedPath]);
+        if (nextState.selection !== selection || nextState.primary !== selectedPath) {
+          applyTreeSelection(nextState.selection, nextState.primary, nextState.primary);
+        }
+      }, [activePath, applyTreeSelection, filteredView, rows, selectedPath, selection]);
 
       /**
        * Apply one click on a tree row, honouring IDEA's ⌘/Shift modifiers.
@@ -909,32 +1052,19 @@
        */
       const selectRow = React.useCallback(
         (row, event) => {
-          const path = row.path;
-          const meta = event.metaKey === true || event.ctrlKey === true;
-          if (event.shiftKey === true && selectionAnchor.current !== null) {
-            const from = rows.findIndex((entry) => entry.path === selectionAnchor.current);
-            const to = rows.findIndex((entry) => entry.path === path);
-            if (from >= 0 && to >= 0) {
-              const [start, end] = from <= to ? [from, to] : [to, from];
-              setSelection(new Set(rows.slice(start, end + 1).map((entry) => entry.path)));
-              setSelectedPathRaw(path);
-              return;
-            }
-          }
-          if (meta) {
-            setSelection((current) => {
-              const next = new Set(current);
-              if (next.has(path)) next.delete(path);
-              else next.add(path);
-              setSelectedPathRaw(next.has(path) ? path : [...next].pop() ?? null);
-              return next;
-            });
-            selectionAnchor.current = path;
-            return;
-          }
-          setSelectedPath(path);
+          const next = projectTreeSelectionAfterPointer({
+            rows,
+            selection: selectionRef.current,
+            primary: selectionPrimaryRef.current,
+            anchor: selectionAnchor.current,
+            path: row.path,
+            metaKey: event.metaKey === true,
+            ctrlKey: event.ctrlKey === true,
+            shiftKey: event.shiftKey === true,
+          });
+          applyTreeSelection(next.selection, next.primary, next.anchor);
         },
-        [rows, setSelectedPath],
+        [applyTreeSelection, rows],
       );
 
       /* Load Monaco once. */
@@ -1390,12 +1520,36 @@
             return next ?? current;
           });
           expandedRestoredRef.current = value.root ?? '';
+          const workspaceRoot = value.root ?? '';
+          const readDirectory = async (path) => {
+            const result = await callFs({ op: 'list', path, showHidden, sort: sortMode, foldersFirst, showExcluded: showExcludedFiles });
+            return Array.isArray(result?.entries) ? result.entries : [];
+          };
+          if (prefetchedRootRef.current !== workspaceRoot) {
+            /* 默认只预取前三层节点信息；目录仍保持折叠，用户点击才展开。 */
+            const prefetched = await prefetchDirectorySubtrees(
+              listing.filter((entry) => entry.kind === 'directory' && typeof entry.path === 'string').map((entry) => entry.path),
+              { children: { '': listing } },
+              readDirectory,
+              PROJECT_PREFETCH_VISIT_LIMIT,
+              PROJECT_PREFETCH_DEPTH,
+            );
+            prefetchedRootRef.current = workspaceRoot;
+            const prefetchedChildren = { ...prefetched.children };
+            delete prefetchedChildren[''];
+            setChildren((current) => {
+              const next = { ...current };
+              for (const [path, directoryEntries] of Object.entries(prefetchedChildren)) {
+                next[path] = keepUnchangedListing(current[path], directoryEntries);
+              }
+              return next;
+            });
+          }
           /* Restored directories must also fetch their children, or they render empty. */
           const hydrated = {};
           for (const path of restored) {
             try {
-              const listing = await callFs({ op: 'list', path, showHidden, sort: sortMode, foldersFirst, showExcluded: showExcludedFiles });
-              hydrated[path] = listing.entries ?? [];
+              hydrated[path] = await readDirectory(path);
             } catch {
               /* a directory that vanished stays collapsed in effect */
             }
@@ -1403,7 +1557,9 @@
           if (Object.keys(hydrated).length > 0) {
             setChildren((current) => {
               const next = { ...current };
-              for (const [path, listing] of Object.entries(hydrated)) next[path] = keepUnchangedListing(current[path], listing);
+              for (const [path, directoryEntries] of Object.entries(hydrated)) {
+                next[path] = keepUnchangedListing(current[path], directoryEntries);
+              }
               return next;
             });
           }
@@ -1480,57 +1636,44 @@
            changes), never from a ref synced in an effect or from inside the updater:
            both are stale at click time, which silently skipped the fetch. */
         const willExpand = !expanded.has(path);
-        setExpanded((current) => {
-          const next = new Set(current);
-          if (next.has(path)) next.delete(path);
-          else next.add(path);
-          return next;
-        });
-        if (path === '' || !willExpand) return;
-        const hydration = {};
-        const expandedPaths = [path];
-        try {
-          const value = await callFs({ op: 'list', path, showHidden, sort: sortMode, foldersFirst, showExcluded: showExcludedFiles });
-          /* `children` is keyed by the same relative path the rows carry. */
-          let listing = Array.isArray(value?.entries) ? value.entries : [];
-          hydration[path] = listing;
-          let chainPath = path;
-          let guard = 0;
-          /* Compact Directories makes the merged node the expand gesture. Load
-             the rest of a single-child chain now, so one click reveals content
-             instead of converting the row to a still-collapsed `a/b` node. */
-          while (compactDirectories === true && listing.length === 1 && listing[0]?.kind === 'directory' && guard < 64) {
-            const nextPath = listing[0].path;
-            if (typeof nextPath !== 'string' || nextPath === '' || nextPath === chainPath) break;
-            let nextListing;
-            try {
-              const nextValue = await callFs({ op: 'list', path: nextPath, showHidden, sort: sortMode, foldersFirst, showExcluded: showExcludedFiles });
-              nextListing = Array.isArray(nextValue?.entries) ? nextValue.entries : [];
-            } catch {
-              break;
-            }
-            chainPath = nextPath;
-            hydration[chainPath] = nextListing;
-            expandedPaths.push(chainPath);
-            listing = nextListing;
-            guard += 1;
-          }
-          setChildren((current) => {
-            const next = { ...current };
-            for (const [listingPath, entriesInDirectory] of Object.entries(hydration)) {
-              next[listingPath] = entriesInDirectory;
-            }
+        if (!willExpand) {
+          setExpanded((current) => {
+            const next = new Set(current);
+            next.delete(path);
             return next;
           });
-          setExpanded((current) => {
-            let next = null;
-            for (const expandedPath of expandedPaths) {
-              if (current.has(expandedPath)) continue;
-              if (next === null) next = new Set(current);
-              next.add(expandedPath);
+          return;
+        }
+        if (path === '') return;
+        try {
+          const cachedChildren = { ...childrenRef.current };
+          /* 点击目录始终刷新该节点本身，并从这里继续预取三层节点信息。 */
+          delete cachedChildren[path];
+          const value = await prefetchDirectorySubtrees(
+            [path],
+            { children: cachedChildren },
+            async (directory) => {
+              const result = await callFs({ op: 'list', path: directory, showHidden, sort: sortMode, foldersFirst, showExcluded: showExcludedFiles });
+              return Array.isArray(result?.entries) ? result.entries : [];
+            },
+            PROJECT_PREFETCH_VISIT_LIMIT,
+            PROJECT_PREFETCH_DEPTH,
+          );
+          if (!Array.isArray(value.children[path])) return;
+          const expandedPaths = [path];
+          if (compactDirectories === true) {
+            let listing = value.children[path];
+            let guard = 0;
+            while (Array.isArray(listing) && listing.length === 1 && listing[0]?.kind === 'directory' && guard < 64) {
+              const nextPath = listing[0].path;
+              if (typeof nextPath !== 'string' || nextPath === '' || expandedPaths.includes(nextPath)) break;
+              expandedPaths.push(nextPath);
+              listing = value.children[nextPath];
+              guard += 1;
             }
-            return next ?? current;
-          });
+          }
+          setChildren(value.children);
+          setExpanded((current) => new Set([...current, ...expandedPaths]));
         } catch (error) {
           setTreeError(error instanceof Error ? error.message : String(error));
         }
@@ -2018,9 +2161,15 @@
 
       /* Reveal a line requested by a terminal link once the model is bound. */
       const pendingReveal = React.useRef(null);
-      const revealLines = React.useCallback((path, line, column) => {
+      const revealLines = React.useCallback((path, line, column, pane = null) => {
         const focused = focusedEditorRef.current;
-        const editor = focused?.path === path ? focused.editor : editorRef.current;
+        const preferred = pane === 'right' ? splitEditorRef.current : pane === 'left' ? editorRef.current : null;
+        const editor = preferred
+          ?? (focused?.path === path
+            ? focused.editor
+            : path === splitPathRef.current
+              ? splitEditorRef.current
+              : editorRef.current);
         const model = modelsRef.current.get(path);
         if (editor === null || model === undefined || typeof line !== 'number' || line < 1) return;
         const safeLine = Math.min(Math.max(1, line), model.getLineCount());
@@ -2039,22 +2188,34 @@
        * @param {number} column - one-based column.
        * @returns {void}
        */
-      const openFileAtLocation = React.useCallback((path, line, column) => {
+      const openFileAtLocation = React.useCallback((path, line, column, options = {}) => {
         if (typeof path !== 'string' || path === '') return;
+        const historyOrigin = options.recordHistory === false
+          ? null
+          : options.origin ?? currentNavigationLocation();
+        const targetLocation = normalizeNavigationLocation({ path, line, column });
+        pendingReveal.current = { path, line, column };
         void openFile(path).then((opened) => {
-          if (!opened) return;
-          let attempts = 0;
-          const reveal = () => {
-            if (!modelsRef.current.has(path)) {
-              attempts += 1;
-              if (attempts < 30) window.requestAnimationFrame(reveal);
-              return;
-            }
+          if (!opened) {
+            if (pendingReveal.current?.path === path) pendingReveal.current = null;
+            return;
+          }
+          if (historyOrigin !== null) {
+            navigationHistoryRef.current = navigationHistoryRecord(
+              navigationHistoryRef.current,
+              historyOrigin,
+            );
+          }
+          navigationCurrentLocationRef.current = targetLocation;
+          window.requestAnimationFrame(() => {
+            const model = modelsRef.current.get(path);
+            const editor = editorRef.current;
+            if (model === undefined || editor?.getModel?.() !== model) return;
+            if (pendingReveal.current?.path === path) pendingReveal.current = null;
             revealLines(path, line, column);
-          };
-          window.requestAnimationFrame(reveal);
+          });
         });
-      }, [openFile, revealLines]);
+      }, [currentNavigationLocation, openFile, revealLines]);
 
       /** Transient status-bar message, IDEA's its own "file(s) saved" hint. */
       const [statusNotice, setStatusNotice] = React.useState(null);
@@ -2067,9 +2228,167 @@
           setStatusNotice(null);
         }, 4000);
       }, []);
+      const copyStatusPath = React.useCallback(async () => {
+        if (statusPath === '') return;
+        try {
+          if (typeof navigator.clipboard?.writeText !== 'function') {
+            throw new Error(t('editor.clipboardWriteFailed'));
+          }
+          await navigator.clipboard.writeText(statusPath);
+          flashStatus(t('editor.statusPathCopied'));
+        } catch {
+          flashStatus(t('editor.clipboardWriteFailed'));
+        }
+      }, [flashStatus, statusPath, t]);
+      /**
+       * Append selected Project or editor paths to the Harness composer.
+       * @param {object[]} entries - paths selected by the invoking menu.
+       * @param {{line: number, column: number, endLine: number|null, endColumn: number|null}|null} [location=null] - exact editor range.
+       * @returns {Promise<void>} resolves after the host reports insertion.
+       */
+      const sendHarnessReference = React.useCallback(async (entries, location = null) => {
+        const selected = Array.isArray(entries)
+          ? entries.filter((entry) => entry !== null && typeof entry?.path === 'string')
+          : [];
+        if (selected.length === 0) return;
+        const position = location !== null && selected.length === 1 && selected[0].isDirectory !== true
+          ? location
+          : null;
+        if (typeof onInsertHarnessReference !== 'function') {
+          flashStatus(t('editor.harnessReferenceUnavailable'));
+          return;
+        }
+        try {
+          const inserted = await onInsertHarnessReference({
+            entries: selected.map((entry) => ({ ...entry, root })),
+            line: position?.line ?? null,
+            column: position?.column ?? null,
+            endLine: position?.endLine ?? null,
+            endColumn: position?.endColumn ?? null,
+          });
+          flashStatus(inserted === true
+            ? t('editor.harnessReferenceInserted')
+            : t('editor.harnessReferenceFailed'));
+        } catch (failure) {
+          flashStatus(t('editor.harnessReferenceFailedWithReason', {
+            message: failure instanceof Error ? failure.message : String(failure),
+          }));
+        }
+      }, [flashStatus, onInsertHarnessReference, root, t]);
+      /**
+       * Build the direct Harness action for one path selection.
+       *
+       * The file tree does not need another submenu level: one click appends
+       * the current file, folder or multi-selection to the Chat composer.
+       * @param {object[]} entries - Project rows or editor files.
+       * @returns {object} ContextMenu-compatible action.
+       */
+      const buildHarnessPathAction = React.useCallback((entries) => {
+        const selected = Array.isArray(entries)
+          ? entries.filter((entry) => entry !== null && typeof entry?.path === 'string')
+          : [];
+        return {
+          id: 'harnessReference',
+          label: `${t('editor.harness')}->`,
+          disabled: selected.length === 0,
+          restoreFocus: false,
+          run: () => void sendHarnessReference(selected),
+        };
+      }, [sendHarnessReference, t]);
+      /**
+       * Send the editor under the pointer-menu invocation, including its live
+       * caret or selected line-column range.
+       * @param {object} editor - Monaco editor that opened the context menu.
+       * @returns {void}
+       */
+      const sendHarnessEditorReference = React.useCallback((editor) => {
+        const location = harnessEditorLocation(editor);
+        if (location === null) {
+          flashStatus(t('editor.harnessPositionUnavailable'));
+          return;
+        }
+        void sendHarnessReference([{ path: location.path, isDirectory: false }], location);
+      }, [flashStatus, sendHarnessReference, t]);
+      const navigateHistory = React.useCallback((direction) => {
+        const current = navigationCurrentLocationRef.current ?? currentNavigationLocation();
+        const step = navigationHistoryStep(navigationHistoryRef.current, current, direction);
+        if (step.target === null) {
+          flashStatus(t(direction === 'back'
+            ? 'editor.navigationBackEmpty'
+            : 'editor.navigationForwardEmpty'));
+          return;
+        }
+        navigationHistoryRef.current = step.history;
+        openFileAtLocation(step.target.path, step.target.line, step.target.column, { recordHistory: false });
+      }, [currentNavigationLocation, flashStatus, openFileAtLocation, t]);
+      const navigateBackHistory = React.useCallback(() => navigateHistory('back'), [navigateHistory]);
+      const navigateForwardHistory = React.useCallback(() => navigateHistory('forward'), [navigateHistory]);
       React.useEffect(() => () => {
         if (statusNoticeTimer.current !== null) window.clearTimeout(statusNoticeTimer.current);
       }, []);
+
+      /**
+       * Resolve the symbol under one editor position and reveal its declaration.
+       *
+       * Imports are resolved from workspace files first; other languages use the
+       * existing bounded text search and re-read the candidate for an exact
+       * declaration location. This intentionally stays a navigation shortcut,
+       * not a second language server.
+       * @param {object} editor - Monaco editor that owned the click.
+       * @param {object} position - Monaco one-based line/column.
+       * @returns {void}
+       */
+      const goToDefinitionAt = React.useCallback((editor, position) => {
+        const model = editor?.getModel?.() ?? null;
+        const word = model === null ? null : model.getWordAtPosition?.(position) ?? null;
+        const symbol = typeof word?.word === 'string' ? word.word.trim() : '';
+        const path = navigationPathForModel(model);
+        if (model === null || path === '') {
+          flashStatus(t('editor.definitionNoFile'));
+          return;
+        }
+        if (symbol === '') {
+          flashStatus(t('editor.definitionNoSymbol'));
+          return;
+        }
+        const origin = normalizeNavigationLocation({
+          path,
+          line: position?.lineNumber ?? 1,
+          column: position?.column ?? 1,
+        });
+        void resolveWorkspaceDefinition({
+          path,
+          content: model.getValue(),
+          symbol,
+          readFile: async (target) => {
+            const existing = modelsRef.current.get(target);
+            if (existing !== undefined) return existing.getValue();
+            const value = await callFs({ op: 'read', path: target });
+            return value?.content ?? '';
+          },
+          searchText: async (query) => {
+            const value = await callFs({
+              op: 'searchText',
+              query,
+              regex: true,
+              maxMatches: 80,
+            });
+            return Array.isArray(value?.matches) ? value.matches : [];
+          },
+        })
+          .then((target) => {
+            if (target === null) {
+              flashStatus(t('editor.definitionNotFound', { name: symbol }));
+              return;
+            }
+            openFileAtLocation(target.path, target.line, target.column, { origin });
+          })
+          .catch((failure) => {
+            flashStatus(t('editor.definitionFailed', {
+              message: failure instanceof Error ? failure.message : String(failure),
+            }));
+          });
+      }, [flashStatus, openFileAtLocation, t]);
 
       /**
        * Save every dirty tab, IDEA's "Save All" (⌥⌘S / Ctrl+Alt+S).
@@ -2103,23 +2422,60 @@
         return written;
       }, [flashStatus, loadGit, t]);
 
-      /* IDEA's "Go to Line" (⌘/Ctrl+L): accept `123` or `12:7`. */
+      const gotoInputRef = React.useRef(null);
+      /* IDEA 的 Go to Line/Column：接受行号或 `行:列`。 */
       const [gotoState, setGotoState] = React.useState(null);
-      const gotoLine = React.useCallback(() => {
-        if (currentCodePath() === null) return;
-        setGotoState({ value: '' });
+      const gotoLine = React.useCallback((path = null, pane = null) => {
+        const targetPath = path ?? currentCodePath();
+        if (targetPath === null) return false;
+        const targetPane = pane ?? (
+          targetPath === splitPathRef.current && focusedEditorRef.current?.path === targetPath
+            ? 'right'
+            : 'left'
+        );
+        setGotoState({ value: '', error: null, path: targetPath, pane: targetPane });
+        window.setTimeout(() => {
+          gotoInputRef.current?.focus?.();
+          gotoInputRef.current?.select?.();
+        }, 0);
+        return true;
       }, [currentCodePath]);
-      const commitGotoLine = React.useCallback(() => {
-        const raw = gotoState?.value?.trim() ?? '';
-        const match = /^(\d+)(?:\s*[:,]\s*(\d+))?$/u.exec(raw);
-        const path = currentCodePath();
+      const closeGotoLine = React.useCallback(() => {
+        const pane = gotoState?.pane ?? 'left';
         setGotoState(null);
-        if (match === null || path === null) {
-          setEditorError(t('editor.invalidName'));
+        window.setTimeout(() => {
+          const editor = pane === 'right' ? splitEditorRef.current : editorRef.current;
+          editor?.focus?.();
+        }, 0);
+      }, [gotoState]);
+      const commitGotoLine = React.useCallback(() => {
+        const parsed = parseGotoLinePosition(gotoState?.value);
+        if (parsed === null) {
+          setGotoState((current) => current === null ? null : { ...current, error: t('editor.gotoLineInvalid') });
+          window.setTimeout(() => gotoInputRef.current?.select?.(), 0);
           return;
         }
-        revealLines(path, Number(match[1]), match[2] === undefined ? 1 : Number(match[2]));
-      }, [currentCodePath, gotoState, revealLines, t]);
+        const path = gotoState.path;
+        const pane = gotoState.pane;
+        setGotoState(null);
+        revealLines(path, parsed.line, parsed.column, pane);
+      }, [gotoState, revealLines, t]);
+      React.useEffect(() => {
+        const onKeyDown = (event) => {
+          if (gotoState !== null || !gotoLineShortcutMatches(event)) return;
+          const host = document.querySelector('[data-dsh-editor-workspace]');
+          const active = document.activeElement;
+          if (host === null || !(active instanceof Element) || !host.contains(active)) return;
+          if (active.closest('[data-dsh-editor-terminal], [data-dsh-editor-diff-surface], [data-dsh-find-tool-window], [data-dsh-search-everywhere]') !== null) return;
+          const path = currentCodePath();
+          if (path === null) return;
+          event.preventDefault();
+          event.stopPropagation();
+          gotoLine(path);
+        };
+        window.addEventListener('keydown', onKeyDown, true);
+        return () => window.removeEventListener('keydown', onKeyDown, true);
+      }, [currentCodePath, gotoLine, gotoState]);
 
       /* A terminal link asks the editor to open a workspace file at a location. */
       React.useEffect(() => {
@@ -2163,6 +2519,8 @@
         if (monaco?.editor === undefined) return;
         const group = createCodeEditorGroup(monaco, containerRef.current, {
           onSave: () => void saveActive(),
+          sendHarnessReferenceLabel: `${t('editor.harness')}->`,
+          onSendHarnessReference: sendHarnessEditorReference,
           onFind: () => {
             /* ⌘F belongs to whatever has focus: the Project tree's speed search,
                the terminal's find bar, or this editor find bar — never two at once. */
@@ -2198,7 +2556,14 @@
           onReplaceInFiles: (editor) => findToolContextRunnerRef.current?.(editor, 'replace'),
           onFindUsages: (editor) => findUsagesRunnerRef.current?.(editor),
           onSaveAll: () => void saveAll(),
-          onGotoLine: () => setGotoState({ value: '' }),
+          onGotoLine: () => gotoLine(),
+          gotoLineLabel: t('editor.gotoLine'),
+          onGoToDefinition: goToDefinitionAt,
+          goToDefinitionLabel: t('editor.goToDefinitionAction'),
+          onNavigateBack: navigateBackHistory,
+          onNavigateForward: navigateForwardHistory,
+          navigationBackLabel: t('editor.navigationBackAction'),
+          navigationForwardLabel: t('editor.navigationForwardAction'),
           onCloseTab: () => {
             /* ⌘W closes whichever editor tab is showing: the Commit diff while
                that tab is active, otherwise the open file. */
@@ -2221,7 +2586,7 @@
           for (const model of modelsRef.current.values()) model.dispose();
           modelsRef.current.clear();
         };
-      }, [closeDiff, monacoReady, saveActive, syncEditorStatus, t]);
+      }, [closeDiff, goToDefinitionAt, monacoReady, navigateBackHistory, navigateForwardHistory, saveActive, sendHarnessEditorReference, syncEditorStatus, t]);
 
       /* Hidden Monaco panes cannot measure themselves. Re-layout after IDEA's
          Editor / Editor and Preview / Preview switch changes the visible box. */
@@ -2333,7 +2698,9 @@
           setLineStats((current) => ({ ...current, selected: editor.getModel()?.getValueInRange(editor.getSelection() ?? new monaco.Range(1, 1, 1, 1))?.length ?? 0, lines: editor.getModel()?.getLineCount() ?? 0 }));
         });
         const position = editor.getPosition();
-        if (position !== null) setCaret({ line: position.lineNumber, column: position.column });
+        if (position !== null) {
+          setCaret({ line: position.lineNumber, column: position.column });
+        }
         setLineStats({ lines: model.getLineCount(), selected: 0 });
         return () => {
           subscription.dispose();
@@ -2502,6 +2869,8 @@
         if (monaco?.editor === undefined) return undefined;
         const group = createCodeEditorGroup(monaco, splitContainerRef.current, {
           onSave: () => void savePath(splitPathRef.current),
+          sendHarnessReferenceLabel: `${t('editor.harness')}->`,
+          onSendHarnessReference: sendHarnessEditorReference,
           onFind: () => {
             if (document.activeElement?.closest('.monaco-editor') == null) return;
             setReplaceState((current) => current ?? { find: '', replace: '', index: 0, total: 0, withReplace: false, preserveCase: false, scope: null });
@@ -2535,7 +2904,14 @@
           onReplaceInFiles: (editor) => findToolContextRunnerRef.current?.(editor, 'replace'),
           onFindUsages: (editor) => findUsagesRunnerRef.current?.(editor),
           onSaveAll: () => void saveAll(),
-          onGotoLine: () => setGotoState({ value: '' }),
+          onGotoLine: () => gotoLine(),
+          gotoLineLabel: t('editor.gotoLine'),
+          onGoToDefinition: goToDefinitionAt,
+          goToDefinitionLabel: t('editor.goToDefinitionAction'),
+          onNavigateBack: navigateBackHistory,
+          onNavigateForward: navigateForwardHistory,
+          navigationBackLabel: t('editor.navigationBackAction'),
+          navigationForwardLabel: t('editor.navigationForwardAction'),
           onCloseTab: () => closeSplitTab(splitPathRef.current),
         });
         const editor = group.editor;
@@ -2565,7 +2941,7 @@
           splitEditorRef.current = null;
           group.dispose();
         };
-      }, [closeSplitTab, monacoReady, saveAll, savePath, splitTabs.length === 0, syncEditorStatus, t]);
+      }, [closeSplitTab, goToDefinitionAt, monacoReady, navigateBackHistory, navigateForwardHistory, saveAll, savePath, sendHarnessEditorReference, splitTabs.length === 0, syncEditorStatus, t]);
 
       const bindActiveModel = React.useCallback(() => {
         const monaco = window.monaco;
@@ -2859,12 +3235,28 @@
           })
             .then((value) => {
               if (searchTextRequestRef.current !== requestId) return;
+              const hostMatches = Array.isArray(value?.matches) ? value.matches : [];
+              const dirtyFiles = (Array.isArray(openFiles) ? openFiles : []).filter((file) =>
+                file?.dirty === true && typeof file.content === 'string');
+              const merged = mergeFindToolDirtyMatches(
+                hostMatches,
+                dirtyFiles,
+                searchEverywhereTextQuery,
+                {
+                  caseSensitive: searchEverywhere?.caseSensitive === true,
+                  wholeWords: searchEverywhere?.wholeWords === true,
+                  regex: searchEverywhere?.regex === true,
+                  fileMask: searchEverywhere?.fileMask,
+                },
+                { mode: 'project', directory: '', preset: 'projectFiles', allowedPaths: null },
+                200,
+              );
               setSearchEverywhere((current) => (current === null
                 ? current
                 : {
                     ...current,
-                    textMatches: Array.isArray(value?.matches) ? value.matches : [],
-                    textTruncated: value?.truncated === true,
+                    textMatches: merged.matches,
+                    textTruncated: value?.truncated === true || merged.truncated,
                     textLoading: false,
                     error: null,
                   }));
@@ -2894,6 +3286,7 @@
         searchEverywhere?.regex,
         searchEverywhere?.preserveCase,
         searchEverywhere?.fileMask,
+        openFiles,
         t,
       ]);
 
@@ -2938,6 +3331,7 @@
           searchScopeMode: savedScope.mode,
           searchScopePreset: savedScope.preset,
           searchScopeDirectory: savedScope.directory,
+          searchScopeRecursive: readFindDirectoryRecursive(rootRef.current),
           searchGeneration: 0,
           loadedGeneration: initial === null || initial?.refresh === true ? -1 : 0,
         });
@@ -3015,6 +3409,61 @@
             loadedGeneration: -1,
           };
         });
+      }, []);
+
+      /** Persist and reapply IDEA's Directory recursion toggle. */
+      const changeFindDirectoryRecursive = React.useCallback((recursive) => {
+        const next = writeFindDirectoryRecursive(rootRef.current, recursive);
+        setFindTool((current) => {
+          if (current === null || current.searchScopeRecursive === next) return current;
+          return {
+            ...current,
+            searchScopeRecursive: next,
+            files: [],
+            matches: [],
+            index: 0,
+            error: null,
+            searchGeneration: (current.searchGeneration ?? 0) + 1,
+            loadedGeneration: -1,
+          };
+        });
+      }, []);
+
+      /** Persist local named Scopes and invalidate a selection that disappeared. */
+      const changeCustomFindScopes = React.useCallback((value) => {
+        const normalized = writeCustomFindScopes(rootRef.current, value);
+        const sharedScopes = normalized.filter((scope) => scope.shared === true);
+        if (sharedScopes.length > 0 || sharedFindScopesRef.current.length > 0) {
+          sharedFindScopesRef.current = sharedScopes;
+          void callFs({
+            op: 'write',
+            path: '.idea/scopes/dsh-editor.xml',
+            content: serializeIdeaScopeXml(sharedScopes),
+            force: true,
+            create: true,
+          }).catch((failure) => {
+            setEditorError(failure instanceof Error ? failure.message : String(failure));
+          });
+        }
+        setCustomFindScopes(normalized);
+        setFindTool((current) => {
+          if (current === null || typeof current.searchScopePreset !== 'string' || !current.searchScopePreset.startsWith('custom:')) {
+            return current;
+          }
+          const id = current.searchScopePreset.slice('custom:'.length);
+          if (normalized.some((scope) => scope.id === id)) return current;
+          return {
+            ...current,
+            searchScopePreset: 'projectFiles',
+            files: [],
+            matches: [],
+            index: 0,
+            error: null,
+            searchGeneration: (current.searchGeneration ?? 0) + 1,
+            loadedGeneration: -1,
+          };
+        });
+        return normalized;
       }, []);
 
       /**
@@ -3199,6 +3648,7 @@
         findTool?.preserveCase,
         findTool?.includeExcluded,
         findTool?.fileMask,
+        findTool?.contextFilter,
       ]);
 
       React.useEffect(() => {
@@ -3214,14 +3664,35 @@
       const findToolQuery = findToolContentQuery(findTool?.query);
       const findToolSearchScopeMode = findTool?.searchScopeMode ?? 'project';
       const findToolSearchScopePreset = findTool?.searchScopePreset ?? 'projectFiles';
+      const findToolCustomScopeId = typeof findToolSearchScopePreset === 'string' && findToolSearchScopePreset.startsWith('custom:')
+        ? findToolSearchScopePreset.slice('custom:'.length)
+        : '';
+      const findToolCustomScope = findToolSearchScopeMode === 'scope' && findToolCustomScopeId !== ''
+        ? customFindScopes.find((scope) => scope.id === findToolCustomScopeId) ?? null
+        : null;
+      const findToolScopeIncludePatterns = findToolCustomScope?.includePatterns ?? [];
+      const findToolScopeExcludePatterns = findToolCustomScope?.excludePatterns ?? [];
+      const findToolScopePatternsKey = `${findToolScopeIncludePatterns.join('\u0000')}\u0001${findToolScopeExcludePatterns.join('\u0000')}`;
       const findToolAllowedScopePaths = findToolSearchScopeMode === 'scope'
-        && findToolSearchScopePreset !== 'projectFiles'
-        ? [...new Set((findToolSearchScopePreset === 'openFiles'
+        && (findToolSearchScopePreset === 'currentFile'
+          || findToolSearchScopePreset === 'openFiles'
+          || findToolSearchScopePreset === 'recentlyViewedFiles'
+          || findToolSearchScopePreset === 'changedFiles')
+        ? [...new Set((findToolSearchScopePreset === 'currentFile'
+            ? [currentCodePath()].filter((path) => typeof path === 'string' && path !== '')
+            : findToolSearchScopePreset === 'openFiles'
             ? openFiles.map((file) => file.path)
-            : (git?.changes ?? []).map((change) => change.path))
+            : findToolSearchScopePreset === 'recentlyViewedFiles'
+              ? recentFiles
+              : (git?.changes ?? []).map((change) => change.path))
           .filter((path) => typeof path === 'string' && path !== ''))]
         : undefined;
       const findToolAllowedScopePathsKey = findToolAllowedScopePaths?.join('\u0000') ?? '';
+      const findToolGitScope = findToolSearchScopePreset === 'gitTrackedFiles'
+        ? 'tracked'
+        : findToolSearchScopePreset === 'gitNonIgnoredFiles'
+          ? 'nonIgnored'
+          : undefined;
       React.useEffect(() => {
         if (!findToolOpen || findTool.loadedGeneration === findTool.searchGeneration) return undefined;
         const generation = findTool.searchGeneration;
@@ -3244,6 +3715,8 @@
           ? current
           : { ...current, files: [], loading: true, error: null }));
         const timer = window.setTimeout(() => {
+          const dirtyFiles = (openFilesRef.current ?? []).filter((file) =>
+            file.dirty === true && typeof file.content === 'string');
           void callFs({
             op: 'searchText',
             query: findToolQuery,
@@ -3253,30 +3726,43 @@
             regex: findTool?.regex === true,
             includeExcluded: findTool?.includeExcluded === true,
             fileMask: normalizeFileExtensionFilter(findTool?.fileMask),
+            contextFilter: normalizeTextSearchContextFilter(findTool?.contextFilter),
+            scopeIncludePatterns: findToolScopeIncludePatterns,
+            scopeExcludePatterns: findToolScopeExcludePatterns,
             directory: findTool?.searchScopeMode === 'directory' ? findTool.searchScopeDirectory ?? '' : '',
+            recursive: findTool?.searchScopeMode === 'directory'
+              ? findTool?.searchScopeRecursive !== false
+              : true,
             allowedPaths: findTool?.searchScopeMode === 'scope' && findTool?.searchScopePreset !== 'projectFiles'
               ? findToolAllowedScopePaths
               : undefined,
+            gitScope: findToolGitScope,
+            dirtyPaths: dirtyFiles.map((file) => file.path),
           })
             .then((value) => {
               if (!findToolRequestIsCurrent(requestId, requestRoot, findToolRequestRef.current, rootRef.current)) return;
               const hostMatches = Array.isArray(value?.matches) ? value.matches : [];
-              const dirtyFiles = (openFilesRef.current ?? []).filter((file) =>
-                file.dirty === true && typeof file.content === 'string');
+              const eligibleDirtyPaths = Array.isArray(value?.dirtyPaths) ? new Set(value.dirtyPaths) : null;
+              const mergeDirtyFiles = eligibleDirtyPaths === null
+                ? dirtyFiles
+                : dirtyFiles.filter((file) => eligibleDirtyPaths.has(file.path));
               const merged = mergeFindToolDirtyMatches(
                 hostMatches,
-                dirtyFiles,
+                mergeDirtyFiles,
                 findToolQuery,
                 {
                   caseSensitive: findTool?.caseSensitive === true,
                   wholeWords: findTool?.wholeWords === true,
                   regex: findTool?.regex === true,
                   fileMask: findTool?.fileMask,
+                  contextFilter: normalizeTextSearchContextFilter(findTool?.contextFilter),
+                  customScope: findToolCustomScope,
                 },
                 {
                   mode: findToolSearchScopeMode,
                   directory: findTool?.searchScopeDirectory ?? '',
                   preset: findToolSearchScopePreset,
+                  recursive: findTool?.searchScopeRecursive !== false,
                   allowedPaths: findToolAllowedScopePaths ?? null,
                 },
                 200,
@@ -3319,11 +3805,16 @@
         findTool?.wholeWords,
         findTool?.regex,
         findTool?.fileMask,
+        findTool?.contextFilter,
+        findToolScopePatternsKey,
         findToolSearchScopeMode,
         findToolSearchScopePreset,
         findTool?.searchScopeDirectory,
+        findTool?.searchScopeRecursive,
         findToolAllowedScopePathsKey,
+        findToolGitScope,
         openFiles,
+        recentFiles,
         rememberCurrentFindQuery,
         t,
       ]);
@@ -3381,10 +3872,35 @@
         setSearchEverywhere(null);
         setShowUsages(null);
         setFindTool(null);
+        setFindReplaceUndoStack([]);
+        setFindReplaceRedoStack([]);
         setRecentSearches(root === '' ? [] : readSearchHistory(root));
         setRecentFindQueries(root === '' ? [] : readFindQueryHistory(root));
         setRecentFindUsages(root === '' ? [] : readFindUsagesHistory(root));
         setRecentReplacements(root === '' ? [] : readReplaceHistory(root));
+      }, [root]);
+
+      /* Local Scopes live in browser storage; Shared Scopes are loaded only
+         from the explicit dsh-editor scope file inside the workspace. */
+      React.useEffect(() => {
+        const localScopes = root === '' ? [] : readCustomFindScopes(root);
+        sharedFindScopesRef.current = [];
+        setCustomFindScopes(localScopes);
+        if (root === '') return undefined;
+        let cancelled = false;
+        void callFs({ op: 'read', path: '.idea/scopes/dsh-editor.xml' })
+          .then((value) => {
+            if (cancelled) return;
+            const sharedScopes = parseIdeaScopeXml(value?.content);
+            sharedFindScopesRef.current = sharedScopes;
+            setCustomFindScopes([...localScopes, ...sharedScopes]);
+          })
+          .catch(() => {
+            /* A workspace without shared Scopes is the normal case. */
+          });
+        return () => {
+          cancelled = true;
+        };
       }, [root]);
 
       /**
@@ -4505,6 +5021,15 @@
               }));
           return;
         }
+        /* Search Everywhere uses the same host undo slot. Any previous Find
+           operation is no longer recoverable once this replacement starts. */
+        setFindReplaceUndoStack([]);
+        setFindReplaceRedoStack([]);
+        const dirtyUndo = dirtyPlans.map((plan) => ({
+          path: plan.path,
+          afterContent: plan.text,
+          beforeContent: plan.model.getValue(),
+        }));
         setSearchEverywhere((current) => (current === null ? current : { ...current, replaceBusy: true, error: null }));
         try {
           const value = cleanTargets.size === 0 ? null : await callFs({
@@ -4538,6 +5063,16 @@
           rememberCurrentSearchQuery(query);
           rememberCurrentReplacement(replacement);
           const replacedCount = (value?.replacements ?? 0) + dirtyReplacements;
+          const operationId = typeof value?.operationId === 'string' ? value.operationId : '';
+          const operation = {
+            operationId,
+            clean: operationId !== '' && hostChanged.length > 0,
+            dirty: dirtyUndo,
+            files: changed,
+            replacements: replacedCount,
+          };
+          setFindReplaceRedoStack([]);
+          setFindReplaceUndoStack((current) => boundedReplaceHistory(current, operation));
           flashStatus(t('editor.searchReplaceDone', searchReplaceCountParams(t, replacedCount, changed.length)));
           setSearchEverywhere((current) => (current === null
             ? current
@@ -4587,6 +5122,7 @@
             wholeWords: findTool.wholeWords === true,
             regex: findTool.regex === true,
             preserveCase: findTool.preserveCase === true,
+            contextFilter: normalizeTextSearchContextFilter(findTool.contextFilter),
           },
         );
         if (replacementPlan.errorPath !== null) {
@@ -4632,6 +5168,11 @@
               replaceFocusRequest: (current.replaceFocusRequest ?? 0) + 1,
             }));
         try {
+          const dirtyUndo = dirtyPlans.map((plan) => ({
+            path: plan.path,
+            afterContent: plan.text,
+            beforeContent: plan.model.getValue(),
+          }));
           const value = cleanTargets.size === 0 ? null : await callFs({
               op: 'replaceText',
               query,
@@ -4642,6 +5183,9 @@
               regex: findTool.regex === true,
               preserveCase: findTool.preserveCase === true,
               fileMask: normalizeFileExtensionFilter(findTool.fileMask),
+              contextFilter: normalizeTextSearchContextFilter(findTool.contextFilter),
+              scopeIncludePatterns: findToolScopeIncludePatterns,
+              scopeExcludePatterns: findToolScopeExcludePatterns,
           });
           const dirtyCommit = commitFindToolDirtyPlans(dirtyPlans);
           const dirtyReplacements = dirtyCommit.count;
@@ -4663,6 +5207,16 @@
           rememberCurrentFindQuery(query);
           rememberCurrentReplacement(findTool.replace);
           const replacedCount = (value?.replacements ?? 0) + dirtyReplacements;
+          const operationId = typeof value?.operationId === 'string' ? value.operationId : '';
+          const operation = {
+            operationId,
+            clean: operationId !== '' && hostChanged.length > 0,
+            dirty: dirtyUndo,
+            files: changed,
+            replacements: replacedCount,
+          };
+          setFindReplaceRedoStack([]);
+          setFindReplaceUndoStack((current) => boundedReplaceHistory(current, operation));
           flashStatus(t('editor.searchReplaceDone', searchReplaceCountParams(t, replacedCount, changed.length)));
           setFindTool((current) => (current === null
             ? current
@@ -4733,6 +5287,8 @@
                 wholeWords: findTool.wholeWords === true,
                 regex: findTool.regex === true,
                 preserveCase: findTool.preserveCase === true,
+                path: match.path,
+                contextFilter: normalizeTextSearchContextFilter(findTool.contextFilter),
               });
           if (dirtyRewrite.error !== null) {
             setFindTool((current) => (current === null
@@ -4755,6 +5311,9 @@
               replaceFocusRequest: (current.replaceFocusRequest ?? 0) + 1,
             }));
         try {
+          const dirtyBeforeContent = dirtyFile !== undefined && dirtyModel !== undefined
+            ? dirtyModel.getValue()
+            : null;
           const value = dirtyFile === undefined ? await callFs({
               op: 'replaceText',
               query,
@@ -4766,6 +5325,9 @@
               regex: findTool.regex === true,
               preserveCase: findTool.preserveCase === true,
               fileMask: normalizeFileExtensionFilter(findTool.fileMask),
+              contextFilter: normalizeTextSearchContextFilter(findTool.contextFilter),
+              scopeIncludePatterns: findToolScopeIncludePatterns,
+              scopeExcludePatterns: findToolScopeExcludePatterns,
           }) : null;
           if (dirtyFile !== undefined && dirtyModel !== undefined && dirtyRewrite !== null && dirtyOffset !== null) {
             const start = dirtyModel.getPositionAt(dirtyOffset);
@@ -4795,6 +5357,22 @@
           rememberCurrentFindQuery(query);
           rememberCurrentReplacement(findTool.replace);
           const replacedCount = (value?.replacements ?? 0) + (dirtyFile === undefined ? 0 : 1);
+          const operationId = typeof value?.operationId === 'string' ? value.operationId : '';
+          const operation = {
+            operationId,
+            clean: operationId !== '' && dirtyFile === undefined && changed.length > 0,
+            dirty: dirtyFile !== undefined && dirtyRewrite !== null && dirtyBeforeContent !== null
+              ? [{
+                  path: match.path,
+                  beforeContent: dirtyBeforeContent,
+                  afterContent: dirtyRewrite.text,
+                }]
+              : [],
+            files: changed,
+            replacements: replacedCount,
+          };
+          setFindReplaceRedoStack([]);
+          setFindReplaceUndoStack((current) => boundedReplaceHistory(current, operation));
           flashStatus(t('editor.searchReplaceDone', searchReplaceCountParams(t, replacedCount, changed.length)));
           setFindTool((current) => (current === null
             ? current
@@ -4817,6 +5395,132 @@
           releaseReplaceAttempt(replaceWriteBusyRef);
         }
       }, [findTool, flashStatus, loadGit, reloadFile, rememberCurrentFindQuery, rememberCurrentReplacement, t]);
+
+      /**
+       * Undo the latest successful Find Replace operation.
+       *
+       * Dirty models are validated before the host transaction, so a changed
+       * buffer cannot let clean files roll back first and dirty files fail
+       * afterwards.
+       */
+      const undoFindReplace = React.useCallback(async () => {
+        const operation = findReplaceUndoStack.at(-1) ?? null;
+        if (operation === null) return;
+        const dirtyPlans = [];
+        for (const entry of operation.dirty) {
+          const model = modelsRef.current.get(entry.path);
+          if (model === undefined || model.getValue() !== entry.afterContent) {
+            const message = t('editor.findUndoReplaceConflict', { path: entry.path });
+            setFindTool((current) => (current === null ? current : { ...current, error: message }));
+            flashStatus(message);
+            return;
+          }
+          dirtyPlans.push({ path: entry.path, model, text: entry.beforeContent, count: 1 });
+        }
+        if (!claimReplaceAttempt(replaceWriteBusyRef, findTool?.replaceBusy === true)) return;
+        setFindTool((current) => (current === null
+          ? current
+          : { ...current, replaceBusy: true, error: null }));
+        try {
+          const value = operation.clean ? await callFs({ op: 'undoReplaceText', operationId: operation.operationId }) : null;
+          const dirtyCommit = commitFindToolDirtyPlans(dirtyPlans);
+          if (dirtyCommit.contents.size > 0) {
+            setOpenFiles((current) => current.map((file) =>
+              dirtyCommit.contents.has(file.path)
+                ? { ...file, content: dirtyCommit.contents.get(file.path), dirty: true }
+                : file));
+          }
+          const hostChanged = Array.isArray(value?.files) ? value.files : [];
+          const changed = [...new Set([...hostChanged, ...dirtyCommit.paths])];
+          const openChanged = new Set(openFilesRef.current.map((file) => file.path));
+          const dirtyChanged = new Set(dirtyCommit.paths);
+          for (const path of hostChanged) {
+            if (openChanged.has(path) && !dirtyChanged.has(path)) await reloadFile(path);
+          }
+          await loadGit();
+          const restored = (value?.replacements ?? 0) + dirtyCommit.count;
+          setFindReplaceUndoStack((current) => current.slice(0, -1));
+          setFindReplaceRedoStack((current) => boundedReplaceHistory(current, operation));
+          flashStatus(t('editor.findUndoReplaceDone', searchReplaceCountParams(t, restored, changed.length)));
+          setFindTool((current) => (current === null
+            ? current
+            : {
+                ...current,
+                replaceBusy: false,
+                error: null,
+                files: [],
+                matches: [],
+                searchGeneration: (current.searchGeneration ?? 0) + 1,
+                loadedGeneration: -1,
+              }));
+        } catch (failure) {
+          const message = failure instanceof Error ? failure.message : String(failure);
+          flashStatus(message);
+          setFindTool((current) => (current === null ? current : { ...current, replaceBusy: false, error: message }));
+        } finally {
+          releaseReplaceAttempt(replaceWriteBusyRef);
+        }
+      }, [findReplaceUndoStack, findTool?.replaceBusy, flashStatus, loadGit, reloadFile, t]);
+
+      /** Redo the latest Undo Last Replace operation after validating both scopes. */
+      const redoFindReplace = React.useCallback(async () => {
+        const operation = findReplaceRedoStack.at(-1) ?? null;
+        if (operation === null) return;
+        const dirtyPlans = [];
+        for (const entry of operation.dirty) {
+          const model = modelsRef.current.get(entry.path);
+          if (model === undefined || model.getValue() !== entry.beforeContent) {
+            const message = t('editor.findRedoReplaceConflict', { path: entry.path });
+            setFindTool((current) => (current === null ? current : { ...current, error: message }));
+            flashStatus(message);
+            return;
+          }
+          dirtyPlans.push({ path: entry.path, model, text: entry.afterContent, count: 1 });
+        }
+        if (!claimReplaceAttempt(replaceWriteBusyRef, findTool?.replaceBusy === true)) return;
+        setFindTool((current) => (current === null
+          ? current
+          : { ...current, replaceBusy: true, error: null }));
+        try {
+          const value = operation.clean ? await callFs({ op: 'redoReplaceText', operationId: operation.operationId }) : null;
+          const dirtyCommit = commitFindToolDirtyPlans(dirtyPlans);
+          if (dirtyCommit.contents.size > 0) {
+            setOpenFiles((current) => current.map((file) =>
+              dirtyCommit.contents.has(file.path)
+                ? { ...file, content: dirtyCommit.contents.get(file.path), dirty: true }
+                : file));
+          }
+          const hostChanged = Array.isArray(value?.files) ? value.files : [];
+          const changed = [...new Set([...hostChanged, ...dirtyCommit.paths])];
+          const openChanged = new Set(openFilesRef.current.map((file) => file.path));
+          const dirtyChanged = new Set(dirtyCommit.paths);
+          for (const path of hostChanged) {
+            if (openChanged.has(path) && !dirtyChanged.has(path)) await reloadFile(path);
+          }
+          await loadGit();
+          const reapplied = (value?.replacements ?? 0) + dirtyCommit.count;
+          setFindReplaceRedoStack((current) => current.slice(0, -1));
+          setFindReplaceUndoStack((current) => boundedReplaceHistory(current, operation));
+          flashStatus(t('editor.findRedoReplaceDone', searchReplaceCountParams(t, reapplied, changed.length)));
+          setFindTool((current) => (current === null
+            ? current
+            : {
+                ...current,
+                replaceBusy: false,
+                error: null,
+                files: [],
+                matches: [],
+                searchGeneration: (current.searchGeneration ?? 0) + 1,
+                loadedGeneration: -1,
+              }));
+        } catch (failure) {
+          const message = failure instanceof Error ? failure.message : String(failure);
+          flashStatus(message);
+          setFindTool((current) => (current === null ? current : { ...current, replaceBusy: false, error: message }));
+        } finally {
+          releaseReplaceAttempt(replaceWriteBusyRef);
+        }
+      }, [findReplaceRedoStack, findTool?.replaceBusy, flashStatus, loadGit, reloadFile, t]);
 
       /**
        * Stop warning about one external change without touching the editor.
@@ -5519,8 +6223,7 @@
             }
             await refreshTree();
             await loadGit();
-            setSelection(new Set());
-            setSelectedPath(null);
+            applyTreeSelection(new Set(), null, null);
             const active = activePathRef.current;
             if (active !== null && targets.some((path) => active === path || active.startsWith(`${path}/`))) closeFile(active);
           } catch (failure) {
@@ -5529,7 +6232,7 @@
             setCommitBusy(false);
           }
         },
-        [closeFile, dirtyUnder, loadGit, refreshTree, setSelectedPath, t],
+        [applyTreeSelection, closeFile, dirtyUnder, loadGit, refreshTree, t],
       );
 
       /* Delete one entry after confirmation, then refresh the tree and git status. */
@@ -6130,12 +6833,17 @@
           const selectedRows = selection.has(row.path) ? rows.filter((entry) => selection.has(entry.path) && entry.path !== '') : [];
           const batch = selectedRows.length > 1 ? selectedRows : [];
           const splitCandidates = projectRightSplitPaths(rows, selection, row.path);
+          const harnessEntries = batch.length > 1
+            ? batch.map((entry) => ({ path: entry.path, isDirectory: entry.kind === 'directory' }))
+            : [{ path: row.path, isDirectory }];
           return {
             x,
             y,
             /* IDEA tells you how many rows a context action will touch. */
             title: batch.length > 1 ? t('editor.selectionCount', { count: batch.length }) : null,
             items: [
+              buildHarnessPathAction(harnessEntries),
+              null,
               {
                 id: 'newFile',
                 label: t('editor.newFile'),
@@ -6281,7 +6989,7 @@
             ],
           };
         },
-        [compareWithClipboard, compareWithRevision, currentCodeEditor, currentCodePath, filteredView, git, openFile, openInRightSplit, openInTerminal, openMoveTo, refreshTree, removeEntries, removeEntry, restage, revealInFinder, revealPath, root, rows, selection, showFileHistory, startCreate, t, toggleDirectory],
+        [compareWithClipboard, compareWithRevision, currentCodeEditor, currentCodePath, filteredView, git, openFile, openInRightSplit, openInTerminal, openMoveTo, refreshTree, removeEntries, removeEntry, restage, revealInFinder, revealPath, root, rows, selection, showFileHistory, startCreate, t, toggleDirectory, buildHarnessPathAction],
       );
       /* Move one entry into a directory by drag-and-drop, reusing the rename endpoint. */
       const moveEntry = React.useCallback(
@@ -6329,8 +7037,9 @@
                 : describeMoved(entries.map(([, to]) => to), summary.blocked, t);
             /* Open tabs, previews, comparisons and Models follow their files. */
             remapEditorPaths(entries);
-            setSelection(new Set(entries.map(([, to]) => to)));
-            setSelectedPathRaw(entries[entries.length - 1][1]);
+            const movedPaths = entries.map(([, to]) => to);
+            const primary = movedPaths[movedPaths.length - 1] ?? null;
+            applyTreeSelection(new Set(movedPaths), primary, primary);
             await refreshTree();
             await loadGit();
             /* After the refresh, not before: `refreshTree` reloads the root and
@@ -6341,7 +7050,7 @@
             setTreeError(failure instanceof Error ? failure.message : String(failure));
           }
         },
-        [loadGit, refreshTree, remapEditorPaths, rows, t],
+        [applyTreeSelection, loadGit, refreshTree, remapEditorPaths, rows, t],
       );
 
       /* Resolve one conflicted file by taking ours/theirs, then refresh the change list. */
@@ -7612,8 +8321,11 @@
               const to = rows.findIndex((entry) => entry.path === row.path);
               if (from >= 0 && to >= 0) {
                 const [start, end] = from <= to ? [from, to] : [to, from];
-                setSelection(new Set(rows.slice(start, end + 1).map((entry) => entry.path)));
-                setSelectedPathRaw(row.path);
+                applyTreeSelection(
+                  new Set(rows.slice(start, end + 1).map((entry) => entry.path)),
+                  row.path,
+                  anchor,
+                );
               }
             } else {
               setSelectedPath(row.path);
@@ -7708,7 +8420,7 @@
             void refreshTree();
           }
         },
-        [children, entries, expanded, manualOrder, openFile, openMoveTo, refreshTree, removeEntries, removeEntry, reorderManualProject, rows, selectedPath, selection, setSelectedPath, sortMode, startCreate, toggleDirectory],
+        [applyTreeSelection, children, entries, expanded, manualOrder, openFile, openMoveTo, refreshTree, removeEntries, removeEntry, reorderManualProject, rows, selectedPath, selection, setSelectedPath, sortMode, startCreate, toggleDirectory],
       );
 
       const toggleCommitPath = React.useCallback((path) => {
@@ -8235,6 +8947,9 @@
           'div',
           {
             key: file.path,
+            role: 'tab',
+            'aria-selected': fileTabActive,
+            tabIndex: fileTabActive ? 0 : -1,
             className: `${fileTabActive ? 'dsh-editor-tab dsh-editor-tab-active' : 'dsh-editor-tab'}${file.path === previewPath ? ' dsh-editor-tab-preview' : ''}`,
             style: {
               ...styles.tab,
@@ -8248,9 +8963,20 @@
             /* IDEA shows "name — full/path" and marks a dirty tab in its tooltip too. */
             title: file.dirty ? `${file.path} — ${t('editor.unsavedTitle')}` : file.path,
             'data-dsh-editor-file-tab-path': file.path,
+            onFocus: () => {
+              if (fileTabActive) return;
+              setActivePath(file.path);
+              setDiffActive(false);
+            },
             onClick: () => {
               setActivePath(file.path);
               setDiffActive(false);
+            },
+            onKeyDown: (event) => {
+              if (!gotoLineShortcutMatches(event)) return;
+              event.preventDefault();
+              event.stopPropagation();
+              gotoLine(file.path, 'left');
             },
             onAuxClick: (event) => {
               /* Middle-click closes a tab, like IDEA and every browser. */
@@ -8279,6 +9005,8 @@
                 x: event.clientX,
                 y: event.clientY,
                 items: [
+                  buildHarnessPathAction([{ path: file.path, isDirectory: false }]),
+                  null,
                   ...(preview
                     ? [
                         {
@@ -8385,6 +9113,8 @@
                     x: event.clientX,
                     y: event.clientY,
                     items: [
+                      buildHarnessPathAction([{ path: diffTarget.path, isDirectory: false }]),
+                      null,
                       { id: 'close', label: t('editor.closeTab', { name: diffTabName }), shortcut: '⌘W', run: () => closeDiff() },
                       { id: 'closeOthers', label: t('editor.closeOtherTabs'), disabled: openFiles.length === 0, run: () => closeEditorTabs(openFiles.map((file) => file.path)) },
                       { id: 'closeRight', label: t('editor.closeTabsRight'), disabled: openFiles.length === 0, run: () => closeEditorTabs(allTabs.slice(diffTabIndex + 1)) },
@@ -8428,24 +9158,6 @@
       const fileTabLayout = overflowTabs(allTabs, visibleTabCount(tabStripWidth, allTabs.length), activeTabKey, (entry) => (entry === DIFF_TAB_KEY ? DIFF_TAB_KEY : entry.path));
       const splitTabLayout = overflowTabs(splitTabs, visibleTabCount(splitTabStripWidth, splitTabs.length), splitPath, (path) => path);
 
-      /* IDEA's breadcrumbs: workspace root › directories › the open file. */
-      const breadcrumbSegments = activeFile !== null && diffOpen === false
-        ? (() => {
-            const parts = activeFile.path.split('/');
-            const segments = [{ label: projectName, path: '', kind: 'root' }];
-            let prefix = '';
-            for (let index = 0; index < parts.length; index += 1) {
-              prefix = prefix === '' ? parts[index] : `${prefix}/${parts[index]}`;
-              segments.push({
-                label: parts[index],
-                path: prefix,
-                kind: index === parts.length - 1 ? 'file' : 'directory',
-              });
-            }
-            return segments;
-          })()
-        : [];
-
       const findToolWindowElement = findTool === null
         ? null
         : React.createElement(FindToolWindow, {
@@ -8454,8 +9166,11 @@
             floating: findTool.surface !== 'dock',
             activeFilePath: activePath,
             openFilePaths: openFiles.map((file) => file.path),
+            recentFilePaths: recentFiles,
+            gitAvailable: git !== null && typeof git.branch === 'string' && git.branch !== '',
             openFilesRef,
             changedFilePaths: (git?.changes ?? []).map((change) => change.path),
+            customScopes: customFindScopes,
             queryHistory: recentFindQueries,
             replaceHistory: recentReplacements,
             onQuery: (query) => {
@@ -8525,6 +9240,18 @@
                   loadedGeneration: -1,
                   searchGeneration: (current.searchGeneration ?? 0) + 1,
                 })),
+            onContextFilterChange: (contextFilter) => setFindTool((current) => (current === null
+              ? current
+              : {
+                  ...current,
+                  contextFilter: normalizeTextSearchContextFilter(contextFilter),
+                  files: [],
+                  matches: [],
+                  index: 0,
+                  error: null,
+                  loadedGeneration: -1,
+                  searchGeneration: (current.searchGeneration ?? 0) + 1,
+                })),
             onFileMaskChange: (fileMask) => setFindTool((current) => (current === null
               ? current
               : {
@@ -8538,6 +9265,8 @@
                   searchGeneration: (current.searchGeneration ?? 0) + 1,
                 })),
             onScopeChange: changeFindToolScope,
+            onDirectoryRecursiveChange: changeFindDirectoryRecursive,
+            onCustomScopesChange: changeCustomFindScopes,
             onMove: (direction, count, absolute = null) =>
               setFindTool((current) => {
                 if (current === null) return current;
@@ -8564,6 +9293,10 @@
             onReplaceMode: () => setFindTool((current) => current === null ? current : { ...current, mode: 'replace' }),
             onReplaceOccurrence: (match, activeIndex) => void replaceFindToolOccurrence(match, activeIndex),
             onReplaceAll: (allowedPaths) => void replaceInFindTool(allowedPaths),
+            canUndoLastReplace: findReplaceUndoStack.length > 0,
+            onUndoLastReplace: () => void undoFindReplace(),
+            canRedoLastReplace: findReplaceRedoStack.length > 0,
+            onRedoLastReplace: () => void redoFindReplace(),
             onOpenSettings: openFindToolSettings,
             onOpenInFindWindow: openFindToolInDock,
             onClose: closeFindToolWindow,
@@ -8614,6 +9347,7 @@
               t,
               state: searchEverywhere,
               files: searchEverywhere.files ?? [],
+              openFiles,
               changes: new Map((git?.changes ?? []).map((change) => [change.path, change.status])),
               textMatches: searchEverywhere.textMatches ?? [],
               actions: searchEverywhereActions,
@@ -9212,127 +9946,119 @@
                    already does this, and a file tab you just opened must not scroll
                    out of view while the strip silently widens. */
                 fileTabLayout.visible.map((entry) => fileTabElement(entry)),
-                fileTabLayout.hidden.length === 0
-                  ? null
-                  : React.createElement(
-                      'button',
-                      {
-                        type: 'button',
-                        className: 'dsh-editor-tab-overflow',
-                        style: styles.tabOverflow,
-                        title: t('editor.tabsOverflow', { count: fileTabLayout.hidden.length }),
-                        'aria-label': t('editor.tabsOverflow', { count: fileTabLayout.hidden.length }),
-                        onClick: (event) => {
-                          const rect = event.currentTarget.getBoundingClientRect();
-                          const hidden = fileTabLayout.hidden;
-                          setMenu({
-                            x: Math.max(4, rect.left - 180),
-                            y: rect.bottom + 4,
-                            title: t('editor.tabsOverflowTitle'),
-                            items: hidden.map((entry) =>
-                              entry === DIFF_TAB_KEY
-                                ? { id: 'tab:diff', label: diffTabName, run: () => setDiffActive(true) }
-                                : {
-                                    id: `tab:${entry.path}`,
-                                    /* The full path, because two `index.ts` must stay apart. */
-                                    label: entry.dirty ? `${entry.path} •` : entry.path,
-                                    run: () => {
-                                      setActivePath(entry.path);
-                                      setDiffActive(false);
+                React.createElement(
+                  'div',
+                  { style: styles.tabStripTrailing, 'data-dsh-editor-tabstrip-trailing': '' },
+                  markdownAvailable
+                    ? React.createElement(MarkdownModeSwitch, {
+                        mode: effectiveMarkdownMode,
+                        onMode: setMarkdownMode,
+                        t,
+                      })
+                    : null,
+                  fileTabLayout.hidden.length === 0
+                    ? null
+                    : React.createElement(
+                        'button',
+                        {
+                          type: 'button',
+                          className: 'dsh-editor-tab-overflow',
+                          style: styles.tabOverflow,
+                          title: t('editor.tabsOverflow', { count: fileTabLayout.hidden.length }),
+                          'aria-label': t('editor.tabsOverflow', { count: fileTabLayout.hidden.length }),
+                          onClick: (event) => {
+                            const rect = event.currentTarget.getBoundingClientRect();
+                            const hidden = fileTabLayout.hidden;
+                            setMenu({
+                              x: Math.max(4, rect.left - 180),
+                              y: rect.bottom + 4,
+                              title: t('editor.tabsOverflowTitle'),
+                              items: hidden.map((entry) =>
+                                entry === DIFF_TAB_KEY
+                                  ? { id: 'tab:diff', label: diffTabName, run: () => setDiffActive(true) }
+                                  : {
+                                      id: `tab:${entry.path}`,
+                                      /* The full path, because two `index.ts` must stay apart. */
+                                      label: entry.dirty ? `${entry.path} •` : entry.path,
+                                      run: () => {
+                                        setActivePath(entry.path);
+                                        setDiffActive(false);
+                                      },
                                     },
-                                  },
-                            ),
-                          });
+                              ),
+                            });
+                          },
                         },
-                      },
-                      '»',
-                    ),
-              ),
-              /* IDEA's breadcrumb trail under the tabs; a directory segment reveals it in Project. */
-              breadcrumbSegments.length === 0
-                ? null
-                : React.createElement(
-                    'div',
-                    { style: styles.breadcrumbBar, 'aria-label': t('editor.breadcrumb') },
-                    React.createElement(
-                      'span',
-                      { style: styles.breadcrumbTrail },
-                      breadcrumbSegments.map((segment, index) =>
-                        React.createElement(
-                          React.Fragment,
-                          { key: `${segment.path}:${index}` },
-                          index === 0
-                            ? null
-                            : React.createElement('span', { style: styles.breadcrumbSeparator }, '›'),
-                          React.createElement(
-                            'button',
-                            {
-                              type: 'button',
-                              style: { ...styles.breadcrumbItem, ...(index === breadcrumbSegments.length - 1 ? styles.breadcrumbItemActive : null) },
-                              title: segment.path === '' ? root : segment.path,
-                              onClick: () => {
-                                if (segment.kind === 'file') {
-                                  setActivePath(segment.path);
-                                  return;
-                                }
-                                /* IDEA reveals the directory in Project; it never collapses it. */
-                                setActivity('project');
-                                setPanelVisible(true);
-                                setSelectedPath(segment.path === '');
-                                void expandTo(segment.path);
-                              },
-                            },
-                            index === 0
-                              ? React.createElement(Icon, { name: 'project', size: 11 })
-                              : segment.kind === 'directory'
-                                ? React.createElement(Icon, { name: 'folder', size: 11 })
-                                : React.createElement(Icon, { name: 'file', size: 11 }),
-                            segment.label,
-                          ),
-                        ),
+                        '»',
                       ),
-                    ),
-                    markdownAvailable
-                      ? React.createElement(MarkdownModeSwitch, {
-                          mode: effectiveMarkdownMode,
-                          onMode: setMarkdownMode,
-                          t,
-                        })
-                      : null,
-                  ),
+                ),
+              ),
               gotoState === null
                 ? null
                 : React.createElement(
                     'div',
-                    { style: styles.gotoLineBar },
-                    React.createElement('span', { style: { ...styles.findCount, minWidth: 60 } }, t('editor.gotoLine')),
-                    React.createElement('input', {
-                      style: styles.findInput,
-                      autoFocus: true,
-                      placeholder: t('editor.gotoLinePlaceholder'),
-                      value: gotoState.value,
-                      onChange: (event) => setGotoState({ value: event.target.value }),
-                      onKeyDown: (event) => {
-                        if (event.key === 'Enter') {
-                          event.preventDefault();
-                          commitGotoLine();
-                        } else if (event.key === 'Escape') {
-                          event.preventDefault();
-                          setGotoState(null);
-                          editorRef.current?.focus();
-                        }
-                      },
-                    }),
+                    {
+                      role: 'dialog',
+                      'aria-label': t('editor.gotoLine'),
+                      'aria-modal': false,
+                      style: styles.gotoLinePopup,
+                      'data-dsh-editor-goto-dialog': '',
+                    },
                     React.createElement(
-                      'button',
-                      { type: 'button', style: styles.conflictAction, onClick: () => commitGotoLine() },
-                      t('editor.gotoLine'),
+                      'div',
+                      { style: styles.gotoLineRow },
+                      React.createElement(
+                        'span',
+                        { style: { ...styles.findCount, minWidth: 60 } },
+                        t('editor.gotoLine'),
+                      ),
+                      React.createElement('input', {
+                        ref: gotoInputRef,
+                        className: 'dsh-editor-goto-input',
+                        'data-dsh-editor-goto-input': '',
+                        style: styles.findInput,
+                        autoFocus: true,
+                        placeholder: t('editor.gotoLinePlaceholder'),
+                        value: gotoState.value,
+                        'aria-label': t('editor.gotoLine'),
+                        'aria-invalid': gotoState.error !== null,
+                        'aria-describedby': gotoState.error === null ? undefined : 'dsh-editor-goto-error',
+                        onChange: (event) => setGotoState((current) => current === null
+                          ? null
+                          : { ...current, value: event.target.value, error: null }),
+                        onKeyDown: (event) => {
+                          if (event.key === 'Enter') {
+                            event.preventDefault();
+                            commitGotoLine();
+                          } else if (event.key === 'Escape') {
+                            event.preventDefault();
+                            closeGotoLine();
+                          }
+                        },
+                      }),
+                      React.createElement(
+                        'button',
+                        { type: 'button', style: styles.conflictAction, onClick: () => commitGotoLine() },
+                        t('editor.gotoLine'),
+                      ),
+                      React.createElement(
+                        'button',
+                        {
+                          type: 'button',
+                          style: styles.conflictAction,
+                          'aria-label': t('editor.closeGotoLine'),
+                          onClick: () => closeGotoLine(),
+                        },
+                        '×',
+                      ),
                     ),
-                    React.createElement(
-                      'button',
-                      { type: 'button', style: styles.conflictAction, onClick: () => setGotoState(null) },
-                      '×',
-                    ),
+                    gotoState.error === null
+                      ? null
+                      : React.createElement(
+                          'div',
+                          { id: 'dsh-editor-goto-error', role: 'alert', style: styles.gotoLineError },
+                          gotoState.error,
+                        ),
                   ),
               replaceState === null
                 ? null
@@ -9500,6 +10226,12 @@
                                         if (editorFindHistoryMenu.kind === 'query') updateFind({ find: value });
                                         else setReplaceState((current) => (current === null ? current : { ...current, replace: value }));
                                         setEditorFindHistoryMenu(null);
+                                        window.setTimeout(() => {
+                                          const selector = editorFindHistoryMenu.kind === 'query'
+                                            ? '[data-dsh-editor-find-input]'
+                                            : '[data-dsh-editor-find-replace-input]';
+                                          document.querySelector(selector)?.focus?.();
+                                        }, 0);
                                       },
                                     }));
                               })(),
@@ -9688,8 +10420,10 @@
                               'div',
                               {
                                 key: splitTab,
+                                className: 'dsh-editor-split-tab',
                                 role: 'tab',
                                 'aria-selected': splitTabActive,
+                                tabIndex: splitTabActive ? 0 : -1,
                                 style: {
                                   ...styles.editorSplitTab,
                                   ...(splitTabActive ? styles.editorSplitTabActive : null),
@@ -9701,10 +10435,21 @@
                                 },
                                 title: splitTabFile?.dirty === true ? `${splitTab} — ${t('editor.unsavedTitle')}` : splitTab,
                                 'data-dsh-editor-split-path': splitTab,
+                                onFocus: () => {
+                                  if (splitTabActive) return;
+                                  splitPathRef.current = splitTab;
+                                  setSplitPath(splitTab);
+                                },
                                 onClick: () => {
                                   splitPathRef.current = splitTab;
                                   setSplitPath(splitTab);
                                   window.setTimeout(() => splitEditorRef.current?.focus?.(), 0);
+                                },
+                                onKeyDown: (event) => {
+                                  if (!gotoLineShortcutMatches(event)) return;
+                                  event.preventDefault();
+                                  event.stopPropagation();
+                                  gotoLine(splitTab, 'right');
                                 },
                                 onAuxClick: (event) => {
                                   if (event.button !== 1) return;
@@ -9729,6 +10474,8 @@
                                     y: event.clientY,
                                     title: basename(splitTab),
                                     items: [
+                                      buildHarnessPathAction([{ path: splitTab, isDirectory: false }]),
+                                      null,
                                       {
                                         id: 'close',
                                         label: t('editor.closeTab', { name: basename(splitTab) }),
@@ -9956,28 +10703,21 @@
                     'div',
                     { style: styles.editorStatus },
                     React.createElement('span', { style: styles.statusItem }, t('editor.statusBarPosition', { line: caret.line, column: caret.column })),
-                    React.createElement(
-                      'button',
-                      {
-                        type: 'button',
-                        style: { ...styles.statusItem, ...styles.statusButton },
-                        title: t('editor.indentToggle'),
-                        onClick: () => toggleIndentation(),
-                      },
-                      fileMode.insertSpaces ? `␣${fileMode.tabSize}` : `⇥${fileMode.tabSize}`,
-                    ),
-                    React.createElement(
-                      'button',
-                      {
-                        type: 'button',
-                        style: { ...styles.statusItem, ...styles.statusButton },
-                        title: t('editor.toggleEol'),
-                        onClick: () => toggleLineSeparator(),
-                      },
-                      fileMode.eol,
-                    ),
                     React.createElement('span', { style: styles.statusItem }, fileMode.encoding),
                     React.createElement('span', { style: styles.statusItem }, t('editor.lineCount', { count: lineStats.lines })),
+                    React.createElement(
+                      'button',
+                      {
+                        type: 'button',
+                        className: 'dsh-editor-status-path',
+                        style: { ...styles.statusItem, ...styles.statusPath, ...styles.statusPathButton },
+                        title: statusPath,
+                        'aria-label': t('editor.copyStatusPath', { path: statusPath }),
+                        'data-dsh-editor-status-path': '',
+                        onClick: () => void copyStatusPath(),
+                      },
+                      statusPath,
+                    ),
                     lineStats.selected > 0
                       ? React.createElement('span', { style: styles.statusItem }, t('editor.selectionInfo', { count: lineStats.selected }))
                       : null,
@@ -9987,9 +10727,6 @@
                       : React.createElement('span', { style: styles.statusItem, role: 'status' }, statusNotice),
                     React.createElement(ToolbarButton, { icon: 'search', label: t('editor.gotoLine'), onClick: () => gotoLine() }),
                     React.createElement(ToolbarButton, { icon: 'annotate', label: t('editor.annotate'), onClick: () => void toggleAnnotate() }),
-                    statusFile.dirty
-                      ? React.createElement('span', { style: styles.statusItem }, t('editor.unsaved'))
-                      : React.createElement('span', { style: styles.statusItem }, t('editor.saved')),
                   ),
             ),
             findTool === null || findTool.surface === 'dock'
@@ -9997,10 +10734,20 @@
               : React.createElement(
                   'div',
                   {
-                    style: styles.findToolPopup,
+                    style: {
+                      ...styles.findToolPopup,
+                      left: findToolPopupGeometry.x,
+                      top: findToolPopupGeometry.y,
+                      width: findToolPopupGeometry.width,
+                      height: findToolPopupGeometry.height,
+                      transform: 'none',
+                    },
                     'data-dsh-find-tool-popup': '',
                   },
-                  findToolWindowElement,
+                  React.cloneElement(findToolWindowElement, {
+                    onPopupDragStart: startFindPopupInteraction,
+                    onPopupResizeStart: (event, direction) => startFindPopupInteraction(event, direction),
+                  }),
                 ),
             findTool?.surface === 'dock' && terminalOpen === false
               ? React.createElement(

@@ -14,6 +14,7 @@ test('Find history preserves exact leading and trailing whitespace', () => {
   assert.equal(functions.normalizeFindQueryHistoryEntry('\n'), '\n');
   assert.equal(functions.normalizeFindQueryHistoryEntry(''), '');
   assert.deepEqual(functions.rememberFindQueryHistory(['old'], ' \nend\n ', 20), [' \nend\n ', 'old']);
+  assert.deepEqual(functions.rememberFindQueryHistory(['old'], '', 20), ['', 'old']);
   assert.deepEqual(functions.rememberFindQueryHistory(['a', 'b', 'c'], 'd', 2), ['d', 'a']);
 });
 

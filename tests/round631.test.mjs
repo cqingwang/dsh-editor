@@ -8,10 +8,10 @@ const findTool = source.slice(
   source.indexOf('function QuickOpen('),
 );
 
-test('Find in Files hides Replace by default and expands it on demand', () => {
+test('Find in Files floats with Replace visible while the dock stays compact', () => {
   assert.match(findTool, /const \[searchNewLine, setSearchNewLine\] = React\.useState\(false\)/);
   assert.match(findTool, /const \[replaceNewLine, setReplaceNewLine\] = React\.useState\(false\)/);
-  assert.match(findTool, /const \[replaceExpanded, setReplaceExpanded\] = React\.useState\(\(\) => state\.mode === 'replace'\)/);
+  assert.match(findTool, /const \[replaceExpanded, setReplaceExpanded\] = React\.useState\(\(\) => floating \|\| state\.mode === 'replace'\)/);
   assert.match(findTool, /replaceExpanded\s*\?\s*React\.createElement\([\s\S]*?styles\.findToolReplaceRow/);
   assert.match(findTool, /label: replaceExpanded \? t\('editor\.findToolHideReplace'\) : t\('editor\.findToolShowReplace'\)/);
   assert.match(findTool, /'data-dsh-find-replace-input': ''/);

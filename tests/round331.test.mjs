@@ -28,15 +28,16 @@ test('Find, Replace and Go to Line use the focused editor path and model', () =>
   assert.match(replace, /const editor = currentCodeEditor\(\)/);
 
   const goto = source.slice(source.indexOf('const commitGotoLine = React.useCallback('), source.indexOf('/* A terminal link asks the editor'));
-  assert.match(goto, /const path = currentCodePath\(\)/);
-  assert.match(goto, /revealLines\(path, Number\(match\[1\]\)/);
+  assert.match(goto, /const path = gotoState\.path/);
+  assert.match(goto, /revealLines\(path, parsed\.line, parsed\.column, pane\)/);
 });
 
 test('Reveal Lines and Copy Path:Line select the focused editor for that path', () => {
   const reveal = source.slice(source.indexOf('const revealLines = React.useCallback('), source.indexOf('/** Transient status-bar message'));
   assert.match(reveal, /const focused = focusedEditorRef\.current/);
   assert.match(reveal, /focused\?\.path === path/);
-  assert.match(reveal, /const editor = focused\?\.path === path \? focused\.editor : editorRef\.current/);
+  assert.match(reveal, /const preferred = pane === 'right' \? splitEditorRef\.current : pane === 'left' \? editorRef\.current : null/);
+  assert.match(reveal, /path === splitPathRef\.current[\s\S]*?splitEditorRef\.current[\s\S]*?: editorRef\.current/);
 
   const menu = source.slice(source.indexOf('const buildTreeMenu = React.useCallback('), source.indexOf('/* Move one entry into a directory by drag-and-drop'));
   assert.match(menu, /editor: currentCodeEditor\(\)/);

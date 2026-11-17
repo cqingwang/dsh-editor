@@ -197,7 +197,14 @@
         {
           ref,
           className: 'dsh-editor-menu',
-          style: { ...styles.menu, left: position.left, top: position.top },
+          style: {
+            ...styles.menu,
+            left: position.left,
+            top: position.top,
+            ...(Number.isFinite(menu.maxHeight)
+              ? { maxHeight: Math.max(80, Math.round(menu.maxHeight)), overflowY: 'auto' }
+              : null),
+          },
           role: 'menu',
           onContextMenu: (event) => event.preventDefault(),
         },

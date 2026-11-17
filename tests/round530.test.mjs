@@ -133,12 +133,14 @@ test('per-editor context keys use the instance API and avoid the callback TDZ', 
   const mainGroup = source.indexOf('const group = createCodeEditorGroup(monaco, containerRef.current');
   const splitGroup = source.indexOf('const group = createCodeEditorGroup(monaco, splitContainerRef.current');
   assert.ok(runnerRef > 0 && runnerRef < mainGroup && runnerRef < splitGroup);
+  const mainEnd = source.indexOf('const editor = group.editor;', mainGroup);
+  const splitEnd = source.indexOf('const editor = group.editor;', splitGroup);
   assert.doesNotMatch(
-    source.slice(mainGroup, source.indexOf('}, [closeDiff, monacoReady', mainGroup)),
+    source.slice(mainGroup, mainEnd),
     /openFindTool/u,
   );
   assert.doesNotMatch(
-    source.slice(splitGroup, source.indexOf('}, [closeSplitTab, monacoReady', splitGroup)),
+    source.slice(splitGroup, splitEnd),
     /openFindTool/u,
   );
 });

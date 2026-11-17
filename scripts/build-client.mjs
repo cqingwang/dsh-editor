@@ -19,6 +19,7 @@ const files = [
   'foundation.js',
   'locales.js',
   'domain-core.js',
+  'code-navigation.js',
   'inline-styles.js',
   'editor-core.js',
   'ui-primitives.js',

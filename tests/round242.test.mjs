@@ -81,5 +81,5 @@ test('Project speed search requests host matches and feeds the existing navigati
 test('the host fs route exposes search beside the existing list operation', () => {
   const host = readFileSync(join(root, 'lib/index.js'), 'utf8');
   assert.match(host, /case 'search':\s+return ok\(await searchWorkspaceEntries\(root, body\?\.query/);
-  assert.match(host, /workspaceFileOperations = \{[\s\S]*?search: searchWorkspaceEntries,[\s\S]*?searchText: searchWorkspaceText,[\s\S]*?replaceText: replaceWorkspaceText \}/);
+  assert.match(host, /workspaceFileOperations = \{[\s\S]*?search: searchWorkspaceEntries,[\s\S]*?searchText: searchWorkspaceText,[\s\S]*?replaceText: replaceWorkspaceText,[\s\S]*?undoReplaceText: undoLastWorkspaceReplacement,[\s\S]*?redoReplaceText: redoLastWorkspaceReplacement \}/);
 });

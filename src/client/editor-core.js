@@ -279,7 +279,7 @@
      * one pane disposing another pane's document.
      * @param {object} monaco - Monaco global namespace.
      * @param {HTMLElement} container - host element.
-     * @param {{onSave?: Function, onFind?: Function, onSearchText?: Function, onFindUsages?: Function, onFindUsagesInFile?: Function, onFindInFiles?: Function, onReplaceInFiles?: Function, onReplace?: Function, onIncrementalSearch?: Function, onFindInSelection?: Function, onReplaceInSelection?: Function, textSearchLabel?: string, findUsagesLabel?: string, findUsagesInFileLabel?: string, highlightUsagesInFileLabel?: string, findWordAtCaretLabel?: string, previousWordOccurrenceLabel?: string, replaceLabel?: string, incrementalSearchLabel?: string, findInSelectionLabel?: string, replaceInSelectionLabel?: string, findInFilesLabel?: string, replaceInFilesLabel?: string, selectAllOccurrencesLabel?: string, selectNextOccurrenceLabel?: string, unselectPreviousOccurrenceLabel?: string, searchWebLabel?: string, onSaveAll?: Function, onGotoLine?: Function, onCloseTab?: Function}} handlers - shortcut actions.
+     * @param {{onSave?: Function, onFind?: Function, onSearchText?: Function, onFindUsages?: Function, onFindUsagesInFile?: Function, onFindInFiles?: Function, onReplaceInFiles?: Function, onReplace?: Function, onIncrementalSearch?: Function, onFindInSelection?: Function, onReplaceInSelection?: Function, textSearchLabel?: string, findUsagesLabel?: string, findUsagesInFileLabel?: string, highlightUsagesInFileLabel?: string, findWordAtCaretLabel?: string, previousWordOccurrenceLabel?: string, replaceLabel?: string, incrementalSearchLabel?: string, findInSelectionLabel?: string, replaceInSelectionLabel?: string, findInFilesLabel?: string, replaceInFilesLabel?: string, selectAllOccurrencesLabel?: string, selectNextOccurrenceLabel?: string, unselectPreviousOccurrenceLabel?: string, searchWebLabel?: string, onSaveAll?: Function, onGotoLine?: Function, gotoLineLabel?: string, onGoToDefinition?: Function, goToDefinitionLabel?: string, onNavigateBack?: Function, onNavigateForward?: Function, navigationBackLabel?: string, navigationForwardLabel?: string, onCloseTab?: Function}} handlers - shortcut actions.
      * @returns {{editor: object, dispose: Function}} editor group controller.
      */
     function createCodeEditorGroup(monaco, container, handlers) {
@@ -337,6 +337,16 @@
           run: () => actionsHandlers.onSave?.(),
         }),
         editor.addAction({
+          id: `dsh-editor.sendHarnessReference.${groupId}`,
+          label: actionsHandlers.sendHarnessReferenceLabel ?? 'Harness->',
+          /* Monaco always orders its navigation group first. A lower order
+             inside that group keeps this high-frequency action above Go to
+             Declaration and the language-service entries. */
+          contextMenuGroupId: 'navigation',
+          contextMenuOrder: -100,
+          run: (editorInstance) => actionsHandlers.onSendHarnessReference?.(editorInstance),
+        }),
+        editor.addAction({
           id: 'dsh-editor.find',
           label: 'Find',
           keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyF],
@@ -356,9 +366,35 @@
         }),
         editor.addAction({
           id: 'dsh-editor.gotoLine',
-          label: 'Go to Line',
+          label: actionsHandlers.gotoLineLabel ?? 'Go to Line/Column',
           keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyL],
           run: () => actionsHandlers.onGotoLine?.(),
+        }),
+        editor.addAction({
+          id: 'dsh-editor.goToDefinition',
+          label: actionsHandlers.goToDefinitionLabel ?? 'Go to Declaration',
+          keybindings: [
+            monaco.KeyMod.CtrlCmd | monaco.KeyCode.F12,
+            monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyB,
+          ],
+          contextMenuGroupId: 'navigation',
+          contextMenuOrder: 1.0,
+          run: (editorInstance) => {
+            const position = editorInstance.getPosition?.() ?? null;
+            if (position !== null) void actionsHandlers.onGoToDefinition?.(editorInstance, position);
+          },
+        }),
+        editor.addAction({
+          id: 'dsh-editor.navigateBack',
+          label: actionsHandlers.navigationBackLabel ?? 'Back',
+          keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.BracketLeft],
+          run: () => actionsHandlers.onNavigateBack?.(),
+        }),
+        editor.addAction({
+          id: 'dsh-editor.navigateForward',
+          label: actionsHandlers.navigationForwardLabel ?? 'Forward',
+          keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.BracketRight],
+          run: () => actionsHandlers.onNavigateForward?.(),
         }),
         editor.addAction({
           id: `dsh-editor.findUsages.${groupId}`,
@@ -503,6 +539,14 @@
         editor.onDidChangeCursorSelection?.(updateFindUsagesAvailability),
         editor.onDidChangeModel?.(updateFindUsagesAvailability),
       ];
+      const definitionClickSubscription = editor.onMouseDown?.((event) => {
+        const browserEvent = event?.event?.browserEvent ?? null;
+        if (browserEvent?.metaKey !== true && browserEvent?.ctrlKey !== true) return;
+        const position = event?.target?.position ?? null;
+        if (position === null) return;
+        event.event?.preventDefault?.();
+        void actionsHandlers.onGoToDefinition?.(editor, position);
+      });
       updateFindUsagesAvailability();
       let disposed = false;
       return {
@@ -511,6 +555,7 @@
           if (disposed) return;
           disposed = true;
           for (const subscription of availabilitySubscriptions) subscription?.dispose?.();
+          definitionClickSubscription?.dispose?.();
           for (const action of actions) action.dispose?.();
           editor.dispose();
         },
@@ -610,26 +655,34 @@
       return ancestors;
     }
 
+    /** Project 首次打开与目录点击默认预取的目录层数。 */
+    const PROJECT_PREFETCH_DEPTH = 3;
+    /** 单次预取最多读取的目录数，防止异常宽树拖垮 UI。 */
+    const PROJECT_PREFETCH_VISIT_LIMIT = 200;
+
     /**
-     * Recursively expand directory paths with IDEA's safety-bounded BFS.
+     * 按可选深度递归展开目录路径，使用 IDEA 风格的有界 BFS。
      *
-     * This is the shared engine behind Expand Selected and Expand All. The
-     * caller supplies the currently cached children and a directory reader, so
-     * the traversal is testable without React or a real workspace.
-     * @param {string[]} startPaths - workspace-relative directories to expand.
-     * @param {{expanded?: Set<string>, children?: Record<string, object[]>}} current - current tree caches.
-     * @param {(path: string) => Promise<object[]>} listDirectory - reads one directory.
-     * @param {number} [limit=200] - maximum directories fetched in one command.
-     * @returns {Promise<{expanded: Set<string>, children: Record<string, object[]>, visited: number, truncated: boolean}>} updated caches.
+     * 调用方提供当前 children 缓存和目录读取器。`maxDepth` 从起点算第 1 层；
+     * Infinity 保留 Expand Selected / Expand All 的完整递归语义。
+     * @param {string[]} startPaths - 要展开的 workspace 相对目录。
+     * @param {{expanded?: Set<string>, children?: Record<string, object[]>}} current - 当前树缓存。
+     * @param {(path: string) => Promise<object[]>} listDirectory - 读取一个目录。
+     * @param {number} [limit=200] - 单次最多读取的目录数。
+     * @param {number} [maxDepth=Infinity] - 最多展开的目录层数。
+     * @returns {Promise<{expanded: Set<string>, children: Record<string, object[]>, visited: number, truncated: boolean}>} 更新后的缓存。
      */
-    async function expandDirectorySubtrees(startPaths, current, listDirectory, limit = 200) {
+    async function expandDirectorySubtrees(startPaths, current, listDirectory, limit = 200, maxDepth = Infinity) {
       const expanded = new Set(current?.expanded instanceof Set ? current.expanded : []);
       const children = { ...(current?.children ?? {}) };
-      const queue = [...new Set((Array.isArray(startPaths) ? startPaths : []).filter((path) => typeof path === 'string'))];
+      const depthLimit = Number.isFinite(maxDepth) ? Math.max(1, Math.floor(Number(maxDepth) || 1)) : Infinity;
+      const queue = [...new Set((Array.isArray(startPaths) ? startPaths : []).filter((path) => typeof path === 'string'))]
+        .map((path) => ({ path, depth: 1 }));
       const seen = new Set();
       let visited = 0;
       while (queue.length > 0 && visited < limit) {
-        const path = queue.shift();
+        const item = queue.shift();
+        const path = item.path;
         if (seen.has(path)) continue;
         seen.add(path);
         let rows = children[path];
@@ -643,7 +696,9 @@
         }
         expanded.add(path);
         for (const child of rows) {
-          if (child?.kind === 'directory' && typeof child.path === 'string') queue.push(child.path);
+          if (child?.kind === 'directory' && typeof child.path === 'string' && item.depth < depthLimit) {
+            queue.push({ path: child.path, depth: item.depth + 1 });
+          }
         }
         visited += 1;
       }
@@ -651,7 +706,53 @@
         expanded,
         children,
         visited,
-        truncated: queue.some((path) => !seen.has(path)),
+        truncated: queue.some((item) => !seen.has(item.path)),
+      };
+    }
+
+    /**
+     * 预取目录节点信息，但不改变 UI 的展开集合。
+     *
+     * 起点按第 1 层计算，默认只读取起点及两级后代。调用方点击某目录时
+     * 可以显式把该 clicked path 加入 expanded，后代保持折叠。
+     * @param {string[]} startPaths - 需要预取的目录。
+     * @param {{children?: Record<string, object[]>}} current - 当前 children 缓存。
+     * @param {(path: string) => Promise<object[]>} listDirectory - 目录读取器。
+     * @param {number} [limit=200] - 单次最多读取的目录数。
+     * @param {number} [maxDepth=3] - 最多预取的目录层数。
+     * @returns {Promise<{children: Record<string, object[]>, visited: number, truncated: boolean}>} 预取结果。
+     */
+    async function prefetchDirectorySubtrees(startPaths, current, listDirectory, limit = 200, maxDepth = 3) {
+      const children = { ...(current?.children ?? {}) };
+      const depthLimit = Math.max(1, Math.floor(Number(maxDepth) || 1));
+      const queue = [...new Set((Array.isArray(startPaths) ? startPaths : []).filter((path) => typeof path === 'string'))]
+        .map((path) => ({ path, depth: 1 }));
+      const seen = new Set();
+      let visited = 0;
+      while (queue.length > 0 && visited < limit) {
+        const item = queue.shift();
+        if (seen.has(item.path)) continue;
+        seen.add(item.path);
+        let rows = children[item.path];
+        if (!Array.isArray(rows)) {
+          try {
+            rows = await listDirectory(item.path);
+          } catch {
+            continue;
+          }
+          children[item.path] = rows;
+        }
+        for (const child of rows) {
+          if (child?.kind === 'directory' && typeof child.path === 'string' && item.depth < depthLimit) {
+            queue.push({ path: child.path, depth: item.depth + 1 });
+          }
+        }
+        visited += 1;
+      }
+      return {
+        children,
+        visited,
+        truncated: queue.some((item) => !seen.has(item.path)),
       };
     }
 
@@ -706,8 +807,10 @@
     /** Monaco language id for a workspace-relative path. */
     function languageFor(path) {
       const name = basename(path).toLowerCase();
-      if (name === 'dockerfile') return 'dockerfile';
-      if (name === 'makefile') return 'makefile';
+      const filenameLanguage = LANGUAGE_BY_FILENAME[name];
+      if (filenameLanguage !== undefined) return filenameLanguage;
+      if (name.startsWith('dockerfile.') || name.startsWith('containerfile.')) return 'dockerfile';
+      if (name.startsWith('.env.')) return 'ini';
       const dot = name.lastIndexOf('.');
       if (dot < 0) return 'plaintext';
       return LANGUAGE_BY_EXTENSION[name.slice(dot + 1)] ?? 'plaintext';
@@ -784,9 +887,47 @@
     /* Monotonic suffix for diff model URIs; see DiffPreview's model swap. */
     let diffLoadSerial = 0;
 
+    /**
+     * 修正 Monaco TS/JS worker 与插件 workspace 导航模型之间的诊断差异。
+     *
+     * Monaco 只认识当前注册的 model，没有完整 tsconfig/project service；
+     * extensionless 相对 import 即使能被本插件正确导航，也会产生
+     * TS2307/TS2792。这里只忽略 module-not-found 两类假错误，语法错误和
+     * 其他 semantic diagnostics 继续保留。
+     * @param {object} monaco - Monaco 全局命名空间。
+     * @returns {boolean} 是否找到 TypeScript language defaults。
+     */
+    function configureMonacoLanguageDiagnostics(monaco) {
+      const typescript = monaco?.languages?.typescript;
+      if (typescript === undefined || typescript === null) return false;
+      const diagnosticsOptions = {
+        noSemanticValidation: false,
+        noSyntaxValidation: false,
+        diagnosticCodesToIgnore: [2307, 2792],
+      };
+      const compilerOptions = {
+        moduleResolution: typescript.ModuleResolutionKind?.NodeJs ?? 2,
+        module: typescript.ModuleKind?.ESNext ?? 99,
+        allowSyntheticDefaultImports: true,
+        resolveJsonModule: true,
+      };
+      typescript.typescriptDefaults?.setDiagnosticsOptions(diagnosticsOptions);
+      typescript.javascriptDefaults?.setDiagnosticsOptions(diagnosticsOptions);
+      typescript.typescriptDefaults?.setCompilerOptions(compilerOptions);
+      typescript.javascriptDefaults?.setCompilerOptions({
+        ...compilerOptions,
+        allowJs: true,
+        checkJs: false,
+      });
+      return true;
+    }
+
     /** Load Monaco's AMD build through the host asset bridge. */
     function loadMonaco() {
-      if (window.monaco?.editor !== undefined) return Promise.resolve(window.monaco);
+      if (window.monaco?.editor !== undefined) {
+        configureMonacoLanguageDiagnostics(window.monaco);
+        return Promise.resolve(window.monaco);
+      }
       if (monacoPromise !== null) return monacoPromise;
       monacoPromise = new Promise((resolve, reject) => {
         const start = () => {
@@ -803,7 +944,10 @@
             self.MonacoEnvironment = {
               getWorkerUrl: () => '/api/dsh-editor/monaco/vs/base/worker/workerMain.js',
             };
-            amdRequire(['vs/editor/editor.main'], () => resolve(window.monaco), reject);
+            amdRequire(['vs/editor/editor.main'], () => {
+              configureMonacoLanguageDiagnostics(window.monaco);
+              resolve(window.monaco);
+            }, reject);
           } catch (error) {
             reject(error);
           }

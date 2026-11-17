@@ -27,11 +27,13 @@ test('commit message box submits with the platform shortcut', () => {
   assert.match(client, /if \(!busy && selectedPaths\.size > 0 && message\.trim\(\) !== ''\) onCommit\(false\)/);
 });
 
-test('editor status bar reports caret, indentation, eol and encoding', () => {
+test('editor status bar reports caret, file path and encoding', () => {
   const client = read('lib/client.js');
   assert.match(client, /editor\.statusBarPosition/);
   assert.match(client, /onDidChangeCursorPosition/);
   assert.match(client, /eol: model\.getEOL\?\.\(\) === '\\r\\n' \? 'CRLF' : 'LF'/);
   assert.match(client, /styles\.editorStatus/);
-  assert.match(client, /fileMode\.insertSpaces \?/);
+  assert.match(client, /data-dsh-editor-status-path/);
+  assert.doesNotMatch(client, /title: t\('editor\.indentToggle'\)/);
+  assert.doesNotMatch(client, /title: t\('editor\.toggleEol'\)/);
 });

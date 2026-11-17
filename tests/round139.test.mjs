@@ -33,13 +33,13 @@ function styleBlock(name) {
 
 /* ── indent guides: same depth must mean same x ─────────────────────────── */
 
-test('all three indent columns occupy the same width', () => {
+test('both remaining indent columns occupy the same width', () => {
   /* A user screenshot had the last child of a subtree (README.md) sitting right of
      its siblings. Two independent causes, both in this file:
        1. `indentGuideCorner` carried `marginRight: 6` — last-child rows shifted.
        2. `content-box` sizing: a bordered 14px guide took 15px, an unbordered one
           14px — rows shifted by 1px depending on whether their column continued. */
-  for (const name of ['indentGuide', 'indentGuideStop', 'indentGuideCorner']) {
+  for (const name of ['indentGuide', 'indentGuideStop']) {
     const block = styleBlock(name);
     const width = /(?:^|\s)width: (\d+)/.exec(block);
     assert.notEqual(width, null, `${name} needs an explicit width`);
@@ -51,12 +51,11 @@ test('all three indent columns occupy the same width', () => {
   }
 });
 
-test('the corner is the only guide that elbows, and only at the deepest column', () => {
-  /* Round 132/133 behaviour must survive the width fix. */
+test('indent guides never draw an elbow', () => {
   const render = source.slice(source.indexOf('row.depth > 0\n                ? Array.from'), source.indexOf('isDirectory\n                ? React.createElement('));
   assert.match(render, /const kind = guideKind\(\{ continues: row\.continues, index, depth: row\.depth \}\)/);
-  assert.match(render, /kind === 'corner' \? styles\.indentGuideCorner/);
   assert.match(render, /kind === 'line' \? styles\.indentGuide : styles\.indentGuideStop/);
+  assert.doesNotMatch(render, /corner|indentGuideCorner/);
 });
 
 /* ── the collapse button sits on the tab labels, not on the strip ───────── */

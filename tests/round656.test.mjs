@@ -21,9 +21,10 @@ test('Replacement history preserves whitespace-only and multiline values', () =>
   assert.deepEqual(functions.rememberReplacementHistory(['a', 'b', 'c'], 'd', 2), ['d', 'a']);
 });
 
-test('Only the empty replacement is excluded from workspace history', () => {
+test('An empty replacement remains available as a real deletion history entry', () => {
   const workspaceRecorder = extractFunction('rememberWorkspaceReplacement');
-  assert.match(workspaceRecorder, /typeof replacement !== 'string' \|\| replacement === ''/);
+  assert.match(workspaceRecorder, /typeof replacement !== 'string'/);
+  assert.doesNotMatch(workspaceRecorder, /replacement === ''/);
   assert.doesNotMatch(workspaceRecorder, /replacement\.trim\(\)/);
   assert.match(source, /function replaceHistoryStorageKey\(root\)/);
   assert.match(source, /dsh-editor\.replace\.history:\$\{root\}/);

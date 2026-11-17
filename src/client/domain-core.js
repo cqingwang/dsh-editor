@@ -1,4 +1,42 @@
 /* domain-core.js: dsh-editor client module. Generated into lib/client.js by scripts/build-client.mjs. */
+    /**
+     * Whole filenames that do not follow an extension-only language mapping.
+     * Keys are lower-case because users routinely type mixed-case filenames.
+     */
+    const LANGUAGE_BY_FILENAME = {
+      'cargo.lock': 'yaml',
+      'deno.lock': 'json',
+      'bun.lock': 'json',
+      'composer.lock': 'json',
+      'pipfile.lock': 'json',
+      'poetry.lock': 'ini',
+      'uv.lock': 'ini',
+      'yarn.lock': 'yaml',
+      'go.mod': 'go',
+      'go.sum': 'go',
+      'dockerfile': 'dockerfile',
+      'containerfile': 'dockerfile',
+      'makefile': 'makefile',
+      'gnumakefile': 'makefile',
+      'gemfile': 'ruby',
+      'rakefile': 'ruby',
+      'podfile': 'ruby',
+      'vagrantfile': 'ruby',
+      'brewfile': 'ruby',
+      'procfile': 'shell',
+      'pipfile': 'ini',
+      '.editorconfig': 'ini',
+      '.gitconfig': 'ini',
+      '.gitmodules': 'ini',
+      '.npmrc': 'ini',
+      '.yarnrc': 'ini',
+      '.env': 'ini',
+      '.eslintrc': 'json',
+      '.prettierrc': 'json',
+      '.babelrc': 'json',
+      '.stylelintrc': 'json',
+    };
+
     const LANGUAGE_BY_EXTENSION = {
       ts: 'typescript',
       tsx: 'typescript',
@@ -10,9 +48,14 @@
       cjs: 'javascript',
       json: 'json',
       jsonc: 'json',
+      json5: 'json',
+      jsonl: 'json',
+      ndjson: 'json',
+      geojson: 'json',
+      webmanifest: 'json',
       md: 'markdown',
       markdown: 'markdown',
-      mdx: 'markdown',
+      mdx: 'mdx',
       css: 'css',
       scss: 'scss',
       less: 'less',
@@ -38,10 +81,16 @@
       bash: 'shell',
       zsh: 'shell',
       ps1: 'powershell',
+      bat: 'bat',
+      cmd: 'bat',
       yaml: 'yaml',
       yml: 'yaml',
       toml: 'ini',
       ini: 'ini',
+      conf: 'ini',
+      cfg: 'ini',
+      properties: 'ini',
+      env: 'ini',
       xml: 'xml',
       svg: 'xml',
       sql: 'sql',
@@ -51,9 +100,66 @@
       dart: 'dart',
       lua: 'lua',
       r: 'r',
+      graphql: 'graphql',
+      gql: 'graphql',
+      proto: 'protobuf',
+      tf: 'hcl',
+      tfvars: 'hcl',
+      hcl: 'hcl',
+      sol: 'solidity',
+      rst: 'restructuredtext',
+      fs: 'fsharp',
+      fsx: 'fsharp',
+      scala: 'scala',
+      clj: 'clojure',
+      cljs: 'clojure',
+      cljc: 'clojure',
+      edn: 'clojure',
+      ex: 'elixir',
+      exs: 'elixir',
+      jl: 'julia',
+      coffee: 'coffee',
+      liquid: 'liquid',
+      hbs: 'handlebars',
+      handlebars: 'handlebars',
+      mustache: 'handlebars',
+      pug: 'pug',
+      jade: 'pug',
+      cshtml: 'razor',
+      tcl: 'tcl',
+      vb: 'vb',
+      pas: 'pascal',
+      pl: 'perl',
+      pm: 'perl',
       dockerfile: 'dockerfile',
       makefile: 'makefile',
     };
+
+    /**
+     * 解析 IDEA Go to Line/Column 输入。
+     *
+     * 接受单独行号 `12`，也接受 `12:7` 或 `12,7`；行列都必须是
+     * 从 1 开始的安全整数，其他文本保持输入框打开供用户修正。
+     * @param {unknown} value - 输入框原始文本。
+     * @returns {{line: number, column: number}|null} 目标位置。
+     */
+    function parseGotoLinePosition(value) {
+      const match = /^(\d+)(?:\s*[:,]\s*(\d+))?$/u.exec(String(value ?? '').trim());
+      if (match === null) return null;
+      const line = Number(match[1]);
+      const column = match[2] === undefined ? 1 : Number(match[2]);
+      if (!Number.isSafeInteger(line) || !Number.isSafeInteger(column) || line < 1 || column < 1) return null;
+      return { line, column };
+    }
+
+    /** 判断键盘事件是否为非组合输入状态下的 `⌘/Ctrl+L`。 */
+    function gotoLineShortcutMatches(event) {
+      if (event === null || typeof event !== 'object' || event.isComposing === true) return false;
+      return event.key?.toLowerCase?.() === 'l'
+        && (event.metaKey === true || event.ctrlKey === true)
+        && event.altKey !== true
+        && event.shiftKey !== true;
+    }
 
     /**
      * The skeleton IDEA's "New from Template" writes for a file name.
@@ -161,6 +267,80 @@
         } else normalized.push(part);
       }
       return normalized.join('/');
+    }
+
+    /**
+     * Apply IDEA's Project-tree pointer selection semantics.
+     *
+     * A plain click replaces the selection. ⌘/Ctrl toggles exactly one row while
+     * preserving every other selected row. Shift extends a contiguous visible
+     * range from the existing anchor. Keeping this as one pure transition avoids
+     * updating `selectedPath` from inside a React state updater.
+     * @param {{
+     *   rows: object[],
+     *   selection: Set<string>,
+     *   primary: string|null,
+     *   anchor: string|null,
+     *   path: string,
+     *   metaKey?: boolean,
+     *   ctrlKey?: boolean,
+     *   shiftKey?: boolean,
+     * }} request - current tree state and the pointer gesture.
+     * @returns {{selection: Set<string>, primary: string|null, anchor: string|null}} next state.
+     */
+    function projectTreeSelectionAfterPointer(request) {
+      const rows = Array.isArray(request?.rows) ? request.rows : [];
+      const paths = rows.filter((row) => row?.kind !== 'placeholder').map((row) => row.path);
+      const path = typeof request?.path === 'string' ? request.path : '';
+      const known = new Set(paths);
+      const current = new Set(
+        [...(request?.selection instanceof Set ? request.selection : [])]
+          .filter((entry) => typeof entry === 'string' && known.has(entry)),
+      );
+      if (!known.has(path)) {
+        return {
+          selection: current,
+          primary: request?.primary ?? null,
+          anchor: request?.anchor ?? null,
+        };
+      }
+      const anchor = typeof request?.anchor === 'string' && known.has(request.anchor)
+        ? request.anchor
+        : null;
+      if (request?.shiftKey === true && anchor !== null) {
+        const from = paths.indexOf(anchor);
+        const to = paths.indexOf(path);
+        const [start, end] = from <= to ? [from, to] : [to, from];
+        return {
+          selection: new Set(paths.slice(start, end + 1)),
+          primary: path,
+          anchor,
+        };
+      }
+      if (request?.metaKey === true || request?.ctrlKey === true) {
+        if (current.has(path)) current.delete(path);
+        else current.add(path);
+        let primary = null;
+        if (current.has(path)) {
+          primary = path;
+        } else {
+          const remaining = paths.filter((entry) => current.has(entry));
+          if (remaining.length > 0) {
+            const clickedIndex = paths.indexOf(path);
+            primary = remaining[Math.min(clickedIndex, remaining.length - 1)] ?? remaining[remaining.length - 1];
+          }
+        }
+        return {
+          selection: current,
+          primary,
+          anchor: primary,
+        };
+      }
+      return {
+        selection: new Set([path]),
+        primary: path,
+        anchor: path,
+      };
     }
 
     /**

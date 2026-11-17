@@ -21,8 +21,10 @@ test('IDEA parity keeps Search Everywhere history read-only', () => {
     assert.doesNotMatch(menu, /deleteHistory|clearHistory|Clear History|Delete History/iu);
     assert.doesNotMatch(menu, /id: 'delete'|id: 'clear'/u);
   }
-  assert.match(queryMenu, /run: \(\) => onQuery\(value\)/);
-  assert.match(replaceMenu, /run: \(\) => onReplaceChange\(value\)/);
+  assert.match(queryMenu, /onQuery\(value\);/);
+  assert.match(queryMenu, /searchInputRef\.current\?\.focus\?\.\(\)/);
+  assert.match(replaceMenu, /onReplaceChange\(value\);/);
+  assert.match(replaceMenu, /replaceInputRef\.current\?\.focus\?\.\(\)/);
 });
 
 test('history menus preserve replay and fallback focus behavior', () => {

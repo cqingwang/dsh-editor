@@ -91,19 +91,17 @@ test('flattenRows compacts loaded chains while preserving the deepest real path'
   assert.match(source, /function flattenRows\(entries, children, expanded, projectName, root, compactDirectories = false, sortMode = 'name', manualOrder = null\)/);
   assert.match(source, /const compacted = compactDirectories === true && entry\.kind === 'directory' \? compactDirectoryChain\(entry, children\) : null;/);
   assert.match(source, /const rowEntry = compacted === null[\s\S]*?path: compacted\.path,[\s\S]*?name: compacted\.name,/);
-  assert.match(source, /rows\.push\(\{ \.\.\.rowEntry, depth, continues \}\);/);
+  assert.match(source, /rows\.push\(\{ \.\.\.rowEntry, depth: frame\.depth, continues \}\);/);
 });
 
-test('expanding a loaded single-directory chain continues until it reaches content', () => {
+test('expanding a compact chain uses the same bounded three-level lazy traversal', () => {
   const start = source.indexOf('const toggleDirectory = React.useCallback(async (path) => {');
   assert.notEqual(start, -1);
-  const body = source.slice(start, source.indexOf('}, [compactDirectories, expanded, foldersFirst', start));
-  assert.match(body, /let chainPath = path;/);
-  assert.match(body, /compactDirectories === true/);
-  assert.match(body, /listing\.length === 1 && listing\[0\]\?\.kind === 'directory'/);
-  assert.match(body, /hydration\[chainPath\] = nextListing/);
-  assert.match(body, /expandedPaths\.push\(chainPath\)/);
-  assert.match(source, /}, \[compactDirectories, expanded, foldersFirst/);
+  const body = source.slice(start, source.indexOf('}, [expanded, foldersFirst', start));
+  assert.match(body, /expandDirectorySubtrees\(/);
+  assert.match(body, /\[path\]/);
+  assert.match(body, /PROJECT_PREFETCH_DEPTH/);
+  assert.match(body, /setExpanded\(\(current\) => new Set\(\[\.\.\.current, \.\.\.expandedPaths\]\)\)/);
 });
 
 test('renaming a compact row edits the real directory basename, not its display chain', () => {

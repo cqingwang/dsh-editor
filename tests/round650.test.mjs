@@ -63,11 +63,14 @@ test('Workspace search and replace treat newlines and spaces as literal text', a
     'ALPHA\nBETA',
     [{ path: 'sample.txt', mtime: crossLine.matches[0].mtime }],
   );
-  assert.deepEqual(multilineReplace, {
+  const { operationId, ...multilineSummary } = multilineReplace;
+  assert.deepEqual(multilineSummary, {
     changedFiles: 1,
     replacements: 1,
     files: ['sample.txt'],
   });
+  assert.equal(typeof operationId, 'string');
+  assert.notEqual(operationId, '');
   assert.equal(await readFile(path, 'utf8'), 'ALPHA\nBETA\ngamma\n');
 
   const newlines = await workspaceFileOperations.searchText(root, '\n', { maxMatches: 20 });
@@ -79,6 +82,7 @@ test('Workspace search and replace treat newlines and spaces as literal text', a
     [{ path: 'sample.txt', mtime: newlines.matches[0].mtime }],
   );
   assert.equal(newlineReplace.replacements, 3);
+  assert.equal(typeof newlineReplace.operationId, 'string');
   assert.equal(await readFile(path, 'utf8'), 'ALPHA|BETA|gamma|');
 });
 

@@ -55,8 +55,8 @@ test('flattenRows applies manual order per parent directory', () => {
   const flatten = source.slice(start, end);
   assert.match(flatten, /sortMode = 'name', manualOrder = null/);
   assert.match(flatten, /const orderMap = manualOrder \?\? \{\}/);
-  assert.match(flatten, /sortMode === 'manual'[\s\S]*?orderProjectEntriesByManual\(list, orderMap\[parentPath\]\)/);
-  assert.match(flatten, /append\(kids, depth \+ 1, \[\.\.\.ancestors, last\], rowEntry\.path\)/);
+  assert.match(flatten, /sortMode === 'manual'[\s\S]*?orderProjectEntriesByManual\(frame\.list, orderMap\[frame\.parentPath\]\)/);
+  assert.match(flatten, /stack\.push\(\{[\s\S]*?list: kids,[\s\S]*?depth: frame\.depth \+ 1,[\s\S]*?parentPath: rowEntry\.path,/);
 });
 
 test('Manual Order drag only reorders view siblings and never calls the file move path', () => {

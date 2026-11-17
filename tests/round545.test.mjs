@@ -12,7 +12,7 @@ test('Monaco context menu exposes the multiple-caret search family', () => {
   assert.match(group, /id: `dsh-editor\.selectNextOccurrence\.\$\{groupId\}`/);
   assert.match(group, /id: `dsh-editor\.unselectPreviousOccurrence\.\$\{groupId\}`/);
   assert.equal((group.match(/precondition: findUsagesPrecondition/g) ?? []).length, 13);
-  assert.equal((group.match(/contextMenuGroupId: 'navigation'/g) ?? []).length, 15);
+  assert.equal((group.match(/contextMenuGroupId: 'navigation'/g) ?? []).length, 17);
 });
 
 test('context menu actions reuse the same Monaco commands and restore focus', () => {

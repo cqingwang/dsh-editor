@@ -44,10 +44,13 @@ test('query and replacement history retain their replay owners', () => {
     source.indexOf('function EditorWorkspace('),
     source.indexOf('function clampChatPercent('),
   );
-  assert.match(searchEverywhere, /run: \(\) => onQuery\(value\)/);
-  assert.match(searchEverywhere, /run: \(\) => onReplaceChange\(value\)/);
+  assert.match(searchEverywhere, /onQuery\(value\);/);
+  assert.match(searchEverywhere, /onReplaceChange\(value\);/);
+  assert.match(searchEverywhere, /searchInputRef\.current\?\.focus\?\.\(\)/);
+  assert.match(searchEverywhere, /replaceInputRef\.current\?\.focus\?\.\(\)/);
   assert.match(findTool, /if \(kind === 'query'\) onQuery\(value\);/);
   assert.match(findTool, /else onReplace\(value\);/);
+  assert.match(findTool, /replaceInputRef\.current \?\? queryInputRef\.current/);
   assert.match(editorWorkspace, /updateFind\(\{ find: value \}\)/);
   assert.match(editorWorkspace, /replace: value/);
 });

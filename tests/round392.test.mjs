@@ -30,7 +30,7 @@ test('panel toolbar reserves the trailing IDEA actions before middle actions', (
 
 test('PanelToolbar uses the pure fit result and a bounded Project view title', () => {
   const toolbar = source.slice(source.indexOf('function PanelToolbar('), source.indexOf('/** One 24px panel toolbar button. */'));
-  assert.match(toolbar, /const next = panelToolbarFit\(\s*node\.clientWidth,\s*titleRef\.current\?\.offsetWidth \?\? 0,\s*left\.length,\s*right\.length,\s*badgeRef\.current\?\.offsetWidth \?\? 0,\s*\)/s);
+  assert.match(toolbar, /const next = panelToolbarFit\(\s*node\.clientWidth,\s*titleRef\.current\?\.offsetWidth \?\? 0,\s*left\.length,\s*right\.length,\s*badgeRef\.current\?\.offsetWidth \?\? 0,\s*left\.filter\(\(action\) => action\.pinned === true\)\.length,\s*\)/s);
   assert.match(toolbar, /setFits\(\(current\) =>/);
   assert.match(source, /style: titleAction === null\s*\? styles\.panelTitle\s*:\s*\{ \.\.\.styles\.panelTitle, maxWidth: '45%', \.\.\.\(titleActionStyle \?\? null\) \}/s);
 });

@@ -22,6 +22,451 @@
       return Math.max(0, Math.min(rows.length - 1, requested));
     }
 
+    /**
+     * Resolve IDEA's empty-result search-option clearing shortcuts.
+     *
+     * IDEA offers Ctrl+C/W/X for the three boolean filters and
+     * Alt+Shift+Backspace for all used options. The caller additionally
+     * requires an idle query caret so normal text copying is never stolen.
+     * @param {KeyboardEvent|object} event - current keydown.
+     * @returns {'case'|'words'|'regex'|'clear'|null} action to clear.
+     */
+    function findSearchOptionShortcutAction(event) {
+      if (event === null || typeof event !== 'object' || event.isComposing === true) return null;
+      if (event.altKey === true && event.shiftKey === true
+        && event.metaKey !== true && event.ctrlKey !== true
+        && event.key === 'Backspace') return 'clear';
+      if (event.ctrlKey !== true || event.metaKey === true || event.altKey === true || event.shiftKey === true) return null;
+      const key = String(event.key ?? '').toLowerCase();
+      if (key === 'c') return 'case';
+      if (key === 'w') return 'words';
+      if (key === 'x') return 'regex';
+      return null;
+    }
+
+    /** Create one browser-local Scope identity without requiring crypto.randomUUID. */
+    function newFindScopeId() {
+      return `scope-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+    }
+
+    /**
+     * IDEA's Edit Scopes dialog, bounded to local named scopes.
+     *
+     * Includes/excludes are workspace-relative globs. The component edits a
+     * detached copy so Cancel cannot mutate the active Find scope list.
+     */
+    function FindScopeEditor({ t, scopes, initialId, onSave, onClose }) {
+      const initialDrafts = React.useMemo(() => {
+        const normalized = normalizeCustomFindScopes(scopes);
+        return normalized.length === 0
+          ? [{ id: newFindScopeId(), name: t('editor.findScopeNewName'), includePatterns: [], excludePatterns: [], shared: false }]
+          : normalized;
+      }, [scopes, t]);
+      const [drafts, setDrafts] = React.useState(initialDrafts);
+      const [selectedId, setSelectedId] = React.useState(() =>
+        initialDrafts.some((scope) => scope.id === initialId) ? initialId : initialDrafts[0]?.id ?? null);
+      const [error, setError] = React.useState(null);
+      const [transfer, setTransfer] = React.useState(null);
+      const selectedIndex = drafts.findIndex((scope) => scope.id === selectedId);
+      const selected = selectedIndex < 0 ? null : drafts[selectedIndex];
+      const updateSelected = (patch) => {
+        setDrafts((current) => current.map((scope) => scope.id === selectedId ? { ...scope, ...patch } : scope));
+        setError(null);
+      };
+      const addScope = () => {
+        const scope = {
+          id: newFindScopeId(),
+          name: t('editor.findScopeNewName'),
+          includePatterns: [],
+          excludePatterns: [],
+          shared: false,
+        };
+        setDrafts((current) => [...current, scope]);
+        setSelectedId(scope.id);
+        setError(null);
+      };
+      const duplicateSelected = () => {
+        if (selected === null) return;
+        const copy = {
+          ...selected,
+          id: newFindScopeId(),
+          name: t('editor.findScopeCopyName', { name: selected.name }),
+          includePatterns: [...selected.includePatterns],
+          excludePatterns: [...selected.excludePatterns],
+        };
+        setDrafts((current) => [...current, copy]);
+        setSelectedId(copy.id);
+      };
+      const removeSelected = () => {
+        if (selected === null) return;
+        const next = drafts.filter((scope) => scope.id !== selected.id);
+        setDrafts(next);
+        setSelectedId(next[Math.max(0, selectedIndex - 1)]?.id ?? null);
+      };
+      const moveSelected = (delta) => {
+        if (selected === null) return;
+        const targetIndex = selectedIndex + delta;
+        if (targetIndex < 0 || targetIndex >= drafts.length) return;
+        const next = [...drafts];
+        [next[selectedIndex], next[targetIndex]] = [next[targetIndex], next[selectedIndex]];
+        setDrafts(next);
+      };
+      const commit = () => {
+        const normalized = normalizeCustomFindScopes(drafts);
+        if (normalized.some((scope) => scope.name.trim() === '')) {
+          setError(t('editor.findScopeNameRequired'));
+          return;
+        }
+        const names = normalized.map((scope) => scope.name.toLocaleLowerCase());
+        if (new Set(names).size !== names.length) {
+          setError(t('editor.findScopeDuplicateName'));
+          return;
+        }
+        onSave(normalized, selectedId);
+        onClose();
+      };
+      const openTransfer = (mode) => {
+        setTransfer({
+          mode,
+          path: '.idea/scopes/dsh-editor.xml',
+          loading: false,
+          error: null,
+          scopes: null,
+          skipped: 0,
+          conflicts: 0,
+          xml: '',
+        });
+      };
+      const previewTransfer = async () => {
+        if (transfer === null || transfer.loading === true) return;
+        const path = normalizeScopeXmlTransferPath(transfer.path);
+        if (path === '') {
+          setTransfer((current) => current === null ? current : { ...current, error: t('editor.findScopeXmlInvalidPath') });
+          return;
+        }
+        setTransfer((current) => current === null ? current : { ...current, loading: true, error: null });
+        if (transfer.mode === 'import') {
+          try {
+            const value = await callFs({ op: 'read', path });
+            if (typeof value?.content !== 'string' || value.content.length > 256 * 1024) {
+              throw new Error(t('editor.findScopeXmlTooLarge'));
+            }
+            const report = inspectIdeaScopeXml(value.content);
+            const existingNames = new Set(drafts.map((scope) => scope.name.toLocaleLowerCase()));
+            const conflicts = report.scopes.filter((scope) => existingNames.has(scope.name.toLocaleLowerCase())).length;
+            setTransfer((current) => current === null ? current : {
+              ...current,
+              path,
+              loading: false,
+              error: null,
+              scopes: report.scopes,
+              skipped: report.skipped,
+              conflicts,
+            });
+          } catch (failure) {
+            setTransfer((current) => current === null ? current : {
+              ...current,
+              loading: false,
+              error: failure instanceof Error ? failure.message : String(failure),
+            });
+          }
+          return;
+        }
+        const sharedScopes = drafts.filter((scope) => scope.shared === true);
+        if (sharedScopes.length === 0) {
+          setTransfer((current) => current === null ? current : {
+            ...current,
+            loading: false,
+            error: t('editor.findScopeXmlNoShared'),
+          });
+          return;
+        }
+        setTransfer((current) => current === null ? current : {
+          ...current,
+          path,
+          loading: false,
+          error: null,
+          scopes: sharedScopes,
+          skipped: 0,
+          conflicts: 0,
+          xml: serializeIdeaScopeXml(sharedScopes),
+        });
+      };
+      const applyTransfer = async () => {
+        if (transfer === null || Array.isArray(transfer.scopes) === false) return;
+        if (transfer.mode === 'import') {
+          const imported = transfer.scopes;
+          const next = [...drafts];
+          for (const scope of imported) {
+            const index = next.findIndex((entry) => entry.name.toLocaleLowerCase() === scope.name.toLocaleLowerCase());
+            if (index >= 0) next[index] = scope;
+            else next.push(scope);
+          }
+          const normalized = normalizeCustomFindScopes(next);
+          setDrafts(normalized);
+          setSelectedId(imported[0]?.id ?? selectedId);
+          setTransfer(null);
+          setError(null);
+          return;
+        }
+        const path = normalizeScopeXmlTransferPath(transfer.path);
+        if (path === '') {
+          setTransfer((current) => current === null ? current : { ...current, error: t('editor.findScopeXmlInvalidPath') });
+          return;
+        }
+        setTransfer((current) => current === null ? current : { ...current, loading: true, error: null });
+        try {
+          await callFs({ op: 'write', path, content: transfer.xml, force: true, create: true });
+          setTransfer(null);
+        } catch (failure) {
+          setTransfer((current) => current === null ? current : {
+            ...current,
+            loading: false,
+            error: failure instanceof Error ? failure.message : String(failure),
+          });
+        }
+      };
+      const transferPanel = transfer === null
+        ? null
+        : React.createElement(
+            'div',
+            { style: { display: 'grid', gap: 10 }, 'data-dsh-find-scope-transfer': transfer.mode },
+            React.createElement('div', { style: { fontWeight: 600 } }, t(transfer.mode === 'import' ? 'editor.findScopeImportTitle' : 'editor.findScopeExportTitle')),
+            React.createElement('label', { style: { display: 'grid', gap: 4 } },
+              React.createElement('span', null, t('editor.findScopeXmlPath')),
+              React.createElement('input', {
+                style: styles.findInput,
+                value: transfer.path,
+                placeholder: '.idea/scopes/dsh-editor.xml',
+                'aria-label': t('editor.findScopeXmlPath'),
+                onChange: (event) => setTransfer((current) => current === null ? current : {
+                  ...current,
+                  path: event.target.value,
+                  scopes: null,
+                  xml: '',
+                  error: null,
+                }),
+              }),
+            ),
+            transfer.scopes === null
+              ? null
+              : React.createElement('div', { style: { color: 'var(--dsw-alias-label-secondary)' } },
+                  t('editor.findScopeXmlPreview', {
+                    count: transfer.scopes.length,
+                    skipped: transfer.skipped,
+                    conflicts: transfer.conflicts,
+                  })),
+            transfer.mode === 'export' && transfer.xml !== ''
+              ? React.createElement('pre', {
+                  style: {
+                    maxHeight: 150,
+                    overflow: 'auto',
+                    margin: 0,
+                    padding: 8,
+                    background: 'var(--dsw-alias-bg-l2)',
+                    borderRadius: 3,
+                    fontSize: 11,
+                  },
+                }, transfer.xml)
+              : null,
+            transfer.error === null ? null : React.createElement('div', { role: 'alert', style: styles.searchEverywhereError }, transfer.error),
+            React.createElement('div', { style: { display: 'flex', gap: 8 } },
+              React.createElement('button', {
+                type: 'button',
+                style: styles.conflictAction,
+                disabled: transfer.loading === true,
+                onClick: () => void previewTransfer(),
+              }, t('editor.findScopeXmlPreviewAction')),
+              transfer.scopes === null
+                ? null
+                : React.createElement('button', {
+                    type: 'button',
+                    style: { ...styles.conflictAction, fontWeight: 600 },
+                    disabled: transfer.loading === true || transfer.scopes.length === 0,
+                    onClick: () => void applyTransfer(),
+                  }, t(transfer.mode === 'import' ? 'editor.findScopeImportAction' : 'editor.findScopeExportAction')),
+              React.createElement('button', {
+                type: 'button',
+                style: styles.conflictAction,
+                onClick: () => setTransfer(null),
+              }, t('editor.cancel')),
+            ),
+          );
+      return React.createElement(
+        'div',
+        {
+          style: {
+            position: 'fixed',
+            inset: 0,
+            zIndex: 80,
+            display: 'grid',
+            placeItems: 'center',
+            background: 'rgba(0,0,0,0.28)',
+          },
+          onMouseDown: (event) => {
+            if (event.target === event.currentTarget) onClose();
+          },
+          'data-dsh-find-scope-editor': '',
+        },
+        React.createElement(
+          'div',
+          {
+            role: 'dialog',
+            'aria-modal': 'true',
+            'aria-label': t('editor.findEditScopes'),
+            style: {
+              width: 'min(720px, calc(100vw - 32px))',
+              height: 'min(520px, calc(100vh - 32px))',
+              display: 'flex',
+              flexDirection: 'column',
+              background: 'var(--dsw-alias-bg-l1)',
+              color: 'var(--dsw-alias-label-primary)',
+              border: '1px solid var(--dsw-alias-border-l2)',
+              borderRadius: 6,
+              boxShadow: '0 18px 50px rgba(0,0,0,0.28)',
+              overflow: 'hidden',
+            },
+            onKeyDown: (event) => {
+              if (event.key === 'Escape') {
+                event.preventDefault();
+                onClose();
+              }
+            },
+          },
+          React.createElement(
+            'div',
+            { style: { padding: '10px 12px', borderBottom: '1px solid var(--dsw-alias-border-l2)', fontWeight: 600 } },
+            t('editor.findScopesTitle'),
+          ),
+          React.createElement(
+            'div',
+            { style: { display: 'flex', minHeight: 0, flex: '1 1 auto' } },
+            React.createElement(
+              'div',
+              {
+                style: {
+                  width: 230,
+                  flex: '0 0 auto',
+                  borderRight: '1px solid var(--dsw-alias-border-l2)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  minHeight: 0,
+                },
+              },
+              React.createElement(
+                'div',
+                { style: { display: 'flex', gap: 2, padding: 6, borderBottom: '1px solid var(--dsw-alias-border-l2)' } },
+                React.createElement(ToolbarButton, { icon: 'newFolder', label: t('editor.findAddScope'), onClick: addScope }),
+                React.createElement(ToolbarButton, { icon: 'file', label: t('editor.findCopyScope'), disabled: selected === null, onClick: duplicateSelected }),
+                React.createElement(ToolbarButton, { icon: 'close', label: t('editor.findDeleteScope'), disabled: selected === null, onClick: removeSelected }),
+                React.createElement(ToolbarButton, { icon: 'chevronUp', label: t('editor.findScopeMoveUp'), disabled: selectedIndex <= 0, onClick: () => moveSelected(-1) }),
+                React.createElement(ToolbarButton, { icon: 'chevronDown', label: t('editor.findScopeMoveDown'), disabled: selectedIndex < 0 || selectedIndex >= drafts.length - 1, onClick: () => moveSelected(1) }),
+              ),
+              React.createElement(
+                'div',
+                { style: { display: 'flex', gap: 2, padding: '2px 6px 6px', borderBottom: '1px solid var(--dsw-alias-border-l2)' } },
+                React.createElement(ToolbarButton, { icon: 'file', label: t('editor.findScopeImport'), onClick: () => openTransfer('import') }),
+                React.createElement(ToolbarButton, { icon: 'patchExport', label: t('editor.findScopeExport'), onClick: () => openTransfer('export') }),
+              ),
+              React.createElement(
+                'div',
+                { role: 'listbox', 'aria-label': t('editor.findScopesTitle'), style: { overflow: 'auto', padding: 4 } },
+                drafts.map((scope) => React.createElement(
+                  'button',
+                  {
+                    key: scope.id,
+                    type: 'button',
+                    role: 'option',
+                    'aria-selected': scope.id === selectedId,
+                    style: {
+                      width: '100%',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      padding: '5px 7px',
+                      border: 'none',
+                      borderRadius: 3,
+                      background: scope.id === selectedId ? 'var(--dsw-alias-state-business-primary)' : 'transparent',
+                      color: scope.id === selectedId ? '#fff' : 'inherit',
+                      textAlign: 'left',
+                      cursor: 'pointer',
+                    },
+                    onClick: () => setSelectedId(scope.id),
+                  },
+                  React.createElement(Icon, { name: 'folder', size: 13 }),
+                  React.createElement('span', { style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, scope.name),
+                  scope.shared === true
+                    ? React.createElement('span', { style: { marginLeft: 'auto', fontSize: 10, opacity: 0.8 } }, t('editor.findScopeSharedBadge'))
+                    : null,
+                )),
+              ),
+            ),
+            React.createElement(
+              'div',
+              { style: { flex: '1 1 auto', minWidth: 0, overflow: 'auto', padding: 12 } },
+              transfer !== null
+                ? transferPanel
+                : selected === null
+                ? React.createElement('div', { style: styles.treeMessage }, t('editor.findScopeSelectPrompt'))
+                : React.createElement(
+                    React.Fragment,
+                    null,
+                    React.createElement('label', { style: { display: 'grid', gap: 4, marginBottom: 12 } },
+                      React.createElement('span', null, t('editor.findScopeName')),
+                      React.createElement('input', {
+                        style: styles.findInput,
+                        value: selected.name,
+                        maxLength: 80,
+                        autoFocus: true,
+                        'aria-label': t('editor.findScopeName'),
+                        onChange: (event) => updateSelected({ name: event.target.value }),
+                      }),
+                    ),
+                    React.createElement('label', { style: { display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12 } },
+                      React.createElement('input', {
+                        type: 'checkbox',
+                        checked: selected.shared === true,
+                        onChange: (event) => updateSelected({ shared: event.target.checked }),
+                      }),
+                      React.createElement('span', null, t('editor.findScopeShare')),
+                    ),
+                    React.createElement('label', { style: { display: 'grid', gap: 4, marginBottom: 12 } },
+                      React.createElement('span', null, t('editor.findScopeInclude')),
+                      React.createElement('textarea', {
+                        style: { ...styles.findInput, minHeight: 96, resize: 'vertical', fontFamily: 'monospace' },
+                        value: selected.includePatterns.join('\n'),
+                        placeholder: t('editor.findScopePatternPlaceholder'),
+                        'aria-label': t('editor.findScopeInclude'),
+                        onChange: (event) => updateSelected({ includePatterns: event.target.value.split('\n') }),
+                      }),
+                    ),
+                    React.createElement('label', { style: { display: 'grid', gap: 4, marginBottom: 8 } },
+                      React.createElement('span', null, t('editor.findScopeExclude')),
+                      React.createElement('textarea', {
+                        style: { ...styles.findInput, minHeight: 96, resize: 'vertical', fontFamily: 'monospace' },
+                        value: selected.excludePatterns.join('\n'),
+                        placeholder: t('editor.findScopePatternPlaceholder'),
+                        'aria-label': t('editor.findScopeExclude'),
+                        onChange: (event) => updateSelected({ excludePatterns: event.target.value.split('\n') }),
+                      }),
+                    ),
+                    React.createElement('div', { style: { color: 'var(--dsw-alias-label-tertiary)', fontSize: 11 } }, t('editor.findScopePatternsHelp')),
+                  ),
+              error === null ? null : React.createElement('div', { role: 'alert', style: { ...styles.searchEverywhereError, marginTop: 8 } }, error),
+            ),
+          ),
+          React.createElement(
+            'div',
+            { style: { display: 'flex', justifyContent: 'flex-end', gap: 8, padding: '8px 12px', borderTop: '1px solid var(--dsw-alias-border-l2)' } },
+            React.createElement('button', { type: 'button', style: styles.conflictAction, onClick: onClose }, t('editor.cancel')),
+            React.createElement('button', { type: 'button', style: { ...styles.conflictAction, fontWeight: 600 }, onClick: commit }, t('editor.ok')),
+          ),
+        ),
+      );
+    }
+
+    const FIND_POPUP_RESIZE_DIRECTIONS = ['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'];
+
     function FindToolWindow({
       t,
       state,
@@ -34,26 +479,39 @@
       onToggleRegex,
       onTogglePreserveCase,
       onToggleIncludeExcluded,
+      onContextFilterChange,
       onFileMaskChange,
       onScopeChange,
+      onDirectoryRecursiveChange,
+      customScopes = [],
+      onCustomScopesChange,
       onMove,
       onOpen,
       onReplaceOccurrence,
       onReplaceAll,
+      canUndoLastReplace = false,
+      onUndoLastReplace,
+      canRedoLastReplace = false,
+      onRedoLastReplace,
       onOpenInRightSplit,
       onRevealResult,
       onNotify,
       onReplaceMode,
       onOpenSettings,
       onOpenInFindWindow,
+      onPopupDragStart,
+      onPopupResizeStart,
       onClose,
       floating = true,
       activeFilePath = null,
       openFilePaths = [],
+      recentFilePaths = [],
+      gitAvailable = false,
       openFilesRef,
       changedFilePaths = [],
     }) {
       const listRef = React.useRef(null);
+      const previewBodyRef = React.useRef(null);
       const groupButtonRefs = React.useRef(new Map());
       const occurrenceRefs = React.useRef(new Map());
       const queryInputRef = React.useRef(null);
@@ -78,20 +536,28 @@
       const [groupByMenu, setGroupByMenu] = React.useState(null);
       const [searchNewLine, setSearchNewLine] = React.useState(false);
       const [replaceNewLine, setReplaceNewLine] = React.useState(false);
-      const [replaceExpanded, setReplaceExpanded] = React.useState(() => state.mode === 'replace');
+      const [replaceExpanded, setReplaceExpanded] = React.useState(() => floating || state.mode === 'replace');
       const [openResultsInNewTab, setOpenResultsInNewTab] = React.useState(() => readStoredText('dsh-editor.find.openInNewTab', '0') === '1');
       const [filterMenu, setFilterMenu] = React.useState(null);
+      const [scopeEditorOpen, setScopeEditorOpen] = React.useState(false);
       const [pinned, setPinned] = React.useState(() => readStoredText('dsh-editor.find.pinned', '0') === '1');
       const [scopeMode, setScopeMode] = React.useState(() =>
         state.searchScopeMode === 'directory' || state.searchScopeMode === 'scope' ? state.searchScopeMode : 'project');
       const [scopePreset, setScopePreset] = React.useState(() =>
-        state.searchScopePreset === 'openFiles' || state.searchScopePreset === 'changedFiles'
+        state.searchScopePreset === 'openFiles'
+        || state.searchScopePreset === 'changedFiles'
+        || state.searchScopePreset === 'currentFile'
+        || state.searchScopePreset === 'recentlyViewedFiles'
+        || state.searchScopePreset === 'gitTrackedFiles'
+        || state.searchScopePreset === 'gitNonIgnoredFiles'
+        || typeof state.searchScopePreset === 'string' && /^custom:[a-z0-9][a-z0-9-]{0,63}$/u.test(state.searchScopePreset)
           ? state.searchScopePreset
           : 'projectFiles');
       const [scopeDirectoryDraft, setScopeDirectoryDraft] = React.useState(() =>
         typeof state.searchScopeDirectory === 'string' && state.searchScopeDirectory !== ''
           ? state.searchScopeDirectory
           : (activeFilePath === null ? '' : dirname(activeFilePath)));
+      const [scopeRecursive, setScopeRecursive] = React.useState(() => state.searchScopeRecursive !== false);
       const [historyMenu, setHistoryMenu] = React.useState(null);
       const [resultMenu, setResultMenu] = React.useState(null);
       const [previewState, setPreviewState] = React.useState({ loading: false, path: '', content: '', line: 1, error: null });
@@ -109,18 +575,42 @@
       const fileResults = Array.isArray(state.files) ? state.files : [];
       const scopeDirectory = activeFilePath === null ? '' : dirname(activeFilePath);
       const effectiveScopeDirectory = scopeDirectoryDraft.trim() || scopeDirectory;
-      const scopeAllowedPaths = scopePreset === 'openFiles'
+      const selectedCustomScopeId = scopePreset.startsWith('custom:') ? scopePreset.slice('custom:'.length) : '';
+      const selectedCustomScope = (Array.isArray(customScopes) ? customScopes : [])
+        .find((scope) => scope?.id === selectedCustomScopeId) ?? null;
+      const selectedCustomScopeMissing = selectedCustomScopeId !== '' && selectedCustomScope === null;
+      const selectedScopePresetAvailable = findSearchScopePresetAvailable(scopePreset, {
+          gitAvailable,
+          recentFileCount: recentFilePaths.length,
+          openFileCount: openFilePaths.length,
+          currentFileAvailable: activeFilePath !== null,
+          changedFileCount: changedFilePaths.length,
+        });
+      const effectiveScopePreset = selectedCustomScopeMissing || selectedScopePresetAvailable !== true
+        ? 'projectFiles'
+        : scopePreset;
+      const scopeAllowedPaths = effectiveScopePreset === 'openFiles'
         ? new Set(openFilePaths)
-        : new Set(changedFilePaths);
+        : effectiveScopePreset === 'recentlyViewedFiles'
+          ? new Set(recentFilePaths)
+          : effectiveScopePreset === 'currentFile'
+            ? new Set(activeFilePath === null ? [] : [activeFilePath])
+            : effectiveScopePreset === 'gitTrackedFiles' || effectiveScopePreset === 'gitNonIgnoredFiles'
+              ? null
+              : new Set(changedFilePaths);
       const scopedFileResults = fileResults.filter((file) => findToolPathMatchesScope(file.path, scopeMode, {
         directory: effectiveScopeDirectory,
-        preset: scopePreset,
+        preset: effectiveScopePreset,
         allowedPaths: scopeAllowedPaths,
+        recursive: scopeRecursive,
+        customScope: selectedCustomScope,
       }));
       const scopedMatches = state.matches.filter((match) => findToolPathMatchesScope(match.path, scopeMode, {
         directory: effectiveScopeDirectory,
-        preset: scopePreset,
+        preset: effectiveScopePreset,
         allowedPaths: scopeAllowedPaths,
+        recursive: scopeRecursive,
+        customScope: selectedCustomScope,
       }));
       const dockVisibleRows = findToolVisibleRows(scopedFileResults, scopedMatches, collapsedFiles, findGroupBy);
       const groups = dockVisibleRows.groups;
@@ -138,6 +628,15 @@
       ];
       const occurrences = floating ? popupOccurrences : dockVisibleRows.rows;
       const displayGroups = findToolDisplayGroups(groups, findGroupBy);
+      const fileMaskSuggestionPaths = [
+        ...(activeFilePath === null ? [] : [activeFilePath]),
+        ...(Array.isArray(openFilePaths) ? openFilePaths : []),
+        ...(Array.isArray(recentFilePaths) ? recentFilePaths : []),
+        ...(Array.isArray(changedFilePaths) ? changedFilePaths : []),
+        ...(Array.isArray(state.files) ? state.files.map((file) => file?.path) : []),
+        ...(Array.isArray(state.matches) ? state.matches.map((match) => match?.path) : []),
+      ];
+      const fileMaskSuggestions = suggestFileMasks(fileMaskSuggestionPaths, fileMaskHistory, 12);
       const rovingGroupPath = groups.some((group) => group.path === focusedGroupPath)
         ? focusedGroupPath
         : groups[0]?.path ?? null;
@@ -231,6 +730,63 @@
           : occurrences.length === 0
             ? t('editor.findToolNoMatches')
             : findToolResultSummary(t, resultMatches, resultFiles);
+      const activeFindSearchOptionIds = searchEverywhereActiveOptionIds({
+        caseSensitive: state.caseSensitive === true,
+        wholeWords: state.wholeWords === true,
+        regex: state.regex === true,
+        fileMask: state.fileMask,
+      });
+      const activeFindSearchOptionLabels = {
+        case: `${t('editor.searchMatchCase')} ⌃C`,
+        words: `${t('editor.searchWholeWords')} ⌃W`,
+        regex: `${t('editor.searchRegex')} ⌃X`,
+        fileMask: t('editor.searchFileMaskLabel'),
+      };
+      const activeFindSearchOptionsText = activeFindSearchOptionIds
+        .map((id) => activeFindSearchOptionLabels[id])
+        .filter((label) => typeof label === 'string' && label !== '')
+        .join('  ');
+      const showFindSearchOptionSummary = hasFindToolContentQuery(query)
+        && state.loading !== true
+        && occurrences.length === 0
+        && activeFindSearchOptionIds.length > 0;
+      /**
+       * Clear only the search filters that produced the empty result.
+       * Scope, query, Preserve case and replacement drafts remain untouched.
+       * @param {'case'|'words'|'regex'|'fileMask'|'all'} [kind='all'] - option family.
+       * @returns {void}
+       */
+      const clearFindSearchOptions = (kind = 'all') => {
+        if ((kind === 'all' || kind === 'case') && state.caseSensitive === true) onToggleCaseSensitive();
+        if ((kind === 'all' || kind === 'words') && state.wholeWords === true) onToggleWholeWords();
+        if ((kind === 'all' || kind === 'regex') && state.regex === true) onToggleRegex();
+        if (
+          (kind === 'all' || kind === 'fileMask')
+          && (fileMaskEnabled === true || String(state.fileMask ?? '').trim() !== '' || fileMaskDraft.trim() !== '')
+        ) {
+          setFileMaskEnabled(false);
+          setFileMaskDraft('');
+          onFileMaskChange('');
+        }
+        window.setTimeout(() => queryInputRef.current?.focus?.(), 0);
+      };
+      /**
+       * Apply IDEA's query-field option shortcuts without stealing copy.
+       * @param {KeyboardEvent} event - query or replacement input keydown.
+       * @returns {boolean} whether the event was consumed.
+       */
+      const handleFindSearchOptionShortcut = (event) => {
+        if (showFindSearchOptionSummary !== true) return false;
+        const action = findSearchOptionShortcutAction(event);
+        if (action === null) return false;
+        const idleSelection = event.currentTarget.selectionStart === event.currentTarget.selectionEnd;
+        if (idleSelection !== true) return false;
+        if (action !== 'clear' && activeFindSearchOptionIds.includes(action) === false) return false;
+        event.preventDefault();
+        event.stopPropagation();
+        clearFindSearchOptions(action);
+        return true;
+      };
       const replaceFocusRequest = Math.max(0, Number(state.replaceFocusRequest) || 0);
       const previewWindow = previewOpen
         ? searchEverywherePreviewWindow(previewState.content, previewState.line)
@@ -261,12 +817,23 @@
         event.preventDefault();
         event.stopPropagation();
         const rect = event.currentTarget.getBoundingClientRect();
+        const surfaceRect = event.currentTarget.closest('[data-dsh-find-tool-window]')?.getBoundingClientRect?.();
         const values = kind === 'query'
           ? (Array.isArray(queryHistory) ? queryHistory : [])
           : (Array.isArray(replaceHistory) ? replaceHistory : []);
+        const menuTop = findToolMenuTop(
+          rect.bottom + 4,
+          surfaceRect?.top ?? 0,
+          surfaceRect?.bottom ?? window.innerHeight,
+        );
         setHistoryMenu({
-          x: rect.left,
-          y: rect.bottom + 4,
+          x: findToolMenuLeft(rect.left, surfaceRect?.left ?? 0, surfaceRect?.right ?? window.innerWidth),
+          y: menuTop,
+          maxHeight: findToolMenuMaxHeight(
+            surfaceRect?.top ?? 0,
+            surfaceRect?.bottom ?? window.innerHeight,
+            menuTop,
+          ),
           title: kind === 'query' ? t('editor.findSearchHistory') : t('editor.findReplaceHistory'),
           fallbackFocus: kind === 'query'
             ? () => queryInputRef.current?.focus?.()
@@ -280,6 +847,12 @@
                   setHistoryMenu(null);
                   if (kind === 'query') onQuery(value);
                   else onReplace(value);
+                  window.setTimeout(() => {
+                    const input = kind === 'query'
+                      ? queryInputRef.current
+                      : replaceInputRef.current ?? queryInputRef.current;
+                    input?.focus?.();
+                  }, 0);
                 },
               })),
         });
@@ -293,15 +866,24 @@
       };
       const emitFindScopeChange = (mode, preset, directory) => {
         if (typeof onScopeChange !== 'function') return;
+        const normalizedPreset = preset === 'openFiles'
+          || preset === 'changedFiles'
+          || preset === 'currentFile'
+          || preset === 'recentlyViewedFiles'
+          || preset === 'gitTrackedFiles'
+          || preset === 'gitNonIgnoredFiles'
+          || typeof preset === 'string' && /^custom:[a-z0-9][a-z0-9-]{0,63}$/u.test(preset)
+          ? preset
+          : 'projectFiles';
         onScopeChange({
           mode: mode === 'directory' || mode === 'scope' ? mode : 'project',
-          preset: preset === 'openFiles' || preset === 'changedFiles' ? preset : 'projectFiles',
+          preset: normalizedPreset,
           directory: mode === 'directory' && typeof directory === 'string' ? directory.trim() : '',
         });
       };
       const selectFindScopeMode = (mode) => {
         setScopeMode(mode);
-        emitFindScopeChange(mode, scopePreset, scopeDirectoryDraft);
+        emitFindScopeChange(mode, effectiveScopePreset, scopeDirectoryDraft);
       };
       const moveFindScopeMode = (mode) => {
         selectFindScopeMode(mode);
@@ -324,6 +906,13 @@
       const selectFindScopePreset = (preset) => {
         setScopePreset(preset);
         emitFindScopeChange(scopeMode, preset, scopeDirectoryDraft);
+        window.setTimeout(() => queryInputRef.current?.focus?.(), 0);
+      };
+      const toggleFindDirectoryRecursive = () => {
+        const next = scopeRecursive !== true;
+        setScopeRecursive(next);
+        onDirectoryRecursiveChange?.(next);
+        window.setTimeout(() => queryInputRef.current?.focus?.(), 0);
       };
       const openFindDirectoryPicker = () => {
         setDirectoryPicker({
@@ -351,22 +940,47 @@
         event.preventDefault();
         event.stopPropagation();
         const rect = event.currentTarget.getBoundingClientRect();
+        const surfaceRect = event.currentTarget.closest('[data-dsh-find-tool-window]')?.getBoundingClientRect?.();
+        const historyItems = fileMaskHistory.map((value, index) => ({
+          id: `file-mask:${index}`,
+          label: value,
+          run: () => {
+            setFileMaskMenu(null);
+            acceptFileMask(value);
+            window.setTimeout(() => fileMaskInputRef.current?.focus?.(), 0);
+          },
+        }));
+        const suggestionItems = fileMaskSuggestions.map((value, index) => ({
+          id: `file-mask-suggestion:${index}`,
+          label: value,
+          run: () => {
+            setFileMaskMenu(null);
+            acceptFileMask(value);
+            window.setTimeout(() => fileMaskInputRef.current?.focus?.(), 0);
+          },
+        }));
+        const menuTop = findToolMenuTop(
+          rect.bottom + 4,
+          surfaceRect?.top ?? 0,
+          surfaceRect?.bottom ?? window.innerHeight,
+        );
         setFileMaskMenu({
-          x: Math.max(4, rect.right - 220),
-          y: rect.bottom + 4,
+          x: findToolMenuLeft(rect.right - 220, surfaceRect?.left ?? 0, surfaceRect?.right ?? window.innerWidth),
+          y: menuTop,
+          maxHeight: findToolMenuMaxHeight(
+            surfaceRect?.top ?? 0,
+            surfaceRect?.bottom ?? window.innerHeight,
+            menuTop,
+          ),
           title: t('editor.searchFileMaskLabel'),
           fallbackFocus: () => fileMaskInputRef.current?.focus?.(),
           items: [
-            ...(fileMaskHistory.length === 0
+            ...(historyItems.length === 0 && suggestionItems.length === 0
               ? [{ id: 'empty', label: t('editor.findHistoryEmpty'), disabled: true, run: () => {} }]
-              : fileMaskHistory.map((value, index) => ({
-                  id: `file-mask:${index}`,
-                  label: value,
-                  run: () => {
-                    setFileMaskMenu(null);
-                    acceptFileMask(value);
-                  },
-                }))),
+              : []),
+            ...historyItems,
+            ...(historyItems.length > 0 && suggestionItems.length > 0 ? [null] : []),
+            ...suggestionItems,
             null,
             {
               id: 'clearFileMask',
@@ -375,6 +989,7 @@
               run: () => {
                 setFileMaskMenu(null);
                 acceptFileMask('');
+                window.setTimeout(() => fileMaskInputRef.current?.focus?.(), 0);
               },
             },
           ],
@@ -384,18 +999,35 @@
         event.preventDefault();
         event.stopPropagation();
         const rect = event.currentTarget.getBoundingClientRect();
+        const surfaceRect = event.currentTarget.closest('[data-dsh-find-tool-window]')?.getBoundingClientRect?.();
+        const contextFilter = normalizeTextSearchContextFilter(state.contextFilter);
+        const select = (value) => {
+          setFilterMenu(null);
+          onContextFilterChange(value);
+          window.setTimeout(() => queryInputRef.current?.focus?.(), 0);
+        };
+        const menuTop = findToolMenuTop(
+          rect.bottom + 4,
+          surfaceRect?.top ?? 0,
+          surfaceRect?.bottom ?? window.innerHeight,
+        );
         setFilterMenu({
-          x: Math.max(4, rect.right - 220),
-          y: rect.bottom + 4,
+          x: findToolMenuLeft(rect.right - 220, surfaceRect?.left ?? 0, surfaceRect?.right ?? window.innerWidth),
+          y: menuTop,
+          maxHeight: findToolMenuMaxHeight(
+            surfaceRect?.top ?? 0,
+            surfaceRect?.bottom ?? window.innerHeight,
+            menuTop,
+          ),
           title: t('editor.findFilterResults'),
           items: [
-            { id: 'anywhere', label: t('editor.findFilterAnywhere'), shortcut: '✓', run: () => setFilterMenu(null) },
+            { id: 'anywhere', label: t('editor.findFilterAnywhere'), shortcut: contextFilter === 'anywhere' ? '✓' : '', run: () => select('anywhere') },
             null,
-            { id: 'comments', label: t('editor.findFilterComments'), disabled: true, run: () => {} },
-            { id: 'strings', label: t('editor.findFilterStringLiterals'), disabled: true, run: () => {} },
-            { id: 'exceptComments', label: t('editor.findFilterExceptComments'), disabled: true, run: () => {} },
-            { id: 'exceptStrings', label: t('editor.findFilterExceptStringLiterals'), disabled: true, run: () => {} },
-            { id: 'exceptBoth', label: t('editor.findFilterExceptBoth'), disabled: true, run: () => {} },
+            { id: 'comments', label: t('editor.findFilterComments'), shortcut: contextFilter === 'comments' ? '✓' : '', run: () => select('comments') },
+            { id: 'strings', label: t('editor.findFilterStringLiterals'), shortcut: contextFilter === 'strings' ? '✓' : '', run: () => select('strings') },
+            { id: 'exceptComments', label: t('editor.findFilterExceptComments'), shortcut: contextFilter === 'exceptComments' ? '✓' : '', run: () => select('exceptComments') },
+            { id: 'exceptStrings', label: t('editor.findFilterExceptStringLiterals'), shortcut: contextFilter === 'exceptStrings' ? '✓' : '', run: () => select('exceptStrings') },
+            { id: 'exceptBoth', label: t('editor.findFilterExceptBoth'), shortcut: contextFilter === 'exceptBoth' ? '✓' : '', run: () => select('exceptBoth') },
           ],
         });
       };
@@ -658,6 +1290,24 @@
           pinned: true,
         }]),
         {
+          id: 'undoReplace',
+          icon: 'undo',
+          label: t('editor.findUndoLastReplace'),
+          disabled: canUndoLastReplace !== true || state.replaceBusy === true,
+          onClick: onUndoLastReplace,
+          group: 'replace',
+          pinned: floating === true,
+        },
+        {
+          id: 'redoReplace',
+          icon: 'redo',
+          label: t('editor.findRedoLastReplace'),
+          disabled: canRedoLastReplace !== true || state.replaceBusy === true,
+          onClick: onRedoLastReplace,
+          group: 'replace',
+          pinned: floating === true,
+        },
+        {
           id: 'previous',
           icon: 'chevronUp',
           label: t('editor.previousOccurrence'),
@@ -753,7 +1403,9 @@
         },
       ].filter((action) => floating || action.id !== 'pin');
       const popupHeaderActions = toolbarActions.filter((action) =>
-        action.id === 'filterSearch' || action.id === 'pin');
+        action.id === 'filterSearch' || action.id === 'pin'
+        || action.id === 'undoReplace' && canUndoLastReplace === true
+        || action.id === 'redoReplace' && canRedoLastReplace === true);
       React.useEffect(() => {
         if (handoffRevision === handoffReadyRevisionRef.current) return;
         if (handoffTarget === null) {
@@ -852,6 +1504,48 @@
           cancelled = true;
         };
       }, [previewOpen, active?.rowKey, state.loading]);
+      React.useLayoutEffect(() => {
+        if (
+          previewOpen !== true
+          || previewState.loading === true
+          || previewState.error !== null
+          || active === null
+          || active.kind !== 'text'
+        ) return undefined;
+        let frame = 0;
+        const centerNow = () => {
+          const body = previewBodyRef.current;
+          const focusLine = Math.max(1, Math.floor(Number(previewState.line) || 1));
+          const lineNode = body?.querySelector?.(`[data-dsh-preview-line="${focusLine}"]`) ?? null;
+          centerPreviewLineInContainer(body, lineNode);
+        };
+        const recenter = () => {
+          window.cancelAnimationFrame(frame);
+          /* Center before paint, then repeat after the current layout settles. */
+          centerNow();
+          frame = window.requestAnimationFrame(centerNow);
+        };
+        recenter();
+        const body = previewBodyRef.current;
+        const observer = typeof ResizeObserver === 'undefined' || body === null
+          ? null
+          : new ResizeObserver(recenter);
+        observer?.observe(body);
+        return () => {
+          window.cancelAnimationFrame(frame);
+          observer?.disconnect();
+        };
+      }, [
+        previewOpen,
+        previewState.loading,
+        previewState.error,
+        previewState.path,
+        previewState.line,
+        previewState.content,
+        previewSoftWrap,
+        active?.rowKey,
+        active?.kind,
+      ]);
       const handleListKeyDown = (event) => {
         if (event.key === 'ArrowDown') {
           event.preventDefault();
@@ -876,10 +1570,29 @@
           },
           part.text,
         ));
+      const popupResizeHandleStyle = (direction) => {
+        const base = {
+          position: 'absolute',
+          zIndex: 20,
+          touchAction: 'none',
+        };
+        if (direction === 'n') return { ...base, left: 8, right: 8, top: 0, height: 5, cursor: 'n-resize' };
+        if (direction === 's') return { ...base, left: 8, right: 8, bottom: 0, height: 5, cursor: 's-resize' };
+        if (direction === 'e') return { ...base, top: 8, bottom: 8, right: 0, width: 5, cursor: 'e-resize' };
+        if (direction === 'w') return { ...base, top: 8, bottom: 8, left: 0, width: 5, cursor: 'w-resize' };
+        return {
+          ...base,
+          width: 10,
+          height: 10,
+          ...(direction.includes('n') ? { top: 0 } : { bottom: 0 }),
+          ...(direction.includes('w') ? { left: 0 } : { right: 0 }),
+          cursor: `${direction}-resize`,
+        };
+      };
       return React.createElement(
         'div',
         {
-          style: styles.findTool,
+          style: floating ? { ...styles.findTool, position: 'relative' } : styles.findTool,
           'data-dsh-find-tool-window': '',
           'data-dsh-find-tool-surface': floating ? 'popup' : 'dock',
           role: 'region',
@@ -912,7 +1625,25 @@
         },
         React.createElement(
           'div',
-          { style: floating ? { ...styles.findToolToolbar, ...styles.findToolPopupToolbar } : styles.findToolToolbar },
+          {
+            style: floating
+              ? {
+                  ...styles.findToolToolbar,
+                  ...styles.findToolPopupToolbar,
+                  cursor: 'move',
+                  userSelect: 'none',
+                  touchAction: 'none',
+                }
+              : styles.findToolToolbar,
+            'data-dsh-find-popup-drag': floating ? '' : undefined,
+            onPointerDown: floating
+              ? (event) => {
+                  const target = event.target instanceof Element ? event.target : null;
+                  if (target !== null && target.closest('button, input, textarea, select, a, [role="menuitem"]') !== null) return;
+                  onPopupDragStart?.(event);
+                }
+              : undefined,
+          },
           floating ? null : React.createElement(Icon, { name: 'findWindow', size: 13 }),
           React.createElement(
             'span',
@@ -938,6 +1669,9 @@
                 const enabled = event.target.checked;
                 setFileMaskEnabled(enabled);
                 onFileMaskChange(enabled ? fileMaskDraft : '');
+                window.setTimeout(() => {
+                  (enabled ? fileMaskInputRef : queryInputRef).current?.focus?.();
+                }, 0);
               },
             }),
             React.createElement('span', null, `${t('editor.searchFileMaskLabel')}:`),
@@ -1001,6 +1735,7 @@
             'aria-activedescendant': active === null ? undefined : findToolOptionId(active.rowKey),
             onChange: (event) => onQuery(event.target.value),
             onKeyDown: (event) => {
+              if (handleFindSearchOptionShortcut(event)) return;
               if (searchNewLine && event.key === 'Enter' && event.metaKey !== true && event.ctrlKey !== true) return;
               if (
                 floating
@@ -1107,6 +1842,7 @@
                 'aria-label': t('editor.findToolReplacePlaceholder'),
                 onChange: (event) => onReplace(event.target.value),
                 onKeyDown: (event) => {
+                  if (handleFindSearchOptionShortcut(event)) return;
                   if (
                     replaceNewLine
                     && event.key === 'Enter'
@@ -1189,7 +1925,10 @@
                   ...styles.findToolScopeButton,
                   ...(scopeMode === scope.id ? styles.findToolScopeButtonActive : null),
                 },
-                onClick: () => selectFindScopeMode(scope.id),
+                onClick: () => {
+                  selectFindScopeMode(scope.id);
+                  window.setTimeout(() => queryInputRef.current?.focus?.(), 0);
+                },
                 onKeyDown: (event) => handleFindScopeModeKeyDown(event, scope.id),
               },
               scope.label,
@@ -1207,7 +1946,7 @@
                   onChange: (event) => {
                     const value = event.target.value;
                     setScopeDirectoryDraft(value);
-                    emitFindScopeChange('directory', scopePreset, value);
+                    emitFindScopeChange('directory', effectiveScopePreset, value);
                   },
                   onKeyDown: (event) => {
                     if (event.shiftKey === true && event.key === 'Enter') {
@@ -1228,19 +1967,55 @@
                   },
                   '…',
                 ),
+                React.createElement(
+                  'button',
+                  {
+                    type: 'button',
+                    style: {
+                      ...styles.findToolScopeMore,
+                      ...(scopeRecursive === true ? styles.findToolScopeButtonActive : null),
+                    },
+                    title: t('editor.findScopeSearchRecursively'),
+                    'aria-label': t('editor.findScopeSearchRecursively'),
+                    'aria-pressed': scopeRecursive === true,
+                    onClick: toggleFindDirectoryRecursive,
+                  },
+                  React.createElement(Icon, { name: 'project', size: 12 }),
+                ),
               )
             : scopeMode === 'scope'
               ? React.createElement(
-                  'select',
-                  {
-                    style: styles.findToolScopeSelect,
-                    value: scopePreset,
-                    'aria-label': t('editor.findScopeScope'),
-                    onChange: (event) => selectFindScopePreset(event.target.value),
-                  },
-                  React.createElement('option', { value: 'projectFiles' }, t('editor.findScopeProjectFiles')),
-                  React.createElement('option', { value: 'openFiles' }, t('editor.findScopeOpenFiles')),
-                  React.createElement('option', { value: 'changedFiles' }, t('editor.findScopeChangedFiles')),
+                  React.Fragment,
+                  null,
+                  React.createElement(
+                    'select',
+                    {
+                      style: styles.findToolScopeSelect,
+                      value: effectiveScopePreset,
+                      'aria-label': t('editor.findScopeScope'),
+                      onChange: (event) => selectFindScopePreset(event.target.value),
+                    },
+                    React.createElement('option', { value: 'projectFiles' }, t('editor.findScopeProjectFiles')),
+                    React.createElement('option', { value: 'gitNonIgnoredFiles', disabled: gitAvailable !== true }, t('editor.findScopeGitNonIgnoredFiles')),
+                    React.createElement('option', { value: 'gitTrackedFiles', disabled: gitAvailable !== true }, t('editor.findScopeGitTrackedFiles')),
+                    React.createElement('option', { value: 'recentlyViewedFiles', disabled: recentFilePaths.length === 0 }, t('editor.findScopeRecentlyViewedFiles')),
+                    React.createElement('option', { value: 'openFiles', disabled: openFilePaths.length === 0 }, t('editor.findScopeOpenFiles')),
+                    React.createElement('option', { value: 'currentFile', disabled: activeFilePath === null }, t('editor.findScopeCurrentFile')),
+                    React.createElement('option', { value: 'changedFiles', disabled: changedFilePaths.length === 0 }, t('editor.findScopeChangedFiles')),
+                    ...(Array.isArray(customScopes) ? customScopes : []).map((scope) =>
+                      React.createElement('option', { key: scope.id, value: `custom:${scope.id}` }, scope.name)),
+                  ),
+                  React.createElement(
+                    'button',
+                    {
+                      type: 'button',
+                      style: styles.findToolScopeMore,
+                      title: t('editor.findEditScopes'),
+                      'aria-label': t('editor.findEditScopes'),
+                      onClick: () => setScopeEditorOpen(true),
+                    },
+                    '…',
+                  ),
                 )
             : null,
         ),
@@ -1299,7 +2074,32 @@
             ? React.createElement(
                 'div',
                 { style: floating ? styles.findToolPopupMessage : styles.findToolMessage },
-                t('editor.findToolNoMatches'),
+                floating ? t('editor.findToolNothingFound') : t('editor.findToolNoMatches'),
+                showFindSearchOptionSummary
+                  ? React.createElement(
+                      'div',
+                      {
+                        style: styles.searchEverywhereUsedOptions,
+                        'data-dsh-find-used-options': '',
+                      },
+                      `${t(activeFindSearchOptionIds.length === 1 ? 'editor.searchOptionUsed' : 'editor.searchOptionsUsed')} ${activeFindSearchOptionsText}`,
+                    )
+                  : null,
+                showFindSearchOptionSummary
+                  ? React.createElement(
+                      'button',
+                      {
+                        type: 'button',
+                        className: 'dsh-editor-search-clear-options',
+                        style: styles.searchEverywhereInlineAction,
+                        'data-dsh-find-clear-options': '',
+                        'aria-keyshortcuts': 'Alt+Shift+Backspace',
+                        title: `${t(activeFindSearchOptionIds.length === 1 ? 'editor.searchClearOption' : 'editor.searchClearAllOptions')} (⌥⇧⌫)`,
+                        onClick: () => clearFindSearchOptions('all'),
+                      },
+                      `${t(activeFindSearchOptionIds.length === 1 ? 'editor.searchClearOption' : 'editor.searchClearAllOptions')} ⌥⇧⌫`,
+                    )
+                  : null,
               )
             : null,
           floating
@@ -1562,6 +2362,7 @@
               React.createElement(
                 'div',
                 {
+                  ref: previewBodyRef,
                   style: styles.searchEverywherePreviewBody,
                   className: 'dsh-editor-code-preview',
                   'data-dsh-code-preview': '',
@@ -1595,6 +2396,7 @@
                               'div',
                               {
                                 key: previewWindow.start + index,
+                                'data-dsh-preview-line': previewWindow.start + index,
                                 className: 'dsh-editor-code-preview-line',
                                 style: {
                                   ...styles.searchEverywherePreviewLine,
@@ -1730,12 +2532,31 @@
               onPick: (directory) => {
                 setScopeDirectoryDraft(directory);
                 setScopeMode('directory');
-                emitFindScopeChange('directory', scopePreset, directory);
+                emitFindScopeChange('directory', effectiveScopePreset, directory);
                 setDirectoryPicker(null);
                 window.setTimeout(() => queryInputRef.current?.focus?.(), 0);
               },
               onClose: () => setDirectoryPicker(null),
             }),
+        scopeEditorOpen
+          ? React.createElement(FindScopeEditor, {
+              t,
+              scopes: customScopes,
+              initialId: selectedCustomScope?.id ?? null,
+              onSave: (nextScopes, nextSelectedId) => {
+                const normalized = typeof onCustomScopesChange === 'function'
+                  ? onCustomScopesChange(nextScopes)
+                  : normalizeCustomFindScopes(nextScopes);
+                const savedId = normalized.some((scope) => scope.id === nextSelectedId)
+                  ? nextSelectedId
+                  : normalized[0]?.id ?? '';
+                const nextPreset = savedId === '' ? 'projectFiles' : `custom:${savedId}`;
+                setScopePreset(nextPreset);
+                emitFindScopeChange('scope', nextPreset, scopeDirectoryDraft);
+              },
+              onClose: () => setScopeEditorOpen(false),
+            })
+          : null,
         groupByMenu === null
           ? null
           : React.createElement(ContextMenu, {
@@ -1775,6 +2596,16 @@
                 onClose: () => setHistoryMenu(null),
               }),
             ),
+        floating
+          ? FIND_POPUP_RESIZE_DIRECTIONS.map((direction) =>
+              React.createElement('div', {
+                key: `find-popup-resize:${direction}`,
+                'data-dsh-find-popup-resize': direction,
+                'aria-hidden': true,
+                style: popupResizeHandleStyle(direction),
+                onPointerDown: (event) => onPopupResizeStart?.(event, direction),
+              }))
+          : null,
       );
     }
 
@@ -1947,6 +2778,47 @@
         }
       }
       return hasPositive ? positiveMatch : true;
+    }
+
+    /** Match one workspace path against one custom Scope glob. */
+    function findScopeGlobMatches(path, rawPattern) {
+      let pattern = typeof rawPattern === 'string' ? rawPattern.trim().replaceAll('\\', '/') : '';
+      if (pattern === '') return false;
+      pattern = pattern.replace(/^file:/u, '').replace(/^\.\/+/u, '').replace(/\/+$/u, '');
+      pattern = pattern.replace(/\/\/\*$/u, '/**');
+      if (pattern === '') return true;
+      const name = path.slice(path.lastIndexOf('/') + 1);
+      const hasGlob = pattern.includes('*') || pattern.includes('?');
+      if (!hasGlob && !pattern.includes('/')) {
+        return path === pattern || path.startsWith(`${pattern}/`) || name === pattern;
+      }
+      const target = pattern.includes('/') ? path : name;
+      let source = '';
+      for (let index = 0; index < pattern.length; index += 1) {
+        const character = pattern[index];
+        if (character === '*') {
+          if (pattern[index + 1] === '*') {
+            source += '.*';
+            index += 1;
+          } else {
+            source += '[^/]*';
+          }
+        } else if (character === '?') {
+          source += '[^/]';
+        } else {
+          source += character.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
+        }
+      }
+      return new RegExp(`^${source}$`, 'iu').test(target);
+    }
+
+    /** Include globs are ORed; any exclude glob wins. */
+    function findScopePatternsMatch(path, includePatterns, excludePatterns) {
+      if (typeof path !== 'string' || path === '') return false;
+      const includes = normalizeFindScopePatterns(includePatterns);
+      const excludes = normalizeFindScopePatterns(excludePatterns);
+      if (includes.length > 0 && !includes.some((pattern) => findScopeGlobMatches(path, pattern))) return false;
+      return !excludes.some((pattern) => findScopeGlobMatches(path, pattern));
     }
 
     /**

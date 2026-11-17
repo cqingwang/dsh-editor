@@ -544,6 +544,7 @@
       },
       findToolPopup: {
         position: 'fixed',
+        boxSizing: 'border-box',
         left: '50%',
         top: '50%',
         transform: 'translate(-50%, -50%)',
@@ -1302,26 +1303,7 @@
         fontSize: 11,
       },
       /* Same column, no line: the subtree below ended. */
-      /* IDEA's elbow under a subtree's last child: the vertical line runs from the
-         row's top to its middle, then turns right as a short arm (└). Built from two
-         borders on a half-height, half-width box so it scales with the row. */
-      indentGuideCorner: {
-        flex: 'none',
-        /* Exactly the same horizontal footprint as the line/stop guides. The old
-           `marginRight: 6` made every LAST child sit 6px right of its siblings
-           (measured: a last file's badge started 13 device px — 6 CSS px at 2x —
-           right of the row above it), which read as a broken indent. */
-        width: 14,
-        height: '50%',
-        borderLeft: '1px solid var(--dsw-alias-border-l3)',
-        borderBottom: '1px solid var(--dsw-alias-border-l3)',
-        borderBottomLeftRadius: 3,
-        opacity: 0.7,
-        /* The arm ends at the column edge; the row's own 3px gap is the breathing room. */
-        marginRight: 0,
-        boxSizing: 'border-box',
-      },
-      /* `boxSizing: border-box` on ALL THREE is load-bearing: with the default
+      /* `boxSizing: border-box` on both guides is load-bearing: with the default
          content-box a 14px guide that also draws a 1px left border occupies 15px,
          so a row whose column continues was 1px further right than one whose
          column had ended — the same depth, two different indents. */
@@ -1906,7 +1888,7 @@
       editorStatus: {
         display: 'flex',
         alignItems: 'center',
-        gap: 12,
+        gap: 8,
         flex: 'none',
         height: 20,
         padding: '0 10px',
@@ -1919,6 +1901,21 @@
       },
       statusItem: {
         flex: 'none',
+      },
+      statusPath: {
+        flex: '0 1 auto',
+        minWidth: 0,
+        overflow: 'hidden',
+        textOverflow: 'ellipsis',
+      },
+      statusPathButton: {
+        border: 'none',
+        padding: 0,
+        background: 'transparent',
+        color: 'inherit',
+        font: 'inherit',
+        textAlign: 'left',
+        cursor: 'pointer',
       },
       commitFileRowConflict: {
         background: 'rgba(207, 34, 46, 0.08)',
@@ -2801,6 +2798,7 @@
       editorSurface: {
         display: 'flex',
         flexDirection: 'column',
+        position: 'relative',
         flex: '1 1 0',
         minWidth: 0,
         minHeight: 0,
@@ -2815,6 +2813,17 @@
         background: 'var(--dsw-alias-interactive-bg-hover-solid)',
         overflowX: 'auto',
         overflowY: 'hidden',
+      },
+      tabStripTrailing: {
+        display: 'flex',
+        alignItems: 'center',
+        flex: 'none',
+        alignSelf: 'stretch',
+        marginLeft: 'auto',
+        position: 'sticky',
+        right: 0,
+        zIndex: 2,
+        background: 'var(--dsw-alias-interactive-bg-hover-solid)',
       },
       tab: {
         display: 'flex',
@@ -2878,51 +2887,6 @@
         lineHeight: '1',
         outline: 'none',
       },
-      /* IDEA's breadcrumbs: one clickable segment per path component. */
-      breadcrumbBar: {
-        display: 'flex',
-        alignItems: 'center',
-        gap: 2,
-        flex: 'none',
-        height: 24,
-        padding: '0 8px',
-        borderBottom: '0.5px solid var(--dsw-alias-border-l3)',
-        background: 'var(--dsw-alias-bg-base)',
-        overflow: 'hidden',
-        whiteSpace: 'nowrap',
-      },
-      breadcrumbTrail: {
-        display: 'flex',
-        alignItems: 'center',
-        gap: 2,
-        flex: '1 1 auto',
-        minWidth: 0,
-        overflow: 'hidden',
-      },
-      breadcrumbItem: {
-        display: 'inline-flex',
-        alignItems: 'center',
-        gap: 3,
-        flex: 'none',
-        height: 18,
-        padding: '0 4px',
-        border: 'none',
-        borderRadius: 3,
-        background: 'transparent',
-        color: 'var(--dsw-alias-label-secondary)',
-        fontSize: 11,
-        cursor: 'pointer',
-        fontFamily: 'inherit',
-      },
-      breadcrumbItemActive: {
-        color: 'var(--dsw-alias-label-primary)',
-      },
-      breadcrumbSeparator: {
-        flex: 'none',
-        color: 'var(--dsw-alias-label-tertiary)',
-        fontSize: 10,
-        padding: '0 1px',
-      },
       statusButton: {
         border: 'none',
         background: 'transparent',
@@ -2932,15 +2896,32 @@
         borderRadius: 3,
         cursor: 'pointer',
       },
-      gotoLineBar: {
+      gotoLinePopup: {
+        position: 'absolute',
+        top: 40,
+        left: '50%',
+        zIndex: 20,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 6,
+        width: 'min(360px, calc(100% - 16px))',
+        padding: 8,
+        border: '0.5px solid var(--dsw-alias-border-l2)',
+        borderRadius: 6,
+        background: 'var(--dsw-alias-bg-layer-1)',
+        boxShadow: '0 8px 24px rgba(0, 0, 0, 0.22)',
+        transform: 'translateX(-50%)',
+      },
+      gotoLineRow: {
         display: 'flex',
         alignItems: 'center',
         gap: 6,
-        flex: 'none',
-        height: 30,
-        padding: '0 8px',
-        borderBottom: '0.5px solid var(--dsw-alias-border-l3)',
-        background: 'var(--dsw-alias-bg-layer-1)',
+      },
+      gotoLineError: {
+        paddingLeft: 66,
+        color: 'var(--dsw-alias-state-error-primary)',
+        fontSize: 10,
+        lineHeight: '14px',
       },
       editorContainer: {
         flex: '1 1 0',

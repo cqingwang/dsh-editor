@@ -119,7 +119,8 @@ test('the diff tab and the file tabs hand the code area back and forth', () => {
   assert.match(source, /const fileSurfaceVisible = \(activeFile !== null \|\| splitFile !== null\)[\s\S]*?diffOpen === false[\s\S]*?annotateTarget === null[\s\S]*?editorTerminals\.length === 0/);
   assert.match(source, /display: fileSurfaceVisible \? 'flex' : 'none'/);
   assert.match(source, /diffOpen === false\n\s+\? null\n\s+: diffTarget\?\.repositoryVersion[\s\S]*?: React\.createElement\(DiffPreview/);
-  assert.match(source, /const breadcrumbSegments = activeFile !== null && diffOpen === false/);
+  assert.match(source, /const statusPath = statusFile === null/);
+  assert.doesNotMatch(source, /breadcrumbSegments/);
 });
 
 test('closing the diff tab drops the preview and returns to the file', () => {

@@ -16,7 +16,7 @@ test('the editor tab strip overflows into `»` instead of squeezing every tab', 
   assert.match(source, /const fileTabLayout = overflowTabs\(allTabs, visibleTabCount\(tabStripWidth, allTabs\.length\), activeTabKey, \(entry\) => \(entry === DIFF_TAB_KEY \? DIFF_TAB_KEY : entry\.path\)\);/);
   const start = source.indexOf("ref: fileTabStripRef",);
   assert.notEqual(start, -1);
-  const block = source.slice(start, start + 1800);
+  const block = source.slice(start, start + 4000);
   assert.match(block, /fileTabLayout\.visible\.map/);
   assert.match(block, /t\('editor\.tabsOverflow', \{ count: fileTabLayout\.hidden\.length \}\)/);
   /* The strip needs the same measurement the terminal dock uses. */

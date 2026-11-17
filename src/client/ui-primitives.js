@@ -800,9 +800,10 @@
      * @param {number} leftCount - leading action count.
      * @param {number} rightCount - trailing action count.
      * @param {number} badgeWidth - optional branch badge width.
+     * @param {number} pinnedLeftCount - leading actions that must stay direct.
      * @returns {{left: number, right: number}} direct action counts.
      */
-    function panelToolbarFit(width, titleWidth, leftCount, rightCount, badgeWidth = 0) {
+    function panelToolbarFit(width, titleWidth, leftCount, rightCount, badgeWidth = 0, pinnedLeftCount = 0) {
       const totalWidth = Math.max(0, Number(width) || 0);
       const totalActions = Math.max(0, Math.floor(Number(leftCount) || 0)) + Math.max(0, Math.floor(Number(rightCount) || 0));
       let room = totalWidth - 14 - Math.max(0, Number(titleWidth) || 0);
@@ -817,9 +818,18 @@
          Reserve it before distributing slots or actions will push it past the
          toolbar edge after consuming the remaining width. */
       room -= badgeRoom;
+      /* IDEA's Select Opened File is a primary Project action. Reserve it
+         before the trailing window actions so a narrow tool window does not
+         hide the target button behind "»". */
+      const reservedLeft = Math.min(
+        left,
+        Math.max(0, Math.floor(Number(pinnedLeftCount) || 0)),
+        Math.max(0, Math.floor(room / 25)),
+      );
+      room -= reservedLeft * 25;
       right = Math.min(right, Math.max(0, Math.floor(room / 25)));
       room -= right * 25;
-      left = Math.min(left, Math.max(0, Math.floor(room / 25)));
+      left = reservedLeft + Math.min(left - reservedLeft, Math.max(0, Math.floor(room / 25)));
       return { left, right };
     }
 
@@ -849,6 +859,7 @@
             left.length,
             right.length,
             badgeRef.current?.offsetWidth ?? 0,
+            left.filter((action) => action.pinned === true).length,
           );
           const nextLeft = next.left;
           const nextRight = next.right;
@@ -863,7 +874,8 @@
       /* A group's first N actions are the ones that fit. RIGHT is measured
          from its tail, so materialise the kept suffix after the head-kept
          left group. */
-      const hidden = [...left.slice(fits.left), ...right.slice(0, right.length - fits.right)];
+      const directLeft = selectCompactActions(left, fits.left);
+      const hidden = [...left.filter((action) => directLeft.includes(action) === false), ...right.slice(0, right.length - fits.right)];
       const openOverflowMenu = (rect) => {
         setMenu({
           x: Math.max(4, rect.right - 188),
@@ -914,7 +926,7 @@
           icon === undefined ? null : React.createElement(Icon, { name: icon, size: 14 }),
           titleAction ?? title,
         ),
-        left.slice(0, fits.left).map(renderAction),
+        directLeft.map(renderAction),
         React.createElement('span', { style: styles.toolbarSpacer }),
         badge === null
           ? null

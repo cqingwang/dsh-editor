@@ -429,6 +429,9 @@
         '}',
         '.dsh-editor-tab:hover { background: var(--dsw-alias-interactive-bg-hover); }',
         '.dsh-editor-tab-active:hover { background: var(--dsw-alias-bg-base); }',
+        '.dsh-editor-tab:focus-visible, .dsh-editor-split-tab:focus-visible { outline: 1px solid var(--dsw-alias-state-business-primary); outline-offset: -2px; }',
+        '.dsh-editor-status-path:hover { color: var(--dsw-alias-label-primary) !important; text-decoration: underline; text-underline-offset: 2px; }',
+        '.dsh-editor-status-path:focus-visible { outline: 1px solid var(--dsw-alias-state-business-primary); outline-offset: 1px; }',
         '.dsh-editor-tab-close:hover { background: var(--dsw-alias-interactive-bg-hover) !important; color: var(--dsw-alias-label-primary) !important; border-color: var(--dsw-alias-border-l3) !important; border-radius: 5px; }',
         '.dsh-editor-tab-close:focus-visible { background: var(--dsw-alias-interactive-bg-hover-solid) !important; color: var(--dsw-alias-label-primary) !important; border-color: var(--dsw-alias-border-l3) !important; border-radius: 5px; outline: none; }',
         /* macOS hides native overlay scrollbars while idle. Project and Commit

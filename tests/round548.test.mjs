@@ -45,12 +45,14 @@ test('Find Usages in File reuses the editor Find query path without an early hoo
   assert.match(runner, /if \(target\.query !== ''\) openEditorFind\(withReplace, target\.query, focusTarget\)/);
   const mainGroup = source.indexOf('const group = createCodeEditorGroup(monaco, containerRef.current');
   const splitGroup = source.indexOf('const group = createCodeEditorGroup(monaco, splitContainerRef.current');
+  const mainEnd = source.indexOf('const editor = group.editor;', mainGroup);
+  const splitEnd = source.indexOf('const editor = group.editor;', splitGroup);
   assert.doesNotMatch(
-    source.slice(mainGroup, source.indexOf('}, [closeDiff, monacoReady', mainGroup)),
+    source.slice(mainGroup, mainEnd),
     /openEditorFind/u,
   );
   assert.doesNotMatch(
-    source.slice(splitGroup, source.indexOf('}, [closeSplitTab, monacoReady', splitGroup)),
+    source.slice(splitGroup, splitEnd),
     /openEditorFind/u,
   );
 });

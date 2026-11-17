@@ -3,6 +3,7 @@
       t,
       state,
       files,
+      openFiles,
       changes,
       textMatches,
       actions,
@@ -38,6 +39,7 @@
       onNotify,
     }) {
       const listRef = React.useRef(null);
+      const previewBodyRef = React.useRef(null);
       const searchInputRef = React.useRef(null);
       const replaceInputRef = React.useRef(null);
       const fileMaskInputRef = React.useRef(null);
@@ -168,6 +170,7 @@
         line: match.line,
         column: match.column,
         mtime: match.mtime,
+        dirty: match.dirty === true,
         preview: match.preview ?? '',
         title: match.preview || basename(match.path),
         subtitle: `${match.path}:${match.line}:${match.column}`,
@@ -280,6 +283,19 @@
           });
           return undefined;
         }
+        if (activeResult.kind === 'text' && activeResult.dirty === true) {
+          const liveFile = (Array.isArray(openFiles) ? openFiles : [])
+            .find((file) => file?.path === activeResult.path) ?? null;
+          setPreviewState({
+            loading: false,
+            kind: activeResult.kind,
+            path: activeResult.path,
+            content: typeof liveFile?.content === 'string' ? liveFile.content : '',
+            line: activeResult.line ?? 1,
+            error: null,
+          });
+          return undefined;
+        }
         let cancelled = false;
         setPreviewState({
           loading: true,
@@ -315,7 +331,49 @@
         return () => {
           cancelled = true;
         };
-      }, [previewOpen, activeResult?.rowKey]);
+      }, [previewOpen, activeResult?.rowKey, activeResult?.dirty, openFiles]);
+      React.useLayoutEffect(() => {
+        if (
+          previewOpen !== true
+          || previewState.loading === true
+          || previewState.error !== null
+          || previewState.kind === null
+          || previewState.kind === 'action'
+        ) return undefined;
+        let frame = 0;
+        const centerNow = () => {
+          const body = previewBodyRef.current;
+          const focusLine = Math.max(1, Math.floor(Number(previewState.line) || 1));
+          const lineNode = body?.querySelector?.(`[data-dsh-preview-line="${focusLine}"]`) ?? null;
+          centerPreviewLineInContainer(body, lineNode);
+        };
+        const recenter = () => {
+          window.cancelAnimationFrame(frame);
+          /* Layout effect centers before paint; the next frame rechecks metrics
+             after ResizeObserver and soft-wrap layout settle. */
+          centerNow();
+          frame = window.requestAnimationFrame(centerNow);
+        };
+        recenter();
+        const body = previewBodyRef.current;
+        const observer = typeof ResizeObserver === 'undefined' || body === null
+          ? null
+          : new ResizeObserver(recenter);
+        observer?.observe(body);
+        return () => {
+          window.cancelAnimationFrame(frame);
+          observer?.disconnect();
+        };
+      }, [
+        previewOpen,
+        previewState.loading,
+        previewState.error,
+        previewState.kind,
+        previewState.path,
+        previewState.line,
+        previewState.content,
+        previewSoftWrap,
+      ]);
       React.useEffect(() => {
         const active = listRef.current?.querySelector?.('[data-search-everywhere-active="1"]');
         active?.scrollIntoView?.({ block: 'nearest' });
@@ -430,7 +488,10 @@
             : values.map((value, index) => ({
                 id: `query-history:${index}`,
                 label: value,
-                run: () => onQuery(value),
+                run: () => {
+                  onQuery(value);
+                  window.setTimeout(() => searchInputRef.current?.focus?.(), 0);
+                },
               })),
         });
       }, [onQuery, recentSearches, t]);
@@ -524,7 +585,10 @@
             : values.map((value, index) => ({
                 id: `replace-history:${index}`,
                 label: value,
-                run: () => onReplaceChange(value),
+                run: () => {
+                  onReplaceChange(value);
+                  window.setTimeout(() => replaceInputRef.current?.focus?.(), 0);
+                },
               })),
         });
       };
@@ -702,7 +766,7 @@
           id: 'openFind',
           icon: 'findWindow',
           label: t('editor.openInFindToolWindow'),
-          disabled: effectiveQuery === '' || (fileMatches.length === 0 && textResults.length === 0),
+          disabled: effectiveQuery === '',
           onClick: () => openSearchResultsInFind(null, activeResult),
           group: 'view',
           pinned: true,
@@ -1182,6 +1246,7 @@
                 React.createElement(
                   'div',
                   {
+                    ref: previewBodyRef,
                     style: styles.searchEverywherePreviewBody,
                     className: 'dsh-editor-code-preview',
                     'data-dsh-code-preview': '',
@@ -1209,6 +1274,7 @@
                                 'div',
                                 {
                                   key: previewWindow.start + index,
+                                  'data-dsh-preview-line': previewWindow.start + index,
                                   className: 'dsh-editor-code-preview-line',
                                   style: {
                                     ...styles.searchEverywherePreviewLine,

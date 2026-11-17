@@ -11,6 +11,7 @@ const moduleOrder = [
   'foundation.js',
   'locales.js',
   'domain-core.js',
+  'code-navigation.js',
   'inline-styles.js',
   'editor-core.js',
   'ui-primitives.js',
@@ -51,7 +52,7 @@ test('lib/client.js is generated from the current modules', () => {
     cwd: root,
     encoding: 'utf8',
   });
-  assert.match(output, /16 modules verified/);
+  assert.match(output, /17 modules verified/);
 });
 
 test('Every source module remains reviewable instead of regrowing one monolith', async () => {

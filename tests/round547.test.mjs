@@ -45,12 +45,14 @@ test('the ref resolves the invoking editor without an early openFindTool referen
   assert.match(runner, /openFindTool\(target\.query, replace \? 'replace' : 'find', null, replace \? 'replace' : 'query'\)/);
   const mainGroup = source.indexOf('const group = createCodeEditorGroup(monaco, containerRef.current');
   const splitGroup = source.indexOf('const group = createCodeEditorGroup(monaco, splitContainerRef.current');
+  const mainEnd = source.indexOf('const editor = group.editor;', mainGroup);
+  const splitEnd = source.indexOf('const editor = group.editor;', splitGroup);
   assert.doesNotMatch(
-    source.slice(mainGroup, source.indexOf('}, [closeDiff, monacoReady', mainGroup)),
+    source.slice(mainGroup, mainEnd),
     /openFindTool/u,
   );
   assert.doesNotMatch(
-    source.slice(splitGroup, source.indexOf('}, [closeSplitTab, monacoReady', splitGroup)),
+    source.slice(splitGroup, splitEnd),
     /openFindTool/u,
   );
 });

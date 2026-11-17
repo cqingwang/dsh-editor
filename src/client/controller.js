@@ -1,4 +1,213 @@
 /* controller.js: dsh-editor client module. Generated into lib/client.js by scripts/build-client.mjs. */
+    /**
+     * Render a workspace path in the DSH file-mention grammar.
+     *
+     * DSH resolves `@path` and `@"path with spaces"` references against the
+     * active Session's working directory. Directory references keep their
+     * trailing slash so Chat continues to expose the folder affordance.
+     * @param {string} path - workspace-relative or absolute path.
+     * @param {boolean} [isDirectory=false] - append the directory marker.
+     * @returns {string} ready-to-insert mention, or an empty string when invalid.
+     */
+    function harnessPathMention(path, isDirectory = false) {
+      let value = typeof path === 'string' ? path.replace(/\\/g, '/') : '';
+      if (value === '') return '';
+      if (isDirectory && !value.endsWith('/')) value += '/';
+      if (/[\u0000-\u001f\u007f-\u009f"]/u.test(value)) return '';
+      return /\s/u.test(value) ? `@"${value}"` : `@${value}`;
+    }
+
+    /**
+     * Build the structured reference and visible position suffix for Harness.
+     *
+     * The Project root has no workspace-relative identity, so it is addressed by
+     * its absolute path. Files and folders beneath it stay relative, matching
+     * DSH's workspace-aware `@` mention resolution.
+     * @param {{path?: string, root?: string, isDirectory?: boolean, line?: number|null, column?: number|null, endLine?: number|null, endColumn?: number|null}} request - menu selection.
+     * @returns {{reference: object, positionText: string, plainText: string}|null} composer insertion data.
+     */
+    function harnessReferencePlan(request = {}) {
+      const root = typeof request.root === 'string' ? request.root.replace(/\\/g, '/').replace(/\/+$/u, '') : '';
+      const sourcePath = typeof request.path === 'string' ? request.path.replace(/\\/g, '/') : '';
+      const path = sourcePath === '' ? root : sourcePath;
+      const isDirectory = request.isDirectory === true;
+      const mention = harnessPathMention(path, isDirectory);
+      if (mention === '') return null;
+      const line = Number(request.line);
+      const column = Number(request.column);
+      const endLine = Number(request.endLine);
+      const endColumn = Number(request.endColumn);
+      const hasPosition = isDirectory !== true
+        && Number.isInteger(line) && line > 0
+        && Number.isInteger(column) && column > 0;
+      const hasRange = hasPosition
+        && Number.isInteger(endLine) && endLine > 0
+        && Number.isInteger(endColumn) && endColumn > 0
+        && (endLine > line || (endLine === line && endColumn > column));
+      const positionText = hasPosition
+        ? hasRange
+          ? `L${line}:${column}-L${endLine}:${endColumn}`
+          : `L${line}:${column}`
+        : '';
+      const name = basename(path) || basename(root) || path || root;
+      const label = `${name}${isDirectory ? '/' : ''}${positionText === '' ? '' : ` ${positionText}`}`;
+      const plainText = `${mention}${positionText === '' ? '' : ` ${positionText}`}`;
+      return {
+        reference: {
+          source: 'reference',
+          ref: mention,
+          label,
+          appearance: isDirectory ? 'folder' : 'file',
+          /* The chip text is the message projection. Keep the position in that
+             projection while `ref` stays the valid DSH file mention used for
+             resolution/open. */
+          clipboardText: plainText,
+        },
+        positionText,
+        plainText,
+      };
+    }
+
+    /**
+     * Put the caret at the end of the host's Lexical composer.
+     * @param {Document|null} documentRef - current document.
+     * @returns {HTMLElement|null} the editable composer node.
+     */
+    function focusHarnessComposer(documentRef) {
+      const composer = documentRef?.querySelector?.(
+        '[data-conversation-region="composer"] [data-composer-input], [data-conversation-region="composer"] [contenteditable="true"]',
+      ) ?? null;
+      if (composer === null || typeof composer.focus !== 'function') return null;
+      composer.focus();
+      const selection = documentRef.getSelection?.();
+      if (selection !== null && selection !== undefined) {
+        const range = documentRef.createRange();
+        if (range !== null && range !== undefined) {
+          range.selectNodeContents(composer);
+          range.collapse(false);
+          selection.removeAllRanges();
+          selection.addRange(range);
+        }
+      }
+      return composer;
+    }
+
+    /**
+     * Fallback insertion for older hosts without the public conversation input
+     * shell. It appends text through the browser editing command and never sends.
+     * @param {Document|null} documentRef - current document.
+     * @param {string} text - plain-text references to append.
+     * @returns {boolean} whether the browser accepted the edit.
+     */
+    function insertHarnessTextFallback(documentRef, text) {
+      if (typeof text !== 'string' || text === '') return false;
+      const composer = focusHarnessComposer(documentRef);
+      if (composer === null) return false;
+      const existing = String(composer.textContent ?? '');
+      const prefix = existing !== '' && !/\s$/u.test(existing) ? ' ' : '';
+      try {
+        return documentRef.execCommand('insertText', false, `${prefix}${text}`);
+      } catch {
+        return false;
+      }
+    }
+
+    /**
+     * Append file/folder references to the current Harness composer.
+     *
+     * Prefer the host's public `conversation.input.for(...)` shell so references
+     * become real DSH chips and participate in draft persistence/undo. The
+     * existing draft is never replaced, and no submit method is ever called.
+     * @param {object} ctx - DSH client context.
+     * @param {{entries?: object[], line?: number|null, column?: number|null, endLine?: number|null, endColumn?: number|null}} request - selected workspace entries.
+     * @param {{document?: Document|null}} [runtime] - test seam.
+     * @returns {Promise<boolean>} whether the composer accepted every reference.
+     */
+    async function insertHarnessReferencesIntoComposer(ctx, request = {}, runtime = {}) {
+      const entries = Array.isArray(request.entries)
+        ? request.entries.filter((entry) => entry !== null && typeof entry === 'object')
+        : [];
+      const plans = entries
+        .map((entry) => harnessReferencePlan({
+          path: entry.path,
+          root: entry.root,
+          isDirectory: entry.isDirectory === true,
+          line: request.line,
+          column: request.column,
+          endLine: request.endLine,
+          endColumn: request.endColumn,
+        }))
+        .filter((plan) => plan !== null);
+      if (plans.length === 0) return false;
+      const documentRef = runtime.document
+        ?? (typeof document === 'undefined' ? null : document);
+      const sessionElement = documentRef?.querySelector?.('[data-conversation-region="chat"]') ?? null;
+      const sessionId = String(sessionElement?.getAttribute?.('data-conversation-session') ?? '');
+      if (sessionId !== '') {
+        try {
+          const sessions = ctx.get('sessions');
+          const conversation = ctx.get('conversation');
+          const scoped = typeof sessions?.scope === 'function' ? sessions.scope(sessionId) : undefined;
+          const input = scoped === undefined ? undefined : conversation?.input?.for?.(scoped);
+          if (input !== undefined && typeof input?.state?.getSnapshot === 'function') {
+            /* The public addFiles verb inserts references at the live composer
+               position and preserves the existing draft. Prefer it over
+               span-based insertReference, whose revision CAS can go stale as
+               soon as an existing chip or Lexical decoration settles. */
+            if (typeof input.addFiles === 'function') {
+              if (input.addFiles(plans.map((plan) => plan.reference), []) !== true) return false;
+              focusHarnessComposer(documentRef);
+              if (typeof window !== 'undefined') {
+                window.setTimeout(() => focusHarnessComposer(documentRef), 0);
+                window.requestAnimationFrame?.(() => focusHarnessComposer(documentRef));
+              }
+              return true;
+            }
+            for (const plan of plans) {
+              let snapshot = input.state.getSnapshot();
+              let draft = String(snapshot?.draft ?? '');
+              let offset = draft.length;
+              if (draft !== '' && !/\s$/u.test(draft)) {
+                if (typeof input.insertText !== 'function'
+                  || input.insertText(' ', { start: offset, end: offset, draftRev: snapshot.draftRev }) !== true) {
+                  return false;
+                }
+                snapshot = input.state.getSnapshot();
+                draft = String(snapshot?.draft ?? '');
+                offset = draft.length;
+              }
+              if (typeof input.insertReference === 'function') {
+                if (input.insertReference(plan.reference, {
+                  start: offset,
+                  end: offset,
+                  draftRev: snapshot.draftRev,
+                }) !== true) return false;
+                continue;
+              }
+              if (typeof input.insertText !== 'function'
+                || input.insertText(plan.plainText, {
+                  start: offset,
+                  end: offset,
+                  draftRev: snapshot.draftRev,
+                }) !== true) return false;
+            }
+            focusHarnessComposer(documentRef);
+            /* Lexical commits the inserted chip after the input command returns
+               and may replace its contenteditable host. Re-focus after that
+               commit so the menu cannot leave keyboard ownership on the tree. */
+            if (typeof window !== 'undefined') {
+              window.setTimeout(() => focusHarnessComposer(documentRef), 0);
+              window.requestAnimationFrame?.(() => focusHarnessComposer(documentRef));
+            }
+            return true;
+          }
+        } catch {
+          /* Older hosts fall through to the browser editing command below. */
+        }
+      }
+      return insertHarnessTextFallback(documentRef, plans.map((plan) => plan.plainText).join(' '));
+    }
+
     function createController(ctx) {
       const t = translate(ctx.locale.bind(NS), { zh, en });
       let active = false;
@@ -616,6 +825,7 @@
           initialHarnessCollapsed: harnessCollapsed,
           onToggleHarness: toggleHarnessLayout,
           onCloseEditor: () => setActive(false),
+          onInsertHarnessReference: (request) => insertHarnessReferencesIntoComposer(ctx, request),
         })));
         observeHostPosition(body);
         return host;

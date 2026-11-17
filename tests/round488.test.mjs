@@ -35,10 +35,7 @@ test('Filter opens from either the direct button or overflow fallback', () => {
   assert.match(dialog, /setFilterMenu\(\(current\) => \(current === null/);
 });
 
-test('Open Find retains its disabled conditions in the responsive action model', () => {
+test('Open Find is disabled only for an empty query', () => {
   const dialog = searchEverywhere();
-  assert.match(
-    dialog,
-    /disabled: effectiveQuery === '' \|\| \(fileMatches\.length === 0 && textResults\.length === 0\)/,
-  );
+  assert.match(dialog, /disabled: effectiveQuery === '',/);
 });

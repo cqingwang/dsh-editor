@@ -56,6 +56,7 @@ test('the zh dictionary holds no ASCII-English values', () => {
     /* These are legitimately language-neutral: key names, units, symbols. */
     /* Product names IDEA also leaves untranslated, plus key names and symbols. */
     .filter(([key]) => ![
+      'statusBarPosition',
       'terminalCopyShortcut', 'terminalPasteShortcut', 'gotoLineHint',
       'project', 'commit', 'terminal', 'harness',
       /* The Commit tool-window mode labels are deliberately English in both

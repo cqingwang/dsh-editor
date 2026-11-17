@@ -49,7 +49,7 @@ test('a real vertical separator updates only flex layout state', () => {
 });
 
 test('focused group gets an accent edge while the other stays transparent', () => {
-  assert.match(source, /const splitFocused = focusedPath === splitFile\?\.path/);
+  assert.match(source, /const splitFocused = splitFile !== null && focusedPath === splitFile\.path/);
   assert.match(source, /const leftFocused = focusedPath === activePath && splitFocused === false/);
   assert.match(source, /borderTop: `2px solid \$\{leftFocused \? 'var\(--dsw-alias-state-business-primary\)' : 'transparent'\}`/);
   assert.match(source, /borderTop: `2px solid \$\{splitFocused \? 'var\(--dsw-alias-state-business-primary\)' : 'transparent'\}`/);

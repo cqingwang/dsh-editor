@@ -28,7 +28,7 @@ const replaceInFindTool = source.slice(
 );
 const replaceOccurrence = source.slice(
   source.indexOf('const replaceFindToolOccurrence = React.useCallback'),
-  source.indexOf('const dismissExternal = React.useCallback'),
+  source.indexOf('const undoFindReplace = React.useCallback'),
 );
 
 test('replace attempts are claimed synchronously and released after every path', () => {

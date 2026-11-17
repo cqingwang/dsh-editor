@@ -26,11 +26,9 @@ function load(name) {
 
 const guideKind = load('guideKind');
 
-test('the last child of a subtree gets a corner, not just a gap', () => {
-  /* IDEA elbows the line into the row (└) so the eye can see where a subtree ends;
-     a bare gap reads as a rendering hole. */
-  assert.equal(guideKind({ continues: [true, false], index: 1, depth: 2 }), 'corner');
-  assert.equal(guideKind({ continues: [false], index: 0, depth: 1 }), 'corner');
+test('the last child of a subtree ends without drawing an elbow', () => {
+  assert.equal(guideKind({ continues: [true, false], index: 1, depth: 2 }), 'none');
+  assert.equal(guideKind({ continues: [false], index: 0, depth: 1 }), 'none');
 });
 
 test('an ancestor that still has siblings keeps the full line', () => {
@@ -40,5 +38,6 @@ test('an ancestor that still has siblings keeps the full line', () => {
 
 test('the renderer maps those kinds to the guide styles', () => {
   assert.match(source, /guideKind\(/);
-  assert.match(source, /indentGuideCorner/);
+  assert.match(source, /kind === 'line' \? styles\.indentGuide : styles\.indentGuideStop/);
+  assert.doesNotMatch(source, /indentGuideCorner/);
 });

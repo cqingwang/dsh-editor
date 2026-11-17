@@ -146,9 +146,23 @@
 - Search、Replace All 和单点 Replace 使用同一规范化和作用域条件。
 - Scope 行提供 `In Project / Module / Directory / Scope`：
   Module 因缺少语言模块模型保持禁用；Directory 使用活动文件目录；
-  Scope 提供 Project Files / Open Files / Changed Files。
+  Scope 提供 Project Files / Project Files Excluding Git-ignored /
+  Project Files Tracked by Git / Recently Viewed Files / Open Files /
+  Current File / Changed Files。
+- Git-backed scopes 在宿主搜索前使用 `git ls-files` 生成候选文件，
+  tracked 只含索引文件，excluding ignored 还包含 Git 未忽略的 untracked
+  文件；workspace 位于仓库子目录时按仓库 prefix 归一化。
+- Recently Viewed Files 复用 workspace 的 MRU；Git scopes 的 dirty buffer
+  只合并宿主确认属于该文件集的路径。
 - Scope、File extension、Case、Whole Words 和 Regex 会同时限制结果、
   handoff target 与 Replace All targets。
+- Directory scope 提供 IDEA `Search recursively in subdirectories` 开关：
+  默认递归，关闭后 host 在文件枚举阶段只读取目标目录直属文件，客户端
+  dirty buffer merge 也用同一 direct-child 规则；开关按 workspace 保存，
+  切换时清空旧结果并递增 request generation。Replace All 的 allowed path
+  集只来自过滤后的 scoped matches，因此 non-recursive 模式不会写入 nested
+  子目录；直属 dirty buffer 仍会进入结果/Preview，nested dirty buffer 被
+  排除。
 - Directory 和 Open/Changed Files scope 会传入宿主搜索，在 200 条命中
   上限之前生效；allowed-path scope 直接搜索选中文件，不让范围外结果
   占满上限。
@@ -170,10 +184,37 @@
 - Find 已打开时重复双击 Shift / CmdShiftF 只回焦 query，不重置现有
   query、scope 或筛选条件。
 - IDEA CUA 显示 `Cmd+Shift+F` 为独立的 Find in Files 窗口；DSH 使用
-  `580×536` 上限、居中 fixed-position 的弹框，而不是底部 dock。
+  默认 `580×536`、居中 fixed-position 的弹框，而不是底部 dock。
+- Floating Find 支持标题栏拖动和 n/s/e/w/ne/nw/se/sw 八方向缩放；
+  geometry 保存到 `dsh-editor.find.popup.geometry.v1`，关闭重开及刷新后
+  恢复。恢复时按当前 viewport clamp，最小尺寸 360×260（小视口自动收缩）；
+  `border-box` 保证拖动/保存 round-trip 不会每次膨胀 2px。
 - 弹框结果按 IDEA 平铺：左侧是匹配行/高亮，右侧是 `文件名 行号`；
   不再套用 dock 的 file/directory tree header。当前 active match 自动
   打开下方 Source Preview，并随上/下选择切换。
+- Source Preview 的行窗口仍按固定上限截取，但容器会以 active match 的
+  垂直中心设置 `scrollTop`。短文件也定位到命中的第 N 行，而不是停在第
+  1 行；首尾行按可滚动范围自然 clamp。
+- Preview 的首次居中在 layout effect 内同步执行，随后在下一帧按最终
+  ResizeObserver / soft-wrap 尺寸复核；切换 query 或 result 时不会先
+  绘制顶部再跳到命中行。
+- Preview body 使用 ResizeObserver 监听可见尺寸变化；Soft-Wrap 切换、
+  dock/popup 重排或预览面板 resize 后会再次居中 active match。
+  ResizeObserver 不可用时保留首次 requestAnimationFrame 定位。
+- Search Everywhere Text 与 Find in Files 共用 dirty buffer merge：
+  Monaco 未保存内容会覆盖同路径磁盘命中，并继续受 Case / Whole Words /
+  Regex / File Mask 与 200 条上限约束。dirty text result 的 Preview 直接
+  读取 live buffer，因此 dirty-only 命中也能显示并居中。
+- dirty 命中保存后，`openFiles` 的 `dirty=false` 与请求 generation 共同
+  触发重搜：live-buffer row 由同路径磁盘 row 接替，列表不出现重复项，
+  Preview 读取新磁盘内容并继续定位到同一命中行。
+- Search Everywhere Replace All 成功后发布与 Find 相同的 operation：
+  clean 记录稳定 host `operationId`，dirty 记录 model before/after；
+  find undo/redo 栈继续使用 20 条和 16 MiB 预算。dirty-only Replace All
+  只更新 Monaco model，不写盘，并保留模型自己的 Monaco undo 边界。
+- 从文本结果双击、Enter、结果菜单或 Open in Right Split 打开文件时，
+  精确行列继续交给 `openFileAtLocation()`；编辑器使用
+  `revealLineInCenter()`，因此 caret、选中位置和视口中心保持一致。
 - 弹框标题行只保留 Filter Search Results 和 Pin Window；查询行右端只
   保留清空、Search History、Match Case、Whole Words、Regex。Replace
   row 只在 Replace 入口/`⇧⌘R` 进入 replace mode 时出现，标题同时切为
@@ -182,18 +223,35 @@
   toggle 与 tree/Group By 能力。
 - File extension 输入带最近 mask 下拉；历史按 newest-first 去重，最多
   10 条，只在 Enter 接受或 blur 时写入。
-- Find in Files 默认只显示 Search 行；Replace 入口/`⇧⌘R` 会以
-  replace mode 打开同一弹框并展开 Replace 行。持久 Find dock 的 Search
-  行继续保留 Replace toggle；popup 与 dock 的 Search/Replace New Line
+- File mask 启用后焦点进入 mask 输入，禁用后回到 Search query；历史/
+  建议回放也回到 mask 输入。Filter Search Results 选项、鼠标 Scope mode
+  与 Scope preset 切换后回到 query；键盘 `←/→` Scope mode 导航仍把焦点
+  留在对应 roving button。
+- File extension 下拉还会从 active/open/recent/changed 与当前搜索结果中
+  生成 `*.ext` 建议，按出现频率排序并排除已存在的历史 mask；生成过程不
+  触发新的 workspace walk。
+- Git Scope 在 workspace 不是 Git 仓库时保持可见但 disabled；
+  Recently Viewed / Open Files / Current File / Changed Files 分别在 MRU、
+  打开文件、活动文件或变更集缺失时 disabled。已持久化的不可用 Scope
+  回退 Project Files，不发出注定失败的搜索。
+- Project speed search 的 `⌘/Ctrl+F` 只处理无 Shift 手势；
+  `Cmd/Ctrl+Shift+F` 始终进入 Find in Files，不再同时打开 Project 搜索框。
+- Find 弹框内 Search/Replace History、Filter 和 File mask 菜单按弹框
+  transform 的本地坐标定位，并限制在弹框可命中区域内。长历史菜单自身
+  滚动；菜单扩展到弹框外时不会再把 pointer hit-test 穿透到聊天页面。
+- Find in Files floating 弹框默认同时显示 Search 与 Replace 行，仍可用
+  Replace toggle 收起；持久 Find dock 只在 replace mode 自动展开。
+  popup 与 dock 的 Search/Replace New Line
   都是独立开关，启用后对应输入使用 textarea 并让普通 Enter 插入换行，
   `⌘⏎` / `⌥⇧⏎` 等动作快捷键不被普通 Enter 分支吞掉。
 - Find 的 Search/Replace query 按字面值原样传递，不 trim 首尾空格或
   换行；只有 `''` 才是空查询。因此跨行 literal、首尾带换行的 literal
   以及仅含空格/换行的 query 都与 textarea 可见内容一致。
 - Find 查询历史独立于 Search Everywhere：按 workspace 保存到
-  `dsh-editor.find.query.history:<workspace-root>`，仅拒绝空字符串，
-  原样保留首尾空格、换行和跨行文本；成功搜索、Replace All 与单点
-  Replace 都会记录，History replay 恢复原文后重新执行搜索。
+  `dsh-editor.find.query.history:<workspace-root>`，原样保留首尾空格、
+  换行、跨行文本和 IDEA 可回放的空 query 条目；成功搜索、Replace All
+  与单点 Replace 都会记录，History replay 恢复原文后重新执行搜索并
+  回焦查询框。
 - 从 Find 结果打开文件只更新 Find 自己的查询历史；不会调用
   `rememberSearchEverywhereQuery()`，因此 Search Everywhere history
   不会被 Find 查询污染。`openFindTool()` 的内部 query handoff 使用
@@ -203,8 +261,8 @@
   Find 的精确历史不会改变其记录、排序或 replay 行为。
 - Replacement history 同样按 workspace 保存到
   `dsh-editor.replace.history:<workspace-root>`，并保留执行时的精确值：
-  首尾空格、换行、纯空白和跨行 replacement 都原样进入 History。
-  只有 `''` 不生成历史条目；History replay 原样回填 Replace 输入，
+  首尾空格、换行、纯空白、跨行和空 replacement 都原样进入 History。
+  空条目表示删除操作；History replay 原样回填 Replace 输入并回焦该输入，
   不做 trim 或规范化，因而删除/空白替换不会被改写成另一种操作。
 - Find 异步搜索同时绑定 requestId 与发起时的 workspace root。
   workspace 切换会立即递增 Find request generation；旧项目仍在途的
@@ -229,10 +287,30 @@
   的 `⌘Z` 只撤销自己的 Replace All 结果，后续 model 应用失败时已修改
   model 会逆序恢复，成功结果再一次性同步回 openFiles。
 - Preserve case 位于 Replace 行，不再依赖 replace mode 工具栏。
-- Filter Search Results 中 `Anywhere` 可用；Comments / String Literals
-  及其排除项依赖语言 AST，保持可见但 disabled。
+- Filter Search Results 六项均可用：`Anywhere`、`In Comments`、
+  `In String Literals`、`Except Comments`、`Except String Literals`、
+  `Except Comments and String Literals`；shared host/client lexical
+  scanner applies the same filter before result caps and before
+  Replace / Replace All writes.
 - Pin Window 可固定浮层；pinned 时点击外部保持，unpinned 时外部点击关闭。
 - Scope 行顺序固定为 Search → Replace → Scope。
+- `Edit Scopes…` 支持浏览器本地命名 Scope、复制/删除/排序和
+  逐行 include/exclude glob；scope patterns 在 host search 和
+  Replace 前生效，排除优先。
+- `Share through VCS` 把当前 Scope 写入
+  `.idea/scopes/dsh-editor.xml`；简单 IDEA file-scope XML
+  (`file:path//*`, `||`, `&&!file:...`) 可在 reload 后恢复，
+  复杂 package/language 表达式不伪造。
+- `Edit Scopes…` 提供显式 Import / Export：路径必须是 workspace-relative
+  `.xml`，先 Preview 再写入；导入显示支持/跳过/同名覆盖数量，
+  导出只包含 Shared Scope 并预览最终 XML。
+- 成功 Replace / Replace All 后提供多步 `Undo Last Replace`：每个
+  workspace 的宿主栈与 dirty Monaco 栈最多保留最近 20 条操作，总内容
+  预算 16 MiB，按最旧记录淘汰；失败或外部修改不会部分回滚。
+- clean 与 dirty 操作通过稳定 `operationId` 对齐；Undo 成功后同一操作
+  转入 `Redo Last Replace` 栈，Redo 前重新校验 undo 后内容，成功后转回
+  Undo 栈。新 Replace 截断 redo 分支，失配或已淘汰的 operationId
+  整体拒绝、不误撤销。
 - 查找模式的底部动作栏提供 Open results in new tab、`⌘⏎` 与
   Open in Find Window；Replace / Replace All 只在 Replace 行展开时出现。
 - Open in Find Window 只要求非空 query；有结果时把同一 query、results、
@@ -267,6 +345,9 @@
   文本结果通过右侧 split 的真实行列定位打开，Find dock 保持可用。
 - Search Everywhere 的 `Open in Find Tool Window`、`Find Tool Window`
   action 和 `Show Usages` 的 pin 操作共用同一底部持久 Find 工具窗。
+- Search Everywhere 的 `Open in Find Tool Window` 只要求非空 query；
+  Files/Text 零结果时也把 query、options 与空结果交接到持久 Find 窗口，
+  空 query 才禁用，与 IDEA CUA 行为一致。
 - Open results in new tab 通过右侧编辑面打开当前结果。
 - Directory scope 同时接受工作区相对路径和完整目录选择器；
   选择器复用宿主的 `directories` 结果，目录输入框 `⇧⏎` 与
@@ -292,7 +373,26 @@ node --test tests/round660.test.mjs tests/round658.test.mjs \
   tests/round655.test.mjs tests/round654.test.mjs \
   tests/round611.test.mjs tests/round639.test.mjs \
   tests/round640.test.mjs
+node --test tests/round710.test.mjs tests/round709.test.mjs \
+  tests/round708.test.mjs tests/round705.test.mjs \
+  tests/round704.test.mjs
+node --test tests/round711.test.mjs tests/round710.test.mjs \
+  tests/round709.test.mjs tests/round655.test.mjs \
+  tests/round656.test.mjs tests/round622.test.mjs \
+  tests/round621.test.mjs tests/round492.test.mjs \
+  tests/round486.test.mjs
+node --test tests/round712.test.mjs tests/round711.test.mjs \
+  tests/round630.test.mjs tests/round702.test.mjs
+node --test tests/round713.test.mjs tests/round712.test.mjs \
+  tests/round702.test.mjs tests/round630.test.mjs
+node --test tests/round714.test.mjs tests/round713.test.mjs \
+  tests/round712.test.mjs tests/round702.test.mjs
+node --test tests/round715.test.mjs tests/round714.test.mjs \
+  tests/round713.test.mjs
+node --test tests/round716.test.mjs tests/round715.test.mjs \
+  tests/round702.test.mjs tests/round691.test.mjs
 npm test
 node --check lib/client.js
+node --check lib/index.js
 git diff --check
 ```

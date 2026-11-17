@@ -2048,11 +2048,217 @@
       return null;
     }
 
+    /** IDEA Find in Files 的六种文本上下文过滤模式。 */
+    const TEXT_SEARCH_CONTEXT_FILTERS = new Set([
+      'anywhere',
+      'comments',
+      'strings',
+      'exceptComments',
+      'exceptStrings',
+      'exceptBoth',
+    ]);
+
+    /** 收敛持久化值或 UI 值。 */
+    function normalizeTextSearchContextFilter(value) {
+      return typeof value === 'string' && TEXT_SEARCH_CONTEXT_FILTERS.has(value) ? value : 'anywhere';
+    }
+
+    const C_LIKE_TEXT_CONTEXT_RULES = {
+      lineComments: ['//'],
+      blockComments: [['/*', '*/']],
+      strings: [
+        { open: '`', close: '`', multiline: true },
+        { open: '"', close: '"', multiline: false },
+        { open: "'", close: "'", multiline: false },
+      ],
+    };
+    const HASH_TEXT_CONTEXT_RULES = {
+      lineComments: ['#'],
+      blockComments: [],
+      strings: [
+        { open: '"', close: '"', multiline: false },
+        { open: "'", close: "'", multiline: false },
+      ],
+    };
+    const PYTHON_TEXT_CONTEXT_RULES = {
+      lineComments: ['#'],
+      blockComments: [],
+      strings: [
+        { open: '"""', close: '"""', multiline: true },
+        { open: "'''", close: "'''", multiline: true },
+        { open: '"', close: '"', multiline: false },
+        { open: "'", close: "'", multiline: false },
+      ],
+    };
+    const CSS_TEXT_CONTEXT_RULES = {
+      lineComments: [],
+      blockComments: [['/*', '*/']],
+      strings: [
+        { open: '"', close: '"', multiline: false },
+        { open: "'", close: "'", multiline: false },
+      ],
+    };
+    const HTML_TEXT_CONTEXT_RULES = {
+      lineComments: [],
+      blockComments: [['<!--', '-->']],
+      strings: [
+        { open: '"', close: '"', multiline: false },
+        { open: "'", close: "'", multiline: false },
+        { open: '`', close: '`', multiline: true },
+      ],
+    };
+    const SQL_TEXT_CONTEXT_RULES = {
+      lineComments: ['--'],
+      blockComments: [['/*', '*/']],
+      strings: [
+        { open: '"', close: '"', multiline: false },
+        { open: "'", close: "'", multiline: true, doubledClose: true },
+      ],
+    };
+    const PHP_TEXT_CONTEXT_RULES = {
+      lineComments: ['//', '#'],
+      blockComments: [['/*', '*/']],
+      strings: C_LIKE_TEXT_CONTEXT_RULES.strings,
+    };
+    const RUST_TEXT_CONTEXT_RULES = {
+      ...C_LIKE_TEXT_CONTEXT_RULES,
+      nestedBlockComments: true,
+    };
+    const MARKDOWN_TEXT_CONTEXT_RULES = {
+      lineComments: [],
+      blockComments: [['<!--', '-->']],
+      strings: [],
+    };
+
+    const TEXT_CONTEXT_RULES_BY_EXTENSION = new Map([
+      ...['js', 'jsx', 'mjs', 'cjs', 'ts', 'tsx', 'mts', 'cts', 'java', 'kt', 'kts', 'scala', 'cs', 'c', 'h', 'cc', 'cpp', 'cxx', 'hpp', 'hh', 'swift', 'dart', 'go', 'proto', 'groovy', 'gradle'].map((extension) => [extension, C_LIKE_TEXT_CONTEXT_RULES]),
+      ...['py', 'pyw'].map((extension) => [extension, PYTHON_TEXT_CONTEXT_RULES]),
+      ...['rb', 'sh', 'bash', 'zsh', 'fish', 'yml', 'yaml', 'toml', 'ini', 'cfg', 'conf', 'properties'].map((extension) => [extension, HASH_TEXT_CONTEXT_RULES]),
+      ...['css', 'scss', 'sass', 'less', 'styl'].map((extension) => [extension, CSS_TEXT_CONTEXT_RULES]),
+      ...['html', 'htm', 'xhtml', 'xml', 'svg', 'vue', 'svelte', 'astro'].map((extension) => [extension, HTML_TEXT_CONTEXT_RULES]),
+      ...['sql', 'lua'].map((extension) => [extension, SQL_TEXT_CONTEXT_RULES]),
+      ['php', PHP_TEXT_CONTEXT_RULES],
+      ['rs', RUST_TEXT_CONTEXT_RULES],
+      ...['md', 'markdown'].map((extension) => [extension, MARKDOWN_TEXT_CONTEXT_RULES]),
+    ]);
+
+    /** 按文件名选择保守词法规则；未知类型不猜测注释或字符串。 */
+    function textSearchContextRulesForPath(path) {
+      const name = typeof path === 'string' ? path.slice(path.lastIndexOf('/') + 1).toLowerCase() : '';
+      if (name === 'dockerfile' || name.startsWith('dockerfile.') || name === 'makefile') {
+        return HASH_TEXT_CONTEXT_RULES;
+      }
+      const dot = name.lastIndexOf('.');
+      const extension = dot < 0 ? '' : name.slice(dot + 1);
+      return TEXT_CONTEXT_RULES_BY_EXTENSION.get(extension) ?? null;
+    }
+
+    /**
+     * 标记每个 UTF-16 位置的词法上下文。
+     * 0 = 普通代码，1 = 注释，2 = 字符串；这是有界词法扫描，不冒充 AST。
+     */
+    function textSearchContextMask(text, path) {
+      const source = typeof text === 'string' ? text : '';
+      const mask = new Uint8Array(source.length);
+      const rules = textSearchContextRulesForPath(path);
+      if (rules === null) return mask;
+      const lineComments = [...(rules.lineComments ?? [])].sort((left, right) => right.length - left.length);
+      const blockComments = [...(rules.blockComments ?? [])].sort((left, right) => right[0].length - left[0].length);
+      const strings = [...(rules.strings ?? [])].sort((left, right) => right.open.length - left.open.length);
+      let index = 0;
+      while (index < source.length) {
+        const block = blockComments.find(([open]) => source.startsWith(open, index));
+        if (block !== undefined) {
+          const [open, close] = block;
+          let cursor = index + open.length;
+          let depth = 1;
+          while (cursor < source.length && depth > 0) {
+            if (rules.nestedBlockComments === true && source.startsWith(open, cursor)) {
+              depth += 1;
+              cursor += open.length;
+              continue;
+            }
+            if (source.startsWith(close, cursor)) {
+              depth -= 1;
+              cursor += close.length;
+              continue;
+            }
+            cursor += 1;
+          }
+          mask.fill(1, index, cursor);
+          index = cursor;
+          continue;
+        }
+        const lineComment = lineComments.find((marker) => source.startsWith(marker, index));
+        if (lineComment !== undefined) {
+          const newline = source.indexOf('\n', index);
+          const end = newline < 0 ? source.length : newline;
+          mask.fill(1, index, end);
+          index = end;
+          continue;
+        }
+        const stringRule = strings.find((rule) => source.startsWith(rule.open, index));
+        if (stringRule !== undefined) {
+          let cursor = index + stringRule.open.length;
+          while (cursor < source.length) {
+            if (source[cursor] === '\\') {
+              cursor = Math.min(source.length, cursor + 2);
+              continue;
+            }
+            if (
+              stringRule.doubledClose === true
+              && source.startsWith(stringRule.close, cursor)
+              && source.startsWith(stringRule.close, cursor + stringRule.close.length)
+            ) {
+              cursor += stringRule.close.length * 2;
+              continue;
+            }
+            if (source.startsWith(stringRule.close, cursor)) {
+              cursor += stringRule.close.length;
+              break;
+            }
+            if (stringRule.multiline !== true && source[cursor] === '\n') break;
+            cursor += 1;
+          }
+          mask.fill(2, index, cursor);
+          index = Math.max(cursor, index + 1);
+          continue;
+        }
+        index += 1;
+      }
+      return mask;
+    }
+
+    /** 判断一处命中是否落在当前过滤模式允许的位置。 */
+    function textSearchContextAllows(mask, offset, length, filter) {
+      const mode = normalizeTextSearchContextFilter(filter);
+      if (mode === 'anywhere') return true;
+      const start = Math.max(0, Math.min(mask.length, Math.floor(Number(offset) || 0)));
+      const width = Math.max(1, Math.floor(Number(length) || 0));
+      const end = Math.min(mask.length, start + width);
+      let hasComment = false;
+      let hasString = false;
+      let onlyComment = start < end;
+      let onlyString = start < end;
+      for (let index = start; index < end; index += 1) {
+        const value = mask[index];
+        if (value === 1) hasComment = true;
+        else onlyComment = false;
+        if (value === 2) hasString = true;
+        else onlyString = false;
+      }
+      if (mode === 'comments') return onlyComment;
+      if (mode === 'strings') return onlyString;
+      if (mode === 'exceptComments') return hasComment === false;
+      if (mode === 'exceptStrings') return hasString === false;
+      return hasComment === false && hasString === false;
+    }
+
     /**
      * Compile and enumerate current-editor Find matches with IDEA options.
      * @param {string} text - editor content.
      * @param {string} query - literal or regular expression.
-     * @param {{caseSensitive?: boolean, wholeWords?: boolean, regex?: boolean, scope?: {start: number, end: number}|null}} [options] - find options.
+     * @param {{caseSensitive?: boolean, wholeWords?: boolean, regex?: boolean, scope?: {start: number, end: number}|null, path?: string, contextFilter?: string}} [options] - find options and lexical context.
      * @returns {{source: string|null, flags: string, regex: RegExp|null, matches: object[], error: string|null}} compiled result.
      */
     function editorFindResult(text, query, options) {
@@ -2095,6 +2301,12 @@
         };
       }
       const matches = [];
+      const contextFilter = ['comments', 'strings', 'exceptComments', 'exceptStrings', 'exceptBoth'].includes(options.contextFilter)
+        ? options.contextFilter
+        : 'anywhere';
+      const contextMask = contextFilter === 'anywhere' || typeof options.path !== 'string' || options.path === ''
+        ? null
+        : textSearchContextMask(sourceText, options.path);
       const scopeStart = Math.max(0, Math.floor(Number(options.scope?.start)));
       const scopeEnd = Math.max(0, Math.floor(Number(options.scope?.end)));
       const hasScope = Number.isFinite(scopeStart) && Number.isFinite(scopeEnd) && scopeEnd > scopeStart;
@@ -2104,7 +2316,10 @@
         if (match === null) break;
         const offset = match.index;
         const length = match[0].length;
-        if (!hasScope || offset >= scopeStart && offset + length <= scopeEnd) {
+        if (
+          (!hasScope || offset >= scopeStart && offset + length <= scopeEnd)
+          && (contextMask === null || textSearchContextAllows(contextMask, offset, length, contextFilter))
+        ) {
           matches.push({ offset, length, text: match[0] });
         }
         if (match[0] === '') {
@@ -2176,7 +2391,10 @@
       const result = editorFindResult(text, query, options);
       if (result.error !== null) return { text, count: 0, error: result.error };
       if (result.matches.length === 0) return { text, count: 0, error: null };
-      if (options.scope !== null && options.scope !== undefined) {
+      if (
+        options.scope !== null && options.scope !== undefined
+        || ['comments', 'strings', 'exceptComments', 'exceptStrings', 'exceptBoth'].includes(options.contextFilter)
+      ) {
         let rewritten = text;
         let delta = 0;
         for (let index = result.matches.length - 1; index >= 0; index -= 1) {
@@ -2282,7 +2500,7 @@
      * @returns {{matches: object[], truncated: boolean, error: string|null}} buffer results.
      */
     function textSearchFileMatches(path, content, query, options, mtime, limit = 200) {
-      const result = editorFindResult(content, query, options);
+      const result = editorFindResult(content, query, { ...options, path });
       if (result.error !== null) return { matches: [], truncated: false, error: result.error };
       const maximum = Math.max(1, Math.min(500, Number(limit) || 200));
       const sourceText = typeof content === 'string' ? content : '';
@@ -3132,42 +3350,74 @@
     function flattenRows(entries, children, expanded, projectName, root, compactDirectories = false, sortMode = 'name', manualOrder = null) {
       const orderMap = manualOrder ?? {};
       const rows = [];
+      const MAX_TREE_DEPTH = 128;
+      const MAX_TREE_ROWS = 20000;
       /**
-       * Append one listing, inserting IDEA's "(empty)" placeholder for an expanded
-       * directory with no children. Without it an empty folder looks identical to
-       * one still loading, which reads as a bug.
+       * 显式 DFS 栈替代函数递归：损坏的 children/expanded 关系即使形成环，
+       * 也只能消耗有限栈帧，不会把 React 渲染线程的调用栈打满。
        */
-      const append = (list, depth, ancestors = [], parentPath = '') => {
-        const ordered = sortMode === 'manual'
-          ? orderProjectEntriesByManual(list, orderMap[parentPath])
-          : list;
-        ordered.forEach((entry, index) => {
-          const last = index === ordered.length - 1;
-          /* `continues[d]` = "the ancestor at depth d has another sibling below", which
-             is what tells the renderer to draw that column's line in this row. */
-          const continues = continuationFlags([...ancestors, last]);
-          const compacted = compactDirectories === true && entry.kind === 'directory' ? compactDirectoryChain(entry, children) : null;
-          const visibleEntry = compacted === null ? entry : compacted;
-          const rowEntry = compacted === null
-            ? entry
-            : {
-                ...entry,
-                path: compacted.path,
-                name: compacted.name,
-              };
-          rows.push({ ...rowEntry, depth, continues });
-          if (rowEntry.kind === 'directory' && expanded.has(rowEntry.path)) {
-            const kids = compacted === null ? children[rowEntry.path] : compacted.kids;
-            if (kids === undefined) return;
-            if (kids.length === 0) {
-              rows.push({ name: '', path: `${rowEntry.path}::empty`, kind: 'placeholder', depth: depth + 1, empty: true, continues: continuationFlags([...ancestors, last, true]) });
-            } else {
-              append(kids, depth + 1, [...ancestors, last], rowEntry.path);
-            }
-          }
+      const stack = [{
+        list: Array.isArray(entries) ? entries : [],
+        depth: 0,
+        ancestors: [],
+        pathTrace: [],
+        parentPath: '',
+        index: 0,
+        ordered: [],
+      }];
+      while (stack.length > 0 && rows.length < MAX_TREE_ROWS) {
+        const frame = stack[stack.length - 1];
+        if (frame.ordered.length === 0 && frame.list.length > 0) {
+          frame.ordered = sortMode === 'manual'
+            ? orderProjectEntriesByManual(frame.list, orderMap[frame.parentPath])
+            : frame.list;
+        }
+        if (frame.index >= frame.ordered.length) {
+          stack.pop();
+          continue;
+        }
+        const index = frame.index;
+        const entry = frame.ordered[index];
+        frame.index += 1;
+        const last = index === frame.ordered.length - 1;
+        /* `continues[d]` 表示该深度祖先后面仍有同级项，渲染器据此画竖线。 */
+        const continues = continuationFlags([...frame.ancestors, last]);
+        const compacted = compactDirectories === true && entry.kind === 'directory' ? compactDirectoryChain(entry, children) : null;
+        const rowEntry = compacted === null
+          ? entry
+          : {
+              ...entry,
+              path: compacted.path,
+              name: compacted.name,
+            };
+        /* 同一路径再次出现在自己的祖先链中，说明数据形成了环，跳过重复行。 */
+        if (frame.pathTrace.includes(rowEntry.path)) continue;
+        rows.push({ ...rowEntry, depth: frame.depth, continues });
+        if (rowEntry.kind !== 'directory' || !expanded.has(rowEntry.path)) continue;
+        const kids = compacted === null ? children[rowEntry.path] : compacted.kids;
+        if (kids === undefined) continue;
+        if (kids.length === 0) {
+          rows.push({
+            name: '',
+            path: `${rowEntry.path}::empty`,
+            kind: 'placeholder',
+            depth: frame.depth + 1,
+            empty: true,
+            continues: continuationFlags([...frame.ancestors, last, true]),
+          });
+          continue;
+        }
+        if (frame.depth >= MAX_TREE_DEPTH) continue;
+        stack.push({
+          list: kids,
+          depth: frame.depth + 1,
+          ancestors: [...frame.ancestors, last],
+          pathTrace: [...frame.pathTrace, rowEntry.path],
+          parentPath: rowEntry.path,
+          index: 0,
+          ordered: [],
         });
-      };
-      append(entries, 0);
+      }
       /* The workspace itself can be empty; show that directly under the toolbar. */
       if (rows.length === 0) rows.push({ name: '', path: '::empty', kind: 'placeholder', depth: 0, empty: true, continues: [false] });
       return rows;
@@ -3507,13 +3757,13 @@
     }
 
     /**
-     * What one indent column draws in a row: a full line, an elbow, or nothing.
+     * What one indent column draws in a row: a full line or nothing.
      *
-     * The LAST child of a subtree gets IDEA's corner (└): the line stops there and a
-     * short horizontal arm points at the row. A plain gap reads as a rendering hole,
-     * and a full line makes the next subtree look like a child of this one.
+     * The last child of a subtree ends the column without drawing a horizontal
+     * elbow. The empty cell keeps the depth aligned while avoiding an L-shaped
+     * decoration in front of the file icon.
      * @param {{continues: boolean[], index: number, depth: number}} state - per-depth flags, the column, the row's depth.
-     * @returns {'line'|'corner'|'none'} what to draw in that column.
+     * @returns {'line'|'none'} what to draw in that column.
      */
     function guideKind(state) {
       if (state === null || state === undefined) return 'none';
@@ -3521,8 +3771,6 @@
       const index = Number(state.index);
       const depth = Number(state.depth);
       if (!Number.isFinite(index) || index < 0) return 'none';
-      /* Only the deepest column can elbow: shallower ones belong to the ancestors. */
-      if (index === depth - 1 && continues[index] === false) return 'corner';
       return continues[index] === false ? 'none' : 'line';
     }
 

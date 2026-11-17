@@ -50,8 +50,8 @@ test('view changes sanitize selection using the helper', () => {
   const start = source.indexOf('const nextState = filteredViewSelection(');
   assert.notEqual(start, -1, 'filtered-view selection effect should exist');
   const block = source.slice(start, start + 900);
-  assert.match(block, /setSelection\(/);
-  assert.match(block, /selectionAnchor\.current = nextState\.primary/);
+  assert.match(block, /applyTreeSelection\(nextState\.selection, nextState\.primary, nextState\.primary\)/);
+  assert.doesNotMatch(block, /setSelection\(/);
 });
 
 test('leaving a filtered view returns to the last real project tree view', () => {

@@ -61,5 +61,5 @@ test('The Project view menu keeps its own disclosure target', () => {
 
 test('The project tree no longer renders a synthetic root row', () => {
   assert.doesNotMatch(source, /name: projectName, path: '', kind: 'directory', root: true, depth: 0/);
-  assert.match(source, /append\(entries, 0\)/);
+  assert.match(source, /const stack = \[\{[\s\S]*?list: Array\.isArray\(entries\) \? entries : \[\],[\s\S]*?depth: 0,/);
 });
