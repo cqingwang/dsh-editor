@@ -746,8 +746,9 @@ function createController(ctx: ControllerContext): void {
     /* Mark the CURRENT container so the handler can find it, but register the
            window listener only once (it is re-created with the controller). */
     container.setAttribute('data-dsh-chat-wheel', '');
-    if (window.__dshEditorChatWheel === true) return;
-    window.__dshEditorChatWheel = true;
+    const editorWindow = window as Window & { __dshEditorChatWheel?: boolean };
+    if (editorWindow.__dshEditorChatWheel === true) return;
+    editorWindow.__dshEditorChatWheel = true;
     window.addEventListener(
       'wheel',
       (event) => {

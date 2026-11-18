@@ -988,7 +988,6 @@ let diffLoadSerial = 0;
 
 interface MonacoTypeScriptRuntimeConfig {
   target?: string;
-  lib?: string[];
   jsx?: string;
   jsxImportSource?: string;
   downlevelIteration?: boolean;
@@ -1031,6 +1030,7 @@ function configureMonacoLanguageDiagnostics(
   const diagnosticsOptions = {
     noSemanticValidation: false,
     noSyntaxValidation: false,
+    noSuggestionDiagnostics: true,
     diagnosticCodesToIgnore: [2307, 2792],
   };
   const scriptTargets = typescript.ScriptTarget as unknown as Record<string, number> | undefined;
@@ -1042,7 +1042,6 @@ function configureMonacoLanguageDiagnostics(
     moduleResolution: typescript.ModuleResolutionKind?.NodeJs ?? 2,
     module: typescript.ModuleKind?.ESNext ?? 99,
     target: scriptTargets?.[target === 'ES2022' ? 'ESNext' : target] ?? 99,
-    lib: Array.isArray(config.lib) ? config.lib : undefined,
     jsx:
       jsx === 'react-jsx'
         ? (jsxModes?.ReactJSX ?? 4)

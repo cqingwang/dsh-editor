@@ -113,7 +113,7 @@ test('TypeScript editor-core configures Monaco diagnostics without removing synt
   assert.equal(compiler.jsx, 4);
   assert.equal(compiler.jsxImportSource, 'react');
   assert.equal(compiler.target, 99);
-  assert.deepEqual(compiler.lib, ['ES2022', 'DOM', 'DOM.Iterable']);
+  assert.equal('lib' in compiler, false);
   assert.equal(compiler.downlevelIteration, true);
   assert.equal(helpers.configureMonacoLanguageDiagnostics({ languages: {} }), false);
 });

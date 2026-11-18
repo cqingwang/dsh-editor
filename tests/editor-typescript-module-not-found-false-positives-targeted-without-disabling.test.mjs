@@ -32,13 +32,14 @@ test('TypeScript module-not-found false positives are targeted without disabling
   for (const kind of ['typescript', 'javascript']) {
     const diagnostics = calls.find((entry) => entry.kind === kind && entry.type === 'diagnostics');
     assert.deepEqual(diagnostics.options.diagnosticCodesToIgnore, [2307, 2792]);
+    assert.equal(diagnostics.options.noSuggestionDiagnostics, true);
     assert.notEqual(diagnostics.options.noSemanticValidation, true);
     assert.notEqual(diagnostics.options.noSyntaxValidation, true);
     const compiler = calls.find((entry) => entry.kind === kind && entry.type === 'compiler');
     assert.equal(compiler.options.moduleResolution, 2);
     assert.equal(compiler.options.module, 99);
     assert.equal(compiler.options.target, 99);
-    assert.deepEqual(compiler.options.lib, ['ES2022', 'DOM', 'DOM.Iterable']);
+    assert.equal('lib' in compiler.options, false);
     assert.equal(compiler.options.jsx, 4);
     assert.equal(compiler.options.jsxImportSource, 'react');
     assert.equal(compiler.options.downlevelIteration, true);
@@ -49,7 +50,6 @@ test('the build injects the same TypeScript options read from tsconfig.client.js
   const bundle = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
   const injected = {
     target: compilerOptions.target,
-    lib: compilerOptions.lib.map((name) => name.toLowerCase()),
     jsx: compilerOptions.jsx,
     jsxImportSource: compilerOptions.jsxImportSource,
     downlevelIteration: compilerOptions.downlevelIteration,

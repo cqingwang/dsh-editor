@@ -37,9 +37,9 @@
   `__dshEditorTypeScriptConfig`，`configureMonacoLanguageDiagnostics()` 只做
   Monaco 枚举转换，从运行时语言服务层消除 TS17004/TS2550/TS2802，且不维护
   第二份配置；
-- Monaco worker 的 lib 文件映射使用小写键，构建注入时将
-  `ES2022/DOM/DOM.Iterable` 规范化为 `es2022/dom/dom.iterable`，避免 lib
-  选项存在但 worker 实际解析不到；
+- 实测 Monaco `setCompilerOptions({lib: ...})` 会让 worker 丢失全部默认库，
+  造成 `Set/Response/Number/String` 等全局均报 TS2304；worker 因此不传显式
+  `lib`，改用 `target: ESNext` 的默认库（覆盖 DOM 与 ES2021/2022）；
 - Monaco 的 `languages.typescript` 与 defaults 是延迟注册的；加载器现在会等待
   `typescriptDefaults`/`javascriptDefaults` 真正可调用，并在新建 TS/TSX model
   时再次确认配置，避免缓存一个未配置的 worker；不能与 `editor.main` 并行

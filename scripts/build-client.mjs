@@ -79,9 +79,6 @@ const legacyJavaScriptFiles = readdirSync(partsDir, { recursive: true })
 const clientCompilerOptions = JSON.parse(readFileSync(join(root, 'tsconfig.client.json'), 'utf8')).compilerOptions;
 const monacoTypeScriptConfig = {
   target: clientCompilerOptions.target,
-  lib: Array.isArray(clientCompilerOptions.lib)
-    ? clientCompilerOptions.lib.map((name) => String(name).toLowerCase())
-    : undefined,
   jsx: clientCompilerOptions.jsx,
   jsxImportSource: clientCompilerOptions.jsxImportSource,
   downlevelIteration: clientCompilerOptions.downlevelIteration,

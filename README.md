@@ -473,9 +473,11 @@ target/lib/jsx 等字段并注入 `__dshEditorTypeScriptConfig`，
 `configureMonacoLanguageDiagnostics()` 只负责转换为 Monaco 枚举。因此 TSX、
 `String.replaceAll` 和 `NodeListOf` 迭代等诊断与主线 tsc 保持一致。加载器会
 等待 `editor.main` 延迟注册的 TypeScript defaults，并在创建 TS/TSX model 时
-再次确认配置；lib 名称注入 worker 前统一规范为小写。不能并行加载独立
-`tsMode.js`，否则会触发 `vs/editor/editor.api` 的 AMD 同步依赖错误。客户端
-代码使用 ESLint + TypeScript parser 做静态检查：
+再次确认配置。Monaco worker 不传显式 `lib`：实测显式 lib 会让 worker 丢失
+全部默认库，因此使用 `target: ESNext` 的默认 lib（同时包含 DOM、ES2021/2022
+API）。不能并行加载独立 `tsMode.js`，否则会触发
+`vs/editor/editor.api` 的 AMD 同步依赖错误。客户端代码使用 ESLint +
+TypeScript parser 做静态检查：
 `no-undef`、`@typescript-eslint/no-unused-vars`、
 `@typescript-eslint/no-explicit-any` 均为错误级；禁止用新的显式 `any`、
 `@ts-ignore` 或 `eslint-disable` 绕过诊断。`lint:client-types` 还会运行

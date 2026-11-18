@@ -13,10 +13,8 @@ declare global {
   }
 
   interface Window {
-    __dshEditorChatWheel?: boolean;
     __dshEditorTypeScriptConfig?: {
       target?: string;
-      lib?: string[];
       jsx?: string;
       jsxImportSource?: string;
       downlevelIteration?: boolean;
