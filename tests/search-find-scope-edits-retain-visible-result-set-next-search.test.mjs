@@ -23,13 +23,19 @@ test('Find scope edits retain the visible result set while the next search start
 });
 
 test('A new Find search generation preserves results instead of blanking them', () => {
-  const start = source.indexOf('setFindTool((current) => (current === null\n          ? current\n          : { ...current, files: [], loading: true, error: null }));');
-  assert.equal(start, -1, 'the startup path must not clear files while loading');
+  assert.doesNotMatch(
+    source,
+    /current === null\s*\? current\s*: \{ \.\.\.current, files: \[\], loading: true, error: null \}/u,
+    'the startup path must not clear files while loading',
+  );
   assert.match(source, /setFindTool\(\(current\) => \(current === null\s+\? current\s+: \{ \.\.\.current, loading: true, error: null \}\)\);/u);
 });
 
 test('Loading is reported in the header and only fills an otherwise empty list', () => {
-  assert.match(findTool, /state\.loading === true \? t\('editor\.loading'\) : findToolResultSummary\(t, resultMatches, resultFiles\)/u);
+  assert.match(
+    findTool,
+    /state\.loading === true\s+\? t\('editor\.loading'\)\s+: fileFilterMode\s+\? t\('editor\.searchResultCount'[\s\S]{0,180}findToolResultSummary\(t, resultMatches, resultFiles\)/u,
+  );
   assert.match(findTool, /state\.loading === true && occurrences\.length === 0/u);
 });
 

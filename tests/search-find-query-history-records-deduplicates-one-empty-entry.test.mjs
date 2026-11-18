@@ -73,9 +73,7 @@ test('Workspace recorders accept empty query and replacement without trimming', 
 
 test('Reading and writing history does not append a synthetic blank entry', () => {
   const findRead = extractSourceFunction('readFindQueryHistory', source);
-  const findWrite = extractSourceFunction('writeFindQueryHistory', source);
   const replaceRead = extractSourceFunction('readReplaceHistory', source);
-  const replaceWrite = extractSourceFunction('writeReplaceHistory', source);
   const findWriteTail = source.slice(
     source.indexOf('function writeFindQueryHistory('),
     source.indexOf('/** Per-workspace Find Usages history key. */'),

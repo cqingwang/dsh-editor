@@ -55,7 +55,7 @@ test('the indeterminate flag is set through the DOM property, not React props', 
 });
 
 test('the group header shows the same three states', () => {
-  const start = source.indexOf('const renderGroup = (group, groupIndex) => {');
+  const start = source.indexOf('const renderGroup = (group');
   assert.notEqual(start, -1);
   /* Round 141 added the group-level fold (its own `groupKey`/`groupOpen` pair)
      ahead of the header, so the header's checkbox moved past 1400 chars; round

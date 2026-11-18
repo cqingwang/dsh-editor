@@ -1,6 +1,6 @@
 import React from 'react';
 import { styles } from '../../ui/styles';
-import { loadXterm } from '../../find-tool';
+import { loadXterm, type TerminalEmulator } from '../../find-tool';
 
 export interface MeasuringScreenProps {
   fontSize: number;
@@ -8,8 +8,8 @@ export interface MeasuringScreenProps {
 }
 
 function MeasuringScreenView({ fontSize, onGrid }: MeasuringScreenProps) {
-  const hostRef = React.useRef(null);
-  const handlersRef = React.useRef({
+  const hostRef = React.useRef<HTMLDivElement | null>(null);
+  const handlersRef = React.useRef<{ onGrid?: (grid: { cols: number; rows: number }) => void }>({
     onGrid,
   });
   handlersRef.current = {
@@ -19,26 +19,27 @@ function MeasuringScreenView({ fontSize, onGrid }: MeasuringScreenProps) {
     const node = hostRef.current;
     if (node === null) return undefined;
     let disposed = false;
-    let emulator = null;
-    let observer = null;
+    let emulator: TerminalEmulator | null = null;
+    let observer: ResizeObserver | null = null;
     loadXterm().then(
       ({ Terminal, FitAddon }) => {
         if (disposed || node === null) return;
-        emulator = new Terminal({
+        const nextEmulator = new Terminal({
           fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
           fontSize,
           lineHeight: 1.25,
           scrollback: 1,
         });
         const fit = new FitAddon();
-        emulator.loadAddon(fit);
-        emulator.open(node);
+        nextEmulator.loadAddon(fit);
+        nextEmulator.open(node);
+        emulator = nextEmulator;
         const measure = () => {
           if (node.clientWidth === 0 || node.clientHeight === 0) return;
           fit.fit();
           handlersRef.current.onGrid?.({
-            cols: Math.max(2, Math.min(500, emulator.cols)),
-            rows: Math.max(1, Math.min(200, emulator.rows)),
+            cols: Math.max(2, Math.min(500, nextEmulator.cols)),
+            rows: Math.max(1, Math.min(200, nextEmulator.rows)),
           });
         };
         measure();

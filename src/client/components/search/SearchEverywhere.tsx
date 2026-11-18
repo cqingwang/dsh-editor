@@ -96,6 +96,15 @@ interface SearchResult {
   column?: number;
   title?: string;
   subtitle?: string;
+  label?: string;
+  description?: string;
+  category?: string;
+  shortcut?: string;
+  icon?: string;
+  ariaKeyShortcuts?: string | undefined;
+  dirty?: boolean;
+  mtime?: unknown;
+  preview?: string;
   disabled?: boolean;
   history?: boolean;
   rememberQuery?: boolean;
@@ -234,7 +243,7 @@ function SearchEverywhere({
     setResultInfo(null);
     window.setTimeout(() => searchInputRef.current?.focus?.(), 0);
   }, []);
-  const scheduleResultTooltip = React.useCallback((event, result) => {
+  const scheduleResultTooltip = React.useCallback((event: React.MouseEvent<HTMLElement>, result: SearchResult) => {
     if (result?.kind !== 'action') return;
     const text = searchEverywhereResultTooltip(result);
     if (text === '') return;
@@ -292,7 +301,7 @@ function SearchEverywhere({
       label: t('editor.searchTabActions'),
     },
   ];
-  const actionMatches = rankSearchActions(actions, effectiveQuery, recentCommands, {
+  const actionMatches: SearchResult[] = rankSearchActions(actions, effectiveQuery, recentCommands, {
     caseSensitive: state.caseSensitive === true,
     wholeWords: state.wholeWords === true,
   }).map((action) => ({
@@ -303,7 +312,7 @@ function SearchEverywhere({
     category: searchEverywhereActionCategory(action.id, t),
     ariaKeyShortcuts: searchEverywhereAriaKeyShortcuts(action.shortcut),
   }));
-  const fileMatches = files
+  const fileMatches: SearchResult[] = files
     .filter((file) => fileExtensionFilterMatches(file.path, state.fileMask))
     .map((file) => ({
       path: file.path,
@@ -323,7 +332,7 @@ function SearchEverywhere({
       subtitle: dirname(entry.path),
       icon: 'file',
     }));
-  const textResults = textMatches.map((match) => ({
+  const textResults: SearchResult[] = textMatches.map((match) => ({
     kind: 'text',
     rowKey: `text:${match.path}:${match.line}:${match.column}`,
     path: match.path,
@@ -336,7 +345,7 @@ function SearchEverywhere({
     subtitle: `${match.path}:${match.line}:${match.column}`,
     icon: 'search',
   }));
-  const historyResults = (Array.isArray(recentSearches) ? recentSearches : []).map((entry) => ({
+  const historyResults: SearchResult[] = (Array.isArray(recentSearches) ? recentSearches : []).map((entry) => ({
     kind: 'action',
     history: true,
     rowKey: `history:${entry}`,
@@ -346,7 +355,7 @@ function SearchEverywhere({
     icon: 'history',
     run: () => onQuery(entry),
   }));
-  let results;
+  let results: SearchResult[];
   if (effectiveTab === 'files') results = fileMatches;
   else if (effectiveTab === 'text') results = textResults;
   else if (effectiveTab === 'actions') results = actionMatches;
@@ -401,7 +410,7 @@ function SearchEverywhere({
     regex: state.regex,
     fileMask: state.fileMask,
   });
-  const activeSearchOptionLabels = {
+  const activeSearchOptionLabels: Record<string, string> = {
     case: t('editor.searchMatchCase'),
     words: t('editor.searchWholeWords'),
     regex: t('editor.searchRegex'),
@@ -572,17 +581,17 @@ function SearchEverywhere({
   React.useEffect(() => {
     if (state.index !== activeIndex) onMove(0, results.length, activeIndex);
   }, [state.index, activeIndex, results.length]);
-  const cycleTab = (direction) => {
+  const cycleTab = (direction: number): void => {
     const targetId = searchEverywhereTabTarget(tabs, effectiveTab, direction < 0 ? 'ArrowLeft' : 'ArrowRight');
     if (targetId !== null) onTab(targetId);
   };
-  const focusSearchTab = (tabId) => {
+  const focusSearchTab = (tabId: string): void => {
     const tab = [...(searchTabListRef.current?.querySelectorAll?.('[data-dsh-search-tab-id]') ?? [])].find(
       (candidate) => candidate.getAttribute('data-dsh-search-tab-id') === tabId,
     );
     tab?.focus?.();
   };
-  const handleSearchTabKeyDown = (event) => {
+  const handleSearchTabKeyDown = (event: React.KeyboardEvent<HTMLElement>): void => {
     if (event.target !== event.currentTarget) return;
     const targetId = searchEverywhereTabTarget(tabs, effectiveTab, event.key);
     if (targetId === null) return;
@@ -591,11 +600,11 @@ function SearchEverywhere({
     onTab(targetId);
     window.setTimeout(() => focusSearchTab(targetId), 0);
   };
-  const moveSearchSelection = (direction) => {
+  const moveSearchSelection = (direction: number): void => {
     const next = nextEnabledSearchResultIndex(results, activeIndex, direction);
     if (next !== null) onMove(0, results.length, next);
   };
-  const activateResult = (result) => {
+  const activateResult = (result: SearchResult | null): void => {
     if (result === null || result.disabled === true) return;
     if (result !== null && result.history !== true && result.rememberQuery !== false && effectiveQuery !== '')
       onRememberQuery(effectiveQuery);
@@ -603,14 +612,14 @@ function SearchEverywhere({
       onRememberCommand(result.id);
     onActivate(result);
   };
-  const openResultInfo = (result) => {
+  const openResultInfo = (result: SearchResult): void => {
     const info = searchEverywhereItemInfo(result, t);
     if (info === null) return;
     clearResultTooltip();
     setResultMenu(null);
     setResultInfo(info);
   };
-  const openResultMenuAt = (x, y, result) => {
+  const openResultMenuAt = (x: number, y: number, result: SearchResult): void => {
     clearResultTooltip();
     if (result.kind === 'action') {
       setResultMenu({
@@ -628,22 +637,30 @@ function SearchEverywhere({
       return;
     }
     if (result.kind !== 'file' && result.kind !== 'text') return;
+    const path = typeof result.path === 'string' ? result.path : '';
+    if (path === '') return;
+    const contextResult = {
+      kind: result.kind,
+      path,
+      line: result.line,
+      column: result.column,
+    };
     setResultMenu({
       x,
       y,
-      title: basename(result.path),
+      title: basename(path),
       items: searchResultContextItems({
         t,
-        result,
+        result: contextResult,
         onCloseMenu: () => setResultMenu(null),
         onOpenEditor: () => activateResult(result),
         onOpenInRightSplit: () => {
           onClose();
           onOpenInRightSplit(
-            result.path,
+            path,
             result.kind === 'text'
               ? {
-                  path: result.path,
+                  path,
                   line: result.line,
                   column: result.column,
                 }
@@ -653,24 +670,24 @@ function SearchEverywhere({
         onReplace: () => openSearchResultsInFind('replace', result),
         onRevealResult: () => {
           onClose();
-          onRevealResult(result.path);
+          onRevealResult(path);
         },
         onNotify,
         onShowInfo: () => openResultInfo(result),
       }),
     });
   };
-  const openResultMenu = (event, result) => {
+  const openResultMenu = (event: React.MouseEvent<HTMLElement>, result: SearchResult | null): void => {
     if (result === null || typeof result !== 'object') return;
     event.preventDefault();
     event.stopPropagation();
     openResultMenuAt(event.clientX, event.clientY, result);
   };
-  const openFilterAt = (event) => {
+  const openFilterAt = (event: React.MouseEvent<HTMLElement>): void => {
     const rect = event?.currentTarget?.getBoundingClientRect?.() ?? searchInputRef.current?.getBoundingClientRect?.();
     const right = rect?.right ?? Math.min(window.innerWidth - 4, 240);
     const bottom = rect?.bottom ?? 120;
-    setFilterMenu((current) =>
+    setFilterMenu((current: { x: number; y: number } | null) =>
       current === null
         ? {
             x: Math.max(4, right - 180),
@@ -680,7 +697,7 @@ function SearchEverywhere({
     );
   };
   const openQueryHistoryMenuAt = React.useCallback(
-    (rect) => {
+    (rect: DOMRect) => {
       const values = Array.isArray(recentSearches) ? recentSearches : [];
       setQueryHistoryMenu({
         x: rect.left,
@@ -708,12 +725,12 @@ function SearchEverywhere({
     },
     [onQuery, recentSearches, t],
   );
-  const openQueryHistoryMenu = (event) => {
+  const openQueryHistoryMenu = (event: React.SyntheticEvent<HTMLElement>): void => {
     event.preventDefault();
     event.stopPropagation();
     openQueryHistoryMenuAt(event.currentTarget.getBoundingClientRect());
   };
-  const openSearchHistoryShortcut = (event) => {
+  const openSearchHistoryShortcut = (event: React.KeyboardEvent<HTMLElement>): void => {
     if (!searchHistoryShortcutMatches(event)) return;
     const target = event.target instanceof Element ? event.target : null;
     if (target?.closest('[data-dsh-search-query], [data-dsh-search-replace-input]') != null) return;
@@ -742,7 +759,7 @@ function SearchEverywhere({
     focusables[nextIndex]?.focus?.();
     return true;
   };
-  const handleSearchEverywhereDialogKeyDown = (event) => {
+  const handleSearchEverywhereDialogKeyDown = (event: React.KeyboardEvent<HTMLDivElement>): void => {
     if (trapSearchEverywhereFocus(event)) return;
     if (event.key === 'Escape' && resultInfo !== null) {
       event.preventDefault();
@@ -761,7 +778,7 @@ function SearchEverywhere({
     if (rect !== undefined && rect !== null) openQueryHistoryMenuAt(rect);
   }, [historyRequest, openQueryHistoryMenuAt]);
   const openFindUsagesHistoryMenuAt = React.useCallback(
-    (rect) => {
+    (rect: DOMRect) => {
       const values = Array.isArray(recentFindUsages) ? recentFindUsages : [];
       setFindUsagesHistoryMenu({
         x: rect.left,
@@ -794,7 +811,7 @@ function SearchEverywhere({
     const rect = searchInputRef.current?.getBoundingClientRect?.();
     if (rect !== undefined && rect !== null) openFindUsagesHistoryMenuAt(rect);
   }, [findUsagesHistoryRequest, openFindUsagesHistoryMenuAt]);
-  const openReplaceHistoryMenu = (event) => {
+  const openReplaceHistoryMenu = (event: React.SyntheticEvent<HTMLElement>): void => {
     event.preventDefault();
     event.stopPropagation();
     const rect = event.currentTarget.getBoundingClientRect();
@@ -823,7 +840,7 @@ function SearchEverywhere({
             })),
     });
   };
-  const handleSearchResultKeyDown = (event) => {
+  const handleSearchResultKeyDown = (event: React.KeyboardEvent<HTMLDivElement>): void => {
     if (event.key === 'Escape' && resultInfo !== null) {
       event.preventDefault();
       event.stopPropagation();
@@ -859,7 +876,11 @@ function SearchEverywhere({
       onClose();
     }
   };
-  const openSearchResultsInFind = (mode = null, result = null, { refresh = false } = {}) => {
+  const openSearchResultsInFind = (
+    mode: 'replace' | null = null,
+    result: SearchResult | null = null,
+    { refresh = false }: { refresh?: boolean } = {},
+  ): boolean => {
     const request = searchFindHandoff({
       query: effectiveQuery,
       files: fileMatches,
@@ -910,7 +931,7 @@ function SearchEverywhere({
       fileMask: normalizeFileExtensionFilter(state.fileMask),
     } as FindHandoffRequest);
   };
-  const replaceShortcut = (event) => {
+  const replaceShortcut = (event: KeyboardEvent): void => {
     const meta = event?.metaKey === true || event?.ctrlKey === true;
     if (!meta || event?.altKey === true || event?.key?.toLowerCase?.() !== 'r') return;
     event.preventDefault();
@@ -925,7 +946,7 @@ function SearchEverywhere({
     }
     openBlankReplaceInFiles();
   };
-  const findActionShortcut = (event) => {
+  const findActionShortcut = (event: KeyboardEvent): void => {
     const macPlatform = isMacPlatform(navigator.userAgentData?.platform ?? navigator.platform);
     if (!findActionShortcutMatches(event, macPlatform)) return;
     const host = document.querySelector('[data-dsh-editor-workspace]');
@@ -937,7 +958,7 @@ function SearchEverywhere({
     window.setTimeout(() => searchInputRef.current?.focus?.(), 0);
   };
   React.useEffect(() => {
-    const onKeyDown = (event) => replaceShortcut(event);
+    const onKeyDown = (event: KeyboardEvent) => replaceShortcut(event);
     window.addEventListener('keydown', onKeyDown, true);
     return () => window.removeEventListener('keydown', onKeyDown, true);
   }, [
@@ -951,7 +972,7 @@ function SearchEverywhere({
     textResults.length,
   ]);
   React.useEffect(() => {
-    const onKeyDown = (event) => findActionShortcut(event);
+    const onKeyDown = (event: KeyboardEvent) => findActionShortcut(event);
     window.addEventListener('keydown', onKeyDown, true);
     return () => window.removeEventListener('keydown', onKeyDown, true);
   }, [onQuery, onTab]);

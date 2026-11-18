@@ -43,8 +43,8 @@ test('Preview Source is a direct dock action', () => {
 
 test('Open results in new tab keeps text location and leaves the dock alive', () => {
   const openResult = findTool.slice(
-    findTool.indexOf('const openFindResult = (result) => {'),
-    findTool.indexOf('React.useEffect(() => {', findTool.indexOf('const openFindResult = (result) => {')),
+    findTool.indexOf('const openFindResult = (result'),
+    findTool.indexOf('React.useEffect(() => {', findTool.indexOf('const openFindResult = (result')),
   );
   assert.match(openResult, /onOpen\(result, openResultsInNewTab === true\)/);
   assert.doesNotMatch(openResult, /onClose\(\)/);

@@ -18,9 +18,9 @@ interface CompactActionBarProps {
 }
 
 function CompactActionBar({ actions, t, ariaLabel, style = null, slotWidth = 26 }: CompactActionBarProps) {
-  const ref = React.useRef(null);
+  const ref = React.useRef<HTMLDivElement | null>(null);
   const [visibleCount, setVisibleCount] = React.useState(actions.length);
-  const [menuPosition, setMenuPosition] = React.useState(null);
+  const [menuPosition, setMenuPosition] = React.useState<{ x: number; y: number } | null>(null);
   const actionsKey = actions.map((action) => action.id).join('|');
   const actionSlotWidth = Math.max(26, Number(slotWidth) || 26);
   React.useLayoutEffect(() => {
@@ -41,7 +41,7 @@ function CompactActionBar({ actions, t, ariaLabel, style = null, slotWidth = 26 
   }, [actionSlotWidth, actionsKey, visibleCount]);
   const visibleActions = selectCompactActions(actions, visibleCount);
   const hidden = actions.filter((action) => visibleActions.includes(action) === false);
-  const openOverflowMenu = (rect) => {
+  const openOverflowMenu = (rect: DOMRect): void => {
     setMenuPosition({
       x: Math.max(4, rect.right - 200),
       y: rect.bottom + 4,

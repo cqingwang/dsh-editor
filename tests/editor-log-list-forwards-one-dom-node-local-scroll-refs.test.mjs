@@ -11,7 +11,7 @@ const commitLog = source.slice(
 test('the Log list forwards one DOM node to both its local and scroll refs', () => {
   assert.match(
     commitLog,
-    /const setLogListRef = React\.useCallback\(\s+\(node\) => \{\s+listRef\.current = node;\s+if \(logScrollRef !== null\) logScrollRef\.current = node;\s+\},\s+\[logScrollRef\],\s+\);/s,
+    /const setLogListRef = React\.useCallback\(\s+\(node(?::\s*[^)]+)?\)(?::\s*[^{]+)?\s*\{\s+listRef\.current = node;\s+if \(logScrollRef !== null\) logScrollRef\.current = node;\s+\},\s+\[logScrollRef\],\s+\);/s,
   );
   assert.match(commitLog, /const logScrollRef = scrollRefs\?\.log \?\? null;/);
 });

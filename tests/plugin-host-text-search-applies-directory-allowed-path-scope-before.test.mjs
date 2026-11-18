@@ -54,8 +54,8 @@ test('Persistent Find forwards its live scope to the host search request', () =>
 });
 
 test('Changing Find scope invalidates the prior scoped result generation', () => {
-  assert.match(source, /const selectFindScopeMode = \(mode\) =>/);
-  assert.match(source, /const selectFindScopePreset = \(preset\) =>/);
+  assert.match(source, /const selectFindScopeMode = \(mode(?::\s*[^)]+)?\)(?::\s*[^{]+)?/);
+  assert.match(source, /const selectFindScopePreset = \(preset(?::\s*[^)]+)?\)(?::\s*[^{]+)?/);
   assert.match(source, /onScopeChange\(\{[\s\S]*?mode:[\s\S]*?preset:[\s\S]*?directory:/);
   assert.match(source, /searchGeneration: \(current\.searchGeneration \?\? 0\) \+ 1/);
   assert.match(source, /loadedGeneration: -1/);

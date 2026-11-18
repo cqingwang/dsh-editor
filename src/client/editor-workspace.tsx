@@ -13,19 +13,25 @@ import {
 } from './components/editor/workspace-file-model';
 import type { AnnotateLine } from './components/diff/AnnotatePreview';
 import type { CommitGraphMenuPayload } from './components/commit/CommitGraph';
+import type { CommitLogDetail } from './components/commit/CommitLog';
 import type { DiffTarget } from './components/diff/DiffPreview';
+import type { EditorFindHistoryMenu, EditorFindState } from './components/editor/EditorFindBar';
+import type { EditorGotoLineState } from './components/editor/EditorGotoLinePopup';
+import type { EditorExternalChange, EditorSaveConflict } from './components/editor/EditorConflictBars';
 import {
   projectRowMenuCapabilities,
   projectTreeSelectionAfterPointer,
 } from './components/project/project-selection-model';
 import { allPathsUnversioned, canCompareWithHead, pathsScheduledForRemoval } from './components/ui/git-change-model';
-import { ContextMenu } from './components/ui/Menu';
+import { ContextMenu, type ContextMenuModel } from './components/ui/Menu';
 import {
   navigationHistoryRecord,
   navigationHistoryStep,
   navigationPathForModel,
   normalizeNavigationLocation,
   resolveWorkspaceDefinition,
+  type NavigationHistory,
+  type NavigationLocation,
 } from './code-navigation';
 import {
   doubleShiftAction,
@@ -161,6 +167,7 @@ import {
 import {
   commitLocalDiffEntries,
   commitRelationTargets,
+  findFilePathMatches,
   normalizeFileExtensionFilter,
   orderedRevisionPair,
   overflowTabs,
@@ -244,7 +251,9 @@ import {
   writeRecentFiles,
   writeStoredNumber,
   writeToolWidth,
+  type TerminalDescription,
 } from './terminal';
+import type * as Monaco from 'monaco-editor';
 import React from 'react';
 
 type EditorWorkspaceTranslate = (key: string, params?: Record<string, unknown>) => string;
@@ -349,6 +358,103 @@ interface EditorFocusRef {
   current: { focus?: () => void } | null;
 }
 
+type FindToolState = NonNullable<React.ComponentProps<typeof FindToolWindow>['state']>;
+type FindToolInitial = {
+  files?: NonNullable<FindToolState['files']>;
+  matches?: NonNullable<FindToolState['matches']>;
+  truncated?: boolean;
+  index?: number;
+  includeExcluded?: boolean;
+  refresh?: boolean;
+};
+type FindToolScope = Parameters<NonNullable<React.ComponentProps<typeof FindToolWindow>['onScopeChange']>>[0];
+type FindToolFile = NonNullable<FindToolState['files']>[number];
+type FindToolMatch = NonNullable<FindToolState['matches']>[number];
+type FileListResponse = { files?: string[]; truncated?: boolean };
+type TextSearchResponse = { matches?: FindToolMatch[]; truncated?: boolean; dirtyPaths?: string[] };
+type SearchEverywhereFile = React.ComponentProps<typeof SearchEverywhere>['files'][number];
+type SearchEverywhereText = React.ComponentProps<typeof SearchEverywhere>['textMatches'][number];
+type SearchEverywhereState = NonNullable<React.ComponentProps<typeof SearchEverywhere>['state']> & {
+  files: SearchEverywhereFile[];
+  textMatches: SearchEverywhereText[];
+  textLoading: boolean;
+  textTruncated: boolean;
+  textRevision: number;
+  error: string | null;
+  replaceBusy: boolean;
+  replaceFocusRequest: number;
+};
+type ShowUsagesState = NonNullable<React.ComponentProps<typeof ShowUsagesPopup>['state']>;
+type RevisionPickerState = NonNullable<React.ComponentProps<typeof RevisionPicker>['state']> & { path: string };
+type NamePromptState = NonNullable<React.ComponentProps<typeof NamePrompt>['state']>;
+type MoveToPickerState = NonNullable<React.ComponentProps<typeof MoveToPicker>['state']>;
+type ProjectCreateState = NonNullable<React.ComponentProps<typeof ProjectPanel>['createState']>;
+type ProjectRenameState = NonNullable<React.ComponentProps<typeof ProjectPanel>['renameState']>;
+type ProjectRow = React.ComponentProps<typeof ProjectPanel>['rows'][number];
+type ProjectUploadProgress = NonNullable<React.ComponentProps<typeof ProjectPanel>['uploadProgress']>;
+type AnnotateTarget = React.ComponentProps<typeof EditorAnnotateArea>['target'];
+type EditorSaveConflictState = EditorSaveConflict & { message?: string };
+type CustomFindScope = ReturnType<typeof readCustomFindScopes>[number];
+type MarkdownAssetRevisions = ReturnType<typeof nextMarkdownAssetRevisions>;
+type CommitMode = 'changes' | 'log';
+type ChangeGroup = 'staged' | 'unstaged' | 'unversioned';
+type EditorGroup = 'left' | 'right';
+type ProjectView = ReturnType<typeof normalizeProjectView>;
+
+interface SelectionAnchor {
+  key: string;
+}
+
+interface EditorTabDragState {
+  group: EditorGroup;
+  path: string;
+}
+
+interface EditorTabDropState extends EditorTabDragState {
+  after: boolean;
+}
+
+interface QuickOpenState {
+  query: string;
+  index: number;
+  files?: string[];
+  loading?: boolean;
+}
+
+interface FocusedEditorState {
+  path: string;
+  editor: Monaco.editor.IStandaloneCodeEditor | null;
+}
+
+interface ReplaceHistoryEntry {
+  operationId: string | null;
+  clean: boolean;
+  dirty: Array<{
+    path: string;
+    beforeContent: string;
+    afterContent: string;
+  }>;
+}
+
+interface CommitScrollOffsets {
+  changes: number | null;
+  log: number | null;
+}
+
+interface HarnessReferenceEntry {
+  path: string;
+  isDirectory?: boolean;
+  [key: string]: unknown;
+}
+
+interface HarnessReferenceLocation {
+  path: string;
+  line: number;
+  column: number;
+  endLine: number | null;
+  endColumn: number | null;
+}
+
 /**
  * Focus Monaco only after the file surface has mounted.
  *
@@ -388,7 +494,7 @@ function EditorWorkspace({
   onInsertHarnessReference,
 }: EditorWorkspaceProps) {
   const [monacoReady, setMonacoReady] = React.useState(false);
-  const [monacoError, setMonacoError] = React.useState(null);
+  const [monacoError, setMonacoError] = React.useState<string | null>(null);
   const [root, setRoot] = React.useState('');
   const [home, setHome] = React.useState('');
   const [entries, setEntries] = React.useState<WorkspaceEntry[]>([]);
@@ -399,21 +505,28 @@ function EditorWorkspace({
   /* IDEA's project tree is multi-select: one primary row plus shift/⌘ extended rows. */ const [
     selectedPath,
     setSelectedPathRaw,
-  ] = React.useState(null);
+  ] = React.useState<string | null>(null);
   const [selection, setSelection] = React.useState<Set<string>>(() => new Set());
-  const selectionAnchor = React.useRef(null);
+  const selectionAnchor = React.useRef<string | null>(null);
   const selectionRef = React.useRef<Set<string>>(new Set());
-  const selectionPrimaryRef = React.useRef(null);
-  const applyTreeSelection = React.useCallback((nextSelection, nextPrimary, nextAnchor = nextPrimary) => {
-    const normalized = nextSelection instanceof Set ? nextSelection : new Set(nextSelection ?? []);
-    selectionRef.current = normalized;
-    selectionPrimaryRef.current = nextPrimary ?? null;
-    selectionAnchor.current = nextAnchor ?? null;
-    setSelection(normalized);
-    setSelectedPathRaw(nextPrimary ?? null);
-  }, []);
+  const selectionPrimaryRef = React.useRef<string | null>(null);
+  const applyTreeSelection = React.useCallback(
+    (
+      nextSelection: Set<string> | Iterable<string> | null | undefined,
+      nextPrimary: string | null | undefined,
+      nextAnchor: string | null | undefined = nextPrimary,
+    ) => {
+      const normalized = nextSelection instanceof Set ? nextSelection : new Set(nextSelection ?? []);
+      selectionRef.current = normalized;
+      selectionPrimaryRef.current = nextPrimary ?? null;
+      selectionAnchor.current = nextAnchor ?? null;
+      setSelection(normalized);
+      setSelectedPathRaw(nextPrimary ?? null);
+    },
+    [],
+  );
   const setSelectedPath = React.useCallback(
-    (next) => {
+    (next: string | null) => {
       applyTreeSelection(next === null ? new Set() : new Set([next]), next, next);
     },
     [applyTreeSelection],
@@ -428,9 +541,9 @@ function EditorWorkspace({
   /* A workspace switch must show the placeholder again: the previous root's rows
          are irrelevant to the new one. */ const treeRootRef = React.useRef('');
   /* Which workspace's tool-window widths are loaded (see loadRoot). */ const toolWidthsRestoredFor = React.useRef('');
-  const [treeError, setTreeError] = React.useState(null);
+  const [treeError, setTreeError] = React.useState<string | null>(null);
   const [uploadBusy, setUploadBusy] = React.useState(false);
-  const [uploadProgress, setUploadProgress] = React.useState(null);
+  const [uploadProgress, setUploadProgress] = React.useState<ProjectUploadProgress | null>(null);
   const [activity, setActivity] = React.useState<'project' | 'commit'>(() =>
     readLastEditorActivity() === 'commit' ? 'commit' : 'project',
   );
@@ -459,7 +572,7 @@ function EditorWorkspace({
   ] = React.useState(0);
   /* Alt+F12 is a focus round-trip, not just a visibility bit: the surface
          that owned the caret before the dock opened gets it back on close. */ const terminalReturnFocusRef =
-    React.useRef(null);
+    React.useRef<HTMLElement | null>(null);
   /* IDEA remembers the Terminal tool-window height; a reload or app restart
          must not snap it back to the factory default. */ const [terminalHeight, setTerminalHeight] = React.useState(
     () => clampTerminalHeight(readStoredNumber('dsh-editor.terminal.height', 220)),
@@ -468,7 +581,9 @@ function EditorWorkspace({
   const [terminalGeneration, setTerminalGeneration] = React.useState(0);
   /* Terminals living in the EDITOR area (IDEA's Move to Editor). The PTY is
          owned by the host, so only the description is needed here to render a
-         second view onto the same shell. */ const [editorTerminals, setEditorTerminals] = React.useState([]);
+         second view onto the same shell. */ const [editorTerminals, setEditorTerminals] = React.useState<
+    TerminalDescription[]
+  >([]);
   /**
    * Return one editor-area terminal to the dock.
    *
@@ -478,7 +593,7 @@ function EditorWorkspace({
    * @param {{id: string}} terminal - editor terminal being returned.
    * @returns {void}
    */ const returnEditorTerminalToDock = React.useCallback(
-    (terminal) => {
+    (terminal: TerminalDescription) => {
       if (terminal === null || terminal === undefined || typeof terminal.id !== 'string') return;
       const next = editorTerminals.filter((entry) => entry.id !== terminal.id);
       setEditorTerminals(next);
@@ -524,27 +639,27 @@ function EditorWorkspace({
   /* Directory "Open in Terminal" asked for, consumed by the next shell. */ const pendingTerminalPath =
     React.useRef('');
   const [terminalStartDirectory, setTerminalStartDirectory] = React.useState('');
-  const [createState, setCreateState] = React.useState(null);
-  const [git, setGit] = React.useState(null);
+  const [createState, setCreateState] = React.useState<ProjectCreateState | null>(null);
+  const [git, setGit] = React.useState<WorkspaceGitStatus | null>(null);
   const [openFiles, setOpenFiles] = React.useState<OpenWorkspaceFile[]>([]);
-  const [previewPath, setPreviewPath] = React.useState(null);
-  const [activePath, setActivePath] = React.useState(null);
-  const [splitPath, setSplitPath] = React.useState(null);
-  const [splitTabs, setSplitTabs] = React.useState([]);
-  const [focusedPath, setFocusedPath] = React.useState(null);
+  const [previewPath, setPreviewPath] = React.useState<string | null>(null);
+  const [activePath, setActivePath] = React.useState<string | null>(null);
+  const [splitPath, setSplitPath] = React.useState<string | null>(null);
+  const [splitTabs, setSplitTabs] = React.useState<string[]>([]);
+  const [focusedPath, setFocusedPath] = React.useState<string | null>(null);
   const [editorSplitPercent, setEditorSplitPercent] = React.useState(() =>
     readStoredNumber('dsh-editor.editor.splitPercent', 50),
   );
   const [editorSplitDragging, setEditorSplitDragging] = React.useState(false);
   /* The file tab strip's measured width, for IDEA's `»` overflow. */ const [tabStripWidth, setTabStripWidth] =
     React.useState(0);
-  const fileTabStripRef = React.useRef(null);
+  const fileTabStripRef = React.useRef<HTMLDivElement | null>(null);
   const [splitTabStripWidth, setSplitTabStripWidth] = React.useState(0);
-  const splitTabStripRef = React.useRef(null);
-  const [editorTabDrag, setEditorTabDrag] = React.useState(null);
-  const editorTabDragRef = React.useRef(null);
-  const [editorTabDrop, setEditorTabDrop] = React.useState(null);
-  const [editorError, setEditorError] = React.useState(null);
+  const splitTabStripRef = React.useRef<HTMLDivElement | null>(null);
+  const [editorTabDrag, setEditorTabDrag] = React.useState<EditorTabDragState | null>(null);
+  const editorTabDragRef = React.useRef<EditorTabDragState | null>(null);
+  const [editorTabDrop, setEditorTabDrop] = React.useState<EditorTabDropState | null>(null);
+  const [editorError, setEditorError] = React.useState<string | null>(null);
   /* IDEA's editor status bar: caret position, indentation and line-ending mode. */ const [caret, setCaret] =
     React.useState({ line: 1, column: 1 });
   /* Line count and selection size for IDEA's status bar. */ const [lineStats, setLineStats] = React.useState({
@@ -567,25 +682,25 @@ function EditorWorkspace({
   const [commitSelection, setCommitSelection] = React.useState<Set<string>>(() => new Set());
   const commitSelectionLoadedRef = React.useRef(false);
   const [commitBusy, setCommitBusy] = React.useState(false);
-  const [commitError, setCommitError] = React.useState(null);
+  const [commitError, setCommitError] = React.useState<string | null>(null);
   /* Git refuses to commit without an identity; say so before the message is written. */ const [
     identityMissing,
     setIdentityMissing,
   ] = React.useState(false);
   /* The reason the last push failed; clears on a successful one. */ const [pushError, setPushError] =
-    React.useState(null);
+    React.useState<string | null>(null);
   /* A push can take a while; it needs its own busy flag so Commit stays usable. */ const [pushBusy, setPushBusy] =
     React.useState(false);
   /* Fetch and Update share the network cost of push, so each gets its own flag. */ const [fetchBusy, setFetchBusy] =
     React.useState(false);
   const [updateBusy, setUpdateBusy] = React.useState(false);
-  const [commitNotice, setCommitNotice] = React.useState(null);
+  const [commitNotice, setCommitNotice] = React.useState<string | null>(null);
   /* The message that was just committed, offered back as "Undo". */ const [clearedMessage, setClearedMessage] =
     React.useState('');
   /* The draft the user was typing before they started walking the history with ↑. */ const draftBeforeRecall =
-    React.useRef(null);
+    React.useRef<string | null>(null);
   /* What the box held before Amend prefilled it, so unticking Amend can restore it. */ const preAmendMessage =
-    React.useRef(null);
+    React.useRef<string | null>(null);
   const [diffTarget, setDiffTarget] = React.useState<DiffTarget | null>(null);
   /* IDEA's change list has a row selection separate from the diff tab. The
          selection is what ⌘D / stage / rollback act on; opening the diff is a
@@ -597,41 +712,42 @@ function EditorWorkspace({
          file-scoped target so commands cannot act on a hidden previous row. */ const [
     selectedGroup,
     setSelectedGroup,
-  ] = React.useState<string | null>(null);
+  ] = React.useState<ChangeGroup | null>(null);
   const selectedGroupRef = React.useRef<string | null>(null);
   /* IDEA's Changes list has a multi-row selection separate from the commit
          checkboxes. The primary row owns the diff/shortcuts; the range members
          receive row-level actions such as stage/rollback as one batch. */ const [selectedChanges, setSelectedChanges] =
     React.useState<Set<string>>(() => new Set());
   const selectedChangesRef = React.useRef<Set<string>>(new Set());
-  const changeSelectionAnchorRef = React.useRef(null);
+  const changeSelectionAnchorRef = React.useRef<SelectionAnchor | null>(null);
   const changeRowRefs = React.useRef<Map<string, HTMLElement>>(new Map());
   /* The Changes row that owned the keyboard before Show Diff moved focus
          into the comparison. Closing the diff returns it there, so the user can
-         keep walking the list instead of hunting for the tree again. */ const diffReturnFocusRef = React.useRef(null);
+         keep walking the list instead of hunting for the tree again. */ const diffReturnFocusRef =
+    React.useRef<HTMLElement | null>(null);
   /* IDEA's undo/redo history is global across diff tabs, not scoped to the
          model currently mounted. Keep it here so switching from one changed
          file to another does not throw away the previous edit. */ const diffUndoRef = React.useRef<unknown[]>([]);
   const diffRedoRef = React.useRef<unknown[]>([]);
   const diffViewStatesRef = React.useRef<Map<string, Record<string, unknown>>>(new Map());
-  const diffSearchInChangesRef = React.useRef(null);
+  const diffSearchInChangesRef = React.useRef<(() => void) | null>(null);
   /* The Commit diff keeps ONE editor tab. `diffTarget` is what it shows;
          `diffActive` says whether that tab or a file tab owns the code area, so
          picking a file tab does not silently leave the diff on screen. */ const [diffActive, setDiffActive] =
     React.useState(true);
   /* Per-line attribution for the open file (IDEA's Annotate). */ const [annotateTarget, setAnnotateTarget] =
-    React.useState(null);
+    React.useState<AnnotateTarget | null>(null);
   /* The change the Commit panel is showing, for ⌥⌘Z. Declared AFTER the state
          it mirrors: a ref synced in an effect placed above it hits the TDZ. */ const selectedDiffPathRef =
-    React.useRef(null);
-  const selectedCommitPathRef = React.useRef(null);
+    React.useRef<string | null>(null);
+  const selectedCommitPathRef = React.useRef<string | null>(null);
   /* The context menu resolves conflict actions against the same git snapshot
-         the row was rendered from, so a ref keeps the callback stable. */ const changesByPathRef = React.useRef(
-    new Map(),
-  );
+         the row was rendered from, so a ref keeps the callback stable. */ const changesByPathRef =
+    React.useRef<Map<string, DiffChange>>(new Map());
   /* The change the Commit panel last pointed at, kept after the diff closes:
          ⌘D closes the diff, and pressing it again must reopen the same one rather
-         than fall through to "no current change" and do nothing. */ const lastChangePathRef = React.useRef(null);
+         than fall through to "no current change" and do nothing. */ const lastChangePathRef =
+    React.useRef<DiffTarget | null>(null);
   /* A newly opened diff takes the surface; the tab keeps its place when the
          user walks back to a file and returns. */ React.useEffect(() => {
     if (diffTarget !== null) {
@@ -689,8 +805,9 @@ function EditorWorkspace({
       if (target === null || typeof target.path !== 'string' || target.path === '') return;
       setSelectedGroup(null);
       const node = document.querySelector<HTMLElement>('[data-dsh-changes-list]');
-      const rows = node === null ? [] : [...node.querySelectorAll<HTMLElement>('[data-dsh-change-path]')];
-      const keyOf = (row) =>
+      const rows: HTMLElement[] =
+        node === null ? [] : [...node.querySelectorAll<HTMLElement>('[data-dsh-change-path]')];
+      const keyOf = (row: HTMLElement) =>
         `${row.getAttribute('data-dsh-change-staged') === 'true' ? 'staged' : 'unstaged'}:${row.getAttribute('data-dsh-change-path')}`;
       const targetKey = `${target.staged === true ? 'staged' : 'unstaged'}:${target.path}`;
       const targetRow = rows.find((row) => keyOf(row) === targetKey) ?? options.row ?? null;
@@ -735,7 +852,7 @@ function EditorWorkspace({
    * disables Show Diff and rollback until a file row is selected again.
    * @param {'staged'|'unstaged'|'unversioned'} group - selected band.
    * @returns {void}
-   */ const chooseGroup = React.useCallback((group) => {
+  */ const chooseGroup = React.useCallback((group: ChangeGroup | null) => {
     if (group !== null && group !== 'staged' && group !== 'unstaged' && group !== 'unversioned') return;
     setSelectedGroup(group);
     setSelectedChange(null);
@@ -773,8 +890,8 @@ function EditorWorkspace({
    * @returns {void}
    */ const reconcileChangeSelection = React.useCallback((changes: DiffChange[], removedKeys: Set<string>) => {
     if (!(removedKeys instanceof Set) || removedKeys.size === 0) return;
-    const rows = [...document.querySelectorAll('[data-dsh-changes-list] [data-dsh-change-path]')];
-    const keyOf = (row) =>
+    const rows = [...document.querySelectorAll<HTMLElement>('[data-dsh-changes-list] [data-dsh-change-path]')];
+    const keyOf = (row: HTMLElement) =>
       `${row.getAttribute('data-dsh-change-staged') === 'true' ? 'staged' : 'unstaged'}:${row.getAttribute('data-dsh-change-path')}`;
     const keysInVisualOrder = rows.map(keyOf);
     const firstRemoved = keysInVisualOrder.findIndex((key) => removedKeys.has(key));
@@ -856,8 +973,8 @@ function EditorWorkspace({
     collapsedGroups,
     setCollapsedGroups,
   ] = React.useState<Set<string>>(() => new Set());
-  const [menu, setMenu] = React.useState(null);
-  const [renameState, setRenameState] = React.useState(null);
+  const [menu, setMenu] = React.useState<ContextMenuModel | null>(null);
+  const [renameState, setRenameState] = React.useState<ProjectRenameState | null>(null);
   /* Hidden entries are shown BY DEFAULT: the tree hides only `.git`, because
          `.env` / `.github` / `.vscode` are files people actually open. The toggle
          still hides them for a compact view. */ const [showHidden, setShowHidden] = React.useState(
@@ -872,7 +989,7 @@ function EditorWorkspace({
   const [markdownMode, setMarkdownModeState] = React.useState(() =>
     normalizeMarkdownMode(readStoredText('dsh-editor.markdown.mode', 'code')),
   );
-  const setMarkdownMode = React.useCallback((next) => {
+  const setMarkdownMode = React.useCallback((next: Parameters<typeof normalizeMarkdownMode>[0]) => {
     const normalized = normalizeMarkdownMode(next);
     setMarkdownModeState(normalized);
     try {
@@ -905,10 +1022,10 @@ function EditorWorkspace({
   );
   /* The selected Project view is a reading preference and survives workspace
          switches, like IDEA's last used view for the Project tool window. */ const [projectView, setProjectView] =
-    React.useState(() => normalizeProjectView(readStoredText('dsh-editor.project.view', 'projectFiles')));
+    React.useState<ProjectView>(() => normalizeProjectView(readStoredText('dsh-editor.project.view', 'projectFiles')));
   const lastProjectTreeViewRef = React.useRef(projectViewIsTree(projectView) ? projectView : 'projectFiles');
   /** Select one supported IDEA Project view and remember it globally. */ const applyProjectView = React.useCallback(
-    (next) => {
+    (next: Parameters<typeof normalizeProjectView>[0]) => {
       const normalized = normalizeProjectView(next);
       if (projectViewIsTree(normalized)) lastProjectTreeViewRef.current = normalized;
       setProjectView(normalized);
@@ -930,15 +1047,15 @@ function EditorWorkspace({
     showHidden && showExcludedFiles,
   );
   listingAuthoritativeRef.current = showHidden && showExcludedFiles;
-  const [conflict, setConflict] = React.useState(null);
+  const [conflict, setConflict] = React.useState<EditorSaveConflictState | null>(null);
   /* Open tabs whose file changed on disk since they were loaded. */ const [externalChanges, setExternalChanges] =
-    React.useState({});
+    React.useState<Record<string, EditorExternalChange>>({});
   /* A workspace change can replace a Markdown image without changing its
          document text. Keep cache keys per changed directory so unrelated
          edits do not make every image in the preview refetch. */ const [
     markdownAssetRevisions,
     setMarkdownAssetRevisions,
-  ] = React.useState({ global: 0, directories: {} });
+  ] = React.useState<MarkdownAssetRevisions>({ global: 0, directories: {} });
   React.useEffect(() => {
     setMarkdownAssetRevisions({ global: 0, directories: {} });
   }, [root]);
@@ -953,36 +1070,41 @@ function EditorWorkspace({
     React.useRef<Set<string> | null>(null);
   /* Paths whose model is being replaced programmatically: that edit is not a user edit. */ const silentReloadRef =
     React.useRef<Set<string>>(new Set());
-  const [replaceState, setReplaceState] = React.useState(null);
-  const [editorFindHistoryMenu, setEditorFindHistoryMenu] = React.useState(null);
-  const [quickOpen, setQuickOpen] = React.useState(null);
+  const [replaceState, setReplaceState] = React.useState<EditorFindState | null>(null);
+  const [editorFindHistoryMenu, setEditorFindHistoryMenu] = React.useState<EditorFindHistoryMenu | null>(null);
+  const [quickOpen, setQuickOpen] = React.useState<QuickOpenState | null>(null);
   /* IDEA's double-Shift Search Everywhere shares file, text and command data
          with the existing editor actions instead of inventing another index. */ const [
     searchEverywhere,
     setSearchEverywhere,
-  ] = React.useState(null);
+  ] = React.useState<SearchEverywhereState | null>(null);
   const [searchHistoryRequest, setSearchHistoryRequest] = React.useState(0);
   const [findUsagesHistoryRequest, setFindUsagesHistoryRequest] = React.useState(0);
   const [recentSearches, setRecentSearches] = React.useState<string[]>([]);
   const [recentFindQueries, setRecentFindQueries] = React.useState<string[]>([]);
   const [recentFindUsages, setRecentFindUsages] = React.useState<string[]>([]);
   const [recentReplacements, setRecentReplacements] = React.useState<string[]>([]);
-  const [customFindScopes, setCustomFindScopes] = React.useState([]);
-  const sharedFindScopesRef = React.useRef([]);
-  const [findReplaceUndoStack, setFindReplaceUndoStack] = React.useState([]);
-  const [findReplaceRedoStack, setFindReplaceRedoStack] = React.useState([]);
+  const [customFindScopes, setCustomFindScopes] = React.useState<CustomFindScope[]>([]);
+  const sharedFindScopesRef = React.useRef<CustomFindScope[]>([]);
+  const [findReplaceUndoStack, setFindReplaceUndoStack] = React.useState<ReplaceHistoryEntry[]>([]);
+  const [findReplaceRedoStack, setFindReplaceRedoStack] = React.useState<ReplaceHistoryEntry[]>([]);
   const [recentCommands, setRecentCommands] = React.useState(() => readCommandHistory());
-  const searchEverywhereFilesRef = React.useRef<WorkspaceEntry[]>([]);
-  const searchEverywhereFilesScopeRef = React.useRef(null);
+  const searchEverywhereFilesRef = React.useRef<string[]>([]);
+  const searchEverywhereFilesScopeRef = React.useRef<boolean | null>(null);
   const searchEverywhereFilesRequestRef = React.useRef(0);
-  const searchEverywhereFilesAbortRef = React.useRef(null);
+  const searchEverywhereFilesAbortRef = React.useRef<AbortController | null>(null);
   const searchTextRequestRef = React.useRef(0);
   const doubleShiftAtRef = React.useRef(0);
   /* Monaco effects mount before Search Everywhere is declared below. Route
          their callbacks through a ref so the dependency arrays cannot hit TDZ. */ const openSearchEverywhereRef =
     React.useRef<(tab?: string, query?: string, withReplace?: boolean) => void>(() => {});
   /* IDEA's persistent Find tool window, shared by Find/Replace in Files. */ const [findTool, setFindTool] =
-    React.useState(null);
+    React.useState<FindToolState | null>(null);
+  const [findToolFileCandidates, setFindToolFileCandidates] = React.useState<string[]>([]);
+  const [findToolFileCandidatesScope, setFindToolFileCandidatesScope] = React.useState<boolean | null>(null);
+  const [findToolFileCandidatesTruncated, setFindToolFileCandidatesTruncated] = React.useState(false);
+  const findToolFileRequestRef = React.useRef(0);
+  const findToolFileAbortRef = React.useRef<AbortController | null>(null);
   const [findToolPopupGeometry, setFindToolPopupGeometry] = React.useState(() => readFindPopupGeometry());
   const [findToolDockHeight, setFindToolDockHeight] = React.useState(() =>
     clampFindDockHeight(readStoredNumber('dsh-editor.find.height', 280)),
@@ -994,7 +1116,8 @@ function EditorWorkspace({
     window.addEventListener('resize', onViewportResize);
     return () => window.removeEventListener('resize', onViewportResize);
   }, []);
-  const startFindPopupInteraction = React.useCallback((event, direction = 'move') => {
+  const startFindPopupInteraction = React.useCallback(
+    (event: React.PointerEvent<HTMLElement>, direction = 'move') => {
     if (event.button !== 0) return;
     const action =
       direction === 'move'
@@ -1026,7 +1149,7 @@ function EditorWorkspace({
     let moved = false;
     const previousCursor = document.body.style.cursor;
     document.body.style.cursor = action === 'move' ? 'move' : `${action}-resize`;
-    const onPointerMove = (moveEvent) => {
+    const onPointerMove = (moveEvent: PointerEvent) => {
       moved = true;
       latest =
         action === 'move'
@@ -1057,12 +1180,14 @@ function EditorWorkspace({
     window.addEventListener('pointermove', onPointerMove, true);
     window.addEventListener('pointerup', finish, true);
     window.addEventListener('pointercancel', finish, true);
-  }, []);
+    },
+    [],
+  );
   const findToolRequestRef = React.useRef(0);
   const findToolHandoffSequenceRef = React.useRef(0);
   const replaceWriteBusyRef = React.useRef(false);
   /* IDEA's transient Show Usages popup is separate from persistent Find. */ const [showUsages, setShowUsages] =
-    React.useState(null);
+    React.useState<ShowUsagesState | null>(null);
   const showUsagesRequestRef = React.useRef(0);
   const editorFindStepRef = React.useRef<(direction: number) => void>(() => {});
   const editorFindQueryActiveRef = React.useRef(false);
@@ -1070,21 +1195,23 @@ function EditorWorkspace({
     editorFindQueryActiveRef.current = replaceState !== null && replaceState.find !== '';
   }, [replaceState?.find]);
   /* IDEA's revision picker (Compare with Revision…), searchable. */ const [revisionPicker, setRevisionPicker] =
-    React.useState(null);
-  /* IDEA's Recent Files (⌘E): the MRU list for this workspace. */ const [recentFiles, setRecentFiles] = React.useState(
-    [],
-  );
+    React.useState<RevisionPickerState | null>(null);
+  /* IDEA's Recent Files (⌘E): the MRU list for this workspace. */ const [recentFiles, setRecentFiles] = React.useState<
+    string[]
+  >([]);
   /* The palette mode: 'files' is Go to File, 'recent' is Recent Files. */ const [paletteMode, setPaletteMode] =
     React.useState<'files' | 'recent'>('files');
-  /* IDEA's in-window name prompt (New Branch / New Tag). */ const [namePrompt, setNamePrompt] = React.useState(null);
+  /* IDEA's in-window name prompt (New Branch / New Tag). */ const [namePrompt, setNamePrompt] =
+    React.useState<NamePromptState | null>(null);
   /* IDEA's "Move to…" (F6): a directory picker over the whole workspace. */ const [moveTo, setMoveTo] =
-    React.useState(null);
+    React.useState<MoveToPickerState | null>(null);
   const [commitMode, setCommitMode] = React.useState<'changes' | 'log'>('changes');
   /* IDEA's "Group by" for the change list; persisted because it is a
          preference about how the user reads changes, not about one session. */ const [groupBy, setGroupBy] =
     React.useState(() => readStoredText('dsh-editor.commit.groupBy', 'directory'));
   /* Group by can rebuild the tree under the current row. The effect below
-         restores focus only after that new tree has committed. */ const groupByFocusRef = React.useRef(null);
+         restores focus only after that new tree has committed. */ const groupByFocusRef =
+    React.useRef<DiffTarget | null>(null);
   React.useEffect(() => {
     const target = groupByFocusRef.current;
     if (target === null) return;
@@ -1105,15 +1232,18 @@ function EditorWorkspace({
          from yesterday makes the list look like files went missing. */ const [pathQuery, setPathQuery] =
     React.useState('');
   /* One remembered offset per Commit tab: switching tabs remounts the list, and
-         IDEA keeps each tab where you left it. */ const commitScrollRef = React.useRef({ changes: null, log: null });
-  const commitChangesRef = React.useRef(null);
-  const commitLogRef = React.useRef(null);
+         IDEA keeps each tab where you left it. */ const commitScrollRef = React.useRef<CommitScrollOffsets>({
+    changes: null,
+    log: null,
+  });
+  const commitChangesRef = React.useRef<HTMLDivElement | null>(null);
+  const commitLogRef = React.useRef<HTMLDivElement | null>(null);
   /**
    * Record the outgoing tab's offset, then switch.
    * @param {'changes'|'log'} next - tab being opened.
    * @returns {void}
    */ const switchCommitMode = React.useCallback(
-    (next) => {
+    (next: CommitMode) => {
       const node = commitMode === 'changes' ? commitChangesRef.current : commitLogRef.current;
       if (node !== null && node !== undefined) commitScrollRef.current[commitMode] = node.scrollTop;
       setCommitMode(next);
@@ -1124,7 +1254,7 @@ function EditorWorkspace({
    * Put the incoming tab back where the user left it.
    * @param {'changes'|'log'} mode - tab that just rendered.
    * @returns {void}
-   */ const rememberCommitScroll = React.useCallback((mode) => {
+  */ const rememberCommitScroll = React.useCallback((mode: CommitMode) => {
     const node = mode === 'changes' ? commitChangesRef.current : commitLogRef.current;
     if (node === null || node === undefined) return;
     const next = restoreScrollTop({
@@ -1142,34 +1272,43 @@ function EditorWorkspace({
   /* The commit just created, highlighted in the log so the user sees it land. */ const [
     highlightedCommit,
     setHighlightedCommit,
-  ] = React.useState(null);
+  ] = React.useState<string | null>(null);
   const [logLoading, setLogLoading] = React.useState(false);
-  const [logDetail, setLogDetail] = React.useState(null);
+  const [logDetail, setLogDetail] = React.useState<CommitLogDetail | null>(null);
   /* The commit chosen in either the flat list or the graph; both views mark it. */ const [
     selectedCommit,
     setSelectedCommit,
-  ] = React.useState(null);
-  const [logSelectedCommits, setLogSelectedCommits] = React.useState([]);
-  const containerRef = React.useRef(null);
-  const editorRef = React.useRef(null);
-  const markdownPreviewRef = React.useRef(null);
-  const markdownScrollSyncRef = React.useRef({ source: null, until: 0 });
-  const splitEditorRef = React.useRef(null);
-  const splitContainerRef = React.useRef(null);
-  const focusedEditorRef = React.useRef(null);
-  const focusedPathRef = React.useRef(null);
-  const modelsRef = React.useRef(new Map());
-  const navigationHistoryRef = React.useRef({ back: [], forward: [] });
-  const navigationCurrentLocationRef = React.useRef(null);
-  const activePathRef = React.useRef(null);
-  const splitPathRef = React.useRef(null);
+  ] = React.useState<string | null>(null);
+  const [logSelectedCommits, setLogSelectedCommits] = React.useState<string[]>([]);
+  const containerRef = React.useRef<HTMLDivElement | null>(null);
+  const editorRef = React.useRef<Monaco.editor.IStandaloneCodeEditor | null>(null);
+  const markdownPreviewRef = React.useRef<HTMLDivElement | null>(null);
+  const markdownScrollSyncRef = React.useRef<{ source: 'editor' | 'preview' | null; until: number }>({
+    source: null,
+    until: 0,
+  });
+  const splitEditorRef = React.useRef<Monaco.editor.IStandaloneCodeEditor | null>(null);
+  const splitContainerRef = React.useRef<HTMLDivElement | null>(null);
+  const focusedEditorRef = React.useRef<FocusedEditorState | null>(null);
+  const focusedPathRef = React.useRef<string | null>(null);
+  const modelsRef = React.useRef<Map<string, Monaco.editor.ITextModel>>(new Map());
+  const navigationHistoryRef = React.useRef<NavigationHistory>({ back: [], forward: [] });
+  const navigationCurrentLocationRef = React.useRef<NavigationLocation | null>(null);
+  const activePathRef = React.useRef<string | null>(null);
+  const splitPathRef = React.useRef<string | null>(null);
   const splitTabsRef = React.useRef<string[]>([]);
-  const previewPathRef = React.useRef(null);
+  const previewPathRef = React.useRef<string | null>(null);
   /* The editor groups mount before the Find tool callback is declared. */ const findUsagesRunnerRef =
-    React.useRef(null);
-  const findToolContextRunnerRef = React.useRef(null);
-  const editorFindContextRunnerRef = React.useRef(null);
-  const selectionFindContextRunnerRef = React.useRef(null);
+    React.useRef<((editor: Monaco.editor.ICodeEditor) => void) | null>(null);
+  const findToolContextRunnerRef = React.useRef<
+    ((editor: Monaco.editor.ICodeEditor, mode: 'find' | 'replace') => void) | null
+  >(null);
+  const editorFindContextRunnerRef = React.useRef<
+    ((editor: Monaco.editor.ICodeEditor, withReplace?: boolean, focusTarget?: 'query' | 'replace') => void) | null
+  >(null);
+  const selectionFindContextRunnerRef = React.useRef<
+    ((editor: Monaco.editor.ICodeEditor, withReplace?: boolean, focusTarget?: 'query' | 'replace') => void) | null
+  >(null);
   /* Read by the window/Monaco shortcuts, which are registered once. */ const diffActiveRef = React.useRef(true);
   const openFilesRef = React.useRef<OpenWorkspaceFile[]>([]);
   const entriesRef = React.useRef<WorkspaceEntry[]>([]);
@@ -1179,34 +1318,33 @@ function EditorWorkspace({
   const childrenRef = React.useRef<Record<string, WorkspaceEntry[]>>({});
   const expandedRef = React.useRef<Set<string>>(expanded);
   const rootRef = React.useRef('');
-  const rememberCurrentSearchQuery = React.useCallback((query) => {
+  const rememberCurrentSearchQuery = React.useCallback((query: string) => {
     const next = rememberWorkspaceSearchQuery(rootRef.current, query);
     if (next !== null) setRecentSearches(next);
   }, []);
-  const rememberCurrentFindQuery = React.useCallback((query) => {
+  const rememberCurrentFindQuery = React.useCallback((query: string) => {
     const next = rememberWorkspaceFindQuery(rootRef.current, query);
     if (next !== null) setRecentFindQueries(next);
   }, []);
-  const rememberCurrentReplacement = React.useCallback((replacement) => {
+  const rememberCurrentReplacement = React.useCallback((replacement: string) => {
     const next = rememberWorkspaceReplacement(rootRef.current, replacement);
     if (next !== null) setRecentReplacements(next);
   }, []);
   /* Which workspace's fold state is currently loaded (see loadRoot). */ const collapsedRestoredFor =
-    React.useRef(null);
+    React.useRef('');
   const rowRefs = React.useRef<Map<string, HTMLElement>>(new Map());
-  const treeRef = React.useRef(null);
+  const treeRef = React.useRef<HTMLDivElement | null>(null);
   /* Per-directory background prefetch generation, so a slower older walk
-         cannot overwrite a newer listing after rapid expand/collapse. */ const projectPrefetchTokensRef = React.useRef(
-    new Map(),
-  );
+         cannot overwrite a newer listing after rapid expand/collapse. */ const projectPrefetchTokensRef =
+    React.useRef<Map<string, number>>(new Map());
   /* Read by the one-shot keyboard handlers, which must not re-bind per render. */ const panelVisibleRef =
     React.useRef(true);
-  const activityRef = React.useRef('project');
-  const gitRef = React.useRef(null);
+  const activityRef = React.useRef<'project' | 'commit'>('project');
+  const gitRef = React.useRef<WorkspaceGitStatus | null>(null);
   const restageRef = React.useRef<(paths: string[], staged: boolean) => Promise<boolean>>(async () => false);
   /* The sort the tree is currently laid out with, and the row to keep visible. */ const sortAppliedRef =
     React.useRef('');
-  const selectedPathRef = React.useRef(null);
+  const selectedPathRef = React.useRef<string | null>(null);
   React.useEffect(() => {
     activePathRef.current = activePath;
   }, [activePath]);
@@ -1274,7 +1412,8 @@ function EditorWorkspace({
   React.useEffect(() => {
     gitRef.current = git;
   }, [git]);
-  const beginEditorTabDrag = React.useCallback((event, group, path) => {
+  const beginEditorTabDrag = React.useCallback(
+    (event: React.DragEvent<HTMLElement>, group: EditorGroup, path: string) => {
     if ((group !== 'left' && group !== 'right') || typeof path !== 'string' || path === '') return;
     const source = { group, path };
     editorTabDragRef.current = source;
@@ -1282,8 +1421,11 @@ function EditorWorkspace({
     setEditorTabDrop(null);
     event.dataTransfer?.setData('text/plain', path);
     if (event.dataTransfer !== null && event.dataTransfer !== undefined) event.dataTransfer.effectAllowed = 'move';
-  }, []);
-  const dragOverEditorTab = React.useCallback((event, group, path) => {
+    },
+    [],
+  );
+  const dragOverEditorTab = React.useCallback(
+    (event: React.DragEvent<HTMLElement>, group: EditorGroup, path: string) => {
     const source = editorTabDragRef.current;
     if (source === null || source.group !== group || source.path === path) return;
     event.preventDefault();
@@ -1294,8 +1436,11 @@ function EditorWorkspace({
       path,
       after: event.clientX > rect.left + rect.width / 2,
     });
-  }, []);
-  const moveEditorTab = React.useCallback((group, source, target, after) => {
+    },
+    [],
+  );
+  const moveEditorTab = React.useCallback(
+    (group: EditorGroup, source: string, target: string, after: boolean) => {
     if (group === 'left') {
       const next = reorderTabPaths(openFilesRef.current, source, target, after, (file) => file.path);
       if (next === openFilesRef.current) return;
@@ -1309,9 +1454,11 @@ function EditorWorkspace({
       splitTabsRef.current = next;
       setSplitTabs(next);
     }
-  }, []);
+    },
+    [],
+  );
   /** Move one tab by ±1 while preserving the active document. */ const moveEditorTabByOffset = React.useCallback(
-    (group, path, direction) => {
+    (group: EditorGroup, path: string, direction: number) => {
       const order =
         group === 'left'
           ? openFilesRef.current.map((file) => file.path)
@@ -1326,7 +1473,7 @@ function EditorWorkspace({
     [moveEditorTab],
   );
   const dropEditorTab = React.useCallback(
-    (event, group, path) => {
+    (event: React.DragEvent<HTMLElement>, group: EditorGroup, path: string) => {
       event.preventDefault();
       const source = editorTabDragRef.current;
       const rect = event.currentTarget.getBoundingClientRect();
@@ -1340,7 +1487,7 @@ function EditorWorkspace({
     [moveEditorTab],
   );
   const activeFile = activePath === null ? null : (openFiles.find((file) => file.path === activePath) ?? null);
-  const activateImagePane = React.useCallback((path) => {
+  const activateImagePane = React.useCallback((path: string) => {
     if (typeof path !== 'string' || path === '') return;
     const editor = splitPathRef.current === path ? splitEditorRef.current : editorRef.current;
     focusedEditorRef.current = { path, editor };
@@ -1398,7 +1545,7 @@ function EditorWorkspace({
    * staged/unstaged/unversioned collapse-key variants.
    * @param {{path: string, staged: boolean}|null} target - row identity to reveal.
    * @returns {void}
-   */ const revealChangeRow = React.useCallback((target) => {
+   */ const revealChangeRow = React.useCallback((target: DiffTarget | null) => {
     if (target === null || target === undefined || typeof target.path !== 'string') return;
     const change = changesByPathRef.current.get(target.path);
     const group = changeRowGroup(change, target.staged);
@@ -1413,7 +1560,7 @@ function EditorWorkspace({
     });
   }, []);
   const navigateDiffFile = React.useCallback(
-    (direction) => {
+    (direction: 'previous' | 'next') => {
       const position = changePositionOf(diffChangeSequence, diffTarget);
       if (position === null) return;
       const nextIndex = position.index - 1 + (direction === 'previous' ? -1 : 1);
@@ -1501,7 +1648,7 @@ function EditorWorkspace({
    * @param {object} row - flattened tree row.
    * @param {{metaKey?: boolean, ctrlKey?: boolean, shiftKey?: boolean}} event - click modifiers.
    */ const selectRow = React.useCallback(
-    (row, event) => {
+    (row: ProjectRow, event: { metaKey?: boolean; ctrlKey?: boolean; shiftKey?: boolean }) => {
       const next = projectTreeSelectionAfterPointer({
         rows,
         selection: selectionRef.current,
@@ -1625,7 +1772,7 @@ function EditorWorkspace({
    * Applying a template twice must not produce `feat: feat: …`, so an
    * existing prefix that is itself a template is replaced.
    * @param {string} prefix - template to apply.
-   */ const applyCommitTemplate = React.useCallback((prefix) => {
+   */ const applyCommitTemplate = React.useCallback((prefix: string) => {
     setCommitMessage((current) => {
       const text = current ?? '';
       const match = /^([a-z]+)(\([^)]*\))?: ?/u.exec(text);
@@ -1714,7 +1861,7 @@ function EditorWorkspace({
    * @param {string} [branch] - local branch to walk; empty means every ref.
    * @returns {Promise<void>} resolves once the graph (or an error) is set.
    */ const [graph, setGraph] = React.useState(null);
-  const loadGraph = React.useCallback(async (branch, at) => {
+  const loadGraph = React.useCallback(async (branch?: string, at?: string) => {
     const branchValue = typeof branch === 'string' ? branch : '';
     const atValue = typeof at === 'string' ? at : '';
     setLogLoading(true);
@@ -1762,7 +1909,7 @@ function EditorWorkspace({
    * the user had just picked.
    * @param {string} hash - full commit hash.
    * @returns {Promise<void>} resolves once the detail is set.
-   */ const showCommit = React.useCallback(async (hash) => {
+   */ const showCommit = React.useCallback(async (hash: string) => {
     setSelectedCommit(hash);
     try {
       setLogDetail(await callGit({ op: 'show', hash }));
@@ -1785,7 +1932,7 @@ function EditorWorkspace({
    * @param {string} path - workspace-relative file path.
    * @returns {Promise<void>} resolves once the diff is open or the failure shown.
    */ const compareWithClipboard = React.useCallback(
-    async (path) => {
+    async (path: string) => {
       if (typeof path !== 'string' || path === '') return;
       let text = '';
       try {
@@ -1816,7 +1963,7 @@ function EditorWorkspace({
    * read-only revision target and therefore the one Compare diff tab.
    * @param {string} path - workspace-relative file path.
    * @returns {void}
-   */ const compareWithHead = React.useCallback((path) => {
+   */ const compareWithHead = React.useCallback((path: string) => {
     if (typeof path !== 'string' || path === '') return;
     setDiffTarget({ path, revision: 'HEAD', staged: false });
     setDiffActive(true);
@@ -1836,7 +1983,7 @@ function EditorWorkspace({
    * usually older than that.
    * @param {string} path - workspace-relative file to compare.
    * @returns {Promise<void>} resolves once the picker has its first page.
-   */ const compareWithRevision = React.useCallback(async (path) => {
+   */ const compareWithRevision = React.useCallback(async (path: string) => {
     if (typeof path !== 'string' || path === '') return;
     setRevisionPicker({
       path,
@@ -1855,7 +2002,7 @@ function EditorWorkspace({
       setRevisionPicker(null);
     }
   }, []);
-  const showCommitDiff = React.useCallback((target) => {
+  const showCommitDiff = React.useCallback((target: { hash: string; path: string }) => {
     if (typeof target?.hash !== 'string' || typeof target?.path !== 'string') return;
     setDiffTarget({ path: target.path, commit: target.hash, staged: false });
     setDiffActive(true);
@@ -1870,7 +2017,7 @@ function EditorWorkspace({
    * @param {Array<{path: string, staged?: boolean}>} targetList - selected change identities.
    * @returns {void}
    */ const showCombinedDiff = React.useCallback(
-    (targetList) => {
+    (targetList: DiffTarget[]) => {
       const entries = (Array.isArray(targetList) ? targetList : [])
         .filter((entry) => typeof entry?.path === 'string' && entry.path !== '')
         .map((entry) => ({
@@ -1888,7 +2035,7 @@ function EditorWorkspace({
     historyPath,
     setHistoryPath,
   ] = React.useState(null);
-  const showFileHistory = React.useCallback(async (path) => {
+  const showFileHistory = React.useCallback(async (path: string) => {
     if (typeof path !== 'string' || path === '') return;
     /* IDEA answers "Show History" by opening the Commit tool window's Log tab. */ setActivity('commit');
     setPanelVisible(true);
@@ -1914,7 +2061,7 @@ function EditorWorkspace({
    * filter drops back to the repository-wide log — matching IDEA's Log tab.
    */ const authorTimer = React.useRef(null);
   const changeLogAuthor = React.useCallback(
-    (value) => {
+    (value: string) => {
       setLogAuthor(value);
       logAuthorRef.current = value;
       if (authorTimer.current !== null) window.clearTimeout(authorTimer.current);
@@ -2085,7 +2232,8 @@ function EditorWorkspace({
     const draft = readCommitDraft(root);
     if (draft !== '') setCommitMessage((current) => (current === '' ? draft : current));
   }, [root]);
-  /* Debounce writes: typing must not hit localStorage on every keystroke. */ const draftTimer = React.useRef(null);
+  /* Debounce writes: typing must not hit localStorage on every keystroke. */ const draftTimer =
+    React.useRef<number | null>(null);
   React.useEffect(() => {
     if (root === '') return undefined;
     if (draftTimer.current !== null) window.clearTimeout(draftTimer.current);
@@ -2107,7 +2255,7 @@ function EditorWorkspace({
    * @param {string} path - workspace-relative directory path.
    * @returns {Promise<void>} resolves once the listing is applied.
    */ const toggleDirectory = React.useCallback(
-    async (path) => {
+    async (path: string) => {
       /* Decide from the render's own `expanded` (this closure is rebuilt whenever it
            changes), never from a ref synced in an effect or from inside the updater:
            both are stale at click time, which silently skipped the fetch. */ const willExpand = !expanded.has(path);
@@ -2205,7 +2353,7 @@ function EditorWorkspace({
    * clicking a tab is exactly the "I was just here" signal ⌘E is for.
    * @param {string} path - workspace-relative path.
    * @returns {void}
-   */ const noteRecent = React.useCallback((path) => {
+   */ const noteRecent = React.useCallback((path: string) => {
     if (typeof path !== 'string' || path === '') return;
     const workspace = rootRef.current;
     if (workspace === '') return;
@@ -2224,7 +2372,7 @@ function EditorWorkspace({
    *
    * @param {Array<[string, string]>} entries - old/new paths from the move.
    * @returns {void}
-   */ const remapEditorPaths = React.useCallback((entries) => {
+   */ const remapEditorPaths = React.useCallback((entries: Array<[string, string]>) => {
     const moves = (Array.isArray(entries) ? entries : []).filter(
       (entry) =>
         Array.isArray(entry) &&
@@ -2234,7 +2382,7 @@ function EditorWorkspace({
         entry[1] !== '',
     );
     if (moves.length === 0) return;
-    const remap = (path) => remapPathAfterMove(path, moves);
+    const remap = (path: string): string => remapPathAfterMove(path, moves);
     for (const [path, model] of [...modelsRef.current.entries()]) {
       const next = remap(path);
       if (next === path) continue;
@@ -2261,8 +2409,8 @@ function EditorWorkspace({
     setActivePath((current) => (current === null ? current : remap(current)));
     setSplitTabs((current) => {
       let changed = false;
-      const seen = new Set();
-      const nextTabs = [];
+      const seen = new Set<string>();
+      const nextTabs: string[] = [];
       for (const path of current) {
         const next = remap(path);
         if (next !== path) changed = true;
@@ -2296,8 +2444,8 @@ function EditorWorkspace({
     });
     setRecentFiles((current) => {
       let changed = false;
-      const seen = new Set();
-      const next = [];
+      const seen = new Set<string>();
+      const next: string[] = [];
       for (const path of current) {
         const mapped = remap(path);
         if (mapped !== path || seen.has(mapped)) changed = true;
@@ -2311,13 +2459,13 @@ function EditorWorkspace({
       return next;
     });
   }, []);
-  const remapProjectExpandedPathsForMoves = React.useCallback((entries) => {
+  const remapProjectExpandedPathsForMoves = React.useCallback((entries: Array<[string, string]>) => {
     const next = remapProjectExpandedPaths(expandedRef.current, entries);
     if (next === expandedRef.current) return;
     expandedRef.current = next;
     setExpanded(next);
   }, []);
-  const remapProjectManualOrderForMoves = React.useCallback((entries) => {
+  const remapProjectManualOrderForMoves = React.useCallback((entries: Array<[string, string]>) => {
     setManualOrder((current) => {
       const next = remapProjectManualOrder(current, entries);
       if (next !== current) writeProjectManualOrder(rootRef.current, next);
@@ -2384,8 +2532,8 @@ function EditorWorkspace({
   );
   /* IDEA's EditSource opens the local working copy and hands it the keyboard.
          Tree clicks intentionally keep focus in the tree, so callers that mean
-         "edit this source" use this explicit path instead. */ const editLocalVersion = React.useCallback(
-    (path) => {
+  "edit this source" use this explicit path instead. */ const editLocalVersion = React.useCallback(
+    (path: string) => {
       void openFile(path).then((opened) => {
         if (opened) focusEditorOnNextFrame(editorRef);
       });
@@ -2398,7 +2546,7 @@ function EditorWorkspace({
    * @param {number} line - one-based line.
    * @param {number} column - one-based column.
    * @returns {void}
-   */ const revealSplitLocation = React.useCallback((path, line, column) => {
+   */ const revealSplitLocation = React.useCallback((path: string, line: number, column: number) => {
     if (typeof path !== 'string' || path === '' || !Number.isFinite(line) || line < 1) return;
     let attempts = 0;
     let applied = 0;
@@ -2433,7 +2581,10 @@ function EditorWorkspace({
    * @param {string|string[]} target - one path or an ordered file batch.
    * @returns {Promise<void>} resolves after the right pane is requested.
    */ const openInRightSplit = React.useCallback(
-    async (target, location = null) => {
+    async (
+      target: string | string[],
+      location: { path?: string; line: number; column: number } | null = null,
+    ) => {
       const requested = Array.isArray(target) ? target : [target];
       const paths = [...new Set(requested.filter((path) => typeof path === 'string' && path !== ''))];
       if (paths.length === 0) return;
@@ -2482,7 +2633,7 @@ function EditorWorkspace({
     setSplitTabs([]);
     setSplitPath(null);
     const requested = [...new Set([...stored.openPaths, ...stored.splitPaths])];
-    const opened = new Set();
+    const opened = new Set<string>();
     try {
       for (const path of requested) {
         if (sessionRestoreGeneration.current !== generation) return;
@@ -2522,7 +2673,7 @@ function EditorWorkspace({
     void restoreEditorSession();
   }, [restoreEditorSession]);
   /* Persist clean editor tabs per workspace after the initial restore settles. */ const sessionPersistTimer =
-    React.useRef(null);
+    React.useRef<number | null>(null);
   React.useEffect(() => {
     if (root === '' || sessionRestoredFor.current !== root || sessionRestoringRef.current) return undefined;
     if (sessionPersistTimer.current !== null) window.clearTimeout(sessionPersistTimer.current);
@@ -2561,7 +2712,7 @@ function EditorWorkspace({
    * @param {boolean} [force=false] - overwrite after an explicit conflict confirmation.
    * @returns {Promise<void>} resolves after the write attempt.
    */ const savePath = React.useCallback(
-    async (path, force = false) => {
+    async (path: string | null, force = false) => {
       if (typeof path !== 'string' || path === '') return;
       const model = modelsRef.current.get(path);
       if (model === undefined) return;
@@ -2645,7 +2796,7 @@ function EditorWorkspace({
    * @param {string} hash - full commit hash from the blame row.
    * @returns {void}
    */ const openCommitFromAnnotate = React.useCallback(
-    (hash) => {
+    (hash: string) => {
       if (typeof hash !== 'string' || hash === '') return;
       setActivity('commit');
       setPanelVisible(true);
@@ -2656,8 +2807,10 @@ function EditorWorkspace({
     },
     [loadLog, showCommit],
   );
-  /* Reveal a line requested by a terminal link once the model is bound. */ const pendingReveal = React.useRef(null);
-  const revealLines = React.useCallback((path, line, column, pane = null) => {
+  /* Reveal a line requested by a terminal link once the model is bound. */ const pendingReveal =
+    React.useRef<{ path: string; line: number; column: number } | null>(null);
+  const revealLines = React.useCallback(
+    (path: string, line: number, column: number, pane: 'left' | 'right' | null = null) => {
     const focused = focusedEditorRef.current;
     const preferred = pane === 'right' ? splitEditorRef.current : pane === 'left' ? editorRef.current : null;
     const editor =
@@ -2674,7 +2827,9 @@ function EditorWorkspace({
     editor.setSelection(new window.monaco.Range(safeLine, safeColumn, safeLine, safeColumn));
     editor.revealLineInCenter(safeLine);
     editor.focus();
-  }, []);
+    },
+    [],
+  );
   /**
    * Open a search hit and reveal its exact line once the model is bound.
    * Reopening the already-active tab must still move the caret, so this
@@ -2722,9 +2877,9 @@ function EditorWorkspace({
     [currentNavigationLocation, openFile, revealLines],
   );
   /** Transient status-bar message, IDEA's its own "file(s) saved" hint. */ const [statusNotice, setStatusNotice] =
-    React.useState(null);
-  const statusNoticeTimer = React.useRef(null);
-  const flashStatus = React.useCallback((message) => {
+    React.useState<string | null>(null);
+  const statusNoticeTimer = React.useRef<number | null>(null);
+  const flashStatus = React.useCallback((message: string) => {
     setStatusNotice(message);
     if (statusNoticeTimer.current !== null) window.clearTimeout(statusNoticeTimer.current);
     statusNoticeTimer.current = window.setTimeout(() => {
@@ -2750,7 +2905,7 @@ function EditorWorkspace({
    * @param {{line: number, column: number, endLine: number|null, endColumn: number|null}|null} [location=null] - exact editor range.
    * @returns {Promise<void>} resolves after the host reports insertion.
    */ const sendHarnessReference = React.useCallback(
-    async (entries, location = null) => {
+    async (entries: HarnessReferenceEntry[], location: HarnessReferenceLocation | null = null) => {
       const selected = Array.isArray(entries)
         ? entries.filter((entry) => entry !== null && typeof entry?.path === 'string')
         : [];
@@ -2787,7 +2942,7 @@ function EditorWorkspace({
    * @param {object[]} entries - Project rows or editor files.
    * @returns {object} ContextMenu-compatible action.
    */ const buildHarnessPathAction = React.useCallback(
-    (entries) => {
+    (entries: HarnessReferenceEntry[]) => {
       const selected = Array.isArray(entries)
         ? entries.filter((entry) => entry !== null && typeof entry?.path === 'string')
         : [];
@@ -2807,7 +2962,7 @@ function EditorWorkspace({
    * @param {object} editor - Monaco editor that opened the context menu.
    * @returns {void}
    */ const sendHarnessEditorReference = React.useCallback(
-    (editor) => {
+    (editor: Monaco.editor.ICodeEditor) => {
       const location = harnessEditorLocation(editor);
       if (location === null) {
         flashStatus(t('editor.harnessPositionUnavailable'));
@@ -2818,7 +2973,7 @@ function EditorWorkspace({
     [flashStatus, sendHarnessReference, t],
   );
   const navigateHistory = React.useCallback(
-    (direction) => {
+    (direction: 'back' | 'forward') => {
       const current = navigationCurrentLocationRef.current ?? currentNavigationLocation();
       const step = navigationHistoryStep(navigationHistoryRef.current, current, direction);
       if (step.target === null) {
@@ -2849,7 +3004,7 @@ function EditorWorkspace({
    * @param {object} position - Monaco one-based line/column.
    * @returns {void}
    */ const goToDefinitionAt = React.useCallback(
-    (editor, position) => {
+    (editor: Monaco.editor.ICodeEditor, position: Monaco.Position) => {
       const model = editor?.getModel?.() ?? null;
       const word = model === null ? null : (model.getWordAtPosition?.(position) ?? null);
       const symbol = typeof word?.word === 'string' ? word.word.trim() : '';
@@ -2871,13 +3026,13 @@ function EditorWorkspace({
         path,
         content: model.getValue(),
         symbol,
-        readFile: async (target) => {
+        readFile: async (target: string): Promise<string> => {
           const existing = modelsRef.current.get(target);
           if (existing !== undefined) return existing.getValue();
           const value = await callFs({ op: 'read', path: target });
           return value?.content ?? '';
         },
-        searchText: async (query) => {
+        searchText: async (query: string) => {
           const value = await callFs({
             op: 'searchText',
             query,
@@ -2950,10 +3105,11 @@ function EditorWorkspace({
     }
     return written;
   }, [flashStatus, loadGit, t]);
-  const gotoInputRef = React.useRef(null);
-  /* IDEA 的 Go to Line/Column：接受行号或 `行:列`。 */ const [gotoState, setGotoState] = React.useState(null);
+  const gotoInputRef = React.useRef<HTMLInputElement | null>(null);
+  /* IDEA 的 Go to Line/Column：接受行号或 `行:列`。 */ const [gotoState, setGotoState] =
+    React.useState<EditorGotoLineState | null>(null);
   const gotoLine = React.useCallback(
-    (path = null, pane = null) => {
+    (path: string | null = null, pane: 'left' | 'right' | null = null) => {
       const targetPath = path ?? currentCodePath();
       if (targetPath === null) return false;
       const targetPane =
@@ -2994,7 +3150,7 @@ function EditorWorkspace({
     revealLines(path, parsed.line, parsed.column, pane);
   }, [gotoState, revealLines, t]);
   React.useEffect(() => {
-    const onKeyDown = (event) => {
+    const onKeyDown = (event: KeyboardEvent) => {
       if (gotoState !== null || !gotoLineShortcutMatches(event)) return;
       const host = document.querySelector<HTMLElement>('[data-dsh-editor-workspace]');
       const active = document.activeElement;
@@ -3017,7 +3173,7 @@ function EditorWorkspace({
   /* A terminal link asks the editor to open a workspace file at a location. */ React.useEffect(() => {
     const host = document.querySelector<HTMLElement>('[data-dsh-editor-workspace]');
     if (host === null) return;
-    const onOpen = (event) => {
+    const onOpen = (event: CustomEvent<{ path?: unknown; line?: unknown; column?: unknown }>) => {
       const detail = event.detail ?? {};
       const path = typeof detail.path === 'string' ? detail.path : '';
       if (path === '') return;
@@ -3032,7 +3188,7 @@ function EditorWorkspace({
     return () => host.removeEventListener('dsh-editor-open-file', onOpen);
   }, [openFile]);
   /** Mirror one focused Monaco editor into the shared status bar. */ const syncEditorStatus = React.useCallback(
-    (editor) => {
+    (editor: Monaco.editor.ICodeEditor | null) => {
       const model = editor?.getModel?.();
       if (model === null || model === undefined) return;
       const options = model.getOptions?.() ?? {};
@@ -3076,6 +3232,7 @@ function EditorWorkspace({
               withReplace: false,
               preserveCase: false,
               scope: null,
+              error: null,
             },
         );
       },
@@ -3168,14 +3325,14 @@ function EditorWorkspace({
       scrollHeight: editor.getScrollHeight?.() ?? 0,
       clientHeight: editor.getLayoutInfo?.()?.height ?? 0,
     });
-    const isEcho = (source) => {
+    const isEcho = (source: 'editor' | 'preview') => {
       const lock = markdownScrollSyncRef.current;
       if (lock.source !== source || lock.until <= performance.now()) return false;
       lock.source = null;
       lock.until = 0;
       return true;
     };
-    const claim = (source) => {
+    const claim = (source: 'editor' | 'preview') => {
       markdownScrollSyncRef.current = {
         source,
         until: performance.now() + 120,
@@ -3287,7 +3444,7 @@ function EditorWorkspace({
    * @param {string[]} paths - right-group tab identities.
    * @returns {boolean} whether the batch was closed.
    */ const closeSplitTabs = React.useCallback(
-    (paths) => {
+    (paths: string[]) => {
       const wanted = new Set(paths);
       const doomed = splitTabsRef.current.filter((path) => wanted.has(path));
       if (doomed.length === 0) return true;
@@ -3363,7 +3520,7 @@ function EditorWorkspace({
     [syncEditorStatus, t],
   );
   /** Move within the right group's own tab history, wrapping at both ends. */ const cycleSplitTab = React.useCallback(
-    (step) => {
+    (step: number) => {
       const tabs = splitTabsRef.current;
       if (tabs.length < 2) return false;
       const index = Math.max(0, tabs.indexOf(splitPathRef.current ?? tabs[0]));
@@ -3378,7 +3535,7 @@ function EditorWorkspace({
   );
   /** Alt+Left/Right is owned by the right group only while it contains the caret. */ const splitTabShortcut =
     React.useCallback(
-      (event) => {
+      (event: KeyboardEvent) => {
         if (!event.altKey || event.metaKey || event.ctrlKey || event.shiftKey) return;
         if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
         const target = event.target instanceof Node ? event.target : null;
@@ -3415,7 +3572,7 @@ function EditorWorkspace({
    * @param {string} path - tab identity.
    * @param {boolean} skipConfirm - close even when the model is dirty.
    */ const closeFile = React.useCallback(
-    (path, skipConfirm = false) => {
+    (path: string, skipConfirm = false) => {
       if (!skipConfirm) {
         const file = openFilesRef.current.find((entry) => entry.path === path);
         if (file?.dirty === true && !window.confirm(t('editor.unsavedTabsConfirm', { count: 1 }))) return;
@@ -3463,6 +3620,7 @@ function EditorWorkspace({
               withReplace: false,
               preserveCase: false,
               scope: null,
+              error: null,
             },
         );
       },
@@ -3616,7 +3774,7 @@ function EditorWorkspace({
    * @param {string[]} paths - file paths to close.
    * @returns {void}
    */ const closePaths = React.useCallback(
-    (paths) => {
+    (paths: string[]) => {
       const wanted = new Set(paths);
       const before = openFilesRef.current;
       const doomed = before.filter((file) => wanted.has(file.path));
@@ -3669,7 +3827,7 @@ function EditorWorkspace({
   );
   /** IDEA's "Close Other Tabs": keep one tab, drop the rest after one prompt. */ const closeOtherTabs =
     React.useCallback(
-      (keepPath) => {
+      (keepPath: string) => {
         closePaths(openFilesRef.current.filter((file) => file.path !== keepPath).map((file) => file.path));
       },
       [closePaths],
@@ -3688,7 +3846,7 @@ function EditorWorkspace({
    * @param {string[]} keys - file paths or DIFF_TAB_KEY entries.
    * @returns {void}
    */ const closeEditorTabs = React.useCallback(
-    (keys) => {
+    (keys: string[]) => {
       const wanted = new Set(keys);
       const includesDiff = wanted.has(DIFF_TAB_KEY);
       const fileKeys = [...wanted].filter((key) => key !== DIFF_TAB_KEY);
@@ -3712,7 +3870,7 @@ function EditorWorkspace({
     [closePaths],
   );
   /* Cmd/Ctrl+Shift+O opens "Go to File", IDEA's most-used navigation shortcut. */ React.useEffect(() => {
-    const onKeyDown = (event) => {
+    const onKeyDown = (event: KeyboardEvent) => {
       if (!(event.metaKey || event.ctrlKey) || !event.shiftKey || event.key.toLowerCase() !== 'o') return;
       const host = document.querySelector<HTMLElement>('[data-dsh-editor-workspace]');
       if (host === null || !document.body.contains(host)) return;
@@ -3726,7 +3884,7 @@ function EditorWorkspace({
     setPaletteMode('files');
     setQuickOpen({ query: '', index: 0 });
     try {
-      const value = await callFs({ op: 'files' });
+      const value = await callFs<FileListResponse>({ op: 'files' });
       setQuickOpen((current) =>
         current === null ? current : { ...current, files: value.files ?? [], loading: false },
       );
@@ -3738,15 +3896,20 @@ function EditorWorkspace({
    * Load the file candidate list for one explicit non-project scope.
    * @param {boolean} includeNonProject - whether excluded directories are included.
    * @returns {void}
-   */ const requestSearchEverywhereFiles = React.useCallback((includeNonProject) => {
+   */ const requestSearchEverywhereFiles = React.useCallback((includeNonProject: boolean) => {
     const requestId = ++searchEverywhereFilesRequestRef.current;
     searchEverywhereFilesAbortRef.current?.abort();
     const searchAbort = new AbortController();
     searchEverywhereFilesAbortRef.current = searchAbort;
-    void callFs({ op: 'files', includeExcluded: includeNonProject === true }, { signal: searchAbort.signal })
+    void callFs<FileListResponse>(
+      { op: 'files', includeExcluded: includeNonProject === true },
+      { signal: searchAbort.signal },
+    )
       .then((value) => {
         if (searchEverywhereFilesRequestRef.current !== requestId) return;
-        const files = Array.isArray(value?.files) ? value.files : [];
+        const files = Array.isArray(value?.files)
+          ? value.files.filter((path): path is string => typeof path === 'string')
+          : [];
         searchEverywhereFilesRef.current = files;
         searchEverywhereFilesScopeRef.current = includeNonProject === true;
         setSearchEverywhere((current) =>
@@ -3780,7 +3943,7 @@ function EditorWorkspace({
    * @param {boolean} [withReplace=false] - show the Replace in Files row.
    * @returns {void}
    */ const openSearchEverywhere = React.useCallback(
-    (tab = 'all', query = '', withReplace = false) => {
+    (tab: 'all' | 'files' | 'text' | 'actions' = 'all', query = '', withReplace = false) => {
       const savedOptions = readSearchOptions();
       const includeNonProject = savedOptions.includeExcluded === true;
       const cachedFilesMatchScope = searchEverywhereFilesScopeRef.current === includeNonProject;
@@ -3847,7 +4010,7 @@ function EditorWorkspace({
     setSearchEverywhere((current) => (current === null ? current : { ...current, textLoading: true, error: null }));
     const searchAbort = new AbortController();
     const timer = window.setTimeout(() => {
-      void callFs(
+      void callFs<TextSearchResponse>(
         {
           op: 'searchText',
           query: searchEverywhereTextQuery,
@@ -3942,7 +4105,13 @@ function EditorWorkspace({
    * @param {'popup'|'dock'} [surface='popup'] - transient popup or persistent tool window.
    * @returns {void}
    */ const openFindTool = React.useCallback(
-    (query = '', mode = 'find', initial = null, focusTarget = 'query', surface = 'popup') => {
+    (
+      query = '',
+      mode: 'find' | 'replace' = 'find',
+      initial: FindToolInitial | null = null,
+      focusTarget: 'query' | 'replace' = 'query',
+      surface: 'popup' | 'dock' = 'popup',
+    ) => {
       const textQuery = findToolContentQuery(query);
       const savedOptions = normalizeSearchOptions(initial === null ? readSearchOptions() : initial);
       const savedScope = readFindScope(rootRef.current);
@@ -4016,7 +4185,7 @@ function EditorWorkspace({
    * outside a directory or file preset cannot starve the selected range.
    * @param {{mode?: string, preset?: string, directory?: string}} scope - selected scope.
    * @returns {void}
-   */ const changeFindToolScope = React.useCallback((scope) => {
+  */ const changeFindToolScope = React.useCallback((scope: FindToolScope) => {
     const normalized = writeFindScope(rootRef.current, scope);
     const { mode, preset, directory } = normalized;
     setFindTool((current) => {
@@ -4044,7 +4213,7 @@ function EditorWorkspace({
     });
   }, []);
   /** Persist and reapply IDEA's Directory recursion toggle. */ const changeFindDirectoryRecursive = React.useCallback(
-    (recursive) => {
+    (recursive: boolean) => {
       const next = writeFindDirectoryRecursive(rootRef.current, recursive);
       setFindTool((current) => {
         if (current === null || current.searchScopeRecursive === next) return current;
@@ -4062,7 +4231,7 @@ function EditorWorkspace({
     [],
   );
   /** Persist local named Scopes and invalidate a selection that disappeared. */ const changeCustomFindScopes =
-    React.useCallback((value) => {
+    React.useCallback((value: unknown) => {
       const normalized = writeCustomFindScopes(rootRef.current, value);
       const sharedScopes = normalized.filter((scope) => scope.shared === true);
       if (sharedScopes.length > 0 || sharedFindScopesRef.current.length > 0) {
@@ -4201,7 +4370,11 @@ function EditorWorkspace({
         error: null,
         index: 0,
       });
-      void callFs({ op: 'searchText', query: textQuery, maxMatches: 200 })
+      void callFs<{ matches?: ShowUsagesState['matches']; truncated?: boolean }>({
+        op: 'searchText',
+        query: textQuery,
+        maxMatches: 200,
+      })
         .then((value) => {
           if (showUsagesRequestRef.current !== requestId) return;
           setShowUsages((current) =>
@@ -4350,7 +4523,97 @@ function EditorWorkspace({
         ? 'nonIgnored'
         : undefined;
   React.useEffect(() => {
+    if (!findToolOpen || findToolSearchScopeMode !== 'files') return undefined;
+    const includeExcluded = findTool?.includeExcluded === true;
+    if (findToolFileCandidatesScope === includeExcluded) return undefined;
+    const requestId = ++findToolFileRequestRef.current;
+    findToolFileAbortRef.current?.abort();
+    const searchAbort = new AbortController();
+    findToolFileAbortRef.current = searchAbort;
+    setFindTool((current) =>
+      current === null || current.searchScopeMode !== 'files' ? current : { ...current, loading: true, error: null },
+    );
+    void callFs<FileListResponse>({ op: 'files', includeExcluded }, { signal: searchAbort.signal })
+      .then((value) => {
+        if (findToolFileRequestRef.current !== requestId) return;
+        const files = (Array.isArray(value?.files) ? value.files : []).filter(
+          (path): path is string => typeof path === 'string' && path !== '',
+        );
+        setFindToolFileCandidates(files);
+        setFindToolFileCandidatesScope(includeExcluded);
+        setFindToolFileCandidatesTruncated(value?.truncated === true);
+      })
+      .catch((failure) => {
+        if (failure?.name === 'AbortError' || failure?.name === 'CanceledError') return;
+        if (findToolFileRequestRef.current !== requestId) return;
+        setFindTool((current) =>
+          current === null || current.searchScopeMode !== 'files'
+            ? current
+            : {
+                ...current,
+                loading: false,
+                error: failure instanceof Error ? failure.message : String(failure),
+              },
+        );
+      })
+      .finally(() => {
+        if (findToolFileAbortRef.current === searchAbort) findToolFileAbortRef.current = null;
+      });
+    return () => searchAbort.abort();
+  }, [findToolOpen, findToolSearchScopeMode, findTool?.includeExcluded, findToolFileCandidatesScope]);
+  React.useEffect(() => {
+    if (!findToolOpen || findToolSearchScopeMode !== 'files') return;
+    const includeExcluded = findTool?.includeExcluded === true;
+    setFindTool((current) => {
+      if (
+        current === null ||
+        current.searchScopeMode !== 'files' ||
+        (current.includeExcluded === true) !== includeExcluded
+      )
+        return current;
+      const generation = current.searchGeneration ?? 0;
+      if (!hasFindToolContentQuery(current.query)) {
+        return {
+          ...current,
+          files: [],
+          matches: [],
+          truncated: false,
+          loading: false,
+          error: null,
+          loadedGeneration: generation,
+        };
+      }
+      if (findToolFileCandidatesScope !== includeExcluded) return current;
+      const files = findFilePathMatches(findToolFileCandidates, current.query, {
+        caseSensitive: current.caseSensitive === true,
+        wholeWords: current.wholeWords === true,
+        fileMask: current.fileMask,
+      }).map((path): FindToolFile => ({ path }));
+      return {
+        ...current,
+        files,
+        matches: [],
+        truncated: findToolFileCandidatesTruncated,
+        loading: false,
+        error: null,
+        loadedGeneration: generation,
+      };
+    });
+  }, [
+    findToolOpen,
+    findToolSearchScopeMode,
+    findToolQuery,
+    findToolFileCandidates,
+    findToolFileCandidatesScope,
+    findToolFileCandidatesTruncated,
+    findTool?.includeExcluded,
+    findTool?.caseSensitive,
+    findTool?.wholeWords,
+    findTool?.fileMask,
+  ]);
+  React.useEffect(() => {
     if (!findToolOpen || findTool.loadedGeneration === findTool.searchGeneration) return undefined;
+    if (findToolSearchScopeMode === 'files') return undefined;
     const generation = findTool.searchGeneration;
     const requestId = ++findToolRequestRef.current;
     const requestRoot = rootRef.current;
@@ -4375,7 +4638,7 @@ function EditorWorkspace({
       const dirtyFiles = (openFilesRef.current ?? []).filter(
         (file) => file.dirty === true && typeof file.content === 'string',
       );
-      void callFs(
+      void callFs<TextSearchResponse>(
         {
           op: 'searchText',
           query: findToolQuery,
@@ -4485,7 +4748,7 @@ function EditorWorkspace({
   ]);
   /* IDEA's Find Action chord opens Search Everywhere in Actions mode.
          Existing focused controls keep their own shortcut semantics. */ React.useEffect(() => {
-    const findActionGlobalShortcut = (event) => {
+    const findActionGlobalShortcut = (event: KeyboardEvent) => {
       const macPlatform = isMacPlatform(navigator.userAgentData?.platform ?? navigator.platform);
       if (!findActionShortcutMatches(event, macPlatform)) return;
       if (searchEverywhereOpen) return;
@@ -4502,7 +4765,7 @@ function EditorWorkspace({
   }, [openSearchEverywhere, searchEverywhereOpen]);
   /* Double Shift remains a registered alias, but its action is now the
          same Find in Files handler as Cmd/Ctrl+Shift+F. */ React.useEffect(() => {
-    const onKeyDown = (event) => {
+    const onKeyDown = (event: KeyboardEvent) => {
       if (visibleEditorWorkspace(document) === null) {
         doubleShiftAtRef.current = 0;
         return;
@@ -4529,6 +4792,12 @@ function EditorWorkspace({
     searchEverywhereFilesAbortRef.current?.abort();
     searchEverywhereFilesAbortRef.current = null;
     findToolRequestRef.current += 1;
+    findToolFileRequestRef.current += 1;
+    findToolFileAbortRef.current?.abort();
+    findToolFileAbortRef.current = null;
+    setFindToolFileCandidates([]);
+    setFindToolFileCandidatesScope(null);
+    setFindToolFileCandidatesTruncated(false);
     searchEverywhereFilesRef.current = [];
     searchEverywhereFilesScopeRef.current = null;
     setSearchEverywhere(null);
@@ -4543,6 +4812,8 @@ function EditorWorkspace({
     return () => {
       searchEverywhereFilesAbortRef.current?.abort();
       searchEverywhereFilesAbortRef.current = null;
+      findToolFileAbortRef.current?.abort();
+      findToolFileAbortRef.current = null;
     };
   }, [root]);
   /* Local Scopes live in browser storage; Shared Scopes are loaded only
@@ -4585,7 +4856,7 @@ function EditorWorkspace({
     setQuickOpen({ query: '', index: 0, files: list, loading: false });
   }, []);
   React.useEffect(() => {
-    const onKeyDown = (event) => {
+    const onKeyDown = (event: KeyboardEvent) => {
       const meta = event.metaKey || event.ctrlKey;
       if (!meta || event.altKey) return;
       if (event.key.toLowerCase() !== 'e') return;
@@ -4599,7 +4870,12 @@ function EditorWorkspace({
     return () => window.removeEventListener('keydown', onKeyDown, true);
   }, [openRecent]);
   const openEditorFind = React.useCallback(
-    (withReplace = false, initialQuery = null, focusTarget = 'query', scopeOverride = undefined) => {
+    (
+      withReplace = false,
+      initialQuery: string | null = null,
+      focusTarget: 'query' | 'replace' = 'query',
+      scopeOverride: EditorFindState['scope'] | undefined = undefined,
+    ) => {
       const savedOptions = readSearchOptions();
       const editor = currentCodeEditor();
       const model = editor?.getModel?.() ?? null;
@@ -4654,7 +4930,12 @@ function EditorWorkspace({
     };
   }, [openEditorFind]);
   const openEditorFindInSelection = React.useCallback(
-    (scope, withReplace = null, initialQuery = null, focusTarget = null) => {
+    (
+      scope: { start: number; end: number } | null,
+      withReplace: boolean | null = null,
+      initialQuery: string | null = null,
+      focusTarget: 'query' | 'replace' | null = null,
+    ) => {
       const editor = currentCodeEditor();
       const model = editor?.getModel?.() ?? null;
       if (model === null || scope === null) return;
@@ -4705,7 +4986,7 @@ function EditorWorkspace({
     [currentCodeEditor],
   );
   const openEditorFindFromShortcut = React.useCallback(
-    (withReplace = false, focusTarget = 'query') => {
+    (withReplace = false, focusTarget: 'query' | 'replace' = 'query') => {
       const editor = currentCodeEditor();
       const request = editorFindKeyboardRequest(editor);
       if (request.scope === null) {
@@ -4730,7 +5011,7 @@ function EditorWorkspace({
   /* IDEA's editor search family: ⌘F Find, ⌘R Replace,
          ⇧⌘F Find in Files and ⇧⌘R Replace in Files. The legacy
          ⌥⌘F replace alias stays available. */ React.useEffect(() => {
-    const onKeyDown = (event) => {
+    const onKeyDown = (event: KeyboardEvent) => {
       const usageFamilyAction = ideaUsageFamilyShortcutAction(
         event,
         isMacPlatform(navigator.userAgentData?.platform ?? navigator.platform),
@@ -4878,7 +5159,7 @@ function EditorWorkspace({
   const closeSearchEverywhere = React.useCallback(() => {
     setSearchEverywhere(null);
   }, []);
-  const rememberSearchEverywhereQuery = React.useCallback((query) => {
+  const rememberSearchEverywhereQuery = React.useCallback((query: string) => {
     const workspace = rootRef.current;
     if (workspace === '') return;
     const normalizedQuery = normalizeRecentSearchEntry(query);
@@ -4889,7 +5170,7 @@ function EditorWorkspace({
       return next;
     });
   }, []);
-  const rememberSearchEverywhereCommand = React.useCallback((id) => {
+  const rememberSearchEverywhereCommand = React.useCallback((id: string) => {
     setRecentCommands((current) => {
       const next = rememberCommandHistory(current, id, 12);
       writeCommandHistory(next);
@@ -4905,7 +5186,7 @@ function EditorWorkspace({
   const searchPlatform = navigator.userAgentData?.platform ?? navigator.platform;
   const searchMacPlatform = isMacPlatform(searchPlatform);
   const runWordOccurrence = React.useCallback(
-    (command) => {
+    (command: string) => {
       closeSearchEverywhere();
       if (activeSourceEditor === null) return;
       window.setTimeout(() => {
@@ -4919,7 +5200,7 @@ function EditorWorkspace({
   React.useEffect(() => {
     const platform = navigator.userAgentData?.platform ?? navigator.platform;
     if (!isMacPlatform(platform)) return undefined;
-    const onKeyDown = (event) => {
+    const onKeyDown = (event: KeyboardEvent) => {
       if (event.key.toLowerCase() !== 'g' || event.ctrlKey !== true || event.altKey === true) return;
       const host = document.querySelector<HTMLElement>('[data-dsh-editor-workspace]');
       if (host === null || !host.contains(document.activeElement)) return;

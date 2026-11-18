@@ -33,11 +33,11 @@ test('split location reveal waits for the split model and clamps to it', () => {
 test('Search Everywhere and Find pass location only for text results', () => {
   assert.match(
     source,
-    /onOpenInRightSplit: \(\) => \{[\s\S]{0,100}onClose\(\);[\s\S]{0,220}onOpenInRightSplit\([\s\S]{0,100}result\.path,[\s\S]{0,160}result\.kind === 'text'/,
+    /onOpenInRightSplit: \(\) => \{[\s\S]{0,100}onClose\(\);[\s\S]{0,260}onOpenInRightSplit\([\s\S]{0,100}(?:path|result\.path),[\s\S]{0,180}result\.kind === 'text'/,
   );
   assert.match(
     source,
-    /onOpenInRightSplit: \(\) =>\s+onOpenInRightSplit\(\s+result\.path,[\s\S]{0,180}result\.kind === 'text'/u,
+    /onOpenInRightSplit: \(\) =>\s+onOpenInRightSplit\(\s+(?:path|result\.path),[\s\S]{0,180}result\.kind === 'text'/u,
   );
 });
 

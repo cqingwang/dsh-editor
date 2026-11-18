@@ -34,7 +34,10 @@ test('shared result menu adds Replace only for text results', () => {
 test('Search Everywhere header and text menu share one Find handoff', () => {
   const dialog = source.slice(source.indexOf('function SearchEverywhere('), source.indexOf('function FindToolWindowView('));
   const handoff = source.slice(source.indexOf('function searchFindHandoff('), source.indexOf('function searchHistoryStorageKey('));
-  assert.match(dialog, /const openSearchResultsInFind = \(mode = null, result = null, \{ refresh = false \} = \{\}\) =>/);
+  assert.match(
+    dialog,
+    /const openSearchResultsInFind = \(\s*mode(?::\s*[^=]+)? = null,\s*result(?::\s*[^=]+)? = null,/,
+  );
   assert.match(dialog, /const request = searchFindHandoff\(\{/);
   assert.match(handoff, /mode: mode === 'replace' \|\| withReplace === true \? 'replace' : 'find'/);
   assert.match(dialog, /onClick: \(\) => openSearchResultsInFind\(null, activeResult\)/);
@@ -52,7 +55,10 @@ test('Find Replace action switches mode without dropping results', () => {
   assert.match(panel, /const replaceFocusPendingRef = React\.useRef\(false\)/);
   assert.match(panel, /const focusReplaceInput = \(\) =>/);
   assert.match(panel, /ref: replaceInputRef/);
-  assert.match(panel, /onReplace: \(\) => focusReplaceInput\(\)/);
+  assert.match(
+    panel,
+    /onReplace:\s*(?:fileFilterMode\s*\?\s*undefined\s*:\s*)?\(\)\s*=>\s*focusReplaceInput\(\)/,
+  );
   assert.doesNotMatch(panel, /onReplace: \(\) => \{[\s\S]{0,120}setCollapsedFiles/);
 });
 

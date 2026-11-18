@@ -84,7 +84,7 @@ test('command control actions are disabled after the shell exits', () => {
 
 test('screen context menu passes the clicked pane emulator and terminal', () => {
   const open = source.slice(
-    source.indexOf("const openScreenMenu = (event, emulator, terminal, pane = 'left') => {"),
+    source.indexOf('const openScreenMenu = ('),
     source.indexOf('/* Recompute the match count whenever the query changes. */'),
   );
   assert.match(open, /const model = terminalMenuModel\(\{/);

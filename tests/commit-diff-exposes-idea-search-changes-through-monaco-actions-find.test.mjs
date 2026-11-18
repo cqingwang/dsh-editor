@@ -23,7 +23,7 @@ test('Diff exposes IDEA Search In Changes through Monaco actions.find', () => {
 
 test('⌘F is claimed across the Diff surface but not foreign editors', () => {
   const diff = diffPreview();
-  const start = diff.indexOf('const onKeyDown = (event) => {');
+  const start = diff.indexOf('const onKeyDown = (event');
   const end = diff.indexOf("window.addEventListener('keydown', onKeyDown, true);", start);
   const handler = diff.slice(start, end);
   assert.match(handler, /if \(meta && !event\.altKey && !event\.shiftKey && event\.key\.toLowerCase\(\) === 'f'\)/);

@@ -132,7 +132,7 @@ test('a file that vanished is struck through in the project tree', () => {
 test('closing a terminal records it for reopening', () => {
   assert.match(source, /const closing = terminalsRef\.current\.find\(\(terminal\) => terminal\.id === id\);/);
   assert.match(source, /if \(closing !== undefined\) rememberClosed\(closing\);/);
-  assert.match(source, /const reopenClosed = React\.useCallback\(\s+async \(entry\) => \{/);
+  assert.match(source, /const reopenClosed = React\.useCallback\(\s+async \(entry(?::\s*[^)]+)?\)(?::\s*[^{]+)?/);
   assert.match(source, /reopen: closedHistory\.length === 0 \? null : \(\) => void reopenClosed\(closedHistory\[0\]\)/);
   assert.match(source, /t\('editor\.terminalReopen'\)/);
 });

@@ -34,7 +34,7 @@ test('the terminal dock has no cwd + grid footer row', () => {
      tall, and the path already lives in the tab's tooltip. */
   assert.doesNotMatch(source, /`\$\{grid\.cols\}×\$\{grid\.rows\}`/);
   /* The panel still hands the grid callback to the screen; it just ignores it. */
-  assert.match(source, /const reportGrid = React\.useCallback\(\(value\) => \{/);
+  assert.match(source, /const reportGrid = React\.useCallback\(\(value(?::\s*[^)]+)?\)(?::\s*[^{]+)?/);
   assert.match(source, /onGrid=\{reportGrid\}/);
   /* No render state is kept for a readout nobody sees any more. */
   assert.doesNotMatch(source, /const \[grid, setGrid\] = React\.useState/);

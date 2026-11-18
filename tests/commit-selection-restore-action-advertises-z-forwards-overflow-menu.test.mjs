@@ -22,7 +22,7 @@ test('the selection restore action advertises ⌥⌘Z and forwards it to the ove
 
 test('⌥⌘Z in a writable diff restores only an actionable selection', () => {
   const diff = diffPreview();
-  const start = diff.indexOf('const onKeyDown = (event) => {');
+  const start = diff.indexOf('const onKeyDown = (event');
   const end = diff.indexOf("window.addEventListener('keydown', onKeyDown, true);", start);
   const handler = diff.slice(start, end);
   assert.match(handler, /const meta = event\.metaKey \|\| event\.ctrlKey;/);

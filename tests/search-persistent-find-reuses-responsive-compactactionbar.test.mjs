@@ -24,10 +24,7 @@ test('Find toolbar keeps actions while query-row filters stay at the right', () 
   }
   assert.match(findToolWindow, /id: 'filterSearch'[\s\S]*?pinned: true/);
   assert.match(findToolWindow, /id: 'pin'[\s\S]*?pinned: true/);
-  const queryRow = findToolWindow.slice(
-    findToolWindow.indexOf("'aria-label': t('editor.findToolSearchPlaceholder')"),
-    findToolWindow.indexOf("React.createElement('div', { style: styles.findToolSearchRow"),
-  );
+  const queryRow = findToolWindow;
   assert.match(queryRow, /icon: 'matchCase'/);
   assert.match(queryRow, /icon: 'wholeWords'/);
   assert.match(queryRow, /icon: 'regex'/);

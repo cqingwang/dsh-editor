@@ -5,7 +5,7 @@ import test from 'node:test';
 const panel = await readFile(new URL('../src/client/components/terminal/TerminalPanel.tsx', import.meta.url), 'utf8');
 
 test('the terminal overflow button exposes the hidden-tab menu builder', () => {
-  assert.match(panel, /const openTerminalOverflowMenu = \(anchor\) => \{/);
+  assert.match(panel, /const openTerminalOverflowMenu = \(anchor(?::\s*[^)]+)?\)(?::\s*[^{]+)?/);
   assert.match(panel, /x: Math\.max\(4, anchor\.right - 188\)/);
   assert.match(panel, /items: tabLayout\.hidden\.map\(\(terminal\) => \(\{/);
   assert.match(panel, /id: `tab:\$\{terminal\.id\}`/);

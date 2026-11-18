@@ -13,7 +13,7 @@ function diffPreview() {
 
 function diffKeyboardHandler() {
   const diff = diffPreview();
-  const start = diff.indexOf('const onKeyDown = (event) => {');
+  const start = diff.indexOf('const onKeyDown = (event');
   assert.notEqual(start, -1);
   const end = diff.indexOf("window.addEventListener('keydown', onKeyDown, true);", start);
   assert.notEqual(end, -1);

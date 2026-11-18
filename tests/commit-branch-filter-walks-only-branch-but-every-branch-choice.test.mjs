@@ -87,7 +87,7 @@ test('the graph toolbar exposes a branch picker and HEAD badge', () => {
 test('the graph rows are reachable with the keyboard', () => {
   const log = read('src/client/components/commit/CommitLog.tsx');
   const graph = read('src/client/components/commit/CommitGraph.tsx');
-  assert.match(log, /const moveGraphCursor = \(delta, shiftKey = false\) => \{/);
+  assert.match(log, /const moveGraphCursor = \(delta(?::\s*[^,)]+)?, shiftKey = false\)(?::\s*[^{]+)?/);
   assert.match(log, /onKeyDown=\{\s+graphMode\s+\?/);
   assert.match(log, /command = commitLogGraphListCommand\(/);
   assert.match(log, /onShow\?\.\(command\.hash\)/);

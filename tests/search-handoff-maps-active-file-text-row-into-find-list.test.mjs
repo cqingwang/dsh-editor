@@ -41,7 +41,7 @@ test('search handoff maps the active file or text row into the Find list', () =>
 
 test('Search Everywhere passes active or clicked result into the shared handoff', () => {
   const dialog = source.slice(source.indexOf('function SearchEverywhere('), source.indexOf('function FindToolWindowView('));
-  assert.match(dialog, /const openSearchResultsInFind = \(mode = null, result = null, \{ refresh = false \} = \{\}\) =>/);
+  assert.match(dialog, /const openSearchResultsInFind = \(\s*mode(?::\s*[^=]+)? = null,\s*result(?::\s*[^=]+)? = null,/);
   assert.match(dialog, /activeRowKey: \(result \?\? activeResult\)\?\.rowKey/);
   assert.match(dialog, /onClick: \(\) => openSearchResultsInFind\(null, activeResult\)/);
   assert.match(dialog, /onReplace: \(\) => openSearchResultsInFind\('replace', result\)/);

@@ -1,5 +1,184 @@
 # dsh-editor 工程记忆
 
+## 2026-11-18 — Find Scope 用可执行 File 搜索替代禁用 Module
+
+**作用域**：`components/search/FindToolWindow.tsx`、`editor-workspace.tsx`、
+`find-tool.ts`、`commit.ts`、Find Scope 文案与定向回归。
+
+**症状/证据**：
+
+- 双击 Shift 打开的 Find in Files Scope 行为
+  `In Project / Module / Directory / Scope`；
+- `Module` 没有语言模块模型，长期显示为禁用按钮；
+- 用户要求同位置提供文件导航：输入匹配文件名/路径，结果点击打开文件，
+  而不是搜索文件内容。
+
+**根因**：
+
+- 原 Scope 模型只有文本内容搜索的 project/directory/scope 三类；
+- Find 状态只承载 `matches`，没有文件候选清单与文件名筛选模式；
+- 文件结果行单击只聚焦预览，双击才打开，不能承担快速定位交互。
+
+**修复**：
+
+- Scope 持久化值新增 `files`，按钮顺序改为
+  `Project / File / Directory / Scope`，方向键循环包含 File；
+- 选择 File 时调用既有 `op:'files'` 获取有界工作区文件清单；
+- `findFilePathMatches()` 复用 fuzzy path matching、Case / Whole Words 和
+  File Mask，结果上限 80；
+- File 模式把过滤结果写入 `state.files`、清空 `state.matches`，不再启动
+  `searchText`；
+- 查询为空时不返回整棵文件树；Include non-project 改变时按 scope 重新加载；
+- Replace 行在 File 模式隐藏，Regex 禁用，Preview 不对文件内容做 query 高亮；
+- 所有结果单击只聚焦并更新 Preview；双击或 Enter 走既有 `openFile()`，
+  浮层随后关闭。
+
+**回归**：
+
+- 新增 `tests/search-find-file-scope-filters-file-paths.test.mjs`；
+- 修复前该测试因缺少 `findFilePathMatches`、File Scope 和文件点击路径而失败；
+- 修复后 `tests/search*.test.mjs`：**624 pass / 0 fail**；
+- `npm run lint:client-types`、`npm run check:format:client-components`：通过；
+- DSH Web `127.0.0.1:3081` 运行态：双击 Shift 显示 `项目 / 文件 / 目录 / 作用域`；
+  文件模式输入 `FindToolWindow` 得到 4 行且 Replace 隐藏；单击首行只更新 Preview，
+  双击首行打开 `src/client/components/search/FindToolWindow.tsx` 并关闭弹框。
+
+**适用环境**：macOS、Node 24.22.2、TypeScript 5.9.3、React 18。
+后续 Find Scope 改动必须保留 File 模式不触发内容搜索的边界，并覆盖 workspace
+切换、Include non-project 和空查询。
+
+## 2026-11-18 — Terminal/Project 后端组件隐式 any 清零
+
+**作用域**：`components/terminal/TerminalPanel.tsx`、`TerminalScreen.tsx`、
+`MeasuringScreen.tsx`、`components/project/ProjectPanel.tsx` 及相关回归测试。
+
+**症状/证据**：
+
+- 全局 `--noImplicitAny` 审计余 **504** 个错误；
+- TerminalPanel 57、ProjectPanel 8、MeasuringScreen 6；
+- 终端 tab/stream/input、split/pane、restore、close/reorder、context menu 与
+  emulator callback 均无具体类型；
+- Project 拖放、speed-search row 和 directory status callback 也依赖隐式 any。
+
+**根因**：
+
+- TerminalPanel 使用多个没有统一类型的状态：terminal descriptions、xterm
+  emulator refs、grid/find/rename states、左右 pane 和 close/reorder guards；
+- TerminalScreen 对外把 emulator 暴露为 `unknown|null`，调用方无法安全写入 typed ref；
+- ProjectPanel 的 DOM 拖放与 keyboard 事件未声明；
+- MeasuringScreen 的 xterm instance 和 ResizeObserver 为隐式局部变量。
+
+**修复**：
+
+- TerminalPanel 引入 `TerminalDescription`、`TerminalEmulator`、TerminalGrid、
+  TerminalFindState、TerminalRenameState、TerminalRestoreEntry 与 pane union；
+- tab/stream/input、close/reorder、restore、context menu、drag、split 回调全部显式化；
+- TerminalScreen `onEmulator` 改为 `TerminalEmulator|null`；
+- MeasuringScreen 的 emulator/observer/grid 类型化；
+- ProjectPanel 的 DOM drag/drop、keyboard、row selection、directory status 类型化；
+- 四个组件加入 protected files 严格编译门禁。
+
+**回归**：
+
+- 目标组件严格错误：**71 → 0**；全局隐式 any：**504 → 433**；
+- `npm run lint:client-types`：ESLint + 118 modules import + `tsc` 通过；
+- `npm test`：**2820 pass / 0 fail**；
+- `npm run build:client`、`check:client-build`：13 modules verified；
+- `node --check lib/client.js`、`node --check lib/index.js`、`git diff --check`：通过。
+
+**适用环境**：macOS、Node 24.22.2、TypeScript 5.9.3、ESLint 9.39.5。
+后续终端/Project 组件改动必须保持 xterm emulator、terminal description 和
+pane/close/reorder 状态类型完整，不得退回 unknown/any 或忽略注释。
+
+## 2026-11-18 — Search Everywhere/Find 组件隐式 any 清零
+
+**作用域**：`components/search/SearchEverywhere.tsx`、`FindToolWindow.tsx`、
+`FindScopeEditor.tsx`、相关 Search/Find/Usages 源码测试与严格编译门禁。
+
+**症状/证据**：
+
+- 全局 `--noImplicitAny` 审计余 **612** 个错误；
+- 三个搜索组件合计 **108** 个：Search Everywhere 54、FindToolWindow 39、
+  FindScopeEditor 15；
+- action/file/text/history 四类 Search Everywhere 结果没有统一类型，active result
+  的字段被推断为多个窄对象联合；
+- Find 的菜单、scope、file mask、Directory picker、XML transfer 回调普遍没有参数类型；
+- 多个测试仍匹配旧的无类型单行函数签名。
+
+**根因**：
+
+- 运行时构造的多类结果行仅靠 `kind` 字符串区分，编译期没有共同结果模型；
+- 事件回调、scope 状态和 XML transfer 状态来自宽松 JS 历史实现；
+- 测试以源码文本签名作为行为契约，和真实 TS 签名演进脱节。
+
+**修复**：
+
+- `SearchResult` 统一 action/file/text/history 字段，包括 `label/description/category/
+  shortcut/icon/line/column/preview/dirty/ariaKeyShortcuts`；
+- 为 tooltip/context menu/history/Scope mode/preset/Directory picker/XML transfer
+  回调补显式参数与返回类型；
+- `FindScopeEditor` 使用 `ScopeTransferState` 和 typed drafts，channels 保持原数据；
+- Find text Replace 继续以显式 `activeTextOccurrence` 收窄，不把 file row 传给 Replace；
+- 测试断言接受显式参数/返回类型，并保持 Search/Find 源码行为检查。
+
+**回归**：
+
+- 搜索组件严格错误：**108 → 0**；全局隐式 any：**612 → 504**；
+- protected files 新增三个搜索组件；
+- `npm run lint:client-types`：ESLint + 118 modules import + `tsc` 通过；
+- `npm test`：**2820 pass / 0 fail**；
+- `npm run build:client`、`check:client-build`：13 modules verified；
+- `node --check lib/client.js`、`node --check lib/index.js`、`git diff --check`：通过。
+
+**适用环境**：macOS、Node 24.22.2、TypeScript 5.9.3、ESLint 9.39.5。
+后续 Search/Find 改动必须通过 protected files 严格编译门禁，并从 TS/TSX 源码验证行为。
+
+## 2026-11-18 — commit.ts 隐式 any 清零与 Find/Search 契约收窄
+
+**作用域**：`src/client/commit.ts`、`components/search/FindToolWindow.tsx`、
+Search Everywhere/Find/Find Usages 源码测试和增量严格编译门禁。
+
+**症状/证据**：
+
+- 全局 `--noImplicitAny` 审计余 **814** 个错误，其中 `commit.ts` 占 **227**；
+- Search/Find row、dirty replace model、history、find scope、popup geometry、
+  IDEA scope XML 等均缺少真实输入/输出类型；
+- 泛型收窄前 FindToolWindow 的 active row 会退化为仅含 `kind/path/rowKey`，
+  无法证明 text row 一定带 `line/column`；
+- 多个测试从 `lib/client.js` 抽取擦类型函数，Babel 保留多行签名格式后
+  `') {'` 文本探测失效；另一些直接 `new Function` 执行带类型 TS。
+
+**根因**：
+
+- 历史实现以宽松 JS 形状交换搜索结果、scope、replacement plan 与菜单 payload；
+- 测试 helpers 依赖编译后文本格式，而不是 TS AST；
+- Find active row 的 file/text 联合没有显式 narrowing，Replace 调用只能靠 UI
+  条件间接保证字段存在。
+
+**修复**：
+
+- 为 Search/Find row、handoff options、dirty replace plan/model、bounded history、
+  Find scope、popup geometry、Scope XML 和 Search status predicates 补齐类型；
+- `findToolVisibleRows` 改为泛型，保留调用方 file/text row 的全部字段；
+- FindToolWindow 使用显式 `activeTextOccurrence`，Replace 按钮和键盘路径共享同一
+  text-row 收窄；
+- clean/dirty replacement 事务对 openFiles、model map、mtime、count 做显式校验；
+- 测试改用 `transpileTypeScriptFunction`/`loadTypeScriptFunction`，或允许真实
+  多行 TS 签名；
+- `commit.ts` 加入 protected files 严格编译门禁。
+
+**回归**：
+
+- `commit.ts`：**227 → 0**；全局隐式 any：**814 → 612**；
+- `npm run lint:client-types`：ESLint + 118 modules import + `tsc` 通过；
+- `npm test`：**2820 pass / 0 fail**；
+- `npm run build:client`、`check:client-build`：13 modules verified；
+- `node --check lib/client.js`、`node --check lib/index.js`、`git diff --check`：通过。
+
+**适用环境**：macOS、Node 24.22.2、TypeScript 5.9.3、ESLint 9.39.5。
+后续继续清理 Search Everywhere/Find 组件；不得用 `lib/client.js` 的擦类型格式
+作为源码函数签名判断依据。
+
 ## 2026-11-18 — terminal.ts 隐式 any 清零与增量类型门禁
 
 **作用域**：`src/client/terminal.ts`、`editor-workspace.tsx` 的 Project selection ref，

@@ -31,7 +31,10 @@ test('IDEA diff display preferences live under one Settings submenu', () => {
 
 test('Settings opens as a submenu and remains one action in the narrow toolbar', () => {
   const diff = diffPreview();
-  assert.match(diff, /run: \(event\) => openDiffActionSubmenu\(event, t\('editor\.settings'\), editorSettingsItems, 'settings'\)/);
+  assert.match(
+    diff,
+    /run:\s*\(event(?::\s*[^)]+)?\)\s*=>\s*openDiffActionSubmenu\(\s*event,\s*t\('editor\.settings'\),\s*editorSettingsItems,\s*'settings',?\s*\)/,
+  );
   assert.match(diff, /const openDiffActionSubmenu = React\.useCallback\(/);
   assert.match(diff, /setDiffActionMenu\(\{[\s\S]*?title,[\s\S]*?actionId,[\s\S]*?items,[\s\S]*?\}\)/);
 });

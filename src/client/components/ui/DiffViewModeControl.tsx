@@ -1,7 +1,16 @@
 import React from 'react';
 import { styles } from '../../ui/styles';
 import { ToolbarButton } from './ToolbarButton';
-function DiffViewModeControl({ t, mode, sideBySide, disabled, onChange }) {
+
+interface DiffViewModeControlProps {
+  t: (key: string) => string;
+  mode: 'paired' | 'toggle';
+  sideBySide: boolean;
+  disabled?: boolean;
+  onChange: (sideBySide: boolean) => void;
+}
+
+function DiffViewModeControl({ t, mode, sideBySide, disabled, onChange }: DiffViewModeControlProps) {
   const unified = (
     <ToolbarButton
       icon='unified'

@@ -425,6 +425,47 @@ export function fuzzyScore(path: string, query: string, options?: FuzzyMatchOpti
   return score;
 }
 
+interface FindFilePathMatchOptions {
+  caseSensitive?: boolean;
+  wholeWords?: boolean;
+  fileMask?: unknown;
+  limit?: number;
+}
+
+/**
+ * Filter workspace file paths for Find's File scope.
+ *
+ * This mode navigates files, so the query is matched against the path itself
+ * and never against file contents. File Mask remains an additional candidate
+ * filter, while the bounded result set matches Search Everywhere's Files page.
+ * @param {unknown} paths - workspace-relative file candidates.
+ * @param {unknown} query - filename or path fragment.
+ * @param {FindFilePathMatchOptions} [options] - match and mask options.
+ * @returns {string[]} matching paths ordered by match quality.
+ */
+export function findFilePathMatches(paths: unknown, query: unknown, options: FindFilePathMatchOptions = {}): string[] {
+  const needle = typeof query === 'string' ? query.trim() : '';
+  if (needle === '') return [];
+  const limit = Math.max(1, Math.min(200, Math.floor(Number(options.limit) || 80)));
+  const matches: Array<{ path: string; score: number }> = [];
+  const seen = new Set<string>();
+  for (const rawPath of Array.isArray(paths) ? paths : []) {
+    if (typeof rawPath !== 'string' || rawPath === '' || seen.has(rawPath)) continue;
+    if (!fileExtensionFilterMatches(rawPath, options.fileMask)) continue;
+    const score = fuzzyScore(rawPath, needle, {
+      caseSensitive: options.caseSensitive === true,
+      wholeWords: options.wholeWords === true,
+    });
+    if (score < 0) continue;
+    seen.add(rawPath);
+    matches.push({ path: rawPath, score });
+  }
+  return matches
+    .sort((left, right) => right.score - left.score || left.path.length - right.path.length)
+    .slice(0, limit)
+    .map((match) => match.path);
+}
+
 /**
  * Assign one lane per commit by walking parents, so lines actually connect.
  *

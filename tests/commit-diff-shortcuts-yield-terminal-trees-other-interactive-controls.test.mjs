@@ -8,7 +8,7 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const source = (readFileSync(join(root, 'src/client/components/diff/DiffPreview.tsx'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
 
 function diffKeyboardHandler() {
-  const start = source.indexOf('const onKeyDown = (event) => {', source.indexOf('function DiffPreview('));
+  const start = source.indexOf('const onKeyDown = (event', source.indexOf('function DiffPreview('));
   assert.notEqual(start, -1);
   const end = source.indexOf('window.addEventListener(\'keydown\', onKeyDown, true);', start);
   assert.notEqual(end, -1);

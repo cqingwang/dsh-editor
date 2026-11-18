@@ -31,8 +31,10 @@ test('A single click focuses the dock row and updates preview without opening', 
   }
 });
 
-test('Only double-click or Enter opens a Find result into the editor above', () => {
-  assert.ok((findTool.match(/onDoubleClick=\{\(\) =>\s+openFindResult\(/g) ?? []).length >= 2);
+test('Only double-click or Enter opens a Find result and closes the popup', () => {
+  assert.ok((findTool.match(/onDoubleClick=\{\(\)\s*=>\s*openFindResult\(/g) ?? []).length >= 2);
+  assert.doesNotMatch(findTool, /onClick=\{[^}]*openFindResult/u);
+  assert.match(findTool, /onOpen\(result, openResultsInNewTab === true\);\s+if \(floating\) onClose\(\);/u);
   assert.match(
     findTool,
     /event\.key === 'Enter'[\s\S]{0,180}openFindResult\(occurrences\[position\]\)/,

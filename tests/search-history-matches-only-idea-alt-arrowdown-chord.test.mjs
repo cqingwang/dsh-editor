@@ -38,11 +38,14 @@ test('Show Search History matches only its IDEA Alt+ArrowDown chord', () => {
 });
 
 test('the whole Search Everywhere dialog owns Show Search History', () => {
-  assert.match(dialog, /const openSearchHistoryShortcut = \(event\) =>/);
+  assert.match(dialog, /const openSearchHistoryShortcut = \(event(?::\s*[^)]+)?\)(?::\s*[^{]+)?/);
   assert.match(dialog, /openQueryHistoryMenuAt\(rect\)/);
   assert.match(dialog, /searchInputRef\.current\?\.getBoundingClientRect\?\.\(\)/);
   assert.match(dialog, /onKeyDown=\{handleSearchEverywhereDialogKeyDown\}/);
-  assert.match(dialog, /const handleSearchEverywhereDialogKeyDown = \(event\) =>[\s\S]*?openSearchHistoryShortcut\(event\)/);
+  assert.match(
+    dialog,
+    /const handleSearchEverywhereDialogKeyDown = \(event(?::\s*[^)]+)?\)(?::\s*[^{]+)?[\s\S]*?openSearchHistoryShortcut\(event\)/,
+  );
   assert.match(dialog, /event\.preventDefault\(\)/);
   assert.match(dialog, /event\.stopPropagation\(\)/);
 });

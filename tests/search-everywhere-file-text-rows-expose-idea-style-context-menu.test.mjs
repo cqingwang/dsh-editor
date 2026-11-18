@@ -18,10 +18,10 @@ test('Search Everywhere file and text rows expose an IDEA-style context menu', (
 
 test('context menu actions close Search Everywhere before navigating', () => {
   const dialog = source.slice(source.indexOf('function SearchEverywhere('), source.indexOf('function FindToolWindowView('));
-  assert.match(dialog, /onOpenInRightSplit\([\s\S]{0,80}result\.path[\s\S]{0,140}result\.kind === 'text'/);
-  assert.match(dialog, /onRevealResult\(result\.path\)/);
-  assert.match(dialog, /onClose\(\);\s*onOpenInRightSplit\([\s\S]{0,100}result\.path/);
-  assert.match(dialog, /onClose\(\);\s*onRevealResult\(result\.path\)/);
+  assert.match(dialog, /onOpenInRightSplit\([\s\S]{0,100}(?:path|result\.path)[\s\S]{0,180}result\.kind === 'text'/);
+  assert.match(dialog, /onRevealResult\((?:path|result\.path)\)/);
+  assert.match(dialog, /onClose\(\);\s*onOpenInRightSplit\([\s\S]{0,120}(?:path|result\.path)/);
+  assert.match(dialog, /onClose\(\);\s*onRevealResult\((?:path|result\.path)\)/);
 });
 
 test('text search copy action carries line and column while file copy stays path-only', () => {

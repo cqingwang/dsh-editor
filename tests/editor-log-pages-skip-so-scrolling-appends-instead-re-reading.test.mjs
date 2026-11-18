@@ -125,7 +125,7 @@ test('a collapsed directory still shows the strongest descendant state', () => {
   const client = read('src/client/components/project/ProjectPanel.tsx') + '\n' + read('src/client/terminal.ts');
   /* Round 129 moved the precedence into `directoryTint` and dropped the letter: a
      changed folder is tinted on its name, never stamped with M/A/D. */
-  assert.match(client, /const directoryStatus = \(path\) =>\s+directoryTint\(/);
+  assert.match(client, /const directoryStatus = \(path(?::\s*[^)]+)?\)(?::\s*[^=]+)?\s*=>\s*directoryTint\(/);
   assert.match(client, /return \{ color: '#cf222e' \};/);
   assert.match(client, /return \{ color: '#8250df' \};/);
   /* The tint is computed from paths, so expansion state never gates it. */

@@ -212,23 +212,23 @@ function ProjectPanel({
   const [externalDropPath, setExternalDropPath] = React.useState(null);
   const [toolbarDropActive, setToolbarDropActive] = React.useState(false);
   const [manualDrop, setManualDrop] = React.useState(null);
-  const uploadExternalWorkspaceDrop = (event, targetDirectory) => {
+  const uploadExternalWorkspaceDrop = (event: React.DragEvent<HTMLElement>, targetDirectory: string): void => {
     const handles = captureDroppedWorkspaceHandles(event.dataTransfer);
     if (typeof onUpload === 'function') onUpload(handles, targetDirectory);
   };
   const toolbarDropDirectory = projectToolbarDropDirectory(projectRows, selectedPath);
-  const handleToolbarDragOver = (event) => {
+  const handleToolbarDragOver = (event: React.DragEvent<HTMLElement>): void => {
     if (!dataTransferIncludesFiles(event.dataTransfer)) return;
     event.preventDefault();
     event.stopPropagation();
     event.dataTransfer.dropEffect = 'copy';
     setToolbarDropActive(true);
   };
-  const handleToolbarDragLeave = (event) => {
-    if (event.currentTarget.contains(event.relatedTarget)) return;
+  const handleToolbarDragLeave = (event: React.DragEvent<HTMLElement>): void => {
+    if (event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget)) return;
     setToolbarDropActive(false);
   };
-  const handleToolbarDrop = (event) => {
+  const handleToolbarDrop = (event: React.DragEvent<HTMLElement>): void => {
     if (!dataTransferIncludesFiles(event.dataTransfer)) return;
     event.preventDefault();
     event.stopPropagation();
@@ -247,7 +247,7 @@ function ProjectPanel({
   React.useEffect(() => bindShiftWheelScroll(treeRef.current), []);
   /* ⌘/Ctrl+F inside the tool window filters the tree in place, like IDEA. */
   React.useEffect(() => {
-    const onKeyDown = (event) => {
+    const onKeyDown = (event: KeyboardEvent) => {
       /* Shift+Cmd/Ctrl+F is IDEA's Find in Files. The Project speed search
          owns only the unshifted chord, even when focus is outside Monaco. */
       if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey || event.key.toLowerCase() !== 'f')
@@ -335,7 +335,7 @@ function ProjectPanel({
   }, [filteredView, foldersFirst, search, showExcludedFiles, showHidden, sortMode]);
   const hits = React.useMemo(() => speedSearchHitRows(visibleRows, search), [search, visibleRows]);
   const selectSearchHit = React.useCallback(
-    (row) => {
+    (row: ProjectRow) => {
       if (row === null || row === undefined) return;
       onSelect(row, {});
       window.setTimeout(
@@ -389,7 +389,7 @@ function ProjectPanel({
    * @param {string} path - workspace-relative directory path.
    * @returns {{label: string, color: string}|null} badge, or null when clean.
    */
-  const directoryStatus = (path) =>
+  const directoryStatus = (path: string) =>
     directoryTint((git?.changes ?? []).filter((change) => change.path.startsWith(`${path}/`)));
   const createParent = createState === null ? '' : createState.parent;
   /* Every directory the tree currently knows about, root first. */

@@ -30,7 +30,7 @@ test('Commit tool window renders its built-in UI in IDEA English', () => {
   assert.match(source, /<CommitPanel\s+t=\{commitEnglish\}/u);
   assert.match(
     source,
-    /const fileCountText = \(count\) =>\s+count === 1\s+\? '1 file'\s+: t\('editor\.filesCount', \{\s+count,\s+\}\);/u,
+    /const fileCountText = \(count(?::\s*[^)]+)?\)(?::\s*[^{]+)?\s+count === 1\s+\? '1 file'\s+: t\('editor\.filesCount', \{\s+count,\s+\}\);/u,
   );
   assert.equal(commitPanel().match(/fileCountText\(/g)?.length, 2);
 });

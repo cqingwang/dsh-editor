@@ -30,7 +30,7 @@ export interface TerminalScreenProps {
   onGrid?: (size: { cols: number; rows: number }) => void;
   onError?: (message: string) => void;
   onExit?: (code: number | null) => void;
-  onEmulator?: (emulator: unknown | null) => void;
+  onEmulator?: (emulator: TerminalEmulator | null) => void;
   onInput?: (data: string) => void;
   onTitle?: (title: string) => void;
   onCwd?: (cwd: string) => void;

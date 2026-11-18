@@ -29,8 +29,21 @@ export interface FindScopeEditorProps {
   onClose: () => void;
 }
 
+type ScopeTransferMode = 'import' | 'export';
+
+interface ScopeTransferState {
+  mode: ScopeTransferMode;
+  path: string;
+  loading: boolean;
+  error: string | null;
+  scopes: FindScope[] | null;
+  skipped: number;
+  conflicts: number;
+  xml: string;
+}
+
 function FindScopeEditor({ t, scopes, initialId, onSave, onClose }: FindScopeEditorProps) {
-  const initialDrafts = React.useMemo(() => {
+  const initialDrafts: FindScope[] = React.useMemo(() => {
     const normalized = normalizeCustomFindScopes(scopes);
     return normalized.length === 0
       ? [
@@ -44,20 +57,20 @@ function FindScopeEditor({ t, scopes, initialId, onSave, onClose }: FindScopeEdi
         ]
       : normalized;
   }, [scopes, t]);
-  const [drafts, setDrafts] = React.useState(initialDrafts);
+  const [drafts, setDrafts] = React.useState<FindScope[]>(initialDrafts);
   const [selectedId, setSelectedId] = React.useState(() =>
     initialDrafts.some((scope) => scope.id === initialId) ? initialId : (initialDrafts[0]?.id ?? null),
   );
-  const [error, setError] = React.useState(null);
-  const [transfer, setTransfer] = React.useState(null);
+  const [error, setError] = React.useState<string | null>(null);
+  const [transfer, setTransfer] = React.useState<ScopeTransferState | null>(null);
   const selectedIndex = drafts.findIndex((scope) => scope.id === selectedId);
   const selected = selectedIndex < 0 ? null : drafts[selectedIndex];
-  const updateSelected = (patch) => {
+  const updateSelected = (patch: Partial<FindScope>): void => {
     setDrafts((current) => current.map((scope) => (scope.id === selectedId ? { ...scope, ...patch } : scope)));
     setError(null);
   };
   const addScope = () => {
-    const scope = {
+    const scope: FindScope = {
       id: newFindScopeId(),
       name: t('editor.findScopeNewName'),
       includePatterns: [],
@@ -86,7 +99,7 @@ function FindScopeEditor({ t, scopes, initialId, onSave, onClose }: FindScopeEdi
     setDrafts(next);
     setSelectedId(next[Math.max(0, selectedIndex - 1)]?.id ?? null);
   };
-  const moveSelected = (delta) => {
+  const moveSelected = (delta: number): void => {
     if (selected === null) return;
     const targetIndex = selectedIndex + delta;
     if (targetIndex < 0 || targetIndex >= drafts.length) return;
@@ -108,7 +121,7 @@ function FindScopeEditor({ t, scopes, initialId, onSave, onClose }: FindScopeEdi
     onSave(normalized, selectedId);
     onClose();
   };
-  const openTransfer = (mode) => {
+  const openTransfer = (mode: ScopeTransferMode): void => {
     setTransfer({
       mode,
       path: '.idea/scopes/dsh-editor.xml',
@@ -124,12 +137,14 @@ function FindScopeEditor({ t, scopes, initialId, onSave, onClose }: FindScopeEdi
     if (transfer === null || transfer.loading === true) return;
     const path = normalizeScopeXmlTransferPath(transfer.path);
     if (path === '') {
-      setTransfer((current) =>
+      setTransfer((current: ScopeTransferState | null) =>
         current === null ? current : { ...current, error: t('editor.findScopeXmlInvalidPath') },
       );
       return;
     }
-    setTransfer((current) => (current === null ? current : { ...current, loading: true, error: null }));
+    setTransfer((current: ScopeTransferState | null) =>
+      current === null ? current : { ...current, loading: true, error: null },
+    );
     if (transfer.mode === 'import') {
       try {
         const value = await callFs({ op: 'read', path });
@@ -139,7 +154,7 @@ function FindScopeEditor({ t, scopes, initialId, onSave, onClose }: FindScopeEdi
         const report = inspectIdeaScopeXml(value.content);
         const existingNames = new Set(drafts.map((scope) => scope.name.toLocaleLowerCase()));
         const conflicts = report.scopes.filter((scope) => existingNames.has(scope.name.toLocaleLowerCase())).length;
-        setTransfer((current) =>
+        setTransfer((current: ScopeTransferState | null) =>
           current === null
             ? current
             : {
@@ -153,7 +168,7 @@ function FindScopeEditor({ t, scopes, initialId, onSave, onClose }: FindScopeEdi
               },
         );
       } catch (failure) {
-        setTransfer((current) =>
+        setTransfer((current: ScopeTransferState | null) =>
           current === null
             ? current
             : {
@@ -167,7 +182,7 @@ function FindScopeEditor({ t, scopes, initialId, onSave, onClose }: FindScopeEdi
     }
     const sharedScopes = drafts.filter((scope) => scope.shared === true);
     if (sharedScopes.length === 0) {
-      setTransfer((current) =>
+      setTransfer((current: ScopeTransferState | null) =>
         current === null
           ? current
           : {
@@ -178,7 +193,7 @@ function FindScopeEditor({ t, scopes, initialId, onSave, onClose }: FindScopeEdi
       );
       return;
     }
-    setTransfer((current) =>
+    setTransfer((current: ScopeTransferState | null) =>
       current === null
         ? current
         : {
@@ -212,17 +227,19 @@ function FindScopeEditor({ t, scopes, initialId, onSave, onClose }: FindScopeEdi
     }
     const path = normalizeScopeXmlTransferPath(transfer.path);
     if (path === '') {
-      setTransfer((current) =>
+      setTransfer((current: ScopeTransferState | null) =>
         current === null ? current : { ...current, error: t('editor.findScopeXmlInvalidPath') },
       );
       return;
     }
-    setTransfer((current) => (current === null ? current : { ...current, loading: true, error: null }));
+    setTransfer((current: ScopeTransferState | null) =>
+      current === null ? current : { ...current, loading: true, error: null },
+    );
     try {
       await callFs({ op: 'write', path, content: transfer.xml, force: true, create: true });
       setTransfer(null);
     } catch (failure) {
-      setTransfer((current) =>
+      setTransfer((current: ScopeTransferState | null) =>
         current === null
           ? current
           : {
@@ -249,7 +266,7 @@ function FindScopeEditor({ t, scopes, initialId, onSave, onClose }: FindScopeEdi
             placeholder='.idea/scopes/dsh-editor.xml'
             aria-label={t('editor.findScopeXmlPath')}
             onChange={(event) =>
-              setTransfer((current) =>
+              setTransfer((current: ScopeTransferState | null) =>
                 current === null
                   ? current
                   : {

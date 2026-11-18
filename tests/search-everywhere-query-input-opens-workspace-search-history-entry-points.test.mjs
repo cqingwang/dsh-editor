@@ -20,7 +20,7 @@ function searchEverywhere() {
 test('Search Everywhere query input opens workspace search history from both entry points', () => {
   const dialog = searchEverywhere();
   assert.match(dialog, /const \[queryHistoryMenu, setQueryHistoryMenu\] = React\.useState(?:<[^>]+>)?\(null\)/);
-  assert.match(dialog, /const openQueryHistoryMenu = \(event\) =>/);
+  assert.match(dialog, /const openQueryHistoryMenu = \(event(?::\s*[^)]+)?\)(?::\s*[^{]+)?/);
   assert.match(dialog, /event\.altKey === true && event\.key === 'ArrowDown'/);
   assert.match(dialog, /icon: 'history'/);
   assert.match(dialog, /label: t\('editor\.findSearchHistory'\)/);
@@ -32,10 +32,10 @@ test('Search Everywhere query history reuses recentSearches and preserves the dr
   const dialog = searchEverywhere();
   const open = dialog.slice(
     dialog.indexOf('const openQueryHistoryMenuAt = React.useCallback'),
-    dialog.indexOf('const openQueryHistoryMenu = (event) =>'),
+    dialog.indexOf('const openQueryHistoryMenu ='),
   );
   const opener = dialog.slice(
-    dialog.indexOf('const openQueryHistoryMenu = (event) =>'),
+    dialog.indexOf('const openQueryHistoryMenu ='),
     dialog.indexOf('const handledHistoryRequestRef'),
   );
   assert.match(opener, /event\.preventDefault\(\)/);

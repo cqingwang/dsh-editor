@@ -49,7 +49,7 @@ test('the snap never leaves the allowed range', () => {
 
 test('the drag applies the snap before committing the width', () => {
   assert.match(source, /snapSplitPercent\(/);
-  const start = source.indexOf('const onMove = (moveEvent) => {');
+  const start = source.indexOf('const onMove = (moveEvent');
   assert.notEqual(start, -1);
   const block = source.slice(start, start + 500);
   assert.match(block, /setSplitPercent\(snapSplitPercent\(/);

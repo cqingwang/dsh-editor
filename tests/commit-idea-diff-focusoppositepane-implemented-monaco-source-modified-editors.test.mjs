@@ -22,7 +22,7 @@ test('IDEA Diff.FocusOppositePane is implemented with Monaco source/modified edi
 
 test('⌃⇧Tab is claimed only inside the diff surface', () => {
   const diff = diffPreview();
-  const start = diff.indexOf('const onKeyDown = (event) => {');
+  const start = diff.indexOf('const onKeyDown = (event');
   const end = diff.indexOf("window.addEventListener('keydown', onKeyDown, true);", start);
   const handler = diff.slice(start, end);
   assert.match(

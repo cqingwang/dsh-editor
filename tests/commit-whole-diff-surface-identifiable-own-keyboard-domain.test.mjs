@@ -18,7 +18,7 @@ test('the whole Diff surface is identifiable as its own keyboard domain', () => 
 });
 
 test('Cmd/Ctrl+F opens Search In Changes from the whole Diff surface', () => {
-  const start = source.indexOf('const onKeyDown = (event) => {', source.indexOf("/* F7 / ⇧F7 are IDEA's"));
+  const start = source.indexOf('const onKeyDown = (event', source.indexOf("/* F7 / ⇧F7 are IDEA's"));
   const handler = source.slice(start, source.indexOf("window.addEventListener('keydown', onKeyDown, true);", start));
   assert.match(handler, /const insideDiffSurface = shortcutTarget\?\.closest\('\[data-dsh-editor-diff-surface\]'\) !== null/);
   assert.match(

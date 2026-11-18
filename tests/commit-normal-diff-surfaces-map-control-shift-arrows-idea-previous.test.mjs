@@ -16,7 +16,7 @@ test('normal Diff surfaces map control-shift arrows to IDEA previous/next change
 });
 
 test('control-shift change navigation stays scoped to the diff pane', () => {
-  const start = diff.indexOf('const onKeyDown = (event) => {');
+  const start = diff.indexOf('const onKeyDown = (event');
   const block = diff.slice(start, diff.indexOf("Monaco's Close Tab action", start));
   assert.match(block, /insideDiffPane/);
   assert.match(block, /event\.preventDefault\(\)/);

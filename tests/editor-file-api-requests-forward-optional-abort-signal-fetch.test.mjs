@@ -39,7 +39,7 @@ test('callFs forwards request options without changing existing callers', () => 
 });
 
 test('Find aborts in-flight text searches when its generation is replaced', () => {
-  const start = workspaceSource.indexOf('React.useEffect(() => {\n    if (!findToolOpen');
+  const start = workspaceSource.indexOf('React.useEffect(() => {\n    if (!findToolOpen || findTool.loadedGeneration');
   const end = workspaceSource.indexOf('  }, [\n    findToolOpen,', start);
   assert.ok(start >= 0 && end > start);
   const effect = workspaceSource.slice(start, end);

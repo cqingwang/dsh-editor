@@ -30,6 +30,12 @@ import { CommitLog } from './CommitLog';
 
 type Translate = (key: string, params?: Record<string, unknown>) => string;
 type CommitLogComponentProps = React.ComponentProps<typeof CommitLog>;
+type CommitMode = 'changes' | 'log';
+interface CommitGroup {
+  id: string;
+  label: string;
+  changes: DiffChange[];
+}
 
 export interface CommitPanelProps {
   t: Translate;
@@ -268,7 +274,7 @@ function CommitPanel({
      bar behind the diff/tool window. */
   React.useEffect(() => {
     if (mode !== 'changes') return undefined;
-    const onKeyDown = (event) => {
+    const onKeyDown = (event: KeyboardEvent): void => {
       if (!(event.metaKey || event.ctrlKey) || event.altKey || event.key.toLowerCase() !== 'f') return;
       const target = event.target instanceof Element ? event.target : null;
       const active = document.activeElement instanceof Element ? document.activeElement : null;
@@ -333,7 +339,7 @@ function CommitPanel({
   }, [filteredTargets, onRevealChange, onSelectChange, onSelectGroup, pathQuery, selectedChange, selectedGroup]);
   const allSelected = changes.length > 0 && changes.every((change) => selectedPaths.has(change.path));
   const branchText = branchLabel(git);
-  const fileCountText = (count) =>
+  const fileCountText = (count: number): string =>
     count === 1
       ? '1 file'
       : t('editor.filesCount', {
@@ -352,7 +358,7 @@ function CommitPanel({
    * @param {{id: string, changes: object[]}} group - band being rendered.
    * @returns {object|undefined} summed counts, or undefined when unknown.
    */
-  const groupTotals = (group) => subtotalOf(group.changes, group.id);
+  const groupTotals = (group: CommitGroup): ReturnType<typeof subtotalOf> => subtotalOf(group.changes, group.id);
 
   /**
    * Clear the Changes path filter and return keyboard ownership to the tree.
@@ -375,7 +381,7 @@ function CommitPanel({
       target?.focus?.();
     }, 0);
   };
-  const renderGroup = (group, groupIndex) => {
+  const renderGroup = (group: CommitGroup, groupIndex: number): React.ReactNode => {
     const tree = changeTreeOf(group.changes, groupingDepth(groupBy));
     /* A group folds as a whole, keyed by the bare group id: IDEA's root row
        ("Changes 5 files") is a tree node with its own chevron, and folding it
@@ -949,23 +955,23 @@ function CommitPanel({
 
   /* IDEA tool-window tabs use one roving tab stop: the selected mode owns
      Tab focus, while arrow/Home/End keys move both selection and focus. */
-  const commitModeOrder = ['changes', 'log'];
-  const focusCommitModeTab = (nextMode) => {
+  const commitModeOrder: CommitMode[] = ['changes', 'log'];
+  const focusCommitModeTab = (nextMode: CommitMode): void => {
     const target = commitModeTabsRef.current?.querySelector(`[data-dsh-commit-mode="${nextMode}"]`);
     onMode(nextMode);
     target?.focus?.();
   };
-  const moveCommitModeFocus = (currentMode, delta) => {
+  const moveCommitModeFocus = (currentMode: CommitMode, delta: number): void => {
     const index = commitModeOrder.indexOf(currentMode);
     if (index < 0) return;
     const nextIndex = Math.max(0, Math.min(commitModeOrder.length - 1, index + delta));
     if (nextIndex === index) return;
     focusCommitModeTab(commitModeOrder[nextIndex]);
   };
-  const focusBoundaryCommitMode = (edge) => {
+  const focusBoundaryCommitMode = (edge: 'first' | 'last'): void => {
     focusCommitModeTab(commitModeOrder[edge === 'first' ? 0 : commitModeOrder.length - 1]);
   };
-  const onCommitModeKeyDown = (event, currentMode) => {
+  const onCommitModeKeyDown = (event: React.KeyboardEvent<HTMLElement>, currentMode: CommitMode): void => {
     if (event.target !== event.currentTarget) return;
     if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
       event.preventDefault();

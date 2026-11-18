@@ -14,7 +14,7 @@ function diffPreview() {
 test('Diff Go To Change uses the existing Monaco hunks and ContextMenu', () => {
   const diff = diffPreview();
   assert.match(diff, /const \[hunkMenu, setHunkMenu\] = React\.useState(?:<[^>]+>)?\(null\)/);
-  assert.match(diff, /const jumpToDiffHunk = React\.useCallback\(\(index\) => \{/);
+  assert.match(diff, /const jumpToDiffHunk = React\.useCallback\(\(index(?::\s*[^)]+)?\)(?::\s*[^{]+)?/);
   assert.match(diff, /const openHunkMenu = React\.useCallback\(\s+\(event\??(?:\s*:\s*[^)]+)?\) => \{/u);
   assert.match(diff, /getLineChanges\(\) \?\? \[\]/);
   assert.match(

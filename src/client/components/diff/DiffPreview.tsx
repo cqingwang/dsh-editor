@@ -45,6 +45,14 @@ interface DiffLoadResponse {
   files?: DiffCombinedFile[];
 }
 
+interface DiffRestoreEntry {
+  path: string;
+  side: string;
+  text: string;
+  after: string;
+  [key: string]: unknown;
+}
+
 type DiffTextModel = Monaco.editor.ITextModel & {
   __dshRestoreListener?: { dispose: () => void };
   __dshFallbackUndo?: { dispose: () => void };
@@ -354,17 +362,25 @@ function DiffPreview({
   const showIncludedSummary = includedState !== null && diffSummaryVisibleForWidth(diffToolbarWidth);
   const [diffActionMenu, setDiffActionMenu] = React.useState(null);
   const [hunkMenu, setHunkMenu] = React.useState(null);
-  const openDiffActionSubmenu = React.useCallback((event, title, items, actionId = null) => {
-    const rect = event?.currentTarget?.getBoundingClientRect?.() ?? diffToolbarRef.current?.getBoundingClientRect?.();
-    if (rect === undefined || rect === null) return;
-    setDiffActionMenu({
-      x: Math.min(window.innerWidth - 212, Math.max(4, rect.right - 210)),
-      y: rect.bottom + 4,
-      title,
-      actionId,
-      items,
-    });
-  }, []);
+  const openDiffActionSubmenu = React.useCallback(
+    (
+      event: React.SyntheticEvent<HTMLElement> | null | undefined,
+      title: string,
+      items: unknown[],
+      actionId: string | null = null,
+    ): void => {
+      const rect = event?.currentTarget?.getBoundingClientRect?.() ?? diffToolbarRef.current?.getBoundingClientRect?.();
+      if (rect === undefined || rect === null) return;
+      setDiffActionMenu({
+        x: Math.min(window.innerWidth - 212, Math.max(4, rect.right - 210)),
+        y: rect.bottom + 4,
+        title,
+        actionId,
+        items,
+      });
+    },
+    [],
+  );
   React.useEffect(() => {
     setHunkMenu(null);
   }, [target, hunks.total]);
@@ -492,7 +508,7 @@ function DiffPreview({
     [viewStatesMapRef],
   );
   const restoreDiffViewState = React.useCallback(
-    (key, fallback = null) => {
+    (key: unknown, fallback: Record<string, unknown> | null = null): boolean => {
       const state = (typeof key === 'string' && key !== '' ? viewStatesMapRef.current.get(key) : null) ?? fallback;
       const diff = diffRef.current;
       if (diff === null || state === null) return false;
@@ -507,7 +523,10 @@ function DiffPreview({
         modified?.restoreViewState?.(state.modified);
         restored = true;
       }
-      const clampPosition = (editor, position) => {
+      const clampPosition = (
+        editor: Monaco.editor.IStandaloneCodeEditor | null,
+        position: { lineNumber?: number; column?: number } | null | undefined,
+      ): { lineNumber: number; column: number } | null => {
         if (position === null || position === undefined) return null;
         const lines = editor?.getModel?.()?.getLineCount?.() ?? position.lineNumber;
         return {
@@ -658,7 +677,7 @@ function DiffPreview({
       });
   }, []);
   const applyHistoryEntry = React.useCallback(
-    (entry, redo) => {
+    (entry: DiffRestoreEntry, redo: boolean): void => {
       setState((current) => ({
         ...current,
         error: null,
@@ -1247,7 +1266,7 @@ function DiffPreview({
    * @returns {void}
    */
   const applyDiffSideOrder = React.useCallback(
-    (swapped) => {
+    (swapped: boolean): void => {
       const diff = diffRef.current;
       const pair = diffModelsRef.current;
       if (diff === null || pair === null) return;
@@ -1321,7 +1340,7 @@ function DiffPreview({
    * @param {KeyboardEvent} event - keydown from the diff host subtree.
    * @returns {void}
    */
-  const onDiffHostKeyDown = React.useCallback((event) => {
+  const onDiffHostKeyDown = React.useCallback((event: React.KeyboardEvent<HTMLElement>): void => {
     if (event.key !== 'Enter' && event.key !== ' ') return;
     const revertTarget = event.target instanceof Element ? event.target.closest('.revertButton') : null;
     if (!(revertTarget instanceof HTMLElement)) return;
@@ -1339,7 +1358,7 @@ function DiffPreview({
     const diff = diffRef.current;
     if (diff === null) return;
     const editor = diff.getModifiedEditor();
-    const subscription = editor.onDidChangeCursorSelection((event) => {
+    const subscription = editor.onDidChangeCursorSelection((event: Monaco.editor.ICursorSelectionChangedEvent) => {
       const selection = event.selection;
       const empty =
         selection === null ||
@@ -1357,7 +1376,7 @@ function DiffPreview({
       );
       const files = combinedFilesRef.current;
       if (files.length > 0) {
-        const line = selection?.position?.lineNumber ?? editor.getPosition()?.lineNumber ?? 1;
+        const line = editor.getPosition()?.lineNumber ?? 1;
         const index = combinedFileIndexAtLine(combinedFilesRef.current, line) + 1;
         setCombinedPosition((current) =>
           current.index === index && current.total === files.length
@@ -1373,7 +1392,7 @@ function DiffPreview({
   }, [monacoReady]);
 
   /** Walk to the next or previous hunk, IDEA's diff toolbar arrows. */
-  const walkHunk = React.useCallback((direction) => {
+  const walkHunk = React.useCallback((direction: 'previous' | 'next'): void => {
     const diff = diffRef.current;
     if (diff === null) return;
     diff.goToDiff(direction === 'previous' ? 'previous' : 'next');
@@ -1390,7 +1409,7 @@ function DiffPreview({
    * @param {number} index - zero-based hunk index.
    * @returns {void}
    */
-  const jumpToDiffHunk = React.useCallback((index) => {
+  const jumpToDiffHunk = React.useCallback((index: number): void => {
     const changes = diffRef.current?.getLineChanges?.() ?? [];
     const change = changes[index];
     if (change === undefined) return;
@@ -1412,7 +1431,7 @@ function DiffPreview({
    * @param {number} index - zero-based combined file index.
    * @returns {void}
    */
-  const jumpToCombinedFile = React.useCallback((index) => {
+  const jumpToCombinedFile = React.useCallback((index: number): void => {
     const files = combinedFilesRef.current;
     if (files.length === 0) return;
     const next = Math.max(0, Math.min(files.length - 1, Number(index) || 0));
@@ -1487,7 +1506,7 @@ function DiffPreview({
         x: rect === undefined ? 240 : Math.max(4, rect.right - 220),
         y: rect === undefined ? 120 : rect.bottom + 4,
         title: t('editor.goToChange'),
-        items: changes.map((change, index) => ({
+        items: changes.map((change: Monaco.editor.ILineChange, index: number) => ({
           id: `change:${index + 1}`,
           label: t('editor.changeAtLine', {
             index: index + 1,
@@ -1506,7 +1525,7 @@ function DiffPreview({
   /* F7 / ⇧F7 are IDEA's "next / previous difference". They only act while a
      diff is open, so they cannot collide with the editor's own bindings. */
   React.useEffect(() => {
-    const onKeyDown = (event) => {
+    const onKeyDown = (event: KeyboardEvent): void => {
       /* The diff owns these keys only while it owns the keyboard. Terminal
          emulators, the Project/Change trees and ordinary form controls must
          receive F7, ⌘W, undo and redo themselves. */
@@ -1848,7 +1867,8 @@ function DiffPreview({
       group: 'inspect',
       disabled: diffUnavailable,
       items: editorSettingsItems,
-      run: (event) => openDiffActionSubmenu(event, t('editor.settings'), editorSettingsItems, 'settings'),
+      run: (event: React.MouseEvent<HTMLElement>) =>
+        openDiffActionSubmenu(event, t('editor.settings'), editorSettingsItems, 'settings'),
     },
     ...(typeof target?.path === 'string' && typeof onOpenLocal === 'function'
       ? [
@@ -1915,7 +1935,7 @@ function DiffPreview({
   const directDiffActionEntries = groupDiffToolbarActions(directDiffActions);
   const hiddenDiffActionEntries = groupDiffToolbarActions(hiddenDiffActions);
   const diffActionsCompact = hiddenDiffActions.length > 0;
-  const openDiffActionMenu = (rect) => {
+  const openDiffActionMenu = (rect: DOMRect): void => {
     setDiffActionMenu({
       x: Math.max(4, rect.right - 210),
       y: rect.bottom + 4,
@@ -1959,9 +1979,9 @@ function DiffPreview({
         0,
       );
       const next = diffDirectActionCountForWidth(width, fixedWidth, diffToolbarActions);
-      setDiffDirectActionCount((current) => (current === next ? current : next));
+      setDiffDirectActionCount((current: number | null) => (current === next ? current : next));
       if (!Number.isFinite(width)) return;
-      setDiffToolbarWidth((current) => (Math.abs(current - width) < 0.5 ? current : width));
+      setDiffToolbarWidth((current: number) => (Math.abs(current - width) < 0.5 ? current : width));
     };
     let timer = 0;
     const scheduleMeasure = () => {

@@ -25,7 +25,10 @@ test('Find history menus fall back to their matching input', () => {
 });
 
 test('Find result menu falls back to the query when its row unmounts', () => {
-  assert.match(find, /const openFindResultMenuAt = \(x, y, result\) =>/);
+  assert.match(
+    find,
+    /const openFindResultMenuAt = \(\s*x(?::\s*[^,]+)?,\s*y(?::\s*[^,]+)?,\s*result(?::\s*[^)]+)?\)(?::\s*[^{]+)?/,
+  );
   assert.match(find, /fallbackFocus: \(\) => queryInputRef\.current\?\.focus\?\.\(\)/);
   assert.doesNotMatch(find, /document\.body\.focus/);
 });

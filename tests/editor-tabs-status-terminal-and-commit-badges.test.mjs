@@ -115,7 +115,7 @@ test('the status bar reports editor mode without rewriting user indentation', ()
 
 test('the terminal split tracks its focused pane and remembers its ratio', () => {
   const client = terminalSource;
-  assert.match(client, /const \[focusedPane, setFocusedPane\] = React\.useState\('left'\);/);
+  assert.match(client, /const \[focusedPane, setFocusedPane\] = React\.useState<'left' \| 'right'>\('left'\);/);
   assert.match(client, /data-dsh-terminal-pane-role='left'/);
   assert.match(client, /data-dsh-terminal-pane-role='right'/);
   assert.match(
@@ -136,7 +136,10 @@ test('commit rows render numstat badges instead of fabricating counts', () => {
   assert.match(client, /<LineCounts counts=\{subtotalOf\(row\.changes, group\.id\)\} \/>/);
   /* Round 50 moved the summing into one shared helper the directory row reuses. */
   assert.match(commitModel, /export function subtotalOf\(/);
-  assert.match(client, /const groupTotals = \(group\) => subtotalOf\(group\.changes, group\.id\);/);
+  assert.match(
+    client,
+    /const groupTotals = \(group(?::\s*[^)]+)?\)(?::\s*[^=]+)?\s*=>\s*subtotalOf\(group\.changes, group\.id\);/,
+  );
 });
 
 test('the first shell auto-starts once the retained list settles', () => {

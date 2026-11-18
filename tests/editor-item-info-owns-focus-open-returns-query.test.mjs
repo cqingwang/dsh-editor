@@ -35,7 +35,7 @@ test('item info owns focus while open and returns it to the query', () => {
 });
 
 test('dialog-level Escape closes Item Info regardless of focused control', () => {
-  assert.match(dialog, /const handleSearchEverywhereDialogKeyDown = \(event\) =>/);
+  assert.match(dialog, /const handleSearchEverywhereDialogKeyDown = \(event(?::\s*[^)]+)?\)(?::\s*[^{]+)?/);
   assert.match(
     dialog,
     /if \(event\.key === 'Escape' && resultInfo !== null\)[\s\S]*?closeResultInfo\(\)[\s\S]*?return;/,

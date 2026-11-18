@@ -33,7 +33,7 @@ test('typing again ends the recall walk and forgets the saved draft', () => {
 
 test('the terminal find bar reopens with the previous query', () => {
   assert.match(source, /const lastTerminalQuery = React\.useRef\(''\);/);
-  assert.match(source, /const openTerminalFind = \(emulator\) => \{/);
+  assert.match(source, /const openTerminalFind = \(emulator(?::\s*[^)]+)?\)(?::\s*[^{]+)?/);
   assert.match(source, /const query = lastTerminalQuery\.current;/);
   /* The count is recomputed for the restored query rather than trusted from before. */
   assert.match(
@@ -48,7 +48,7 @@ test('⌘F reopens the find bar without clobbering an open one', () => {
   assert.match(source, /const findRef = React\.useRef\(null\);/);
   assert.match(source, /if \(findRef\.current === null\)\s+openTerminalFind\(/);
   /* The ref must be declared after the state it mirrors, or the render hits the TDZ. */
-  const stateAt = source.indexOf('const [find, setFind] = React.useState(null);');
+  const stateAt = source.indexOf('const [find, setFind] = React.useState<TerminalFindState | null>(null);');
   const refAt = source.indexOf('const findRef = React.useRef(null);');
   assert.ok(stateAt > 0 && refAt > stateAt);
 });

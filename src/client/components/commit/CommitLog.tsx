@@ -131,20 +131,20 @@ function CommitLogView({
   const selectionAnchorRef = React.useRef('');
   const [filter, setFilter] = React.useState('');
   const [showFilter, setShowFilter] = React.useState(false);
-  const listRef = React.useRef(null);
+  const listRef = React.useRef<HTMLDivElement | null>(null);
   const logScrollRef = scrollRefs?.log ?? null;
   const setLogListRef = React.useCallback(
-    (node) => {
+    (node: HTMLDivElement | null): void => {
       listRef.current = node;
       if (logScrollRef !== null) logScrollRef.current = node;
     },
     [logScrollRef],
   );
-  const logFilterInputRef = React.useRef(null);
+  const logFilterInputRef = React.useRef<HTMLInputElement | null>(null);
   /* IDEA's Git Log owns ⌘L for its text filter. ⌘F belongs to Find in Files,
      so the log must not keep the editor-wide Find shortcut for itself. */
   React.useEffect(() => {
-    const onKeyDown = (event) => {
+    const onKeyDown = (event: KeyboardEvent): void => {
       const action = commitLogShortcutAction(
         event.key,
         event.metaKey === true,
@@ -172,7 +172,7 @@ function CommitLogView({
     window.addEventListener('keydown', onKeyDown, true);
     return () => window.removeEventListener('keydown', onKeyDown, true);
   }, [onFindInFiles]);
-  const [localFileAvailability, setLocalFileAvailability] = React.useState(() => new Map());
+  const [localFileAvailability, setLocalFileAvailability] = React.useState<Map<string, boolean>>(() => new Map());
   const logFailedRef = React.useRef(logFailure !== null);
   React.useEffect(() => {
     const failed = logFailure !== null;
@@ -183,7 +183,7 @@ function CommitLogView({
     }
   }, [logFailure]);
   const detailPathKey = detail?.files?.map((file) => file.path).join('\0') ?? '';
-  const detailScrollRef = React.useRef(null);
+  const detailScrollRef = React.useRef<HTMLDivElement | null>(null);
   /* IDEA shows a newly selected commit from its title, not at the previous
      commit's reading offset. Same-hash local refreshes keep the user's
      position because only identity changes are in this dependency. */
@@ -242,7 +242,7 @@ function CommitLogView({
   const visible = commitLogFilterCommits(commits, filter);
   const graphEntries = graph?.entries ?? [];
   const graphRows = graphDisplayEntries(graphEntries, graphFolded);
-  const selectCommitRow = (order, hash, event) => {
+  const selectCommitRow = (order: string[], hash: string, event: React.MouseEvent<HTMLElement> | null): void => {
     const result = commitSelectionAfterClick(
       order,
       selectedCommits,
@@ -257,7 +257,11 @@ function CommitLogView({
     onSelectCommits?.(result.selected);
     onShow?.(hash);
   };
-  const selectGraphCommitRow = (entry, event, options) => {
+  const selectGraphCommitRow = (
+    entry: { hash: string },
+    event: React.MouseEvent<HTMLElement> | null,
+    options: { contextMenu?: boolean } | null | undefined,
+  ): void => {
     if (options?.contextMenu === true && selectedCommits.includes(entry.hash)) {
       setGraphHover(null);
       setGraphCursor(entry.hash);
@@ -280,7 +284,8 @@ function CommitLogView({
     setGraphCursor(entry.hash);
     onShow?.(entry.hash);
   };
-  const contextSelectionFor = (hash) => commitLogContextSelection(selectedCommits, hash).selectionHashes;
+  const contextSelectionFor = (hash: string): string[] =>
+    commitLogContextSelection(selectedCommits, hash).selectionHashes;
   const retryList = () => {
     if (graphMode && onLoadGraph !== undefined) {
       onLoadGraph(graph?.branch ?? '', graph?.at ?? '');
@@ -305,7 +310,7 @@ function CommitLogView({
    * @param {number} delta - -1 to go up, 1 to go down.
    * @returns {void}
    */
-  const moveGraphCursor = (delta, shiftKey = false) => {
+  const moveGraphCursor = (delta: 1 | -1, shiftKey = false): void => {
     const next = commitLogGraphMove(graphRows, graphCursor, graphHover, delta);
     if (next === null) return;
     /* Start from wherever the user last was — the pointer counts too, so the

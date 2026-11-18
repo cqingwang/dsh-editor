@@ -48,7 +48,7 @@ function commitPanelProps() {
  * marker, so an unrelated function growing does not silently empty the slice.
  */
 function renderGroupBody() {
-  const start = source.indexOf('  const renderGroup = (group, groupIndex) => {');
+  const start = source.indexOf('  const renderGroup = (group');
   const end = source.indexOf('  return (\n    <React.Fragment>', start);
   assert.notEqual(start, -1, 'renderGroup is missing');
   assert.notEqual(end, -1, 'renderGroup end marker moved');

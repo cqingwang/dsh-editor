@@ -1058,15 +1058,18 @@ export function findToolRequestIsCurrent(
 /**
  * Resolve the next enabled Find scope mode for keyboard navigation.
  *
- * Module is intentionally excluded while the text workspace has no module
- * search model. Arrow keys therefore cycle the visible usable modes instead
- * of trapping focus on a disabled button.
+ * File scope is a filename navigator, not a language-module model. Arrow keys
+ * cycle every visible usable mode instead of trapping focus on a disabled
+ * button.
  * @param {string} current - active scope mode.
  * @param {string} key - keyboard event key.
- * @returns {'project'|'directory'|'scope'|null} next mode, or null.
+ * @returns {'project'|'files'|'directory'|'scope'|null} next mode, or null.
  */
-export function findToolScopeModeTarget(current: string, key: string): 'project' | 'directory' | 'scope' | null {
-  const modes: Array<'project' | 'directory' | 'scope'> = ['project', 'directory', 'scope'];
+export function findToolScopeModeTarget(
+  current: string,
+  key: string,
+): 'project' | 'files' | 'directory' | 'scope' | null {
+  const modes: Array<'project' | 'files' | 'directory' | 'scope'> = ['project', 'files', 'directory', 'scope'];
   if (key === 'Home') return modes[0];
   if (key === 'End') return modes[modes.length - 1];
   const currentIndex = modes.findIndex((mode) => mode === current);
@@ -2272,17 +2275,18 @@ export function writeSearchOptions(options: unknown): void {
  * Normalize the last IDEA Find scope into values the UI can restore.
  * Invalid Directory paths fall back to Project rather than the workspace root.
  * @param {unknown} value - parsed storage value or scope request.
- * @returns {{mode: 'project'|'directory'|'scope', preset: string, directory: string}} normalized scope.
+ * @returns {{mode: 'project'|'files'|'directory'|'scope', preset: string, directory: string}} normalized scope.
  */
 function normalizeFindSearchScope(value: unknown): {
-  mode: 'project' | 'directory' | 'scope';
+  mode: 'project' | 'files' | 'directory' | 'scope';
   preset: string;
   directory: string;
 } {
   const source =
     value !== null && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
   const requestedMode = source.mode;
-  const mode = requestedMode === 'directory' || requestedMode === 'scope' ? requestedMode : 'project';
+  const mode =
+    requestedMode === 'files' || requestedMode === 'directory' || requestedMode === 'scope' ? requestedMode : 'project';
   const customPreset =
     typeof source.preset === 'string' && /^custom:[a-z0-9][a-z0-9-]{0,63}$/u.test(source.preset) ? source.preset : null;
   const preset =

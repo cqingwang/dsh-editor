@@ -619,7 +619,7 @@ export function shouldShowTreeLoading(state: TreeLoadingState | null | undefined
  */
 export function isWorkspaceMenu(labels: string[] | null | undefined): boolean {
   if (!Array.isArray(labels) || labels.length === 0) return false;
-  const has = (pattern) => labels.some((label) => pattern.test(label));
+  const has = (pattern: RegExp): boolean => labels.some((label) => pattern.test(label));
   return has(/^重命名$|^Rename$/u) && has(/^删除工作区$|^Delete workspace$/u);
 }
 
@@ -885,12 +885,12 @@ export function copyReferenceMenuItems({
   const firstPath = first?.path ?? '';
   const firstIsRoot = first !== null && firstPath === '';
   const onlyFile = first !== null && !firstIsRoot && first.isDirectory !== true && multiple === false;
-  const absolutePath = (path) => {
+  const absolutePath = (path: string): string => {
     if (path === '') return root;
     if (root === '') return path;
     return `${root}/${path}`.replace(/\/+/gu, '/');
   };
-  const write = (value) => {
+  const write = (value: string): void => {
     Promise.resolve(writeText?.(value)).catch(() => {});
   };
   return [

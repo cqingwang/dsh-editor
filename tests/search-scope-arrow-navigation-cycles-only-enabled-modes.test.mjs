@@ -2,24 +2,27 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
+import { loadTypeScriptFunction } from './ts-source.mjs';
+
 const source = (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) + '\n' + (await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8'));
+const commitSource = await readFile(new URL('../src/client/commit.ts', import.meta.url), 'utf8');
 const findTool = source.slice(
   source.indexOf('function FindToolWindowView('),
   source.indexOf('const FindToolWindow = FindToolWindowView;'),
 );
 
 test('Scope arrow navigation cycles only enabled modes', () => {
-  const target = new Function(
-    `${extractFunction('findToolScopeModeTarget')}; return findToolScopeModeTarget;`,
-  )();
-  assert.equal(target('project', 'ArrowRight'), 'directory');
+  const target = loadTypeScriptFunction(commitSource, 'findToolScopeModeTarget');
+  assert.equal(target('project', 'ArrowRight'), 'files');
+  assert.equal(target('files', 'ArrowRight'), 'directory');
   assert.equal(target('directory', 'ArrowRight'), 'scope');
   assert.equal(target('scope', 'ArrowRight'), 'project');
   assert.equal(target('project', 'ArrowLeft'), 'scope');
   assert.equal(target('scope', 'ArrowLeft'), 'directory');
   assert.equal(target('directory', 'Home'), 'project');
   assert.equal(target('project', 'End'), 'scope');
-  assert.equal(target('module', 'ArrowRight'), 'project');
+  assert.equal(target('files', 'ArrowLeft'), 'project');
+  assert.equal(target('unknown', 'ArrowRight'), 'project');
   assert.equal(target('project', 'Enter'), null);
 });
 
@@ -32,26 +35,19 @@ test('Find exposes the scope modes as one named keyboard group', () => {
   assert.match(findTool, /selectFindScopeMode\(mode\)/);
 });
 
-test('Scope group copy is localized and Module remains unavailable', () => {
+test('Scope group replaces Module with the actionable File mode', () => {
   assert.match(source, /findScopeModeGroup: '搜索范围'/);
   assert.match(source, /findScopeModeGroup: 'Search scope'/);
-  assert.match(findTool, /id: 'module'[\s\S]*?disabled: true/);
-  assert.doesNotMatch(
+  const scopeModes = findTool.slice(
+    findTool.indexOf('const scopeModeOptions = ['),
+    findTool.indexOf('const replaceMode ='),
+  );
+  assert.match(scopeModes, /id: 'files'[\s\S]*?disabled: false/);
+  assert.doesNotMatch(scopeModes, /id: 'module'/);
+  assert.match(source, /findScopeFile: '文件'/);
+  assert.match(source, /findScopeFile: 'File'/);
+  assert.match(
     source.slice(source.indexOf('function findToolScopeModeTarget('), source.indexOf('function claimReplaceAttempt(')),
-    /'module'/,
+    /'files'/,
   );
 });
-
-function extractFunction(name) {
-  const start = source.indexOf(`function ${name}(`);
-  assert.notEqual(start, -1, `${name} is missing`);
-  const bodyStart = source.indexOf(') {', start) + 2;
-  assert.ok(bodyStart > 1, `${name} has no function body`);
-  let depth = 0;
-  for (let index = bodyStart; index < source.length; index += 1) {
-    if (source[index] === '{') depth += 1;
-    if (source[index] === '}') depth -= 1;
-    if (depth === 0) return source.slice(start, index + 1);
-  }
-  assert.fail(`${name} has no closing brace`);
-}

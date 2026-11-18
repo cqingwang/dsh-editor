@@ -14,8 +14,10 @@ const findTool = source.slice(
 );
 
 test('A failed Find search retains the previous rows instead of clearing them', () => {
-  const effectStart = source.indexOf('React.useEffect(() => {\n    if (!findToolOpen');
-  const effectEnd = source.indexOf('  }, [\n    findToolOpen,', effectStart);
+  const effectStart = source.indexOf(
+    'if (!findToolOpen || findTool.loadedGeneration === findTool.searchGeneration)',
+  );
+  const effectEnd = source.indexOf("/* IDEA's Find Action chord", effectStart);
   const effect = source.slice(effectStart, effectEnd);
   assert.ok(effectStart >= 0 && effectEnd > effectStart);
   const catchStart = effect.indexOf('.catch((failure) => {');

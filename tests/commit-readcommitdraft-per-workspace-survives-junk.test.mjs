@@ -95,7 +95,7 @@ test('readTerminalColors survives corrupt or foreign storage', () => {
 
 test('the tab menu offers colour cycling and closing forgets the colour', () => {
   assert.match(source, /const TERMINAL_COLORS = \['#cf222e', '#bf8700', '#1a7f37', '#2f65ca', '#8250df', '#1b7c83'\];/);
-  assert.match(source, /const cycleTerminalColor = React\.useCallback\(\(id\) => \{/);
+  assert.match(source, /const cycleTerminalColor = React\.useCallback\(\(id(?::\s*[^)]+)?\)(?::\s*[^{]+)?/);
   /* Cycling past the last colour returns to "no colour" rather than wrapping oddly. */
   assert.match(source, /if \(index === TERMINAL_COLORS\.length - 1\) delete next\[id\];/);
   assert.match(source, /id: 'color', label: t\('editor\.terminalColor'\)/);

@@ -7,7 +7,10 @@ const terminalStart = client.indexOf('function TerminalPanel(');
 const terminal = client.slice(terminalStart, client.indexOf('\nexport { TerminalPanel };', terminalStart));
 
 test('TerminalPanel guards duplicate close requests by terminal id', () => {
-  assert.match(terminal, /const closingTerminalIdsRef = React\.useRef(?:<[^>]+>)?\(new Set\(\)\);/u);
+  assert.match(
+    terminal,
+    /const closingTerminalIdsRef = React\.useRef(?:<[^>]+>)?\(new Set(?:<[^>]+>)?\(\)\);/u,
+  );
   const start = terminal.indexOf('const closeTerminal = React.useCallback(');
   const end = terminal.indexOf('    [rememberClosed],', start);
   const block = terminal.slice(start, end);

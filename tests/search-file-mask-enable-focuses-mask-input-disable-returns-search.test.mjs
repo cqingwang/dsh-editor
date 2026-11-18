@@ -53,11 +53,11 @@ test('Mouse Scope mode and preset changes return focus to Search', () => {
   );
   assert.match(
     component,
-    /const selectFindScopePreset = \(preset\) => \{\s+setScopePreset\(preset\);\s+emitFindScopeChange\(scopeMode, preset, scopeDirectoryDraft\);\s+window\.setTimeout\(\(\) => queryInputRef\.current\?\.focus\?\.\(\), 0\);\s+\};/u,
+    /const selectFindScopePreset = \(preset(?::\s*[^)]+)?\)(?::\s*[^{]+)? \{\s+setScopePreset\(preset\);\s+emitFindScopeChange\(scopeMode, preset, scopeDirectoryDraft\);\s+window\.setTimeout\(\(\) => queryInputRef\.current\?\.focus\?\.\(\), 0\);\s+\};/u,
   );
   assert.match(
     component,
-    /const moveFindScopeMode = \(mode\) => \{\s+selectFindScopeMode\(mode\);\s+window\.setTimeout\(\(\) => scopeModeButtonRefs\.current\.get\(mode\)\?\.focus\?\.\(\), 0\);\s+\};/u,
+    /const moveFindScopeMode = \(mode(?::\s*[^)]+)?\)(?::\s*[^{]+)? \{\s+selectFindScopeMode\(mode\);\s+window\.setTimeout\(\(\) => scopeModeButtonRefs\.current\.get\(mode\)\?\.focus\?\.\(\), 0\);\s+\};/u,
   );
 });
 

@@ -26,7 +26,8 @@ interface EditorErrorBoundaryState {
 class EditorErrorBoundaryView extends React.Component<EditorErrorBoundaryProps, EditorErrorBoundaryState> {
   constructor(props: EditorErrorBoundaryProps) {
     super(props);
-    this.state = { error: null, generation: 0 };
+    const state: EditorErrorBoundaryState = { error: null, generation: 0 };
+    this.state = state;
     this.reload = this.reload.bind(this);
   }
 
@@ -54,7 +55,12 @@ class EditorErrorBoundaryView extends React.Component<EditorErrorBoundaryProps, 
   }
 
   reload() {
-    this.setState((current) => ({ error: null, generation: current.generation + 1 }));
+    this.setState(
+      (current: EditorErrorBoundaryState): EditorErrorBoundaryState => ({
+        error: null,
+        generation: current.generation + 1,
+      }),
+    );
   }
 
   render() {

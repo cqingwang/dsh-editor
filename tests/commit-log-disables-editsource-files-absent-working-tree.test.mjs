@@ -16,7 +16,10 @@ const source = [
 test('Commit Log disables EditSource for files absent from the working tree', () => {
   const log = source.slice(source.indexOf('function CommitLogView('), source.indexOf('const CommitLog = CommitLogView;'));
   const detail = source.slice(source.indexOf('function CommitLogDetailPane({'), source.indexOf('export { CommitLogDetailPane };'));
-  assert.match(log, /const \[localFileAvailability, setLocalFileAvailability\] = React\.useState\(\(\) => new Map\(\)\)/);
+  assert.match(
+    log,
+    /const \[localFileAvailability, setLocalFileAvailability\] = React\.useState<Map<string, boolean>>\(\(\) => new Map\(\)\)/,
+  );
   assert.match(log, /const localQueryPaths = \[\.\.\.new Set\(detail\.files\.flatMap/);
   assert.match(log, /op: 'exists',\s+paths: localQueryPaths,/);
   assert.match(detail, /onEditSource\?\.\(file\.path\)/);

@@ -23,6 +23,7 @@ import {
   terminalSelectionBlockRange,
   terminalTabContextFocus,
   terminalTabMenu,
+  type TerminalEmulator,
   visibleTabCount,
   writeTerminalText,
 } from '../../find-tool';
@@ -46,6 +47,7 @@ import {
   TERMINAL_COLORS,
   terminalActiveAfterClose,
   terminalFontSize,
+  type TerminalDescription,
   writeEditorTerminals,
   writeTerminalColors,
   writeTerminalRestoreSnapshots,
@@ -53,6 +55,34 @@ import {
 import { MeasuringScreen } from './MeasuringScreen';
 
 type Translate = (key: string, params?: Record<string, unknown>) => string;
+
+interface TerminalGrid {
+  cols: number;
+  rows: number;
+}
+
+interface TerminalFindState {
+  query: string;
+  index: number;
+  total: number;
+}
+
+interface TerminalRenameState {
+  id: string;
+  value: string;
+  previous: string;
+}
+
+interface TerminalRestoreEntry {
+  shell: string;
+  cwd: string;
+  title: string;
+}
+
+interface TerminalSelectionPosition {
+  start: { x: number; y: number };
+  end: { x: number; y: number };
+}
 
 export interface TerminalPanelProps {
   t: Translate;
@@ -82,19 +112,19 @@ function TerminalPanel({
   onSwitchFocusToEditor,
   focusGeneration = 0,
 }: TerminalPanelProps) {
-  const [terminals, setTerminals] = React.useState([]);
+  const [terminals, setTerminals] = React.useState<TerminalDescription[]>([]);
   /* The live directory per terminal, updated from OSC 7. The menu builds its
      items from a render snapshot, so a `cd` right before the click would
      otherwise be missed. */
-  const terminalCwdRef = React.useRef(new Map());
-  const [activeId, setActiveId] = React.useState(null);
-  const closingTerminalIdsRef = React.useRef(new Set());
+  const terminalCwdRef = React.useRef(new Map<string, string>());
+  const [activeId, setActiveId] = React.useState<string | null>(null);
+  const closingTerminalIdsRef = React.useRef(new Set<string>());
   const terminalReorderRequestRef = React.useRef(0);
   const [available, setAvailable] = React.useState(true);
   /* Resolved README per terminal, so the tab menu can disable the item when the
      shell's directory has none (the cwd alone is always a non-empty string). */
-  const [readmePaths, setReadmePaths] = React.useState({});
-  const [error, setError] = React.useState(null);
+  const [readmePaths, setReadmePaths] = React.useState<Record<string, string>>({});
+  const [error, setError] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
   /* Terminals that were moved INTO the editor area (IDEA's "Move to Editor").
      Their PTY keeps running; the dock stops rendering the tab. */
@@ -120,7 +150,7 @@ function TerminalPanel({
    * @returns {void}
    */
   const moveTerminalToEditor = React.useCallback(
-    (terminal) => {
+    (terminal: TerminalDescription): void => {
       if (terminal === null || terminal === undefined) return;
       const remaining = terminals.find(
         (candidate) => candidate.id !== terminal.id && !editorIds.includes(candidate.id),
@@ -137,23 +167,23 @@ function TerminalPanel({
    * @param {object} terminal - terminal description.
    * @returns {void}
    */
-  const returnTerminalToDock = React.useCallback((terminal) => {
+  const returnTerminalToDock = React.useCallback((terminal: TerminalDescription): void => {
     if (terminal === null || terminal === undefined) return;
     setEditorIds((current) => current.filter((id) => id !== terminal.id));
     setActiveId(terminal.id);
   }, []);
   /* IDEA splits the terminal dock: the right pane follows its own tab. */
-  const [splitId, setSplitId] = React.useState(null);
+  const [splitId, setSplitId] = React.useState<string | null>(null);
   /* The split ratio survives a reload, like IDEA's dock proportions. */
   const [splitPercent, setSplitPercent] = React.useState(() =>
     readStoredNumber('dsh-editor.terminal.splitPercent', 50),
   );
   const [splitDragging, setSplitDragging] = React.useState(false);
   /* Which pane owns the keyboard; IDEA highlights that pane's tab. */
-  const [focusedPane, setFocusedPane] = React.useState('left');
+  const [focusedPane, setFocusedPane] = React.useState<'left' | 'right'>('left');
   /* Keyboard handlers are bound once, so they read the pane through a ref. */
-  const focusedPaneRef = React.useRef('left');
-  const splitIdRef = React.useRef(null);
+  const focusedPaneRef = React.useRef<'left' | 'right'>('left');
+  const splitIdRef = React.useRef<string | null>(null);
   const tRef = React.useRef(t);
   tRef.current = t;
   React.useEffect(() => {
@@ -168,10 +198,10 @@ function TerminalPanel({
    * prompt. So the size is measured by the dock itself (see the measuring
    * screen below) instead of a hard-coded 80×24.
    */
-  const measuredRef = React.useRef(null);
+  const measuredRef = React.useRef<TerminalGrid | null>(null);
   /* Callers waiting for the first measurement (see `awaitMeasured`). */
-  const measureWaiters = React.useRef([]);
-  const reportGrid = React.useCallback((value) => {
+  const measureWaiters = React.useRef<Array<(value: TerminalGrid) => void>>([]);
+  const reportGrid = React.useCallback((value: TerminalGrid): void => {
     measuredRef.current = value;
     const waiters = measureWaiters.current;
     if (waiters.length === 0) return;
@@ -188,11 +218,11 @@ function TerminalPanel({
    * @param {number} timeout - how long to wait for a measurement.
    * @returns {Promise<{cols: number, rows: number}>} the grid to spawn with.
    */
-  const awaitMeasured = React.useCallback((timeout = 400) => {
+  const awaitMeasured = React.useCallback((timeout = 400): Promise<TerminalGrid> => {
     if (measuredRef.current !== null) return Promise.resolve(measuredRef.current);
-    return new Promise((resolve) => {
+    return new Promise<TerminalGrid>((resolve) => {
       let settled = false;
-      const finish = (value) => {
+      const finish = (value: TerminalGrid | null): void => {
         if (settled) return;
         settled = true;
         resolve(
@@ -208,13 +238,13 @@ function TerminalPanel({
   }, []);
   const [shellMenu, setShellMenu] = React.useState(null);
   const [fontSize, setFontSize] = React.useState(() => readStoredNumber('dsh-editor.terminal.fontSize', 12));
-  const [renaming, setRenaming] = React.useState(null);
+  const [renaming, setRenaming] = React.useState<TerminalRenameState | null>(null);
   const [menu, setMenu] = React.useState(null);
   /* The tab strip's measured width; 0 until the first layout pass. */
   const [tabStripWidth, setTabStripWidth] = React.useState(0);
   const tabStripRef = React.useRef(null);
   /* The dock's find bar; its opening query comes from the last search. */
-  const [find, setFind] = React.useState(null);
+  const [find, setFind] = React.useState<TerminalFindState | null>(null);
   /* The one-shot key listener needs to know whether the find bar is open. */
   const findRef = React.useRef(null);
   const findInputRef = React.useRef(null);
@@ -268,7 +298,7 @@ function TerminalPanel({
    * @returns {Promise<void>} resolves when the tab is opened or the failure is shown.
    */
   const openTerminalReadme = React.useCallback(
-    async (cwd) => {
+    async (cwd: string): Promise<void> => {
       const absolute = typeof cwd === 'string' ? cwd : '';
       if (absolute === '') return;
       const root = workspaceRoot;
@@ -316,7 +346,7 @@ function TerminalPanel({
     [onOpenFile, t, workspaceRoot],
   );
   const revealTerminalDirectory = React.useCallback(
-    async (cwd) => {
+    async (cwd: string): Promise<void> => {
       const absolute = typeof cwd === 'string' ? cwd : '';
       if (absolute === '') return;
       try {
@@ -346,7 +376,7 @@ function TerminalPanel({
   );
 
   /** Open the terminal find bar pre-filled with the previous query. */
-  const openTerminalFind = (emulator) => {
+  const openTerminalFind = (emulator: TerminalEmulator | null | undefined): void => {
     const query = lastTerminalQuery.current;
     const total =
       query === '' || emulator === null || emulator === undefined ? 0 : countTerminalMatches(emulator, query);
@@ -357,18 +387,21 @@ function TerminalPanel({
     });
   };
   /* Tab drag-reorder state; IDEA lets you pull a terminal tab sideways. */
-  const [dragId, setDragId] = React.useState(null);
-  const [dragOverId, setDragOverId] = React.useState(null);
+  const [dragId, setDragId] = React.useState<string | null>(null);
+  const [dragOverId, setDragOverId] = React.useState<string | null>(null);
   const newButtonRef = React.useRef(null);
   /* Emulators are owned by TerminalScreen; these mirror them for menus and shortcuts. */
-  const emulatorRef = React.useRef(null);
-  const splitEmulatorRef = React.useRef(null);
-  const screenSelectionPositionRef = React.useRef({
+  const emulatorRef = React.useRef<TerminalEmulator | null>(null);
+  const splitEmulatorRef = React.useRef<TerminalEmulator | null>(null);
+  const screenSelectionPositionRef = React.useRef<{
+    left: TerminalSelectionPosition | null;
+    right: TerminalSelectionPosition | null;
+  }>({
     left: null,
     right: null,
   });
-  const activeRef = React.useRef(null);
-  const terminalsRef = React.useRef([]);
+  const activeRef = React.useRef<string | null>(null);
+  const terminalsRef = React.useRef<TerminalDescription[]>([]);
   /* The link provider runs on xterm's schedule, so the cwd is read through a ref. */
   const cwdRef = React.useRef('');
   /* Input must reach the PTY in typing order, so writes ride one promise chain. */
@@ -381,9 +414,9 @@ function TerminalPanel({
   /* Whether this mount already auto-opened its first shell. */
   const openedRef = React.useRef(false);
   /* Recently closed terminals for this Session, newest first. */
-  const [closedHistory, setClosedHistory] = React.useState(() => readClosedTerminals());
+  const [closedHistory, setClosedHistory] = React.useState<TerminalRestoreEntry[]>(() => readClosedTerminals());
   /* Per-tab colour, an IDEA grouping aid; stored in the browser, not the host. */
-  const [colors, setColors] = React.useState(() => readTerminalColors());
+  const [colors, setColors] = React.useState<Record<string, string>>(() => readTerminalColors());
   /* The key handler is bound once, so it reads the history through a ref. */
   const closedHistoryRef = React.useRef(closedHistory);
   React.useEffect(() => {
@@ -452,7 +485,7 @@ function TerminalPanel({
    * @param {string} id - terminal identity.
    * @param {string} title - title the shell published.
    */
-  const syncTerminalTitle = React.useCallback(async (id, title) => {
+  const syncTerminalTitle = React.useCallback(async (id: string, title: string): Promise<void> => {
     if (renamedRef.current.has(id)) return;
     const current = terminalsRef.current.find((terminal) => terminal.id === id);
     if (current === undefined || current.title === title) return;
@@ -484,7 +517,7 @@ function TerminalPanel({
    * @param {string} cwd - absolute directory the shell reported.
    * @returns {void}
    */
-  const syncTerminalCwd = React.useCallback((id, cwd) => {
+  const syncTerminalCwd = React.useCallback((id: string, cwd: string): void => {
     if (typeof cwd !== 'string' || cwd === '') return;
     setTerminals((list) => {
       const target = list.find((terminal) => terminal.id === id);
@@ -504,7 +537,7 @@ function TerminalPanel({
   }, []);
 
   /** Queue one keystroke behind the previous one so the PTY sees typing order. */
-  const sendInput = React.useCallback((id, data) => {
+  const sendInput = React.useCallback((id: string, data: string): Promise<void> => {
     writeChain.current = writeChain.current
       .then(async () => {
         await callTerminal({
@@ -524,7 +557,7 @@ function TerminalPanel({
    * both. Persisting only `shell` + `cwd` is enough to rebuild an equivalent
    * dock (IDEA reopens the last shell tabs without their scrollback too).
    */
-  const rememberTerminals = React.useCallback((list) => {
+  const rememberTerminals = React.useCallback((list: TerminalDescription[]): void => {
     try {
       const profile = list
         .filter((terminal) => typeof terminal.shell === 'string' && terminal.shell !== '')
@@ -548,7 +581,7 @@ function TerminalPanel({
    * can be restored — the PTY and its scrollback died with the close.
    * @param {{shell: string, cwd: string, title: string}} terminal - description before closing.
    */
-  const rememberClosed = React.useCallback((terminal) => {
+  const rememberClosed = React.useCallback((terminal: TerminalDescription): void => {
     if (terminal === null || typeof terminal.shell !== 'string') return;
     setClosedHistory((current) => {
       const entry = {
@@ -579,7 +612,7 @@ function TerminalPanel({
    * @returns {string} message for the dock's status bar.
    */
   const describeCreateFailure = React.useCallback(
-    (failure) => {
+    (failure: unknown): string => {
       const message = failure instanceof Error ? failure.message : String(failure);
       return /at most \d+ terminals/iu.test(message) ? t('editor.terminalLimit') : message;
     },
@@ -635,7 +668,7 @@ function TerminalPanel({
    * written on every change so a reload restores the grouping.
    * @param {string} id - terminal identity.
    */
-  const cycleTerminalColor = React.useCallback((id) => {
+  const cycleTerminalColor = React.useCallback((id: string): void => {
     setColors((current) => {
       const index = current[id] === undefined ? -1 : TERMINAL_COLORS.indexOf(current[id]);
       const next = {
@@ -650,7 +683,7 @@ function TerminalPanel({
 
   /* Reopening a closed tab starts a fresh shell in the same directory. */
   const reopenClosed = React.useCallback(
-    async (entry) => {
+    async (entry: TerminalRestoreEntry): Promise<void> => {
       const exists = await callTerminal({
         op: 'shells',
       })
@@ -670,7 +703,7 @@ function TerminalPanel({
    * @param {Array<{shell: string, cwd: string}>} profile - remembered tabs.
    */
   const restoreTerminals = React.useCallback(
-    async (profile) => {
+    async (profile: TerminalRestoreEntry[]): Promise<void> => {
       const snapshots = readTerminalRestoreSnapshots();
       for (const [index, entry] of profile.slice(0, 4).entries()) {
         const exists = await callTerminal({
@@ -690,7 +723,7 @@ function TerminalPanel({
      Listened for on `window`: the editor area dispatches from its own node,
      and a host re-render can replace that node between dispatches. */
   React.useEffect(() => {
-    const onReturn = (event) => {
+    const onReturn = (event: CustomEvent<{ id?: unknown }>): void => {
       const id = event.detail?.id;
       if (typeof id !== 'string' || id === '') return;
       returnTerminalToDock({ id });
@@ -766,7 +799,7 @@ function TerminalPanel({
                 id: shell.path,
                 label: shell.name,
                 shortcut: '',
-                run: () => void createTerminal(shell.path),
+                run: (): void => void createTerminal(shell.path),
               })),
       });
     } catch (failure) {
@@ -798,7 +831,7 @@ function TerminalPanel({
     }
   }, [renaming]);
   const closeTerminal = React.useCallback(
-    async (id) => {
+    async (id: string): Promise<void> => {
       if (closingTerminalIdsRef.current.has(id)) return;
       closingTerminalIdsRef.current.add(id);
       /* Record it first: after the host reaps it there is nothing left to describe. */
@@ -838,7 +871,7 @@ function TerminalPanel({
   );
 
   /* Reorder the dock's tabs locally first, then persist the order on the host. */
-  const moveTab = React.useCallback(async (sourceId, targetId) => {
+  const moveTab = React.useCallback(async (sourceId: string, targetId: string): Promise<void> => {
     const requestId = ++terminalReorderRequestRef.current;
     const current = terminalsRef.current.map((terminal) => terminal.id);
     const from = current.indexOf(sourceId);
@@ -862,7 +895,7 @@ function TerminalPanel({
 
   /* IDEA's "Close Other Terminals": keep one tab, reap the rest. */
   const closeOtherTerminals = React.useCallback(
-    async (keepId) => {
+    async (keepId: string): Promise<void> => {
       const current = terminalsRef.current;
       if (!current.some((terminal) => terminal.id === keepId)) return;
       const doomed = current.filter((terminal) => terminal.id !== keepId);
@@ -918,7 +951,12 @@ function TerminalPanel({
   }, [splitId, splitTerminal, activeId, focusedPane]);
 
   /** Open the screen context menu for one pane. */
-  const openScreenMenu = (event, emulator, terminal, pane = 'left') => {
+  const openScreenMenu = (
+    event: React.MouseEvent<HTMLElement>,
+    emulator: TerminalEmulator | null | undefined,
+    terminal: TerminalDescription,
+    pane: 'left' | 'right' = 'left',
+  ): void => {
     if (emulator === null || emulator === undefined) return;
     event.preventDefault();
     event.stopPropagation();
@@ -984,7 +1022,7 @@ function TerminalPanel({
 
   /* ⌘/Ctrl+F inside either terminal pane opens the dock's own find bar. */
   React.useEffect(() => {
-    const onKeyDown = (event) => {
+    const onKeyDown = (event: KeyboardEvent): void => {
       if (!(event.metaKey || event.ctrlKey) || event.altKey || event.key.toLowerCase() !== 'f') return;
       if (document.activeElement?.closest('[data-dsh-terminal-pane]') == null) return;
       event.preventDefault();
@@ -998,7 +1036,7 @@ function TerminalPanel({
 
   /* IDEA switches terminal tabs with ⌘1–⌘9 and walks them with ⌥←/→. */
   React.useEffect(() => {
-    const onKeyDown = (event) => {
+    const onKeyDown = (event: KeyboardEvent): void => {
       if (document.activeElement?.closest('[data-dsh-editor-terminal]') == null) return;
       const meta = event.metaKey || event.ctrlKey;
       const focusedEmulator = focusedPaneRef.current === 'right' ? splitEmulatorRef.current : emulatorRef.current;
@@ -1306,7 +1344,7 @@ function TerminalPanel({
   };
 
   /** Persist the split ratio once the drag settles. */
-  const commitSplitPercent = (value) => {
+  const commitSplitPercent = (value: number): void => {
     try {
       window.localStorage.setItem('dsh-editor.terminal.splitPercent', String(Math.round(value)));
     } catch {
@@ -1323,7 +1361,7 @@ function TerminalPanel({
    * @param {'left'|'right'} pane - pane that received the drop.
    */
   const moveToPane = React.useCallback(
-    (terminalId, pane) => {
+    (terminalId: string, pane: 'left' | 'right'): void => {
       if (pane === 'right') {
         if (terminalId === activeId) return;
         setSplitId(terminalId);
@@ -1349,7 +1387,7 @@ function TerminalPanel({
    * tab highlighting and which terminal unsplit keeps.
    * @param {'left'|'right'} pane - pane that should own the caret.
    */
-  const focusPane = (pane) => {
+  const focusPane = (pane: 'left' | 'right'): void => {
     if (splitId === null) {
       setFocusedPane('left');
       return;
@@ -1370,7 +1408,7 @@ function TerminalPanel({
    * @param {object} terminal - terminal descriptor.
    * @returns {void}
    */
-  const activateTerminalTab = (terminal) => {
+  const activateTerminalTab = (terminal: TerminalDescription): void => {
     if (splitId !== null && terminal.id === splitId) {
       focusPane('right');
       return;
@@ -1387,7 +1425,7 @@ function TerminalPanel({
    * @param {string} terminalId - terminal id to focus.
    * @returns {void}
    */
-  const focusTerminalTab = (terminalId) => {
+  const focusTerminalTab = (terminalId: string): void => {
     const node = [...(tabStripRef.current?.querySelectorAll('[data-dsh-terminal-tab-id]') ?? [])].find(
       (candidate) => candidate.getAttribute('data-dsh-terminal-tab-id') === terminalId,
     );
@@ -1404,7 +1442,7 @@ function TerminalPanel({
    * @param {-1|1} delta - movement direction.
    * @returns {void}
    */
-  const moveTerminalTabFocus = (terminal, delta) => {
+  const moveTerminalTabFocus = (terminal: TerminalDescription, delta: number): void => {
     const index = tabLayout.visible.findIndex((entry) => entry.id === terminal.id);
     if (index < 0) return;
     const nextIndex = Math.max(0, Math.min(tabLayout.visible.length - 1, index + delta));
@@ -1420,7 +1458,7 @@ function TerminalPanel({
   };
 
   /** Focus the first or last visible terminal tab. */
-  const focusBoundaryTerminalTab = (edge) => {
+  const focusBoundaryTerminalTab = (edge: 'first' | 'last'): void => {
     const target = edge === 'first' ? tabLayout.visible[0] : tabLayout.visible[tabLayout.visible.length - 1];
     if (target === undefined) return;
     activateTerminalTab(target);
@@ -1442,7 +1480,7 @@ function TerminalPanel({
    * @param {number} y - menu anchor y.
    * @returns {void}
    */
-  const openTerminalTabMenu = (terminal, x, y) => {
+  const openTerminalTabMenu = (terminal: TerminalDescription, x: number, y: number): void => {
     const focus = terminalTabContextFocus(terminal.id, activeId, splitId);
     if (focus.activate) setActiveId(terminal.id);
     setFocusedPane(focus.pane);
@@ -1495,7 +1533,7 @@ function TerminalPanel({
    * @param {{left: number, right: number, bottom: number}} anchor - opener rect.
    * @returns {void}
    */
-  const openTerminalOverflowMenu = (anchor) => {
+  const openTerminalOverflowMenu = (anchor: { left: number; right: number; bottom: number }): void => {
     setMenu({
       x: Math.max(4, anchor.right - 188),
       y: anchor.bottom + 4,
@@ -1798,7 +1836,9 @@ function TerminalPanel({
                 {
                   id: 'refresh',
                   label: t('editor.refresh'),
-                  run: () => void refresh(),
+                  run: (): void => {
+                    void refresh();
+                  },
                 },
               ],
             });
@@ -1977,7 +2017,7 @@ function TerminalPanel({
                 const startX = event.clientX;
                 const startPercent = splitPercent;
                 setSplitDragging(true);
-                const onMove = (moveEvent) => {
+                const onMove = (moveEvent: MouseEvent): void => {
                   const delta = ((moveEvent.clientX - startX) / Math.max(1, total)) * 100;
                   /* Snap to the middle like IDEA's splitter, and clamp in one place. */
                   setSplitPercent(snapSplitPercent(startPercent + delta));

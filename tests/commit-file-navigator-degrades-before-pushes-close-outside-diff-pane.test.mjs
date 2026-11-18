@@ -50,7 +50,7 @@ test('the file navigator degrades before it pushes close outside the diff pane',
 test('DiffPreview measures the toolbar width and renders the three file-nav modes', () => {
   const diff = source.slice(source.indexOf('function DiffPreview('), source.indexOf('export { DiffPreview };'));
   assert.match(diff, /const \[diffToolbarWidth, setDiffToolbarWidth\] = React\.useState\(Number\.POSITIVE_INFINITY\)/);
-  assert.match(diff, /setDiffToolbarWidth\(\(current\) =>/);
+  assert.match(diff, /setDiffToolbarWidth\(\(current(?::\s*[^)]+)?\)\s*=>/);
   assert.match(diff, /const fileNavMode = diffFileNavModeForWidth\(diffToolbarWidth\)/);
   assert.match(diff, /fileNavMode === 'hidden' \? null/u);
   assert.match(diff, /fileNavMode ===\s+'compact'/u);

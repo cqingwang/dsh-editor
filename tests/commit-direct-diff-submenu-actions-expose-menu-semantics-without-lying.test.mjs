@@ -22,9 +22,12 @@ function extract(name) {
 
 test('direct Diff submenu actions expose menu semantics without lying about expanded state', () => {
   const diff = source.slice(source.indexOf('function DiffPreview('), source.indexOf('export { DiffPreview };'));
-  assert.match(diff, /openDiffActionSubmenu = React\.useCallback\(\(event, title, items, actionId = null\)/);
+  assert.match(diff, /openDiffActionSubmenu = React\.useCallback\(/);
   assert.match(diff, /actionId,\s+items,/);
-  assert.match(diff, /openDiffActionSubmenu\(event, t\('editor\.settings'\), editorSettingsItems, 'settings'\)/);
+  assert.match(
+    diff,
+    /openDiffActionSubmenu\(\s*event,\s*t\('editor\.settings'\),\s*editorSettingsItems,\s*'settings',?\s*\)/,
+  );
   assert.match(diff, /ariaHasPopup=\{Array\.isArray\(action\.items\) \? 'menu' : undefined\}/u);
   assert.match(
     diff,

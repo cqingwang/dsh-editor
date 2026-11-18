@@ -28,7 +28,10 @@ test('Search Everywhere and Find share one result context menu model', () => {
 test('Find rows expose mouse and keyboard context menu entry points', () => {
   const panel = findTool();
   assert.match(panel, /const \[resultMenu, setResultMenu\] = React\.useState(?:<[^>]+>)?\(null\)/);
-  assert.match(panel, /const openFindResultMenuAt = \(x, y, result\) =>/);
+  assert.match(
+    panel,
+    /const openFindResultMenuAt = \(\s*x(?::\s*[^,]+)?,\s*y(?::\s*[^,]+)?,\s*result(?::\s*[^)]+)?\)(?::\s*[^{]+)?/,
+  );
   assert.match(panel, /items: searchResultContextItems\(\{/);
   assert.match(panel, /onContextMenu=\{\(event\) => \{/);
   assert.match(panel, /event\.key === 'ContextMenu' \|\| \(event\.shiftKey === true && event\.key === 'F10'\)/);

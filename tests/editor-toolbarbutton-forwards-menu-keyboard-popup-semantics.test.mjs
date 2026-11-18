@@ -19,7 +19,7 @@ test('ToolbarButton forwards menu keyboard and popup semantics', () => {
 
 test('Project and Changes overflow buttons open their custom menu from the keyboard', () => {
   for (const component of [panelToolbarSource, compactActionBarSource]) {
-    assert.match(component, /const openOverflowMenu = \(rect(?:\s*:\s*[^)]+)?\) => \{/);
+    assert.match(component, /const openOverflowMenu = \(rect(?:\s*:\s*[^)]+)?\)(?:\s*:\s*[^=]+)?\s*=>\s*\{/u);
     assert.match(component, /event\.key === 'ContextMenu' \|\| \(event\.shiftKey === true && event\.key === 'F10'\)/);
     assert.match(component, /onContextMenu=\{\(event\) => \{/);
     assert.match(component, /ariaHasPopup='menu'/);

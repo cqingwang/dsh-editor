@@ -6,7 +6,7 @@ const source = (await readFile(new URL('../src/client/components/diff/DiffPrevie
 const diff = source.slice(source.indexOf('function DiffPreview('), source.indexOf('export { DiffPreview };'));
 
 test('the Diff overflow builder is shared by click and keyboard entry points', () => {
-  assert.match(diff, /const openDiffActionMenu = \(rect\) => \{/);
+  assert.match(diff, /const openDiffActionMenu = \(rect(?::\s*[^)]+)?\)(?::\s*[^{]+)?/);
   const calls = diff.match(/openDiffActionMenu\(event\.currentTarget\.getBoundingClientRect\(\)\)/g) ?? [];
   assert.ok(calls.length >= 3, `click, Shift+F10 and ContextMenu must share the builder; found ${calls.length}`);
   assert.match(diff, /event\.key === 'ContextMenu' \|\| \(event\.shiftKey === true && event\.key === 'F10'\)/);
