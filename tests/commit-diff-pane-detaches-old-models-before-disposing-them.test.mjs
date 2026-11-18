@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = (readFileSync(join(root, 'tests/fixtures/diff-preview.legacy.js'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
+const source = (readFileSync(join(root, 'src/client/components/diff/DiffPreview.tsx'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
 
 /**
  * The whole DiffPreview function, independent of its current length.
@@ -18,7 +18,7 @@ const source = (readFileSync(join(root, 'tests/fixtures/diff-preview.legacy.js')
 function diffPreviewSource() {
   const start = source.indexOf('function DiffPreview({');
   assert.notEqual(start, -1);
-  const next = source.indexOf('* Commit tool window: grouped', start);
+  const next = source.indexOf('export { DiffPreview };', start);
   assert.notEqual(next, -1);
   return source.slice(start, next);
 }

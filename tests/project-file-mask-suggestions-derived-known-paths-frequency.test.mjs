@@ -4,11 +4,11 @@ import test from 'node:test';
 import { menuSource } from './ui-sources.mjs';
 
 const source =
-  (await readFile(new URL('./fixtures/project-panel.legacy.js', import.meta.url), 'utf8')) +
+  (await readFile(new URL('../src/client/components/project/ProjectPanel.tsx', import.meta.url), 'utf8')) +
   '\n' +
   (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) +
   '\n' +
-  (await readFile(new URL('./fixtures/find-tool.legacy.js', import.meta.url), 'utf8'));
+  (await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8'));
 const projectPanelSource = await readFile(
   new URL('../src/client/components/project/ProjectPanel.tsx', import.meta.url),
   'utf8',
@@ -97,25 +97,16 @@ test('Git and Recently Viewed scopes expose truthful disabled states', () => {
   assert.equal(available('recentlyViewedFiles', { recentFileCount: 0 }), false);
   assert.equal(available('recentlyViewedFiles', { recentFileCount: 2 }), true);
   assert.match(source, /gitAvailable = false/);
-  assert.match(
-    source,
-    /value: 'gitNonIgnoredFiles'[^\n]*disabled: gitAvailable !== true/u,
-  );
-  assert.match(
-    source,
-    /value: 'gitTrackedFiles'[^\n]*disabled: gitAvailable !== true/u,
-  );
-  assert.match(
-    source,
-    /value: 'recentlyViewedFiles'[^\n]*disabled: recentFilePaths\.length === 0/u,
-  );
+  assert.match(source, /value='gitNonIgnoredFiles'\s+disabled=\{gitAvailable !== true\}>/u);
+  assert.match(source, /value='gitTrackedFiles'\s+disabled=\{gitAvailable !== true\}>/u);
+  assert.match(source, /value='recentlyViewedFiles'\s+disabled=\{recentFilePaths\.length === 0\}>/u);
   assert.match(
     source,
     /findSearchScopePresetAvailable\(scopePreset, \{[\s\S]*?gitAvailable,[\s\S]*?recentFileCount: recentFilePaths\.length/u,
   );
   assert.match(
     source,
-    /const selectedScopePresetAvailable = findSearchScopePresetAvailable\(scopePreset,[\s\S]*?const effectiveScopePreset = selectedCustomScopeMissing \|\| selectedScopePresetAvailable !== true[\s\S]*?'projectFiles'[\s\S]*?: scopePreset/u,
+    /const selectedScopePresetAvailable = findSearchScopePresetAvailable\(scopePreset, \{\s+gitAvailable,[\s\S]*?\}\);\s+const effectiveScopePreset =\s+selectedCustomScopeMissing \|\| selectedScopePresetAvailable !== true \? 'projectFiles' : scopePreset;/u,
   );
   assert.match(
     source,

@@ -2,10 +2,11 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const fixture = await readFile(new URL('./fixtures/search-everywhere.legacy.js', import.meta.url), 'utf8');
+const fixture = await readFile(new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url), 'utf8');
 const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
-const popupStart = fixture.indexOf('function ShowUsagesPopup(');
-const popup = fixture.slice(popupStart);
+const showUsagesSource = await readFile(new URL('../src/client/components/search/ShowUsagesPopup.tsx', import.meta.url), 'utf8');
+const popupStart = showUsagesSource.indexOf('function ShowUsagesPopup(');
+const popup = showUsagesSource.slice(popupStart);
 
 test('Show Usages rows reuse the shared result context menu', () => {
   assert.notEqual(popupStart, -1);
@@ -13,11 +14,11 @@ test('Show Usages rows reuse the shared result context menu', () => {
   assert.match(popup, /onOpenInRightSplit:/);
   assert.match(popup, /onRevealResult:/);
   assert.match(popup, /onNotify,/);
-  assert.match(popup, /resultMenu === null[\s\S]*?React\.createElement\(ContextMenu/);
+  assert.match(popup, /resultMenu === null \? null : \(\s*<ContextMenu/u);
 });
 
 test('a usage row opens its menu on right click without activating the row', () => {
-  assert.match(popup, /onContextMenu: \(event\) => openUsageMenu\(event, match\)/);
+  assert.match(popup, /onContextMenu=\{\(event\) => openUsageMenu\(event, match\)\}/u);
   assert.match(popup, /openUsageMenuAt\(event\.clientX, event\.clientY, match\)/);
   assert.match(popup, /event\.preventDefault\(\)[\s\S]*?event\.stopPropagation\(\)/);
 });

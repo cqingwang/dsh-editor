@@ -3,31 +3,37 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 const source =
-  (await readFile(new URL('./fixtures/context-menu.legacy.js', import.meta.url), 'utf8')) +
+  (await readFile(new URL('../src/client/components/ui/Menu.tsx', import.meta.url), 'utf8')) +
   '\n' +
-  (await readFile(new URL('./fixtures/search-everywhere.legacy.js', import.meta.url), 'utf8')) +
+  (await readFile(new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url), 'utf8')) +
   '\n' +
   (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
-const popupStart = source.indexOf('function ShowUsagesPopup(');
-const popupEnd = source.indexOf('function FindToolWindow(', popupStart);
-const popup = source.slice(popupStart, popupEnd);
-const contextStart = source.indexOf('function ContextMenu(');
-const contextEnd = source.indexOf('function CompactActionBar(', contextStart);
+const popupSource = await readFile(
+  new URL('../src/client/components/search/ShowUsagesPopup.tsx', import.meta.url),
+  'utf8',
+);
+const popupStart = popupSource.indexOf('function ShowUsagesPopup(');
+const popup = popupSource.slice(popupStart);
+const contextStart = source.indexOf('export function ContextMenu(');
+const contextEnd = source.indexOf('export { ContextMenu };', contextStart);
 const contextMenu = source.slice(contextStart, contextEnd);
 
 test('right-click focuses the usage row before ContextMenu records its opener', () => {
   const openUsageMenu = popup.slice(
-    popup.indexOf('const openUsageMenu = (event, match) => {'),
-    popup.indexOf('const openActiveUsageMenu =', popup.indexOf('const openUsageMenu = (event, match) => {')),
+    popup.indexOf('const openUsageMenu = (event: React.MouseEvent<HTMLDivElement>, match: UsageMatch) => {'),
+    popup.indexOf(
+      'const openActiveUsageMenu =',
+      popup.indexOf('const openUsageMenu = (event: React.MouseEvent<HTMLDivElement>, match: UsageMatch) => {'),
+    ),
   );
   assert.match(openUsageMenu, /event\.preventDefault\(\)/);
   assert.match(openUsageMenu, /event\.stopPropagation\(\)/);
-  assert.match(openUsageMenu, /event\.currentTarget\?\.focus\?\.\(\)/);
-  assert.ok(openUsageMenu.indexOf('event.currentTarget?.focus?.()') < openUsageMenu.indexOf('openUsageMenuAt('));
+  assert.match(openUsageMenu, /event\.currentTarget\.focus\?\.\(\)/);
+  assert.ok(openUsageMenu.indexOf('event.currentTarget.focus?.()') < openUsageMenu.indexOf('openUsageMenuAt('));
 });
 
 test('the shared ContextMenu restores its actual opener instead of leaving focus on body', () => {
-  assert.match(contextMenu, /returnFocusRef = React\.useRef\(null\)/);
+  assert.match(contextMenu, /returnFocusRef = React\.useRef<HTMLElement \| null>\(null\)/);
   assert.match(contextMenu, /document\.activeElement instanceof HTMLElement \? document\.activeElement : null/);
   assert.match(contextMenu, /previous\.isConnected\) previous\.focus\(\)/);
   assert.match(contextMenu, /skipReturnFocusRef/);

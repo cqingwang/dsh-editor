@@ -2,8 +2,8 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = (await readFile(new URL('./fixtures/diff-preview.legacy.js', import.meta.url), 'utf8')) + '\n' + (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
-const diff = source.slice(source.indexOf('function DiffPreview('), source.indexOf('* Commit tool window: grouped'));
+const source = (await readFile(new URL('../src/client/components/diff/DiffPreview.tsx', import.meta.url), 'utf8')) + '\n' + (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
+const diff = source.slice(source.indexOf('function DiffPreview('), source.indexOf('export { DiffPreview };'));
 
 function extractFunction(name) {
   const marker = `    function ${name}(`;
@@ -53,7 +53,10 @@ test('Diff exposes Apply Left Side with IDEA shortcut and writable guards', () =
 });
 
 test('control-meta-right invokes Apply Left Side inside the diff surface', () => {
-  assert.match(diff, /event\.ctrlKey\s+&& event\.metaKey\s+&& !event\.altKey\s+&& !event\.shiftKey\s+&& event\.key === 'ArrowRight'/);
+  assert.match(
+    diff,
+    /event\.ctrlKey &&\s+event\.metaKey &&\s+!event\.altKey &&\s+!event\.shiftKey &&\s+event\.key === 'ArrowRight'/u,
+  );
   assert.match(diff, /event\.preventDefault\(\);\s+event\.stopPropagation\(\);\s+applyLeftSide\(\);/s);
 });
 

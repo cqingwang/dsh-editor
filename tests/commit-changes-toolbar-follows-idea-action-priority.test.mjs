@@ -2,13 +2,13 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = (await readFile(new URL('./fixtures/commit-panel.legacy.js', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
+const source = (await readFile(new URL('../src/client/components/commit/CommitPanel.tsx', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
 const commitPanel = source.slice(
   source.indexOf('function CommitPanel('),
-  source.indexOf('function groupActionMenuItems('),
+  source.indexOf('export { CommitPanel };'),
 );
-const actionsStart = commitPanel.indexOf('actions: [', commitPanel.indexOf('CompactActionBar'));
-const actionsEnd = commitPanel.indexOf('],\n            }),', actionsStart);
+const actionsStart = commitPanel.indexOf('actions={[', commitPanel.indexOf('<CompactActionBar'));
+const actionsEnd = commitPanel.indexOf(']}', actionsStart);
 const actionsBlock = commitPanel.slice(actionsStart, actionsEnd);
 const ids = [...actionsBlock.matchAll(
   /id: '(showDiff|combinedDiff|copyPatch|createPatch|refresh|stageAllTracked|viewOptions|selectOpened|expandChanges|collapseChanges|rollback)'/g,

@@ -5,23 +5,21 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = (readFileSync(join(root, 'tests/fixtures/commit-panel.legacy.js'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
+const source = (readFileSync(join(root, 'src/client/components/commit/CommitPanel.tsx'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
 
-/** Source of one component, sliced at the next four-space `function`. */
-function bodyOf(name) {
-  const marker = `    function ${name}(`;
-  const start = source.indexOf(marker);
-  assert.notEqual(start, -1, `${name} is missing`);
-  const rest = source.slice(start + marker.length);
-  const next = /\n {4}function [A-Za-z_$][\w$]*\(/u.exec(rest);
-  return next === null ? rest : rest.slice(0, next.index);
+function commitPanelBody() {
+  const start = source.indexOf('function CommitPanel(');
+  const end = source.indexOf('export { CommitPanel };', start);
+  assert.notEqual(start, -1, 'CommitPanel is missing');
+  assert.notEqual(end, -1, 'CommitPanel end marker is missing');
+  return source.slice(start, end);
 }
 
 test('the commit status strip renders outside the tab switch', () => {
-  const panel = bodyOf('CommitPanel');
+  const panel = commitPanelBody();
   const stripAt = panel.indexOf('styles.commitStatusStack');
   /* The branch is the ternary that renders CommitLog, not the tab button's aria check. */
-  const logBranchAt = panel.indexOf("mode === 'log'\n          ? React.createElement(CommitLog");
+  const logBranchAt = panel.indexOf("mode === 'log' ? (");
   assert.ok(stripAt > 0, 'status strip missing');
   /* It must come BEFORE the branch, so the Log tab shows it too. */
   assert.ok(stripAt < logBranchAt, 'status strip must render before the tab branch');
@@ -29,10 +27,10 @@ test('the commit status strip renders outside the tab switch', () => {
 });
 
 test('the changes tab no longer duplicates the status strip', () => {
-  const panel = bodyOf('CommitPanel');
+  const panel = commitPanelBody();
   /* Exactly one strip, otherwise a failure shows twice in the Changes tab. */
   assert.equal((panel.match(/styles\.commitStatusStack/gu) ?? []).length, 1);
-  assert.equal((panel.match(/styles\.commitError, display/gu) ?? []).length, 1);
+  assert.equal((panel.match(/styles\.commitError,\s+display:/gu) ?? []).length, 1);
   /* The identity warning stays local to the message box area. */
   assert.match(panel, /t\('editor\.identityMissing'\)/);
 });

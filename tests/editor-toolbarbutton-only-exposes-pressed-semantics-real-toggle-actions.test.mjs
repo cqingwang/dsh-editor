@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { compactActionBarSource, panelToolbarSource } from './ui-sources.mjs';
 
-const source = (await readFile(new URL('./fixtures/diff-preview.legacy.js', import.meta.url), 'utf8')) + '\n' + (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
+const source = (await readFile(new URL('../src/client/components/diff/DiffPreview.tsx', import.meta.url), 'utf8')) + '\n' + (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
 const buttonSource = await readFile(new URL('../src/client/components/ui/ToolbarButton.tsx', import.meta.url), 'utf8');
 
 function extract(name, endMarker) {
@@ -43,11 +43,11 @@ test('toolbar action state preserves the difference between false and unspecifie
 test('direct toolbar actions do not turn non-toggle commands into unpressed toggles', () => {
   const panel = panelToolbarSource;
   const compact = compactActionBarSource;
-  const diff = extract('DiffPreview', '* Commit tool window: grouped');
+  const diff = extract('DiffPreview', 'export { DiffPreview };');
   for (const component of [panel, compact]) {
     assert.match(component, /active=\{toolbarActionActive\(action\)\}/);
     assert.doesNotMatch(component, /active: action\.active === true/);
   }
-  assert.match(diff, /active: toolbarActionActive\(action\)/);
-  assert.doesNotMatch(diff, /active: action\.active === true/);
+  assert.match(diff, /active=\{toolbarActionActive\(action\)\}/);
+  assert.doesNotMatch(diff, /active=\{action\.active === true\}/);
 });

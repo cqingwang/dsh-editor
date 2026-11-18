@@ -45,8 +45,8 @@ test('a rename into a fresh name still works', async (t) => {
 });
 
 test('amend prefills subject and body, and only into an empty box', () => {
-  const client = read('lib/client.js');
-  assert.match(client, /const preAmendMessage = React\.useRef\(null\);/);
+  const client = read('src/client/editor-workspace.tsx');
+  assert.match(client, /const preAmendMessage =\s+React\.useRef\(null\);/);
   /* A half-written new message must never be replaced by the previous commit. */
   assert.match(client, /if \(commitMessage\.trim\(\) !== ''\) return;/);
   assert.match(client, /setCommitMessage\(body === '' \? previous\.subject : `\$\{previous\.subject\}\\n\\n\$\{body\}`\);/);
@@ -56,8 +56,8 @@ test('amend prefills subject and body, and only into an empty box', () => {
 });
 
 test('unticking amend restores what the box held before', () => {
-  const client = read('lib/client.js');
-  assert.match(client, /if \(preAmendMessage\.current !== null\) \{/);
+  const client = read('src/client/editor-workspace.tsx');
+  assert.match(client, /if \(\s+preAmendMessage\.current !== null\s+\) \{/);
   assert.match(client, /setCommitMessage\(preAmendMessage\.current\);/);
   assert.match(client, /preAmendMessage\.current = null;/);
   /* The snapshot is taken at the moment of prefill, not at untick time. */

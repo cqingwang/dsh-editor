@@ -6,7 +6,7 @@ import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const host = readFileSync(join(root, 'lib/index.js'), 'utf8');
-const client = (readFileSync(join(root, 'tests/fixtures/diff-preview.legacy.js'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
+const client = (readFileSync(join(root, 'src/client/components/diff/DiffPreview.tsx'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
 
 function apiBody(path) {
   const start = host.indexOf(`path: '${path}'`);
@@ -32,7 +32,7 @@ test('the diff toolbar overflows secondary actions before file navigation is cli
   const diff = client.slice(client.indexOf('function DiffPreview('), client.indexOf('* Commit tool window: grouped'));
   assert.match(diff, /diffDirectActionCountForWidth\(width, fixedWidth, diffToolbarActions\)/);
   assert.match(diff, /data-dsh-diff-fixed/);
-  assert.match(diff, /diffActionsCompact\s*\?\s*React\.createElement\(ToolbarButton, \{[\s\S]*?label: t\('editor\.moreActions'\)/);
+  assert.match(diff, /diffActionsCompact \? \(\s*<ToolbarButton[\s\S]*?label=\{t\('editor\.moreActions'\)\}/u);
   assert.match(diff, /filePosition === null && navigationPosition === null\s*\?\s*null\s*:\s*fileNavMode === 'hidden'/);
   assert.match(diff, /className: 'dsh-editor-file-nav'/);
 });

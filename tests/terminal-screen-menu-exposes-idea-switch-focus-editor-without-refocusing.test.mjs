@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = (readFileSync(join(root, 'tests/fixtures/diff-preview.legacy.js'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
+const source = (readFileSync(join(root, 'src/client/components/diff/DiffPreview.tsx'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
 
 function extractFunction(name) {
   const start = source.indexOf(`    function ${name}(`);
@@ -94,7 +94,7 @@ test('workspace routes focus requests to the active diff or Monaco editor', () =
   assert.match(workspace, /const focusEditorFromTerminal = React\.useCallback\(\(\) => \{/);
   assert.match(workspace, /dsh-editor-focus-diff/);
   assert.match(workspace, /editorRef\.current\?\.focus\(\)/);
-  const diff = source.slice(source.indexOf('function DiffPreview('), source.indexOf('* Commit tool window: grouped'));
+  const diff = source.slice(source.indexOf('function DiffPreview('), source.indexOf('export { DiffPreview };'));
   assert.match(diff, /addEventListener\('dsh-editor-focus-diff'/);
 });
 

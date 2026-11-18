@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 const source =
-  (await readFile(new URL('./fixtures/project-panel.legacy.js', import.meta.url), 'utf8')) +
+  (await readFile(new URL('../src/client/components/project/ProjectPanel.tsx', import.meta.url), 'utf8')) +
   '\n' +
   (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
 const workspaceShellSource = await readFile(

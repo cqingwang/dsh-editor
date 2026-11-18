@@ -464,12 +464,15 @@ npm run check:format:client-components
 是否最新，不触发测试。
 
 修改任何 `src/client/*.ts` / `*.tsx` 后必须重新构建 `lib/client.js`；
-`round671` 会验证生成产物没有过期。
+`editor-browser-client-source-split-into-ordered-typescript-business-modules`
+会验证生成产物没有过期。
 
 浏览器业务模块迁移已经完成：13 个 manifest 模块全部为 TS/TSX，生产源码中
 不再保留旧 JavaScript 文件或备份。`editor-workspace` 的单一 client oracle
 仍冻结在 `tests/fixtures/legacy/editor-workspace.legacy.js`；顶层高引用历史
-fixture 已从 40 份收敛到 8 份，测试会继续逐组迁移到 TS/TSX 边界。
+fixture 已从 40 份收敛到 **0 份**。所有组件、菜单、Diff、Find 与 Search
+Everywhere 测试均读取对应 TS/TSX 模块或其纯函数/模型；fixture budget 会阻止
+新的顶层 `.legacy.js` 重新进入测试树。
 `editor-production-browser-modules-typescript-only` 测试会阻止 `.js/.jsx`
 业务模块重新进入构建，并验证源码与 npm 包均无备份。
 Project 工具栏的新建菜单和 Options 菜单已抽到

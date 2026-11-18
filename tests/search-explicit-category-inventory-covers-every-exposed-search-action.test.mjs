@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 const source =
-  (await readFile(new URL('./fixtures/search-everywhere.legacy.js', import.meta.url), 'utf8')) +
+  (await readFile(new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url), 'utf8')) +
   '\n' +
   (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
 
@@ -57,7 +57,7 @@ test('category is presentation metadata and never action filtering input', () =>
   const ranking = extractFunction('rankSearchActions');
   assert.doesNotMatch(ranking, /category/i);
   assert.match(ranking, /fuzzyScore\(action\.label, needle, \{ caseSensitive, wholeWords \}\)/);
-  const dialog = source.slice(source.indexOf('function SearchEverywhere('), source.indexOf('function FindToolWindow('));
+  const dialog = source.slice(source.indexOf('function SearchEverywhere('), source.indexOf('function FindToolWindowView('));
   assert.match(dialog, /const effectiveTab = state\.tab;/);
   assert.match(dialog, /const effectiveQuery = query;/);
   assert.doesNotMatch(dialog, /providerCommand/);
@@ -66,11 +66,11 @@ test('category is presentation metadata and never action filtering input', () =>
 });
 
 test('base tabs are the only result-scope switch', () => {
-  const dialog = source.slice(source.indexOf('function SearchEverywhere('), source.indexOf('function FindToolWindow('));
+  const dialog = source.slice(source.indexOf('function SearchEverywhere('), source.indexOf('function FindToolWindowView('));
   assert.match(dialog, /if \(effectiveTab === 'files'\) results = fileMatches;/);
   assert.match(dialog, /else if \(effectiveTab === 'text'\) results = textResults;/);
   assert.match(dialog, /else if \(effectiveTab === 'actions'\) results = actionMatches;/);
-  assert.match(dialog, /else if \(effectiveQuery === ''\) results = \[/);
+  assert.match(dialog, /else if \(effectiveQuery === ''\)\s+results = \[/u);
   assert.match(dialog, /searchFilters\.files \? fileMatches/);
   assert.match(dialog, /searchFilters\.text \? textResults/);
   assert.match(dialog, /onClick: \(event\) => \{[\s\S]*?onTab\(tab\.id\);/);

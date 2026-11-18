@@ -10,7 +10,7 @@ import test from 'node:test';
 import { gitCombinedDiff } from '../lib/index.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = (readFileSync(join(root, 'tests/fixtures/diff-preview.legacy.js'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
+const source = (readFileSync(join(root, 'src/client/components/diff/DiffPreview.tsx'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
 
 function extractFunction(name) {
   const start = source.indexOf(`function ${name}(`);
@@ -68,7 +68,7 @@ test('combinedFileHiddenRange preserves the heading and targets only its content
 });
 
 test('DiffPreview applies collapsed state as non-destructive hidden areas', () => {
-  const diff = source.slice(source.indexOf('function DiffPreview('), source.indexOf('* Commit tool window: grouped'));
+  const diff = source.slice(source.indexOf('function DiffPreview('), source.indexOf('export { DiffPreview };'));
   assert.match(diff, /const \[collapsedCombinedFiles, setCollapsedCombinedFiles\] = React\.useState\(\(\) => new Set\(\)\)/);
   assert.match(diff, /const toggleCombinedFileCollapse = React\.useCallback\(/);
   assert.match(diff, /getModifiedEditor\(\)\.setHiddenAreas\(/);

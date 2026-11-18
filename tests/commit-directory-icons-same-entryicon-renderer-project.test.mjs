@@ -2,11 +2,11 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = (await readFile(new URL('./fixtures/commit-panel.legacy.js', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
+const source = (await readFile(new URL('../src/client/components/commit/CommitPanel.tsx', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
 
 function commitPanel() {
   const start = source.indexOf('function CommitPanel(');
-  const end = source.indexOf('function NamePrompt(', start);
+  const end = source.indexOf('export { CommitPanel };', start);
   assert.notEqual(start, -1);
   assert.notEqual(end, -1);
   return source.slice(start, end);
@@ -14,8 +14,11 @@ function commitPanel() {
 
 test('Commit directory icons use the same EntryIcon renderer as Project', () => {
   const panel = commitPanel();
-  assert.match(panel, /React\.createElement\(EntryIcon, \{\s+entry: \{ path: row\.path, kind: 'directory', root: false \},\s+expanded: row\.open,\s+\}\)/s);
-  assert.doesNotMatch(panel, /React\.createElement\(Icon, \{ name: row\.open \? 'folderOpen' : 'folder', size: 14 \}\)/);
+  assert.match(
+    panel,
+    /<EntryIcon\s+entry=\{\{\s+path: row\.path,\s+kind: 'directory',\s+root: false,\s+\}\}\s+expanded=\{row\.open\}\s+\/>/u,
+  );
+  assert.doesNotMatch(panel, /<Icon\s+name=\{row\.open \? 'folderOpen' : 'folder'\}\s+size=\{14\}/u);
 });
 
 test('the commit subject counter and short-subject warning row are removed', () => {

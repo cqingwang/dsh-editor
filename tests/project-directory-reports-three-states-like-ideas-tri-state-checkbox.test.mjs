@@ -6,7 +6,7 @@ import test from 'node:test';
 import { loadTypeScriptFunction } from './ts-source.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = (readFileSync(join(root, 'tests/fixtures/commit-panel.legacy.js'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
+const source = (readFileSync(join(root, 'src/client/components/commit/CommitPanel.tsx'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
 const commitModelSource = readFileSync(join(root, 'src/client/components/ui/commit-model.ts'), 'utf8');
 
 /** Evaluate one shipping function by brace balance. */
@@ -48,10 +48,10 @@ test('the indeterminate flag is set through the DOM property, not React props', 
   const block = source.slice(start, source.indexOf('const change = row.change;', start));
   /* `indeterminate` only exists as a property; passing it as a prop is ignored. */
   assert.match(block, /element\.indeterminate = state === 'some'/);
-  assert.match(block, /ref: \(element\) => \{[\s\S]*?\.indeterminate = state === 'some'/);
+  assert.match(block, /ref=\{\(element\) => \{[\s\S]*?\.indeterminate = state === 'some'/);
   /* The directory row must reflect the state, not just "all or nothing". */
   assert.match(block, /const state = selectionStateOf\(inside, selectedPaths\);/);
-  assert.match(block, /checked: state === 'all'/);
+  assert.match(block, /checked=\{state === 'all'\}/);
 });
 
 test('the group header shows the same three states', () => {
@@ -65,6 +65,6 @@ test('the group header shows the same three states', () => {
   const end = source.indexOf('rows.length === 0', start);
   assert.notEqual(end, -1);
   const block = source.slice(start, end);
-  assert.match(block, /const groupState = selectionStateOf\(group\.changes\.map\(\(change\) => change\.path\), selectedPaths\);/);
-  assert.match(block, /checked: groupState === 'all'/);
+  assert.match(block, /const groupState = selectionStateOf\(\s+group\.changes\.map\(\(change\) => change\.path\),\s+selectedPaths,\s+\);/u);
+  assert.match(block, /checked=\{groupState === 'all'\}/);
 });

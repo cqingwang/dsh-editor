@@ -3,16 +3,7 @@ import { readdir } from 'node:fs/promises';
 import test from 'node:test';
 
 const root = new URL('../', import.meta.url);
-const allowedLegacyFixtures = [
-  'commit-log.legacy.js',
-  'commit-panel.legacy.js',
-  'context-menu.legacy.js',
-  'diff-preview.legacy.js',
-  'find-tool.legacy.js',
-  'project-panel.legacy.js',
-  'search-everywhere.legacy.js',
-  'terminal-panel.legacy.js',
-].sort();
+const allowedLegacyFixtures = [];
 
 test('legacy fixture budget cannot grow while tests migrate to TSX boundaries', async () => {
   const topLevel = (await readdir(new URL('tests/fixtures/', root)))

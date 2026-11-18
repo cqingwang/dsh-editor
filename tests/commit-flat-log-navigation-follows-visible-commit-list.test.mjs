@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = (readFileSync(join(root, 'lib/client.js'), 'utf8')) + '\n' + readFileSync(join(root, 'tests/fixtures/commit-log.legacy.js'), 'utf8');
+const source = readFileSync(join(root, 'src/client/components/commit/CommitLog.tsx'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8');
 
 function extractFunction(name) {
   const start = source.indexOf(`    function ${name}(`);
@@ -54,17 +54,17 @@ test('flat Log navigation clamps ends and ignores empty lists', () => {
 });
 
 test('default Log list is focusable and owns arrow/Home/End keys', () => {
-  const log = source.slice(source.indexOf('function CommitLog('), source.indexOf('/* COMMIT_LOG_BOUNDARY */'));
-  assert.match(log, /tabIndex: 0,/);
-  assert.match(log, /role: 'listbox'/);
-  assert.match(log, /flatLogTarget\(visible, selected,/);
-  assert.match(log, /event\.key === 'ArrowDown' \|\| event\.key === 'ArrowUp'/);
-  assert.match(log, /event\.key === 'Home' \|\| event\.key === 'End'/);
-  assert.match(log, /onShow\?\.\(target\)/);
+  const log = source.slice(source.indexOf('function CommitLogView('), source.indexOf('const CommitLog = CommitLogView;'));
+  assert.match(log, /tabIndex=\{0\}/);
+  assert.match(log, /role='listbox'/);
+  assert.match(log, /commitLogFlatListCommand\(/);
+  assert.match(log, /commitLogFlatKeyIntent\(/);
+  assert.match(log, /onShow\?\.\(target\.hash\)/);
 });
 
 test('clicking a flat log row returns keyboard ownership to the list', () => {
-  const log = source.slice(source.indexOf('function CommitLog('), source.indexOf('/* COMMIT_LOG_BOUNDARY */'));
-  assert.match(log, /onMouseDown: \(\) => listRef\.current\?\.focus\?\.\(\{ preventScroll: true \}\)/);
-  assert.match(log, /role: 'option'/);
+  const log = source.slice(source.indexOf('function CommitLogView('), source.indexOf('const CommitLog = CommitLogView;'));
+  const row = readFileSync(join(root, 'src/client/components/commit/CommitLogFlatRow.tsx'), 'utf8');
+  assert.match(log, /onMouseDown=\{\(\) =>\s+listRef\.current\?\.focus\?\.\(\{\s+preventScroll: true,\s+\}\)\s+\}/s);
+  assert.match(row, /role='option'/);
 });

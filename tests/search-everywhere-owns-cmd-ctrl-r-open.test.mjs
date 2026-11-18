@@ -2,10 +2,10 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = (await readFile(new URL('./fixtures/search-everywhere.legacy.js', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
+const source = (await readFile(new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
 
 test('Search Everywhere owns Cmd/Ctrl+R while it is open', () => {
-  const component = source.slice(source.indexOf('function SearchEverywhere('), source.indexOf('function FindToolWindow('));
+  const component = source.slice(source.indexOf('function SearchEverywhere('), source.indexOf('function FindToolWindowView('));
   assert.match(component, /window\.addEventListener\('keydown', onKeyDown, true\)/);
   assert.match(component, /const replaceShortcut = \(event\) => \{/);
   assert.match(component, /event\?\.metaKey === true \|\| event\?\.ctrlKey === true/);

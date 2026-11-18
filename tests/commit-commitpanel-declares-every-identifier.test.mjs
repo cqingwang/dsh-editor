@@ -8,11 +8,11 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const source =
   readFileSync(join(root, 'src/client/components/terminal/TerminalPanel.tsx'), 'utf8') +
   '\n' +
-  readFileSync(join(root, 'tests/fixtures/commit-panel.legacy.js'), 'utf8') +
+  readFileSync(join(root, 'src/client/components/commit/CommitPanel.tsx'), 'utf8') +
   '\n' +
   readFileSync(join(root, 'lib/client.js'), 'utf8') +
   '\n' +
-  readFileSync(join(root, 'tests/fixtures/commit-log.legacy.js'), 'utf8');
+  readFileSync(join(root, 'src/client/components/commit/CommitLog.tsx'), 'utf8');
 
 /**
  * Slice the source of one component: from its `    function Name(` line to the
@@ -51,7 +51,7 @@ test('every free identifier used by a component is declared or received', () => 
   /* A crude but effective guard for the class of bug that blanked the panel:
      a name used in JSX that neither appears as a parameter nor is declared inside. */
   const suspicious = [];
-  for (const name of ['CommitPanel', 'CommitLog', 'ProjectPanel', 'TerminalPanel']) {
+  for (const name of ['CommitPanel', 'CommitLogView', 'ProjectPanel', 'TerminalPanel']) {
     const text = bodyOf(name);
     const header = text.slice(0, text.indexOf(') {') + 2);
     const params = new Set((header.match(/[A-Za-z_$][\w$]*/gu) ?? []));

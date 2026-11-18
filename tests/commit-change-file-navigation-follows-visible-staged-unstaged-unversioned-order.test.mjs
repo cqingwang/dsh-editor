@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = (readFileSync(join(root, 'tests/fixtures/diff-preview.legacy.js'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
+const source = (readFileSync(join(root, 'src/client/components/diff/DiffPreview.tsx'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
 
 function functionSource(name) {
   const start = source.indexOf(`function ${name}(`);
@@ -104,8 +104,8 @@ test('Diff exposes IDEA compare-file navigation with its native shortcut', () =>
   assert.match(source, /previousFile: '上一个文件',/);
   assert.match(source, /nextFile: '下一个文件',/);
   assert.match(source, /filePosition: diffFilePosition,/);
-  assert.match(source, /className: 'dsh-editor-file-nav'/);
-  assert.match(source, /event\.ctrlKey\s+&& event\.shiftKey\s+&& !event\.altKey\s+&& !event\.metaKey/);
+  assert.match(source, /className='dsh-editor-file-nav'/);
+  assert.match(source, /event\.ctrlKey &&\s+event\.shiftKey &&\s+!event\.altKey &&\s+!event\.metaKey/u);
   assert.match(source, /event\.key === 'ArrowLeft' \|\| event\.key === 'ArrowRight'/);
   assert.match(source, /previousFileAction\?\.\(\)/);
   assert.match(source, /nextFileAction\?\.\(\)/);

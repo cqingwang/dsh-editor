@@ -3,11 +3,11 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 const source =
-  (await readFile(new URL('./fixtures/search-everywhere.legacy.js', import.meta.url), 'utf8')) +
+  (await readFile(new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url), 'utf8')) +
   '\n' +
   (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) +
   '\n' +
-  (await readFile(new URL('./fixtures/find-tool.legacy.js', import.meta.url), 'utf8'));
+  (await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8'));
 
 function extract(name) {
   const marker = `    function ${name}(`;
@@ -27,7 +27,7 @@ function extract(name) {
 
 function searchEverywhere() {
   const start = source.indexOf('function SearchEverywhere(');
-  const end = source.indexOf('function FindToolWindow(', start);
+  const end = source.indexOf('function FindToolWindowView(', start);
   assert.notEqual(start, -1);
   assert.notEqual(end, -1);
   return source.slice(start, end);

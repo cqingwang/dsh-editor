@@ -5,17 +5,21 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = (readFileSync(join(root, 'lib/client.js'), 'utf8')) + '\n' + readFileSync(join(root, 'tests/fixtures/commit-log.legacy.js'), 'utf8');
+const source = [
+  readFileSync(join(root, 'lib/client.js'), 'utf8'),
+  readFileSync(join(root, 'src/client/components/commit/CommitLogDetailPane.tsx'), 'utf8'),
+  readFileSync(join(root, 'src/client/editor-workspace.tsx'), 'utf8'),
+].join('\n');
 
 function commitLog() {
-  return source.slice(source.indexOf('function CommitLog('), source.indexOf('/* COMMIT_LOG_BOUNDARY */'));
+  return source.slice(source.indexOf('function CommitLogDetailPane({'), source.indexOf('export { CommitLogDetailPane };'));
 }
 
 test('Commit Log file rows are keyboard-reachable for their context menu', () => {
   const log = commitLog();
-  assert.match(log, /tabIndex: 0,/);
+  assert.match(log, /tabIndex=\{0\}/);
   assert.match(log, /event\.key !== 'ContextMenu' && !\(event\.shiftKey && event\.key === 'F10'\)/);
-  assert.match(log, /onFileMenu\?\.\(\{ path: file\.path, hash: detail\.hash, localExists, localDirExists, x: rect\.left \+ 12, y: rect\.bottom \}\)/);
+  assert.match(log, /onFileMenu\?\.\(\{\s+path: file\.path,\s+hash: detail\.hash,\s+localExists,\s+localDirExists,\s+x: rect\.left \+ 12,\s+y: rect\.bottom,/s);
   assert.match(log, /event\.currentTarget\.focus\?\.\(\)/);
 });
 

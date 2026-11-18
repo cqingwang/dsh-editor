@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = (await readFile(new URL('./fixtures/diff-preview.legacy.js', import.meta.url), 'utf8')) + '\n' + (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
+const source = (await readFile(new URL('../src/client/components/diff/DiffPreview.tsx', import.meta.url), 'utf8')) + '\n' + (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
 
 function extract(name) {
   const marker = `    function ${name}(`;
@@ -21,12 +21,15 @@ function extract(name) {
 }
 
 test('direct Diff submenu actions expose menu semantics without lying about expanded state', () => {
-  const diff = source.slice(source.indexOf('function DiffPreview('), source.indexOf('* Commit tool window: grouped'));
+  const diff = source.slice(source.indexOf('function DiffPreview('), source.indexOf('export { DiffPreview };'));
   assert.match(diff, /openDiffActionSubmenu = React\.useCallback\(\(event, title, items, actionId = null\)/);
   assert.match(diff, /actionId,\s+items,/);
   assert.match(diff, /openDiffActionSubmenu\(event, t\('editor\.settings'\), editorSettingsItems, 'settings'\)/);
-  assert.match(diff, /ariaHasPopup: Array\.isArray\(action\.items\) \? 'menu' : undefined/);
-  assert.match(diff, /ariaExpanded: Array\.isArray\(action\.items\) \? diffActionMenu\?\.actionId === action\.id : undefined/);
+  assert.match(diff, /ariaHasPopup=\{Array\.isArray\(action\.items\) \? 'menu' : undefined\}/u);
+  assert.match(
+    diff,
+    /ariaExpanded=\{Array\.isArray\(action\.items\) \? diffActionMenu\?\.actionId === action\.id : undefined\}/u,
+  );
 });
 
 test('medium Diff widths recover Apply, Swap and Reload after the fixed mode control', () => {

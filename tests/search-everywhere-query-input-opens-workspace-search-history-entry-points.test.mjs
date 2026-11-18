@@ -3,15 +3,15 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 const source =
-  (await readFile(new URL('./fixtures/search-everywhere.legacy.js', import.meta.url), 'utf8')) +
+  (await readFile(new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url), 'utf8')) +
   '\n' +
   (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) +
   '\n' +
-  (await readFile(new URL('./fixtures/find-tool.legacy.js', import.meta.url), 'utf8'));
+  (await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8'));
 
 function searchEverywhere() {
   const start = source.indexOf('function SearchEverywhere(');
-  const end = source.indexOf('function FindToolWindow(', start);
+  const end = source.indexOf('function FindToolWindowView(', start);
   assert.notEqual(start, -1);
   assert.notEqual(end, -1);
   return source.slice(start, end);
@@ -49,8 +49,8 @@ test('Search Everywhere query history reuses recentSearches and preserves the dr
 
 test('Search Everywhere keeps query history separate from replacement history', () => {
   const dialog = searchEverywhere();
-  assert.match(dialog, /queryHistoryMenu === null\s+\? null\s+: React\.createElement\(ContextMenu/);
-  assert.match(dialog, /replaceHistoryMenu === null\s+\? null\s+: React\.createElement\(ContextMenu/);
+  assert.match(dialog, /queryHistoryMenu === null \? null : \(\s*<ContextMenu/u);
+  assert.match(dialog, /replaceHistoryMenu === null \? null : \(\s*<ContextMenu/u);
   assert.match(dialog, /title: t\('editor\.findSearchHistory'\)/);
   assert.match(dialog, /title: t\('editor\.findReplaceHistory'\)/);
 });

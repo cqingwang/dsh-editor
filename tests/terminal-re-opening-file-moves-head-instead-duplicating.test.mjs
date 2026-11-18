@@ -3,9 +3,21 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
+import { loadTypeScriptFunction } from './ts-source.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = (readFileSync(join(root, 'src/client/components/terminal/TerminalPanel.tsx'), 'utf8') + '\n' + (readFileSync(join(root, 'lib/client.js'), 'utf8') + '\n' + readFileSync(join(root, 'tests/fixtures/find-tool.legacy.js'), 'utf8')));
+const workspaceSource = readFileSync(join(root, 'src/client/editor-workspace.tsx'), 'utf8');
+const terminalSource = readFileSync(join(root, 'src/client/terminal.ts'), 'utf8');
+const projectOptionsSource = readFileSync(join(root, 'src/client/components/project/project-options-menu.ts'), 'utf8');
+const source = [
+  readFileSync(join(root, 'src/client/components/terminal/TerminalPanel.tsx'), 'utf8'),
+  workspaceSource,
+  readFileSync(join(root, 'src/client/components/search/FindToolWindow.tsx'), 'utf8'),
+  readFileSync(join(root, 'src/client/components/search/QuickOpen.tsx'), 'utf8'),
+  terminalSource,
+  projectOptionsSource,
+  readFileSync(join(root, 'src/client/locales.ts'), 'utf8'),
+].join('\n');
 const editorTerminalTabSource = readFileSync(
   join(root, 'src/client/components/terminal/EditorTerminalTab.tsx'),
   'utf8',
@@ -21,23 +33,7 @@ const editorTerminalAreaSource = readFileSync(
  * @param {string} name - function name at four-space indentation.
  * @returns {Function} the loaded function.
  */
-function load(name) {
-  const marker = `    function ${name}(`;
-  const start = source.indexOf(marker);
-  assert.notEqual(start, -1, `${name} is missing from lib/client.js`);
-  let index = source.indexOf('{', start);
-  let depth = 0;
-  for (; index < source.length; index += 1) {
-    if (source[index] === '{') depth += 1;
-    else if (source[index] === '}') {
-      depth -= 1;
-      if (depth === 0) return new Function(`${source.slice(start, index + 1)}; return ${name};`)();
-    }
-  }
-  throw new Error(`unbalanced braces in ${name}`);
-}
-
-const pushRecent = load('pushRecent');
+const pushRecent = loadTypeScriptFunction(terminalSource, 'pushRecent');
 
 /* ── Recent Files is an MRU, not a second Go-to-File ───────────────────── */
 
@@ -77,7 +73,7 @@ test('⌘E opens Recent Files without a filesystem walk', () => {
   const block = source.slice(source.indexOf('const openRecent = React.useCallback('), source.indexOf('React.useEffect(() => {\n        const onKeyDown = (event) => {\n          const meta = event.metaKey'));
   /* The list must be ready immediately; scanning the tree first defeats the
      point of a "where was I" popup. */
-  assert.match(block, /const list = readRecentFiles\(rootRef\.current\);/);
+  assert.match(block, /const list = readRecentFiles\(\s*rootRef\.current/u);
   assert.doesNotMatch(block, /op: 'files'/);
   assert.match(block, /setPaletteMode\('recent'\)/);
   /* The keydown handler must actually CALL it, not just recognise the key. */
@@ -86,11 +82,13 @@ test('⌘E opens Recent Files without a filesystem walk', () => {
 });
 
 test('Recent Files keeps its order; Go to File still ranks by score', () => {
-  const palette = source.slice(source.lastIndexOf('function QuickOpen('), source.lastIndexOf('function fuzzyScore('));
+  const quickOpenStart = source.lastIndexOf('function QuickOpen(');
+  const palette = source.slice(quickOpenStart, source.indexOf('export { QuickOpen };', quickOpenStart));
   assert.match(palette, /const recent = mode === 'recent';/);
   /* The recent branch must NOT sort: "newest first" is the whole message. */
-  const recentBranch = palette.slice(palette.indexOf('const matches = (recent'), palette.indexOf(': files\n'));
-  assert.match(recentBranch, /files\.map\(\(path\) => \(\{ path, score:/);
+  const matchesStart = palette.indexOf('const matches = (');
+  const recentBranch = palette.slice(matchesStart, palette.indexOf(': files', matchesStart));
+  assert.match(recentBranch, /files\s+\.map\(\(path\) => \(\{ path, score:/u);
   assert.doesNotMatch(recentBranch, /\.sort\(/);
   /* The Go-to-File branch keeps its ranking, or `⌘⇧O` stops being usable. */
   assert.match(palette, /\.sort\(\(left, right\) => right\.score - left\.score/);
@@ -100,7 +98,7 @@ test('an empty Recent Files list says so instead of "no matches"', () => {
   /* "No matches" implies a query failed; an empty workspace list is a different
      fact and sending the user hunting for a typo wastes their time. */
   assert.match(source, /recent && query === '' \? t\('editor\.recentEmpty'\) : t\('editor\.noMatches'\)/);
-  assert.match(source, /title: recent \? t\('editor\.recentFiles'\) : t\('editor\.gotoFile'\)|'aria-label': recent \? t\('editor\.recentFiles'\) : t\('editor\.gotoFile'\)/);
+  assert.match(source, /aria-label=\{recent \? t\('editor\.recentFiles'\) : t\('editor\.gotoFile'\)\}/);
 });
 
 /* ── discoverability: both popups sit in the Project toolbar ───────────── */
@@ -109,12 +107,14 @@ test('the Project Options menu exposes both navigation popups', () => {
   /* Without entries the only way to find ⌘E / ⌘⇧O is already knowing the key.
      Round 177 moved them under IDEA's Options disclosure so the visible toolbar
      keeps only the frequent actions. */
-  const options = source.slice(source.indexOf('onOpenOptions: (event) => {'), source.indexOf('onCreateChange: (value) =>'));
-  assert.match(options, /id: 'gotoFile', label: t\('editor\.gotoFileHint'\)/);
-  assert.match(options, /id: 'recent', label: t\('editor\.recentFilesHint'\)/);
-  /* They must be wired, not decorative. */
-  assert.match(options, /void openQuickOpen\(\)/);
-  assert.match(options, /openRecent\(\)/);
+  assert.match(projectOptionsSource, /id: 'gotoFile',\s+label: t\('editor\.gotoFileHint'\)/);
+  assert.match(projectOptionsSource, /id: 'recent',\s+label: t\('editor\.recentFilesHint'\)/);
+  const options = workspaceSource.slice(
+    workspaceSource.indexOf('onOpenOptions={(event) => {'),
+    workspaceSource.indexOf('onCreateChange={(value) =>'),
+  );
+  assert.match(options, /onGotoFile: \(\) => void openQuickOpen\(\)/);
+  assert.match(options, /onRecentFiles: openRecent/);
 });
 
 test('both popups carry their shortcut in the label', () => {
@@ -163,16 +163,18 @@ test('"return to dock" reaches the panel that owns the placement', () => {
      `[data-dsh-editor-workspace]` — different nodes, so the button did nothing.
      Measured: dockTabs stayed 0 and the editor kept the tab. */
   assert.match(source, /window\.addEventListener\('dsh-editor-return-terminal', onReturn\)/);
-  assert.match(source, /window\.dispatchEvent\(new CustomEvent\('dsh-editor-return-terminal'/);
+  assert.match(source, /window\.dispatchEvent\(\s+new CustomEvent\('dsh-editor-return-terminal'/);
   assert.doesNotMatch(source, /querySelector\('\[data-dsh-editor-host\]'\)\?\.dispatchEvent/);
 });
 
 test('the editor area is one surface: a terminal hides the empty placeholder', () => {
   /* Both boxes in the same flex column split the height 50/50, so the shell sat
      under a "no file open" caption (measured pane 618px of 793px). */
-  assert.match(source, /activeFile === null && splitFile === null && diffOpen === false && annotateTarget === null && monacoError === null && editorTerminals\.length === 0/);
-  assert.match(source, /React\.createElement\(EditorTerminalArea, \{/);
-  assert.match(source, /active: editorTerminals\.length > 0 && diffOpen === false && annotateTarget === null/);
+  assert.match(
+    workspaceSource,
+    /activeFile === null &&[\s\S]*?splitFile === null &&[\s\S]*?diffOpen === false &&[\s\S]*?annotateTarget === null &&[\s\S]*?monacoError === null &&[\s\S]*?editorTerminals\.length === 0/u,
+  );
+  assert.match(workspaceSource, /<EditorTerminalArea[\s\S]*?active=\{editorTerminals\.length > 0 && diffOpen === false && annotateTarget === null\}/u);
   assert.match(editorTerminalAreaSource, /if \(!active \|\| terminal === null\) return null;/);
 });
 
@@ -180,11 +182,11 @@ test('a reloaded page re-resolves its editor terminals from the host', () => {
   /* The dock reports what it moved, but after a reload the dock starts closed,
      so nothing reports and the stored id rendered nowhere (measured: stored list
      held the id, no tab appeared). The PTY is the HOST's, so asking it is enough. */
-  const block = source.slice(source.indexOf('const remembered = readEditorTerminals();'), source.indexOf("}, []);\n\n      /* Restore the per-workspace MRU"));
+  const block = source.slice(source.indexOf('const remembered = readEditorTerminals();'), source.indexOf('/* Directory "Open in Terminal"'));
   assert.match(block, /callTerminal\(\{ op: 'list' \}\)/);
-  assert.match(block, /const restored = listed\.filter\(\(terminal\) => remembered\.includes\(terminal\.id\)\)/);
+  assert.match(block, /const restored = listed\.filter\(\(terminal\) =>\s+remembered\.includes\(terminal\.id\)/u);
   assert.match(block, /setEditorTerminals\(restored\)/);
   assert.match(block, /writeEditorTerminals\(restored\.map\(\(terminal\) => terminal\.id\)\)/);
   /* A terminal closed while the page was away must not come back as a dead tab. */
-  assert.match(block, /listed = Array\.isArray\(value\?\.terminals\) \? value\.terminals : \[\]/);
+  assert.match(block, /const listed = Array\.isArray\(value\?\.terminals\) \? value\.terminals : \[\]/);
 });

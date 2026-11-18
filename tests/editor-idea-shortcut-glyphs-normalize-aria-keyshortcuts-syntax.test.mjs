@@ -4,7 +4,7 @@ import test from 'node:test';
 
 const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
 const searchEverywhereSource = await readFile(
-  new URL('./fixtures/search-everywhere.legacy.js', import.meta.url),
+  new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url),
   'utf8',
 );
 
@@ -40,13 +40,13 @@ test('IDEA shortcut glyphs normalize to ARIA keyshortcuts syntax', () => {
 
 test('Search Everywhere action rows expose normalized shortcut metadata', () => {
   assert.match(searchEverywhereSource, /ariaKeyShortcuts: searchEverywhereAriaKeyShortcuts\(action\.shortcut\)/);
-  assert.match(searchEverywhereSource, /'aria-keyshortcuts': result\.ariaKeyShortcuts/);
+  assert.match(searchEverywhereSource, /aria-keyshortcuts=\{result\.ariaKeyShortcuts\}/u);
 });
 
 test('visible shortcut text remains unchanged alongside the ARIA metadata', () => {
   assert.match(
     searchEverywhereSource,
-    /result\.shortcut \? React\.createElement\('span', \{ style: styles\.searchEverywhereShortcut \}, result\.shortcut\) : null/,
+    /result\.shortcut \? <span style=\{styles\.searchEverywhereShortcut\}>\{result\.shortcut\}<\/span> : null/u,
   );
   assert.match(searchEverywhereSource, /searchEverywhereResultTooltip\(result\)/);
 });

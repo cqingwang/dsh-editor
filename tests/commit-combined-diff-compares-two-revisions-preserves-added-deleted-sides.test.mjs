@@ -4,6 +4,7 @@ import { mkdtemp, readFile, rm, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
+import { loadTypeScriptFunction } from './ts-source.mjs';
 
 import { gitCombinedDiff } from '../lib/index.js';
 
@@ -25,19 +26,6 @@ async function revisionPairFixture() {
   git(dir, 'add', '-A');
   git(dir, 'commit', '-qm', 'newer');
   return { dir, older, newer: git(dir, 'rev-parse', 'HEAD'), cleanup: () => rm(dir, { recursive: true, force: true }) };
-}
-
-function extractFunction(source, name) {
-  const start = source.indexOf(`function ${name}(`);
-  assert.notEqual(start, -1, `${name} is missing`);
-  const bodyStart = source.indexOf('{', start);
-  let depth = 0;
-  for (let index = bodyStart; index < source.length; index += 1) {
-    if (source[index] === '{') depth += 1;
-    if (source[index] === '}') depth -= 1;
-    if (depth === 0) return source.slice(start, index + 1);
-  }
-  assert.fail(`${name} has no closing brace`);
 }
 
 test('combined diff compares two revisions and preserves added/deleted sides', async (t) => {
@@ -67,8 +55,11 @@ test('combined diff compares two revisions and preserves added/deleted sides', a
 });
 
 test('log selection supports toggle and inclusive shift ranges', async () => {
-  const client = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
-  const fn = new Function(`${extractFunction(client, 'commitSelectionAfterClick')}; return commitSelectionAfterClick;`)();
+  const source = await readFile(
+    new URL('../src/client/components/commit/commit-log-selection-model.ts', import.meta.url),
+    'utf8',
+  );
+  const fn = loadTypeScriptFunction(source, 'commitSelectionAfterClick');
   const order = ['newest', 'middle', 'oldest'];
 
   assert.deepEqual(fn(order, ['middle'], 'newest', {}), { selected: ['newest'], anchor: 'newest' });
@@ -84,8 +75,8 @@ test('log selection supports toggle and inclusive shift ranges', async () => {
 });
 
 test('compare selection orders the older revision on the left', async () => {
-  const client = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
-  const fn = new Function(`${extractFunction(client, 'orderedRevisionPair')}; return orderedRevisionPair;`)();
+  const source = await readFile(new URL('../src/client/find-tool.ts', import.meta.url), 'utf8');
+  const fn = loadTypeScriptFunction(source, 'orderedRevisionPair');
   const entries = [
     { hash: 'newest', parents: ['middle'] },
     { hash: 'middle', parents: ['oldest'] },
@@ -98,10 +89,9 @@ test('compare selection orders the older revision on the left', async () => {
 });
 
 test('Commit Log exposes Compare Revisions for exactly two selected commits', async () => {
-  const client = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
-  const menuStart = client.indexOf('const buildLogMenu = React.useCallback');
-  const menuEnd = client.indexOf('/* Rollback discards edits', menuStart);
-  const menu = client.slice(menuStart, menuEnd);
+  const client = await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8');
+  const menu = await readFile(new URL('../src/client/components/commit/log-menu.ts', import.meta.url), 'utf8');
+  const locales = await readFile(new URL('../src/client/locales.ts', import.meta.url), 'utf8');
   const actionStart = client.indexOf('const compareCommitRevisions = React.useCallback');
   const actionEnd = client.indexOf('const compareCommitWithLocal = React.useCallback', actionStart);
   const action = client.slice(actionStart, actionEnd);
@@ -113,7 +103,7 @@ test('Commit Log exposes Compare Revisions for exactly two selected commits', as
   assert.match(action, /originalRevision: leftHash/);
   assert.match(action, /modifiedRevision: rightHash/);
   assert.match(action, /revisionPair:/);
-  assert.match(client, /compareRevisionsAction: '比较版本'/);
-  assert.match(client, /compareRevisionsAction: 'Compare Revisions'/);
+  assert.match(locales, /compareRevisionsAction: '比较版本'/);
+  assert.match(locales, /compareRevisionsAction: 'Compare Revisions'/);
   assert.match(client, /target\?\.revisionPair/);
 });

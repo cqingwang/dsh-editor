@@ -2,9 +2,9 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const client = (await readFile(new URL('./fixtures/diff-preview.legacy.js', import.meta.url), 'utf8')) + '\n' + (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
+const client = (await readFile(new URL('../src/client/components/diff/DiffPreview.tsx', import.meta.url), 'utf8')) + '\n' + (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
 const diffStart = client.indexOf('function DiffPreview(');
-const diff = client.slice(diffStart, client.indexOf('\n    function ', diffStart + 10));
+const diff = client.slice(diffStart, client.indexOf('export { DiffPreview };', diffStart));
 
 test('git requests accept an external abort signal without losing timeout protection', () => {
   const callGit = client.slice(
@@ -50,11 +50,14 @@ test('aborting the external signal rejects the in-flight git request', async () 
 test('DiffPreview aborts a superseded git diff load', () => {
   const marker = diff.indexOf('const previousViewKey = diffViewKeyRef.current;');
   const start = diff.lastIndexOf('React.useEffect(() => {', marker);
-  const end = diff.indexOf('      }, [captureDiffViewState, persistRestored, reloadGeneration, restoreDiffViewState, target]);', start);
+  const end = diff.indexOf(
+    '  }, [captureDiffViewState, persistRestored, reloadGeneration, restoreDiffViewState, target]);',
+    start,
+  );
   assert.ok(start >= 0 && end > start, 'Diff load effect is missing');
   const effect = diff.slice(start, end);
   assert.match(effect, /const diffAbort = new AbortController\(\);/u);
-  assert.match(effect, /callGit\(request, \{ signal: diffAbort\.signal \}\)/u);
+  assert.match(effect, /callGit\(request, \{\s+signal: diffAbort\.signal,\s+\}\)/u);
   assert.match(effect, /failure\?\.name === 'AbortError'[\s\S]*?return;/u);
   assert.match(effect, /cancelled = true;\s+diffAbort\.abort\(\);/u);
 });

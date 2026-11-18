@@ -37,12 +37,16 @@ test('commit message history is per workspace and recalled with arrows', () => {
 });
 
 test('commit log can be filtered and its files open in the editor', () => {
-  const client = `${read('lib/client.js')}\n${read('tests/fixtures/commit-log.legacy.js')}`;
+  const client = [
+    read('lib/client.js'),
+    read('src/client/components/commit/CommitLog.tsx'),
+    read('src/client/components/commit/CommitLogDetailPane.tsx'),
+  ].join('\n');
   assert.match(client, /const \[filter, setFilter\] = React\.useState\(''\)/);
   assert.match(client, /editor\.logFilterPlaceholder/);
   /* Click shows that commit's diff (IDEA); double-click opens the working copy. */
-  assert.match(client, /onClick: \(\) => onShowCommitDiff\?\.\(\{ hash: detail\.hash, path: file\.path \}\)/);
-  assert.match(client, /onDoubleClick: \(\) => \{[\s\S]*?if \(localExists\) onEditSource\?\.\(file\.path\);/);
+  assert.match(client, /onClick=\{\(\) =>\s+onShowCommitDiff\?\.\(\{\s+hash: detail\.hash,\s+path: file\.path,\s+\}\)\s+\}/s);
+  assert.match(client, /onDoubleClick=\{\(\) => \{\s+if \(localExists\) onEditSource\?\.\(file\.path\);\s+\}\}/s);
   assert.match(client, /onOpenFile: \(path\) => void openFile\(path\)/);
   assert.match(client, /onOpenFile,/);
 });

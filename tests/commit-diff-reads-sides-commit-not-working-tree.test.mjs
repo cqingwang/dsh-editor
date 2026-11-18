@@ -11,7 +11,7 @@ import { gitCommitDiff, gitFileHistory, gitShowCommit, workspaceFileOperations }
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const read = (path) => readFileSync(join(root, path), 'utf8');
 const readClient = () =>
-  readFileSync(join(root, 'tests/fixtures/diff-preview.legacy.js'), 'utf8') + '\n' + read('lib/client.js');
+  readFileSync(join(root, 'src/client/components/diff/DiffPreview.tsx'), 'utf8') + '\n' + read('lib/client.js');
 
 /** A repository with two commits touching the same file. */
 async function fixture() {
@@ -104,9 +104,9 @@ test('commit log opens a commit diff on click and the working copy on double cli
   assert.match(client, /const showCommitDiff = React\.useCallback\(\(target\) => \{/);
   assert.match(client, /setDiffTarget\(\{ path: target\.path, commit: target\.hash, staged: false \}\);/);
   /* `request` first checks a clipboard target, then commit, then staged. */
-  assert.match(client, /typeof target\.clipboardText === 'string'\n\s+\? \{ op: 'compareText'/);
-  assert.match(client, /typeof target\.commit === 'string'\n\s+\? \{ op: 'commitDiff'/);
-  assert.match(client, /op: 'commitDiff', hash: target\.commit, path: target\.path/);
+  assert.match(client, /typeof target\.clipboardText === 'string'\s+\? \{\s+op: 'compareText'/u);
+  assert.match(client, /typeof target\.commit === 'string'\s+\? \{\s+op: 'commitDiff'/u);
+  assert.match(client, /op: 'commitDiff',\s+hash: target\.commit,\s+path: target\.path,/u);
   assert.match(client, /onDoubleClick: \(\) => \{[\s\S]*?if \(localExists\) onEditSource\?\.\(file\.path\);/);
   /* The tree can jump straight to one file's history. */
   assert.match(client, /id: 'history',\n\s+label: t\('editor\.showHistory'\)/);

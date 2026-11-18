@@ -5,15 +5,18 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = (readFileSync(join(root, 'tests/fixtures/diff-preview.legacy.js'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
+const source = (readFileSync(join(root, 'src/client/components/diff/DiffPreview.tsx'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
 
 function diffPreview() {
-  return source.slice(source.indexOf('function DiffPreview('), source.indexOf('* Commit tool window: grouped'));
+  return source.slice(source.indexOf('function DiffPreview('), source.indexOf('export { DiffPreview };'));
 }
 
 test('the selection restore action advertises ⌥⌘Z and forwards it to the overflow menu', () => {
   const diff = diffPreview();
-  assert.match(diff, /id: 'selection', icon: 'target', label: t\('editor\.diffSelectionRestore'\), group: 'history', shortcut: '⌥⌘Z', run: restoreSelection/);
+  assert.match(
+    diff,
+    /id: 'selection',\s+icon: 'target',\s+label: t\('editor\.diffSelectionRestore'\),\s+group: 'history',\s+shortcut: '⌥⌘Z',\s+run: restoreSelection/u,
+  );
   assert.match(diff, /shortcut: action\.shortcut \?\? \(action\.active === true \? '✓' : ''\)/);
 });
 
@@ -32,13 +35,18 @@ test('⌥⌘Z in a writable diff restores only an actionable selection', () => {
 
 test('the diff keyboard effect tracks the actionable selection state', () => {
   const diff = diffPreview();
-  assert.match(diff, /\}, \[actionableSelection, applyLeftSide, editLocked, focusOppositeDiffPane, localPathAvailable, navigationPosition, nextFileAction, onClose, onOpenLocal, previousFileAction, redoRestore, restoreSelection, searchInChanges, target, toggleCombinedFileCollapse, undoRestore, walkHunk\]\);/);
+  assert.match(
+    diff,
+    /\},\s+\[\s+actionableSelection,\s+applyLeftSide,\s+editLocked,\s+focusOppositeDiffPane,\s+localPathAvailable,\s+navigationPosition,\s+nextFileAction,\s+onClose,\s+onOpenLocal,\s+previousFileAction,\s+redoRestore,\s+restoreSelection,\s+searchInChanges,\s+target,\s+toggleCombinedFileCollapse,\s+undoRestore,\s+walkHunk,\s+\]\);/u,
+  );
 });
 
 test('actionableSelection is initialized before the keyboard effect reads it', () => {
   const diff = diffPreview();
   const declaration = diff.indexOf('const actionableSelection =');
-  const dependency = diff.indexOf('}, [actionableSelection, applyLeftSide, editLocked, focusOppositeDiffPane, localPathAvailable, navigationPosition, nextFileAction, onClose, onOpenLocal, previousFileAction, redoRestore, restoreSelection, searchInChanges, target, toggleCombinedFileCollapse, undoRestore, walkHunk]);');
+  const dependency = diff.search(
+    /\},\s+\[\s+actionableSelection,\s+applyLeftSide,\s+editLocked,\s+focusOppositeDiffPane,\s+localPathAvailable,\s+navigationPosition,\s+nextFileAction,\s+onClose,\s+onOpenLocal,\s+previousFileAction,\s+redoRestore,\s+restoreSelection,\s+searchInChanges,\s+target,\s+toggleCombinedFileCollapse,\s+undoRestore,\s+walkHunk,\s+\]\);/u,
+  );
   assert.notEqual(declaration, -1);
   assert.notEqual(dependency, -1);
   assert.ok(declaration < dependency, 'a hook dependency cannot reference a later const in its TDZ');

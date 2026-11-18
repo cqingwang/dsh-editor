@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = (readFileSync(join(root, 'tests/fixtures/project-panel.legacy.js'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
+const source = (readFileSync(join(root, 'src/client/components/project/ProjectPanel.tsx'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
 
 /** Evaluate one shipping function by brace balance. */
 function load(name) {
@@ -56,9 +56,9 @@ test('every occurrence is marked, and a miss or empty query yields one plain par
 });
 
 test('the tree row renders the highlight spans while filtering', () => {
-  const start = source.indexOf('React.createElement(EntryIcon, { entry: row, expanded: open })');
+  const start = source.indexOf('<EntryIcon');
   assert.notEqual(start, -1);
   const block = source.slice(start, start + 3400);
   assert.match(block, /highlightParts\(row\.name, search\)/);
-  assert.match(block, /style: styles\.treeNameMatch/);
+  assert.match(block, /style=\{styles\.treeNameMatch\}/);
 });

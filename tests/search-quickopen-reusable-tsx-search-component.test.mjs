@@ -23,14 +23,14 @@ test('QuickOpen is a reusable TSX search component', async () => {
   assert.doesNotMatch(component, /React\.createElement/u);
 });
 
-test('find-tool legacy fixture keeps QuickOpen and fuzzyScore boundaries', async () => {
+test('build embeds QuickOpen and fuzzyScore without legacy duplicates', async () => {
   const build = await read('scripts/build-client.mjs');
   const legacy = await read('src/client/find-tool.ts');
-  const fixture = await read('tests/fixtures/find-tool.legacy.js');
+  const quickOpen = await read('src/client/components/search/QuickOpen.tsx');
 
   assert.match(build, /QuickOpen\.tsx/u);
   assert.match(build, /quickOpenModule/u);
   assert.doesNotMatch(legacy, /function QuickOpen\(/u);
-  assert.match(fixture, /function QuickOpen\(/u);
-  assert.match(fixture, /function fuzzyScore\(/u);
+  assert.match(quickOpen, /function QuickOpen\(/u);
+  assert.match(legacy, /function fuzzyScore\(/u);
 });

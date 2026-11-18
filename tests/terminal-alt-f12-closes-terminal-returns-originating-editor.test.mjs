@@ -4,15 +4,26 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import { compactActionBarSource } from './ui-sources.mjs';
+import { loadTypeScriptFunction } from './ts-source.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const screenSource = readFileSync(
   join(root, 'src/client/components/terminal/TerminalScreen.tsx'),
   'utf8',
 );
-const source = `${readFileSync(join(root, 'src/client/components/terminal/TerminalPanel.tsx'), 'utf8')}\n${screenSource}\n${readFileSync(join(root, 'tests/fixtures/commit-panel.legacy.js'), 'utf8')}\n${readFileSync(join(root, 'lib/client.js'), 'utf8')}`;
+const commitPanelSource = readFileSync(join(root, 'src/client/components/commit/CommitPanel.tsx'), 'utf8');
+const workspaceSource = readFileSync(join(root, 'src/client/editor-workspace.tsx'), 'utf8');
+const source = [
+  workspaceSource,
+  readFileSync(join(root, 'src/client/components/terminal/TerminalPanel.tsx'), 'utf8'),
+  screenSource,
+  commitPanelSource,
+  readFileSync(join(root, 'src/client/ui/styles.ts'), 'utf8'),
+  readFileSync(join(root, 'src/client/foundation.ts'), 'utf8'),
+].join('\n');
 const entryIconSource = readFileSync(join(root, 'src/client/components/ui/EntryIcon.tsx'), 'utf8');
 const fileBadgeSource = readFileSync(join(root, 'src/client/components/ui/file-badge.ts'), 'utf8');
+const diffSource = readFileSync(join(root, 'src/client/diff.ts'), 'utf8');
 
 function slice(from, to) {
   const start = source.indexOf(from);
@@ -22,27 +33,7 @@ function slice(from, to) {
   return source.slice(start, end);
 }
 
-function load(name, injected = {}) {
-  const marker = `    function ${name}(`;
-  const start = source.indexOf(marker);
-  assert.notEqual(start, -1, `${name} is missing`);
-  let index = source.indexOf('{', start);
-  let depth = 0;
-  for (; index < source.length; index += 1) {
-    if (source[index] === '{') depth += 1;
-    else if (source[index] === '}') {
-      depth -= 1;
-      if (depth === 0) {
-        const names = Object.keys(injected).join(',');
-        const values = Object.values(injected).join(',');
-        return new Function(`${source.slice(start, index + 1)}; return ${name};`)();
-      }
-    }
-  }
-  throw new Error(`unbalanced braces in ${name}`);
-}
-
-const splitChanges = load('splitChanges');
+const splitChanges = loadTypeScriptFunction(diffSource, 'splitChanges');
 
 /** The collapse keys Collapse All must write for a git snapshot. */
 function collapseKeys(changes) {
@@ -75,7 +66,7 @@ test('Alt+F12 closes from the terminal and returns to the originating editor', (
 test('opening the dock remembers Monaco or the focused tree/list control', () => {
   const start = source.lastIndexOf('const rememberTerminalOrigin = () => {');
   const keys = source.slice(start, source.indexOf("}, [selectActivity, terminalOpen]);", start));
-  assert.match(keys, /terminalReturnFocusRef\.current = current !== null/);
+  assert.match(keys, /terminalReturnFocusRef\.current =\s+current !== null/);
   assert.match(keys, /current\.closest\('\[data-dsh-editor-terminal\]'\) === null/);
   assert.match(keys, /setTerminalOpen\(true\)/);
   assert.match(keys, /setTerminalFocusGeneration\(\(value\) => value \+ 1\)/);
@@ -89,7 +80,7 @@ test('the dock only reclaims focus when the terminal is genuinely visible', () =
 });
 
 test('the Commit action bar exposes IDEA Select Opened / Expand / Collapse', () => {
-  const panel = slice('function CommitPanel({', 'function NamePrompt(');
+  const panel = commitPanelSource;
   assert.match(panel, /label: t\('editor\.selectOpenedChange'\)/);
   assert.match(panel, /label: t\('editor\.expandChanges'\)/);
   assert.match(panel, /label: t\('editor\.collapseChanges'\)/);
@@ -99,7 +90,10 @@ test('the Commit action bar exposes IDEA Select Opened / Expand / Collapse', () 
 });
 
 test('Select Opened File uses the staged side of a mixed change', () => {
-  const wiring = slice('onSelectOpenedChange: () => {', 'onExpandChanges: () => {');
+  const wiring = workspaceSource.slice(
+    workspaceSource.indexOf('onSelectOpenedChange={() => {'),
+    workspaceSource.indexOf('onExpandChanges={() => {'),
+  );
   assert.match(wiring, /const path = activePathRef\.current;/);
   assert.match(wiring, /change\.path === path/);
   assert.match(wiring, /candidate\.status\[0\] !== ' ' && candidate\.status\[0\] !== '\?'/);
@@ -108,13 +102,19 @@ test('Select Opened File uses the staged side of a mixed change', () => {
 });
 
 test('Expand and Collapse All persist the Changes tree state', () => {
-  const expand = slice('onExpandChanges: () => {', 'onCollapseChanges: () => {');
+  const expand = workspaceSource.slice(
+    workspaceSource.indexOf('onExpandChanges={() => {'),
+    workspaceSource.indexOf('onCollapseChanges={() => {'),
+  );
   assert.match(expand, /setCollapsedGroups\(new Set\(\)\)/);
   assert.match(expand, /writeCollapsedGroups\(rootRef\.current, new Set\(\)\)/);
-  const collapse = slice('onCollapseChanges: () => {', 'onRollbackSelected:');
+  const collapse = workspaceSource.slice(
+    workspaceSource.indexOf('onCollapseChanges={() => {'),
+    workspaceSource.indexOf('onRollbackSelected='),
+  );
   assert.match(collapse, /const bands = splitChanges\(changesNow\)/);
   assert.match(collapse, /all\.add\(`\$\{id\}:`\)/);
-  assert.match(collapse, /change\.path\.indexOf\('\/', index \+ 1\)/);
+  assert.match(collapse, /index = change\.path\.indexOf\('\/', index \+ 1\)/);
   assert.match(collapse, /setCollapsedGroups\(all\)/);
   assert.match(collapse, /writeCollapsedGroups\(rootRef\.current, all\)/);
 });

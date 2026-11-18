@@ -19,7 +19,7 @@ test('CommitPanel is an imported TSX feature component', async () => {
 test('build embeds CommitPanel TSX and legacy commit.js has no duplicate component', async () => {
   const build = await read('scripts/build-client.mjs');
   const legacy = await read('src/client/commit.ts');
-  const fixture = await read('tests/fixtures/commit-panel.legacy.js');
+  const fixture = await read('src/client/components/commit/CommitPanel.tsx');
 
   assert.match(build, /CommitPanel\.tsx/u);
   assert.match(build, /commitPanelModule/u);

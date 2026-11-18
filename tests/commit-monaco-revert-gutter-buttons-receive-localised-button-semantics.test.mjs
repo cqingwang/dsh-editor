@@ -5,10 +5,10 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = (readFileSync(join(root, 'tests/fixtures/diff-preview.legacy.js'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
+const source = (readFileSync(join(root, 'src/client/components/diff/DiffPreview.tsx'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
 
 function diffPreview() {
-  return source.slice(source.indexOf('function DiffPreview('), source.indexOf('* Commit tool window: grouped'));
+  return source.slice(source.indexOf('function DiffPreview('), source.indexOf('export { DiffPreview };'));
 }
 
 test('Monaco revert gutter buttons receive localised button semantics', () => {
@@ -45,17 +45,17 @@ test('Enter and Space on a revert gutter button dispatch its native click', () =
   assert.match(handler, /closest\('\.revertButton'\)/);
   assert.match(handler, /event\.preventDefault\(\)/);
   assert.match(handler, /revertTarget\.click\(\)/);
-  assert.match(diff, /onKeyDown: onDiffHostKeyDown/);
+  assert.match(diff, /onKeyDown=\{onDiffHostKeyDown\}/);
 });
 
 test('the narrow hunk capsule is focusable and keyboard-operable', () => {
   const diff = diffPreview();
-  const start = diff.indexOf("className: 'dsh-editor-hunk-nav dsh-editor-hunk-capsule'");
+  const start = diff.indexOf("className='dsh-editor-hunk-nav dsh-editor-hunk-capsule'");
   assert.notEqual(start, -1);
   const capsule = diff.slice(start, diff.indexOf('${hunks.index}/${hunks.total}', start));
-  assert.match(capsule, /tabIndex: 0/);
-  assert.match(capsule, /aria-label': t\('editor\.hunkCapsuleHint'/);
-  assert.match(capsule, /onKeyDown:/);
+  assert.match(capsule, /tabIndex=\{0\}/);
+  assert.match(capsule, /aria-label=\{t\('editor\.hunkCapsuleHint'/);
+  assert.match(capsule, /onKeyDown=\{\(event\) => \{/);
   assert.match(capsule, /event\.key === 'Enter' \|\| event\.key === ' '/);
   assert.match(capsule, /walkHunk\(/);
 });

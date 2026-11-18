@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 const source =
-  (await readFile(new URL('./fixtures/project-panel.legacy.js', import.meta.url), 'utf8')) +
+  (await readFile(new URL('../src/client/components/project/ProjectPanel.tsx', import.meta.url), 'utf8')) +
   '\n' +
   (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
 
@@ -48,8 +48,8 @@ test('Project View exposes only the three backed views', () => {
 
 test('The Project title copies the real root path and reveals it on hover', () => {
   const panel = projectPanel();
-  assert.match(panel, /className: 'dsh-editor-project-root-button'/);
-  assert.match(panel, /title: root/);
+  assert.match(panel, /className='dsh-editor-project-root-button'/);
+  assert.match(panel, /title=\{root\}/);
   assert.match(panel, /copySearchResultText\(root, onNotify, t\)/);
   assert.match(panel, /projectName/);
   assert.doesNotMatch(panel, /`\$\{t\('editor\.project'\)\}:`/);
@@ -57,9 +57,9 @@ test('The Project title copies the real root path and reveals it on hover', () =
 
 test('The Project view menu keeps its own disclosure target', () => {
   const panel = projectPanel();
-  assert.match(panel, /className: 'dsh-editor-project-view-button'/);
+  assert.match(panel, /className='dsh-editor-project-view-button'/);
   assert.match(panel, /projectViewDefinitions\(t\)/);
-  assert.match(panel, /'aria-haspopup': 'menu'/);
+  assert.match(panel, /aria-haspopup='menu'/);
 });
 
 test('The project tree no longer renders a synthetic root row', () => {

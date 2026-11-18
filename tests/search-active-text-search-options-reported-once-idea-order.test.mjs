@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = (await readFile(new URL('./fixtures/search-everywhere.legacy.js', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
+const source = (await readFile(new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
 
 function extractFunction(name) {
   const start = source.indexOf(`function ${name}(`);
@@ -57,7 +57,7 @@ test('Clear all options and the used-options summary share one predicate', () =>
 test('Text empty state renders the active search option labels', () => {
   const dialog = source.slice(
     source.indexOf('function SearchEverywhere('),
-    source.indexOf('function FindToolWindow('),
+    source.indexOf('function FindToolWindowView('),
   );
   assert.match(dialog, /const activeSearchOptionIds = searchEverywhereActiveOptionIds\(\{/);
   assert.match(dialog, /const activeSearchOptionsText = activeSearchOptionIds\s*\.map/);

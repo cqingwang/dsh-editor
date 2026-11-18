@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) + '\n' + (await readFile(new URL('./fixtures/find-tool.legacy.js', import.meta.url), 'utf8'));
+const source = (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) + '\n' + (await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8'));
 
 function extractSource(name) {
   const marker = `    function ${name}(`;
@@ -66,7 +66,7 @@ test('each Find handoff gets a monotonic revision', () => {
 });
 
 test('Find expands a collapsed target group before converging the active index', () => {
-  const component = source.slice(source.indexOf('function FindToolWindow('), source.indexOf('/* QUICK_OPEN_BOUNDARY */'));
+  const component = source.slice(source.indexOf('function FindToolWindowView('), source.indexOf('const FindToolWindow = FindToolWindowView;'));
   assert.match(component, /const handoffRevision = Math\.max\(0, Number\(state\.handoffRevision\) \|\| 0\)/);
   assert.match(component, /const handoffTarget = findToolHandoffTarget\(scopedFileResults, scopedMatches, state\.index, findGroupBy\)/);
   assert.match(component, /handoffReadyRevisionRef/);

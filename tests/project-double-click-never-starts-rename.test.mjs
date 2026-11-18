@@ -10,7 +10,7 @@ import { workspaceFileOperations } from '../lib/index.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const panelSource = readFileSync(join(root, 'src/client/components/terminal/TerminalPanel.tsx'), 'utf8');
-const source = (panelSource + '\n' + readFileSync(join(root, 'tests/fixtures/project-panel.legacy.js'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
+const source = (panelSource + '\n' + readFileSync(join(root, 'src/client/components/project/ProjectPanel.tsx'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
 
 /* ── The reported bug: a blur commit renamed a folder into itself ───────── */
 
@@ -23,7 +23,7 @@ test('a double-click never starts a rename', () => {
   const start = source.indexOf("const isDirectory = row.kind === 'directory';");
   assert.notEqual(start, -1);
   const block = source.slice(start, source.indexOf('onContextMenu:', start));
-  assert.match(block, /onDoubleClick: \(event\) => \{/);
+  assert.match(block, /onDoubleClick=\{\(event\) => \{/);
   assert.match(block, /event\.stopPropagation\(\);/);
   const dbl = block.slice(block.indexOf('onDoubleClick:'), block.indexOf('onContextMenu:'));
   assert.doesNotMatch(dbl, /setRenameState|onStartRename|Rename/);

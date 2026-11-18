@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = (readFileSync(join(root, 'tests/fixtures/diff-preview.legacy.js'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
+const source = (readFileSync(join(root, 'src/client/components/diff/DiffPreview.tsx'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
 
 function diffPreview() {
   const start = source.indexOf('function DiffPreview(');
@@ -18,7 +18,7 @@ function diffPreview() {
 test('Diff marks every model-dependent action unavailable without a loaded diff', () => {
   const diff = diffPreview();
   assert.match(diff, /const diffUnavailable = target === null \|\| state\.binary \|\| state\.missing \|\| diffLoadedRef\.current === null;/);
-  assert.match(diff, /React\.createElement\(DiffViewModeControl, \{[\s\S]*?disabled: diffUnavailable,/);
+  assert.match(diff, /<DiffViewModeControl[\s\S]*?disabled=\{diffUnavailable\}/u);
   assert.match(diff, /id: 'swapSides',[\s\S]*?disabled: diffUnavailable,/);
   assert.match(diff, /id: 'disableEditing',[\s\S]*?disabled: swapSides \|\| diffUnavailable,/);
   assert.match(diff, /id: 'settings',[\s\S]*?disabled: diffUnavailable,/);

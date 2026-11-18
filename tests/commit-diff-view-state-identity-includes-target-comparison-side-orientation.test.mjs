@@ -6,7 +6,7 @@ import test from 'node:test';
 import { loadTypeScriptFunction } from './ts-source.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = (readFileSync(join(root, 'tests/fixtures/diff-preview.legacy.js'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
+const source = (readFileSync(join(root, 'src/client/components/diff/DiffPreview.tsx'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
 const diffModelSource = readFileSync(join(root, 'src/client/components/ui/diff-model.ts'), 'utf8');
 const diffViewStateKey = loadTypeScriptFunction(diffModelSource, 'diffViewStateKey');
 
@@ -24,7 +24,7 @@ test('diff view state identity includes target comparison and side orientation',
 });
 
 function diffPreview() {
-  return source.slice(source.indexOf('function DiffPreview('), source.indexOf('* Commit tool window: grouped'));
+  return source.slice(source.indexOf('function DiffPreview('), source.indexOf('export { DiffPreview };'));
 }
 
 test('the workspace owns diff view state across comparison tabs', () => {
@@ -55,14 +55,22 @@ test('target changes, Swap Sides and view mode changes preserve per-target state
   assert.match(diff, /const restoredView = restoreDiffViewState\(diffViewKeyRef\.current\)/);
   assert.match(diff, /if \(restoredView === false\) focusFirstHunkRef\.current\?\.\(\)/);
 
-  const swap = diff.slice(diff.indexOf('React.useEffect(() => {\n        const previousState'), diff.indexOf('/* Track which hunk'));
+  const swap = diff.slice(
+    diff.indexOf('React.useEffect(() => {\n    const previousState'),
+    diff.indexOf('/* Track which hunk'),
+  );
   assert.match(swap, /const previousState = captureDiffViewState\(diffViewKeyRef\.current\)/);
   assert.match(swap, /const nextKey = diffViewStateKey\(diffTargetRef\.current, swapSides\)/);
   assert.match(swap, /diffViewKeyRef\.current = nextKey/);
   assert.match(swap, /applyDiffSideOrder\(swapSides\)/);
   assert.match(swap, /restoreDiffViewState\(nextKey, previousState\)/);
 
-  const mode = diff.slice(diff.indexOf('React.useEffect(() => {\n        const diff = diffRef.current;\n        if (diff === null) return;\n        const savedView'), diff.indexOf('React.useEffect(() => {\n        const diff = diffRef.current;\n        if (diff === null) return;\n        diff.updateOptions({\n          hideUnchangedRegions'));
+  const mode = diff.slice(
+    diff.indexOf('React.useEffect(() => {\n    const diff = diffRef.current;\n    if (diff === null) return;\n    const savedView'),
+    diff.indexOf(
+      'React.useEffect(() => {\n    const diff = diffRef.current;\n    if (diff === null) return;\n    diff.updateOptions({\n      hideUnchangedRegions',
+    ),
+  );
   assert.match(mode, /const savedView = captureDiffViewState\(diffViewKeyRef\.current\)/);
   assert.match(mode, /restoreDiffViewState\(diffViewKeyRef\.current, savedView\)/);
 });

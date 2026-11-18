@@ -6,12 +6,12 @@ import { readFile as readSource } from 'node:fs/promises';
 import test from 'node:test';
 
 const host = await import('../lib/index.js');
-const source = (await readSource(new URL('../lib/client.js', import.meta.url), 'utf8')) + '\n' + (await readSource(new URL('./fixtures/find-tool.legacy.js', import.meta.url), 'utf8'));
+const source = (await readSource(new URL('../lib/client.js', import.meta.url), 'utf8')) + '\n' + (await readSource(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8'));
 
 test('Find tool offers Replace for the active occurrence only', () => {
   const findToolWindow = source.slice(
-    source.indexOf('function FindToolWindow('),
-    source.indexOf('/* QUICK_OPEN_BOUNDARY */'),
+    source.indexOf('function FindToolWindowView('),
+    source.indexOf('const FindToolWindow = FindToolWindowView;'),
   );
   assert.match(findToolWindow, /onReplaceOccurrence/);
   assert.match(findToolWindow, /active\?\.kind !== 'text'/);

@@ -5,9 +5,9 @@ import test from 'node:test';
 const source =
   (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) +
   '\n' +
-  (await readFile(new URL('./fixtures/find-tool.legacy.js', import.meta.url), 'utf8'));
-const findStart = source.indexOf('function FindToolWindow(');
-const findEnd = source.indexOf('/* QUICK_OPEN_BOUNDARY */', findStart);
+  (await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8'));
+const findStart = source.indexOf('function FindToolWindowView(');
+const findEnd = source.indexOf('const FindToolWindow = FindToolWindowView;', findStart);
 const find = source.slice(findStart, findEnd);
 const panelStart = source.indexOf('React.createElement(FindToolWindow, {');
 const panelClose = 'onClose: closeFindToolWindow,';

@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = (readFileSync(join(root, 'tests/fixtures/diff-preview.legacy.js'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
+const source = (readFileSync(join(root, 'src/client/components/diff/DiffPreview.tsx'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
 
 function extractFunction(name) {
   const start = source.indexOf(`function ${name}(`);
@@ -34,7 +34,7 @@ test('Ctrl+Escape is accepted only inside a combined diff', () => {
 });
 
 test('the diff handler reuses the combined-file collapse action', () => {
-  const diff = source.slice(source.indexOf('function DiffPreview('), source.indexOf('* Commit tool window: grouped'));
+  const diff = source.slice(source.indexOf('function DiffPreview('), source.indexOf('export { DiffPreview };'));
   assert.match(diff, /isCombinedFileCollapseShortcut\(event, insideDiffPane, target\?\.combined === true\)/);
   assert.match(
     diff,
@@ -47,8 +47,14 @@ test('the diff handler reuses the combined-file collapse action', () => {
 });
 
 test('the shortcut is wired into the key listener dependencies', () => {
-  const diff = source.slice(source.indexOf('function DiffPreview('), source.indexOf('* Commit tool window: grouped'));
-  const listener = diff.slice(diff.indexOf('React.useEffect(() => {\n        const onKeyDown'), diff.indexOf('const hidden = target === null'));
+  const diff = source.slice(source.indexOf('function DiffPreview('), source.indexOf('export { DiffPreview };'));
+  const listener = diff.slice(
+    diff.indexOf('React.useEffect(() => {\n    const onKeyDown'),
+    diff.indexOf('const hidden = target === null'),
+  );
   assert.match(listener, /toggleCombinedFileCollapse/);
-  assert.match(listener, /\}, \[actionableSelection,[\s\S]*?toggleCombinedFileCollapse,[\s\S]*?undoRestore, walkHunk\]\);/);
+  assert.match(
+    listener,
+    /\},\s+\[\s+actionableSelection,[\s\S]*?toggleCombinedFileCollapse,[\s\S]*?undoRestore,\s+walkHunk,\s+\]\);/u,
+  );
 });

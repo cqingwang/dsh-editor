@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = (readFileSync(join(root, 'tests/fixtures/diff-preview.legacy.js'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
+const source = (readFileSync(join(root, 'src/client/components/diff/DiffPreview.tsx'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
 
 test('the diff toolbar exposes IDEA Swap Sides', () => {
   assert.ok(source.includes("diffSwapSides: '交换对比方向'"));
@@ -31,7 +31,7 @@ test('swapping keeps both loaded models and only changes their view order', () =
 });
 
 test('loaded models come from the stored pair and swapped mode is read-only', () => {
-  assert.match(source, /diffModelsRef\.current = \{ original, modified \}/);
+  assert.match(source, /diffModelsRef\.current = \{\s+original,\s+modified,\s+\}/u);
   assert.match(source, /const loadedModels = diffModelsRef\.current/);
   assert.match(source, /swapSidesRef\.current === true/);
   assert.match(source, /const canEdit = diffEditingEnabled\(\{[\s\S]*?writable,[\s\S]*?swapped: swapSidesRef\.current,/);
@@ -40,14 +40,17 @@ test('loaded models come from the stored pair and swapped mode is read-only', ()
 });
 
 test('side headers and restore actions follow the displayed orientation', () => {
-  assert.match(source, /const displayedSideLabels = swapSides \? \{ left: sideLabels\.right, right: sideLabels\.left \} : sideLabels/);
+  assert.match(
+    source,
+    /const displayedSideLabels = swapSides\s+\? \{\s+left: sideLabels\.right,\s+right: sideLabels\.left,\s+\}\s+: sideLabels;/u,
+  );
   assert.match(source, /styles\.diffSideHeader \}, displayedSideLabels\.left/);
   assert.match(source, /displayedSideLabels\.right/);
   assert.match(source, /swapSides === false/);
-  assert.match(source, /actionableSelection = selectionRange !== null[\s\S]*?&& !diffReadOnly[\s\S]*?&& !swapSides[\s\S]*?&& !editLocked/);
+  assert.match(source, /actionableSelection =\s+selectionRange !== null &&\s+!diffReadOnly &&\s+!swapSides &&\s+!editLocked/u);
 });
 
 test('DiffPreview never captures the editor-split callback that is not in its scope', () => {
-  const diff = source.slice(source.indexOf('function DiffPreview('), source.indexOf('* Commit tool window: grouped'));
+  const diff = source.slice(source.indexOf('function DiffPreview('), source.indexOf('export { DiffPreview };'));
   assert.doesNotMatch(diff, /closeSplitTab/);
 });

@@ -5,10 +5,10 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = ((readFileSync(join(root, 'tests/fixtures/commit-panel.legacy.js'), 'utf8') + '\n' + readFileSync(join(root, 'tests/fixtures/context-menu.legacy.js'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'))) + '\n' + readFileSync(join(root, 'tests/fixtures/commit-log.legacy.js'), 'utf8');
+const source = ((readFileSync(join(root, 'src/client/components/commit/CommitPanel.tsx'), 'utf8') + '\n' + readFileSync(join(root, 'src/client/components/ui/Menu.tsx'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'))) + '\n' + readFileSync(join(root, 'src/client/components/commit/CommitLog.tsx'), 'utf8');
 
 test('Change group actions are disabled when the group has no checked files', () => {
-  const panel = source.slice(source.indexOf('function CommitPanel('), source.indexOf('function CommitLog('));
+  const panel = source.slice(source.indexOf('function CommitPanel('), source.indexOf('function CommitLogView('));
   const actions = panel.slice(panel.indexOf('const groupActions = ['), panel.indexOf('return React.createElement(', panel.indexOf('const groupActions = [')));
   const stageAction = actions.slice(
     actions.indexOf('id: removalOnlyInGroup ? `removeDeleted:${group.id}` : `stage:${group.id}`'),
@@ -19,8 +19,8 @@ test('Change group actions are disabled when the group has no checked files', ()
 });
 
 test('a group with no enabled action keeps focus on its overflow opener', () => {
-  const menu = source.slice(source.indexOf('function ContextMenu('), source.indexOf('/**\n     * A tool-window splitter'));
-  assert.match(menu, /querySelector\('button\[data-menu-item-id\]:not\(:disabled\)'\)/);
-  assert.match(menu, /if \(first instanceof HTMLElement\) first\.focus\(\)/);
-  assert.match(menu, /disabled: item\.disabled === true/);
+  const menu = source;
+  assert.match(menu, /querySelector<HTMLButtonElement>\('button\[data-menu-item-id\]:not\(:disabled\)'\)/);
+  assert.match(menu, /first\?\.focus\(\)/);
+  assert.match(menu, /disabled=\{item\.disabled === true\}/);
 });

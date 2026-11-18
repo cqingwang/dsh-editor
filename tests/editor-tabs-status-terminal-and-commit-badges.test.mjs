@@ -11,6 +11,9 @@ import { gitStatus, parseNumstat } from '../lib/index.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const read = (path) => readFileSync(join(root, path), 'utf8');
+const workspaceSource = read('src/client/editor-workspace.tsx');
+const terminalSource = read('src/client/components/terminal/TerminalPanel.tsx');
+const commitSource = read('src/client/components/commit/CommitPanel.tsx');
 
 /** One throwaway repository with a commit already in place. */
 async function fixture() {
@@ -72,35 +75,39 @@ test('both sides of an MM path keep their own reading', async (t) => {
 });
 
 test('closing a dirty tab asks first and batch close asks once', () => {
-  const client = `${read('tests/fixtures/terminal-panel.legacy.js')}\n${read('lib/client.js')}`;
-  assert.match(client, /const closeFile = React\.useCallback\(\(path, skipConfirm = false\) => \{/);
+  const client = workspaceSource;
+  assert.match(client, /const closeFile = React\.useCallback\(\s+\(path, skipConfirm = false\) => \{/);
   assert.match(client, /file\?\.dirty === true && !window\.confirm\(t\('editor\.unsavedTabsConfirm', \{ count: 1 \}\)\)/);
-  assert.match(client, /const closeOtherTabs = React\.useCallback\(/);
+  assert.match(client, /const closeOtherTabs =\s+React\.useCallback\(/);
   assert.match(client, /const closeAllTabs = React\.useCallback\(/);
-  assert.match(client, /const closePaths = React\.useCallback\(\(paths\) => \{/);
+  assert.match(client, /const closePaths = React\.useCallback\(\s+\(paths\) => \{/);
   assert.match(client, /setOpenFiles\(remaining\);/);
   assert.match(client, /if \(dirty > 0 && !window\.confirm\(t\('editor\.unsavedTabsConfirm', \{ count: dirty \}\)\)\) return false;/);
   /* Middle-click and the tab context menu both reach the same lifecycle. */
-  assert.match(client, /onAuxClick: \(event\) => \{/);
-  assert.match(client, /id: 'closeOthers', label: t\('editor\.closeOtherTabs'\)/);
+  assert.match(client, /onAuxClick=\{\(event\) => \{/);
+  assert.match(client, /id: 'closeOthers',\s+label: t\('editor\.closeOtherTabs'\),/s);
 });
 
 test('the editor exposes the file path in its status bar, go to line and live facts', () => {
-  const client = `${read('tests/fixtures/terminal-panel.legacy.js')}\n${read('lib/client.js')}`;
-  assert.doesNotMatch(client, /breadcrumbSegments/);
-  assert.doesNotMatch(client, /t\('editor\.breadcrumb'\)/);
-  assert.match(client, /data-dsh-editor-status-path/);
-  assert.match(client, /React\.createElement\(MarkdownModeSwitch/);
-  assert.match(client, /id: 'dsh-editor\.gotoLine'/);
-  assert.match(client, /const gotoLine = React\.useCallback\(/);
+  const statusBar = read('src/client/components/editor/EditorStatusBar.tsx');
+  const statusFacts = read('src/client/components/editor/EditorStatusFacts.tsx');
+  const tabStrip = read('src/client/components/editor/EditorTabStrip.tsx');
+  const editorCore = read('src/client/editor-core.ts');
+  const navigationModel = read('src/client/components/editor/editor-navigation-model.ts');
+  assert.doesNotMatch(workspaceSource, /breadcrumbSegments/);
+  assert.doesNotMatch(workspaceSource, /t\('editor\.breadcrumb'\)/);
+  assert.match(statusBar, /data-dsh-editor-status-path=''/);
+  assert.match(tabStrip, /<MarkdownModeSwitch/);
+  assert.match(editorCore, /id: 'dsh-editor\.gotoLine'/);
+  assert.match(workspaceSource, /const gotoLine = React\.useCallback\(/);
   /* `123` and `12:7` both parse; the column is optional. */
-  assert.ok(client.includes('/^(\\d+)(?:\\s*[:,]\\s*(\\d+))?$/u'));
-  assert.match(client, /t\('editor\.lineCount', \{ count: lineStats\.lines \}\)/);
-  assert.match(client, /t\('editor\.selectionInfo', \{ count: lineStats\.selected \}\)/);
+  assert.ok(navigationModel.includes('/^(\\d+)(?:\\s*[:,]\\s*(\\d+))?$/u'));
+  assert.match(statusFacts, /t\('editor\.lineCount', \{ count: lineStats\.lines \}\)/);
+  assert.match(statusBar, /t\('editor\.selectionInfo', \{ count: lineStats\.selected \}\)/);
 });
 
 test('line separators use the Monaco enum and indentation is user-owned', () => {
-  const client = `${read('tests/fixtures/terminal-panel.legacy.js')}\n${read('lib/client.js')}`;
+  const client = workspaceSource;
   /* `pushEOL('\\r\\n')` is silently a no-op: the argument must be the enum. */
   assert.match(client, /const sequence = monaco\?\.editor\?\.EndOfLineSequence;/);
   assert.match(client, /model\.pushEOL\(value\)/);
@@ -111,29 +118,33 @@ test('line separators use the Monaco enum and indentation is user-owned', () => 
 });
 
 test('the terminal split tracks its focused pane and remembers its ratio', () => {
-  const client = `${read('tests/fixtures/terminal-panel.legacy.js')}\n${read('lib/client.js')}`;
+  const client = terminalSource;
   assert.match(client, /const \[focusedPane, setFocusedPane\] = React\.useState\('left'\);/);
-  assert.match(client, /'data-dsh-terminal-pane-role': 'left'/);
-  assert.match(client, /'data-dsh-terminal-pane-role': 'right'/);
-  assert.match(client, /const \[splitPercent, setSplitPercent\] = React\.useState\(\(\) => readStoredNumber\('dsh-editor\.terminal\.splitPercent', 50\)\);/);
+  assert.match(client, /data-dsh-terminal-pane-role='left'/);
+  assert.match(client, /data-dsh-terminal-pane-role='right'/);
+  assert.match(
+    client,
+    /const \[splitPercent, setSplitPercent\] = React\.useState\(\(\) =>\s+readStoredNumber\('dsh-editor\.terminal\.splitPercent', 50\),\s+\);/,
+  );
   assert.match(client, /window\.localStorage\.setItem\('dsh-editor\.terminal\.splitPercent'/);
   /* Unsplit keeps the pane the user was typing in. */
   assert.match(client, /const keep = focusedPane === 'right' \? splitId : activeId;/);
 });
 
 test('commit rows render numstat badges instead of fabricating counts', () => {
-  const client = `${read('tests/fixtures/commit-panel.legacy.js')}\n${read('lib/client.js')}`;
+  const client = commitSource;
+  const lineCounts = read('src/client/components/ui/LineCounts.tsx');
   const commitModel = read('src/client/components/ui/commit-model.ts');
-  assert.match(client, /function LineCounts\(\{ counts \}\) \{/);
-  assert.match(client, /if \(counts\.binary === true\)/);
-  assert.match(client, /counts: group\.id === 'staged' \? change\.stagedLines : group\.id === 'unstaged' \? change\.unstagedLines : undefined/);
+  assert.match(lineCounts, /function LineCounts\(\{ counts \}: LineCountsProps\)/);
+  assert.match(lineCounts, /if \(counts\.binary === true\)/);
+  assert.match(client, /<LineCounts counts=\{subtotalOf\(row\.changes, group\.id\)\} \/>/);
   /* Round 50 moved the summing into one shared helper the directory row reuses. */
   assert.match(commitModel, /export function subtotalOf\(/);
   assert.match(client, /const groupTotals = \(group\) => subtotalOf\(group\.changes, group\.id\);/);
 });
 
 test('the first shell auto-starts once the retained list settles', () => {
-  const client = `${read('tests/fixtures/terminal-panel.legacy.js')}\n${read('lib/client.js')}`;
+  const client = terminalSource;
   /* A ref here never re-runs the effect, so the dock stayed empty until a manual "+". */
   assert.match(client, /const \[loaded, setLoaded\] = React\.useState\(false\);/);
   assert.match(client, /setLoaded\(true\)/);
@@ -148,8 +159,8 @@ test('the first shell auto-starts once the retained list settles', () => {
 });
 
 test('a single shell can still be split into a fresh right pane', () => {
-  const client = `${read('tests/fixtures/terminal-panel.legacy.js')}\n${read('lib/client.js')}`;
-  assert.match(client, /disabled: available === false \|\| activeId === null,/);
+  const client = terminalSource;
+  assert.match(client, /disabled=\{available === false \|\| activeId === null\}/);
   assert.match(client, /const created = await createTerminal\(\);/);
   assert.match(client, /setSplitId\(created\.id\);/);
 });

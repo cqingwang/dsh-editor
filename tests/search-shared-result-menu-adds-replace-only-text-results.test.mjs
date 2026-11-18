@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = (await readFile(new URL('./fixtures/search-everywhere.legacy.js', import.meta.url), 'utf8') + '\n' + (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) + '\n' + (await readFile(new URL('./fixtures/find-tool.legacy.js', import.meta.url), 'utf8')));
+const source = (await readFile(new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url), 'utf8') + '\n' + (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) + '\n' + (await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8')));
 
 function extractSource(name) {
   const marker = `    function ${name}(`;
@@ -32,18 +32,21 @@ test('shared result menu adds Replace only for text results', () => {
 });
 
 test('Search Everywhere header and text menu share one Find handoff', () => {
-  const dialog = source.slice(source.indexOf('function SearchEverywhere('), source.indexOf('function FindToolWindow('));
+  const dialog = source.slice(source.indexOf('function SearchEverywhere('), source.indexOf('function FindToolWindowView('));
   const handoff = source.slice(source.indexOf('function searchFindHandoff('), source.indexOf('function searchHistoryStorageKey('));
   assert.match(dialog, /const openSearchResultsInFind = \(mode = null, result = null, \{ refresh = false \} = \{\}\) =>/);
   assert.match(dialog, /const request = searchFindHandoff\(\{/);
   assert.match(handoff, /mode: mode === 'replace' \|\| withReplace === true \? 'replace' : 'find'/);
   assert.match(dialog, /onClick: \(\) => openSearchResultsInFind\(null, activeResult\)/);
   assert.match(dialog, /onReplace: \(\) => openSearchResultsInFind\('replace', result\)/);
-  assert.match(dialog, /onOpenInFindToolWindow\(refresh === true \? \{ \.\.\.request\.request, refresh: true \} : request\.request\)/);
+  assert.match(
+    dialog,
+    /onOpenInFindToolWindow\(\s+refresh === true\s+\? \{\s+\.\.\.request\.request,\s+refresh: true,\s+\}\s+: request\.request,\s+\);/u,
+  );
 });
 
 test('Find Replace action switches mode without dropping results', () => {
-  const panel = source.slice(source.indexOf('function FindToolWindow('), source.indexOf('/* QUICK_OPEN_BOUNDARY */'));
+  const panel = source.slice(source.indexOf('function FindToolWindowView('), source.indexOf('const FindToolWindow = FindToolWindowView;'));
   assert.match(panel, /onReplaceMode/);
   assert.match(panel, /const replaceInputRef = React\.useRef\(null\)/);
   assert.match(panel, /const replaceFocusPendingRef = React\.useRef\(false\)/);

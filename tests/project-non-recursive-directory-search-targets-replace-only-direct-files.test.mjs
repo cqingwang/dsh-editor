@@ -8,7 +8,7 @@ const host = await import('../lib/index.js');
 const source =
   (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) +
   '\n' +
-  (await readFile(new URL('./fixtures/find-tool.legacy.js', import.meta.url), 'utf8'));
+  (await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8'));
 
 async function fixture(t) {
   const root = await mkdtemp(join(tmpdir(), 'dsh-editor-round714-'));
@@ -84,9 +84,12 @@ test('Scope invalidation keeps the old rows visible until the next generation re
     assert.match(block, /loadedGeneration: -1/u);
   }
   assert.match(changeScope, /files: current\.files,\s+matches: current\.matches,\s+index: current\.index,/u);
-  assert.match(source, /const retainPreviousResultsWhileLoading = state\.loading === true\s+&& state\.loadedGeneration !== state\.searchGeneration/u);
   assert.match(
     source,
-    /if \(!previewOpen \|\| active === null \|\| typeof active\.path !== 'string' \|\| active\.path === ''\) \{[\s\S]*?setPreviewState\(\{ loading: false, path: '', content: '', line: 1, error: null \}\);/u,
+    /const retainPreviousResultsWhileLoading =\s+\(state\.loading === true && state\.loadedGeneration !== state\.searchGeneration\) \|\| state\.error !== null;/u,
+  );
+  assert.match(
+    source,
+    /if \(!previewOpen \|\| active === null \|\| typeof active\.path !== 'string' \|\| active\.path === ''\) \{[\s\S]*?setPreviewState\(\{\s+loading: false,\s+path: '',\s+content: '',\s+line: 1,\s+error: null,\s+\}\);/u,
   );
 });

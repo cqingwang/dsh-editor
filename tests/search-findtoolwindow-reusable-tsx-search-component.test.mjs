@@ -25,25 +25,21 @@ test('FindToolWindow is a reusable TSX search component', async () => {
 test('build embeds FindToolWindow and removes the legacy definition', async () => {
   const build = await read('scripts/build-client.mjs');
   const legacy = await read('src/client/find-tool.ts');
-  const fixture = await read('tests/fixtures/find-tool.legacy.js');
   const client = await read('lib/client.js');
 
   assert.match(build, /FindToolWindow\.tsx/u);
   assert.match(build, /findToolWindowModule/u);
   assert.doesNotMatch(legacy, /function FindToolWindow\(/u);
-  assert.match(fixture, /function FindToolWindow\(/u);
   assert.match(client, /function FindToolWindowView\(/u);
   assert.doesNotMatch(client, /function FindToolWindow\(/u);
   assert.match(client, /const FindToolWindow = FindToolWindowView;/u);
 });
 
-test('FindToolWindow fixture keeps the historical boundary order', async () => {
-  const fixture = await read('tests/fixtures/find-tool.legacy.js');
-  const findTool = fixture.indexOf('function FindToolWindow(');
-  const boundary = fixture.indexOf('/* QUICK_OPEN_BOUNDARY */');
-  const quickOpen = fixture.indexOf('function QuickOpen(');
+test('FindToolWindow and QuickOpen are independent tab components', async () => {
+  const findTool = await read('src/client/components/search/FindToolWindow.tsx');
+  const quickOpen = await read('src/client/components/search/QuickOpen.tsx');
 
-  assert.ok(findTool >= 0);
-  assert.ok(boundary > findTool);
-  assert.ok(quickOpen > boundary);
+  assert.ok(findTool.indexOf('function FindToolWindowView(') >= 0);
+  assert.ok(findTool.indexOf('const FindToolWindow = FindToolWindowView;') > 0);
+  assert.ok(quickOpen.indexOf('function QuickOpen(') >= 0);
 });

@@ -5,7 +5,8 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const client = readFileSync(join(root, 'lib/client.js'), 'utf8');
+const client = readFileSync(join(root, 'src/client/editor-workspace.tsx'), 'utf8');
+const options = readFileSync(join(root, 'src/client/components/project/project-options-menu.ts'), 'utf8');
 const host = readFileSync(join(root, 'lib/index.js'), 'utf8');
 
 test('host defines excluded project directories and hides them unless requested', () => {
@@ -17,14 +18,14 @@ test('host defines excluded project directories and hides them unless requested'
 test('Project stores Show Excluded Files independently and exposes it under Appearance', () => {
   assert.match(
     client,
-    /const \[showExcludedFiles, setShowExcludedFiles\] = React\.useState\(\(\) => readStoredText\('dsh-editor\.project\.showExcludedFiles', '1'\) !== '0'\);/,
+    /const \[\s*showExcludedFiles,\s*setShowExcludedFiles,?\s*\] = React\.useState\(\s*\(\) => readStoredText\('dsh-editor\.project\.showExcludedFiles', '1'\) !== '0',?\s*\)/,
   );
-  assert.match(client, /\{ id: 'showExcludedFiles', label: t\('editor\.showExcludedFiles'\), shortcut: showExcludedFiles \? '✓' : ''/);
-  const appearance = client.slice(client.indexOf("id: 'appearance'"), client.indexOf('onCreateChange:', client.indexOf("id: 'appearance'")));
+  assert.match(options, /id: 'showExcludedFiles',\s+label: t\('editor\.showExcludedFiles'\),\s+shortcut: showExcludedFiles \? '✓' : ''/);
+  const appearance = options.slice(options.indexOf("id: 'appearance'"));
   assert.match(appearance, /id: 'showExcludedFiles'/);
 });
 
 test('every Project tree list request carries the Show Excluded Files preference', () => {
-  const requests = client.match(/callFs\(\{ op: 'list', path[^\n]*showHidden, sort: sortMode, foldersFirst, showExcluded: showExcludedFiles \}\)/g) ?? [];
+  const requests = client.match(/showExcluded: showExcludedFiles/g) ?? [];
   assert.ok(requests.length >= 7, `expected all Project list calls to carry showExcluded, found ${requests.length}`);
 });

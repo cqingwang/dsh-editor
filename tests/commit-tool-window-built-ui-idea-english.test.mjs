@@ -3,13 +3,19 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 const source =
-  (await readFile(new URL('./fixtures/commit-panel.legacy.js', import.meta.url), 'utf8')) +
+  (await readFile(new URL('../src/client/components/commit/CommitPanel.tsx', import.meta.url), 'utf8')) +
+  '\n' +
+  (await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8')) +
+  '\n' +
+  (await readFile(new URL('../src/client/locales.ts', import.meta.url), 'utf8')) +
+  '\n' +
+  (await readFile(new URL('../src/client/ui/styles.ts', import.meta.url), 'utf8')) +
   '\n' +
   (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
 
 function commitPanel() {
   const start = source.indexOf('function CommitPanel(');
-  const end = source.indexOf('function NamePrompt(', start);
+  const end = source.indexOf('export { CommitPanel };', start);
   assert.notEqual(start, -1);
   assert.notEqual(end, -1);
   return source.slice(start, end);
@@ -21,10 +27,10 @@ test('Commit tool window renders its built-in UI in IDEA English', () => {
     source,
     /const commitEnglish = \(key, params\) => \{[\s\S]*?englishMessages\[key\][\s\S]*?return interpolateMessage\(text, params\);/,
   );
-  assert.match(source, /React\.createElement\(CommitPanel, \{\s+t: commitEnglish,/s);
+  assert.match(source, /<CommitPanel\s+t=\{commitEnglish\}/u);
   assert.match(
     source,
-    /const fileCountText = \(count\) => count === 1 \? '1 file' : t\('editor\.filesCount', \{ count \}\);/,
+    /const fileCountText = \(count\) =>\s+count === 1\s+\? '1 file'\s+: t\('editor\.filesCount', \{\s+count,\s+\}\);/u,
   );
   assert.equal(commitPanel().match(/fileCountText\(/g)?.length, 2);
 });
@@ -32,7 +38,7 @@ test('Commit tool window renders its built-in UI in IDEA English', () => {
 test('Change file rows omit porcelain M/U badges like IDEA', () => {
   const panel = commitPanel();
   const rowStart = panel.indexOf('const change = row.change;');
-  const rowEnd = panel.indexOf('React.createElement(LineCounts, {', rowStart);
+  const rowEnd = panel.indexOf('<LineCounts', rowStart);
   assert.notEqual(rowStart, -1);
   assert.notEqual(rowEnd, -1);
   const row = panel.slice(rowStart, rowEnd);

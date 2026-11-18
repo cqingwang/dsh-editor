@@ -23,14 +23,11 @@ test('DiffPreview is a reusable TSX diff component', async () => {
   assert.doesNotMatch(component, /React\.createElement/u);
 });
 
-test('DiffPreview legacy oracle is frozen and retired from live source', async () => {
+test('build embeds DiffPreview and legacy diff.ts has no duplicate component', async () => {
   const build = await read('scripts/build-client.mjs');
   const legacy = await read('src/client/diff.ts');
-  const fixture = await read('tests/fixtures/diff-preview.legacy.js');
 
   assert.match(build, /DiffPreview\.tsx/u);
   assert.match(build, /diffPreviewModule/u);
   assert.doesNotMatch(legacy, /function DiffPreview\(/u);
-  assert.match(fixture, /function DiffPreview\(/u);
-  assert.match(fixture, /\* Commit tool window: grouped/u);
 });

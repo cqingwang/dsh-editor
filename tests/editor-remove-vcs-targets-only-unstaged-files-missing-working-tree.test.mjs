@@ -11,7 +11,8 @@ import { loadTypeScriptFunction } from './ts-source.mjs';
 import { gitStage, gitStatus } from '../lib/index.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = (readFileSync(join(root, 'tests/fixtures/commit-panel.legacy.js'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
+const source = (readFileSync(join(root, 'src/client/components/commit/CommitPanel.tsx'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
+const locales = readFileSync(join(root, 'src/client/locales.ts'), 'utf8');
 const gitChangeModelSource = readFileSync(join(root, 'src/client/components/ui/git-change-model.ts'), 'utf8');
 
 async function deletedFixture() {
@@ -42,18 +43,18 @@ test('Remove from VCS targets only unstaged files missing from the working tree'
 });
 
 test('Remove from VCS is exposed with IDEA wording and no invented shortcut', () => {
-  assert.ok(source.includes("removeFromVcs: '从 VCS 移除'"));
-  assert.ok(source.includes("removeFromVcs: 'Remove from VCS'"));
+  assert.ok(locales.includes("removeFromVcs: '从 VCS 移除'"));
+  assert.ok(locales.includes("removeFromVcs: 'Remove from VCS'"));
   assert.match(source, /id: 'removeDeleted'/);
   assert.match(source, /label: t\('editor\.removeFromVcs'\)/);
-  assert.match(source, /run: \(\) => void restage\(removablePaths, false\)/);
+  assert.match(source, /run: \(\) => onStage\(removableInGroup\)/);
   assert.doesNotMatch(source, /id: 'removeDeleted'[\s\S]{0,220}shortcut:/);
   assert.match(source, /group\.id === 'unstaged'[\s\S]*?pathsScheduledForRemoval\(/);
   assert.match(source, /id: removalOnlyInGroup \? `removeDeleted:\$\{group\.id\}`/);
 });
 
 test('CommitPanel derives its removal map from props instead of the workspace ref', () => {
-  const panel = source.slice(source.indexOf('function CommitPanel('), source.indexOf('function NamePrompt('));
+  const panel = source.slice(source.indexOf('function CommitPanel('), source.indexOf('export { CommitPanel };'));
   assert.match(panel, /const changesByPath = new Map\(changes\.map\(\(change\) => \[change\.path, change\]\)\)/);
   assert.doesNotMatch(panel, /changesByPathRef/);
 });

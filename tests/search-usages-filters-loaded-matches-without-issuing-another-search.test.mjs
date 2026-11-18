@@ -3,11 +3,11 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 const source =
-  (await readFile(new URL('./fixtures/search-everywhere.legacy.js', import.meta.url), 'utf8')) +
+  (await readFile(new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url), 'utf8')) +
   '\n' +
   (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) +
   '\n' +
-  (await readFile(new URL('./fixtures/find-tool.legacy.js', import.meta.url), 'utf8'));
+  (await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8'));
 
 function extractFunction(name) {
   const start = source.indexOf(`function ${name}(`);
@@ -77,7 +77,7 @@ test('Control+Alt+F7 invokes the transient usage runner outside Search Everywher
 
 test('Show Usages popup is transient, keyboard navigable, and can pin to Find', () => {
   const popupStart = source.indexOf('function ShowUsagesPopup(');
-  const popupEnd = source.indexOf('function FindToolWindow(', popupStart);
+  const popupEnd = source.indexOf('function FindToolWindowView(', popupStart);
   assert.notEqual(popupStart, -1);
   assert.notEqual(popupEnd, -1);
   const popup = source.slice(popupStart, popupEnd);

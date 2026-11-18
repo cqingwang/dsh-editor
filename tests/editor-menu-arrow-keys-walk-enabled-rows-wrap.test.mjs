@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = (readFileSync(join(root, 'tests/fixtures/context-menu.legacy.js'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
+const source = (readFileSync(join(root, 'src/client/components/ui/Menu.tsx'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
 
 function load(name) {
   const marker = `    function ${name}(`;
@@ -46,9 +46,9 @@ test('a menu with no enabled rows leaves focus alone', () => {
 });
 
 test('ContextMenu owns Up/Down, initial focus and return focus', () => {
-  const menu = source.slice(source.indexOf('function ContextMenu('), source.indexOf('/**\n     * A tool-window splitter'));
-  assert.match(menu, /const returnFocusRef = React\.useRef\(null\)/);
-  assert.match(menu, /querySelector\('button\[data-menu-item-id\]:not\(:disabled\)'\)/);
+  const menu = source;
+  assert.match(menu, /const returnFocusRef = React\.useRef<HTMLElement \| null>\(null\)/);
+  assert.match(menu, /querySelector<HTMLButtonElement>\('button\[data-menu-item-id\]:not\(:disabled\)'\)/);
   assert.match(menu, /previous !== null && previous\.isConnected\) previous\.focus\(\)/);
   assert.match(menu, /event\.key === 'ArrowDown' \|\| event\.key === 'ArrowUp'/);
   assert.match(menu, /const buttons = submenu === null \? topButtons\(\) : childButtons\(submenu\)/);

@@ -35,7 +35,7 @@ test('a freshly created entry opens straight into inline rename', () => {
      destination from the entry's own path, so no caller can supply one that makes
      the new name a child of the entry itself. */
   assert.match(client, /setRenameState\(\{\s+path,\s+value: name,\s+fresh: true,\s+\}\)/);
-  assert.match(client, /const inlineEditing = activeNode\?\.closest\('\[data-dsh-editor-workspace\] input'\)/);
+  assert.match(client, /const inlineEditing =\s+activeNode\?\.closest\('\[data-dsh-editor-workspace\] input'\)/);
   /* Round 143: a plain tree click also keeps the caret in the tree, which is what
      makes the tree's advertised keys (F2, Delete, ⌘R, typeahead) reachable. */
   assert.match(client, /const inTree = activeNode\?\.closest\('\[role="tree"\]'\) != null;/);
@@ -43,14 +43,15 @@ test('a freshly created entry opens straight into inline rename', () => {
 });
 
 test('commit and push button is labelled and a rejected push stays visible', () => {
-  const client = `${read('tests/fixtures/commit-panel.legacy.js')}\n${read('lib/client.js')}`;
+  const client = read('src/client/components/commit/CommitPanel.tsx');
+  const workspace = read('src/client/editor-workspace.tsx');
   assert.match(iconSource, /case 'push':/);
   /* Round 140 replaced the icon-only second button with IDEA's labelled
      "Commit and Push…": an icon does not say what the irreversible remote action
      is, and the two buttons now read as a matched pair. */
-  const body = client.slice(client.indexOf('onClick: () => onCommit(true)'), client.indexOf('onClick: () => onCommit(true)') + 700);
-  assert.match(body, /\n\s+t\('editor\.commitAndPush'\),\n\s+\),/);
+  const body = client.slice(client.indexOf('onClick={() => onCommit(true)}'), client.indexOf('onClick={() => onCommit(true)}') + 500);
+  assert.match(body, /t\('editor\.commitAndPush'\)/u);
   /* The failure now has its own state so a retry button can appear. */
-  assert.match(client, /setPushError\(value\.pushError \?\? null\);/);
-  assert.match(client, /t\('editor\.pushedFailed', \{ message: pushFailure \}\)/);
+  assert.match(workspace, /setPushError\(\s+value\.pushError \?\? null,\s+\);/u);
+  assert.match(client, /t\('editor\.pushedFailed', \{\s+message: pushFailure,\s+\}\)/u);
 });

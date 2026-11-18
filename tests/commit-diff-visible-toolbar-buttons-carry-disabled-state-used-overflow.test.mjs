@@ -5,10 +5,10 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = (readFileSync(join(root, 'tests/fixtures/diff-preview.legacy.js'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
+const source = (readFileSync(join(root, 'src/client/components/diff/DiffPreview.tsx'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
 
 function diffPreview() {
-  return source.slice(source.indexOf('function DiffPreview('), source.indexOf('* Commit tool window: grouped'));
+  return source.slice(source.indexOf('function DiffPreview('), source.indexOf('export { DiffPreview };'));
 }
 
 function commitFileMenu() {
@@ -23,7 +23,7 @@ test('Diff visible toolbar buttons carry the disabled state used by the overflow
   const diff = diffPreview();
   assert.match(
     diff,
-    /directDiffActionEntries\.map\(\(action, index\) =>[\s\S]*?React\.createElement\(ToolbarButton, \{\n\s+key: action\.id,\n\s+icon: action\.icon,\n\s+label: action\.label,\n\s+active: toolbarActionActive\(action\),\n\s+disabled: action\.disabled === true,\n\s+onClick: action\.run,/,
+    /directDiffActionEntries\.map\(\(action, index\) =>[\s\S]*?<ToolbarButton\s+key=\{action\.id\}\s+icon=\{action\.icon\}\s+label=\{action\.label\}\s+active=\{toolbarActionActive\(action\)\}\s+disabled=\{action\.disabled === true\}\s+onClick=\{action\.run\}/u,
   );
 });
 
@@ -41,7 +41,7 @@ test('Diff local availability is cancelled and keyed by the current target path'
   const diff = diffPreview();
   const start = diff.indexOf("if (typeof target?.path !== 'string' || target.path === '') {");
   const block = diff.slice(start, diff.indexOf('const diffToolbarRef', start));
-  assert.match(block, /callFs\(\{ op: 'exists', paths: \[target\.path\] \}\)/);
+  assert.match(block, /callFs\(\{\s+op: 'exists',\s+paths: \[target\.path\],\s+\}\)/u);
   assert.match(block, /if \(cancelled\) return;/);
-  assert.match(block, /\}, \[localPathAvailable, target\?\.path\]\);/);
+  assert.match(block, /\}, \[target\?\.path\]\);/);
 });

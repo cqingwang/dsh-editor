@@ -5,7 +5,12 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = ((readFileSync(join(root, 'tests/fixtures/commit-panel.legacy.js'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'))) + '\n' + readFileSync(join(root, 'tests/fixtures/commit-log.legacy.js'), 'utf8');
+const source =
+  readFileSync(join(root, 'src/client/components/commit/CommitPanel.tsx'), 'utf8') +
+  '\n' +
+  readFileSync(join(root, 'src/client/editor-workspace.tsx'), 'utf8') +
+  '\n' +
+  readFileSync(join(root, 'src/client/components/commit/CommitLog.tsx'), 'utf8');
 
 test('one callback reveals a changed row by clearing its group and ancestor folds', () => {
   const workspace = source.slice(source.indexOf('function EditorWorkspace('), source.indexOf('function clampChatPercent('));
@@ -34,14 +39,14 @@ test('diff navigation and Group by share the reveal callback instead of copying 
 });
 
 test('auto-selecting a filtered row expands it before moving the current row', () => {
-  const panel = source.slice(source.indexOf('function CommitPanel('), source.indexOf('function CommitLog('));
+  const panel = source.slice(source.indexOf('function CommitPanel('), source.indexOf('function CommitLogView('));
   const effect = panel.slice(
     panel.indexOf('React.useEffect(() => {', panel.indexOf('const filteredTargets')),
     panel.indexOf('const allSelected =', panel.indexOf('const filteredTargets')),
   );
   const revealAt = effect.indexOf('onRevealChange?.(filteredTargets[0])');
-  const selectAt = effect.indexOf('onSelectChange?.({ path: filteredTargets[0].path');
+  const selectAt = effect.indexOf('onSelectChange?.({\n      path: filteredTargets[0].path');
   assert.ok(revealAt >= 0 && selectAt > revealAt);
   assert.match(panel, /onRevealChange,/);
-  assert.match(source, /onRevealChange: \(target\) => revealChangeRow\(target\)/);
+  assert.match(source, /onRevealChange=\{\(target\) => revealChangeRow\(target\)\}/);
 });

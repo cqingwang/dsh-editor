@@ -5,10 +5,10 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = ((readFileSync(join(root, 'tests/fixtures/commit-panel.legacy.js'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'))) + '\n' + readFileSync(join(root, 'tests/fixtures/commit-log.legacy.js'), 'utf8');
+const source = ((readFileSync(join(root, 'src/client/components/commit/CommitPanel.tsx'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'))) + '\n' + readFileSync(join(root, 'src/client/components/commit/CommitLog.tsx'), 'utf8');
 
 test('narrow Change group headers collapse their actions into one overflow button', () => {
-  const panel = source.slice(source.indexOf('function CommitPanel('), source.indexOf('function CommitLog('));
+  const panel = source.slice(source.indexOf('function CommitPanel('), source.indexOf('function CommitLogView('));
   assert.match(panel, /const groupActions = \[/);
   assert.match(panel, /dsh-editor-commit-group-actions-wide/);
   assert.match(panel, /dsh-editor-commit-group-actions-narrow/);
@@ -25,11 +25,11 @@ test('the narrow rule keeps the complete label and count visible policy intact',
 });
 
 test('the group overflow menu reuses ContextMenu and the same staging actions', () => {
-  const panel = source.slice(source.indexOf('function CommitPanel('), source.indexOf('function CommitLog('));
+  const panel = source.slice(source.indexOf('function CommitPanel('), source.indexOf('function CommitLogView('));
   const menu = panel.slice(panel.indexOf('groupActionMenu === null'), panel.indexOf('historyMenu === null', panel.indexOf('groupActionMenu === null')));
-  assert.match(menu, /React\.createElement\(ContextMenu/);
-  assert.match(menu, /menu: groupActionMenu/);
-  const actionModel = panel.slice(panel.indexOf('const groupActions = ['), panel.indexOf('React.createElement(LineCounts', panel.indexOf('const groupActions = [')));
+  assert.match(menu, /<ContextMenu/);
+  assert.match(menu, /menu=\{groupActionMenu\}/);
+  const actionModel = panel.slice(panel.indexOf('const groupActions = ['), panel.indexOf('<LineCounts', panel.indexOf('const groupActions = [')));
   assert.match(actionModel, /onUnstage\(selectedInGroup\)/);
   assert.match(actionModel, /onStage\(selectedInGroup\)/);
   assert.match(actionModel, /onGitignore\(selectedInGroup\)/);

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = (await readFile(new URL('./fixtures/search-everywhere.legacy.js', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
+const source = (await readFile(new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
 
 function extractSource(name) {
   const marker = `    function ${name}(`;
@@ -50,7 +50,7 @@ test('command ranking keeps recent commands ahead on an empty query', () => {
 });
 
 test('disabled Search Everywhere actions cannot run and advertise their state', () => {
-  const dialog = source.slice(source.indexOf('function SearchEverywhere('), source.indexOf('function FindToolWindow('));
+  const dialog = source.slice(source.indexOf('function SearchEverywhere('), source.indexOf('function FindToolWindowView('));
   const actions = source.slice(source.indexOf('const searchEverywhereActions = React.useMemo'), source.indexOf('/* Recompute match count'));
   assert.match(actions, /disabled: !hasEditorModel \|\| replaceState === null \|\| replaceState\.find === ''/);
   assert.match(dialog, /result\.disabled === true/);

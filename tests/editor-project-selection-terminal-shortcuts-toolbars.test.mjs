@@ -18,15 +18,15 @@ test('project tree supports meta and shift extended selection', () => {
   assert.match(client, /const selectRow = React\.useCallback/);
   assert.match(client, /onMouseDown=\{\(event\) => \{[\s\S]*?onSelect\(row, event\);/);
   assert.match(client, /treeRowSelectedSoft/);
-  assert.match(client, /onSelect: selectRow/);
+  assert.match(client, /onSelect=\{selectRow\}/);
 });
 
 test('multi-row selection drives batch delete and batch copy', () => {
-  const client = `${read('src/client/editor-workspace.tsx')}\n${read('src/client/components/project/ProjectPanel.tsx')}`;
+  const client = `${read('src/client/editor-workspace.tsx')}\n${read('src/client/components/project/ProjectPanel.tsx')}\n${read('src/client/injected-css.ts')}`;
   assert.match(client, /const removeEntries = React\.useCallback/);
   assert.match(client, /editor\.deleteSelectedConfirm/);
   assert.match(client, /editor\.copySelectedPaths/);
-  assert.match(client, /const selectedRows = selection\.has\(row\.path\)/);
+  assert.match(client, /const selectedRows = selection\.has\(\s+row\.path,\s+\)/s);
   assert.match(client, /const batch = selectedRows\.length > 1 \? selectedRows : \[\]/);
 });
 

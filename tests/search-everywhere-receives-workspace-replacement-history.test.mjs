@@ -3,15 +3,15 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 const source =
-  (await readFile(new URL('./fixtures/search-everywhere.legacy.js', import.meta.url), 'utf8')) +
+  (await readFile(new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url), 'utf8')) +
   '\n' +
   (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) +
   '\n' +
-  (await readFile(new URL('./fixtures/find-tool.legacy.js', import.meta.url), 'utf8'));
+  (await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8'));
 
 function searchEverywhere() {
   const start = source.indexOf('function SearchEverywhere(');
-  const end = source.indexOf('function FindToolWindow(', start);
+  const end = source.indexOf('function FindToolWindowView(', start);
   assert.notEqual(start, -1);
   assert.notEqual(end, -1);
   return source.slice(start, end);
@@ -51,11 +51,14 @@ test('Replace history preserves the draft until the user chooses an item', () =>
 
 test('Search Everywhere exposes one non-duplicated live result status', () => {
   const dialog = searchEverywhere();
-  assert.match(dialog, /const searchResultStatus = error !== null\s+\? ''\s+: textLoading/u);
-  assert.match(dialog, /'aria-live': 'polite'/);
-  assert.match(dialog, /'aria-atomic': 'true'/);
-  assert.match(dialog, /role: 'status'/);
+  assert.match(dialog, /const searchResultStatus =\s+error !== null\s+\? ''\s+: textLoading/u);
+  assert.match(dialog, /aria-live='polite'/);
+  assert.match(dialog, /aria-atomic='true'/);
+  assert.match(dialog, /role='status'/);
   assert.match(dialog, /styles\.screenReaderOnly/);
-  assert.match(dialog, /t\('editor\.searchResultCount', \{ count: results\.length \}\)/);
-  assert.match(dialog, /textLoading && effectiveTab !== 'actions'\s+\? React\.createElement\('div', \{ style: styles\.searchEverywhereMessage \}, t\('editor\.loading'\)\)/);
+  assert.match(dialog, /t\('editor\.searchResultCount', \{\s+count: results\.length,\s+\}\)/u);
+  assert.match(
+    dialog,
+    /textLoading && effectiveTab !== 'actions' \? \(\s*<div style=\{styles\.searchEverywhereMessage\}>\{t\('editor\.loading'\)\}<\/div>\s*\) : null/u,
+  );
 });

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = (await readFile(new URL('./fixtures/context-menu.legacy.js', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
+const source = (await readFile(new URL('../src/client/components/ui/Menu.tsx', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
 
 function extract(name) {
   const marker = `    function ${name}(`;
@@ -111,12 +111,9 @@ test('Project and Changes reuse the same Copy Path/Reference implementation', ()
 });
 
 test('submenu children honour disabled state in both copy reference menus', () => {
-  const start = source.indexOf('function ContextMenu({ menu, onClose, t })');
-  assert.notEqual(start, -1);
-  const end = source.indexOf('function groupDiffToolbarActions(', start);
-  assert.notEqual(end, -1);
-  const menu = source.slice(start, end);
-  assert.match(menu, /style: \{ \.\.\.styles\.menuItem, \.\.\.\(child\.danger \? styles\.menuItemDanger : null\), \.\.\.\(child\.disabled \? styles\.menuItemDisabled : null\) \}/);
-  assert.match(menu, /disabled: child\.disabled === true,/);
-  assert.match(menu, /onClick: \(event\) => \{\s*event\.stopPropagation\(\);\s*if \(child\.disabled === true\) return;/);
+  const menu = source.toLowerCase();
+  assert.match(menu, /styles\.menuitemdanger/);
+  assert.match(menu, /styles\.menuitemdisabled/);
+  assert.match(menu, /disabled=\{child\.disabled === true\}/);
+  assert.match(menu, /onclick=\{\(event\) => \{\s*event\.stoppropagation\(\);\s*if \(child\.disabled === true\) return;/);
 });

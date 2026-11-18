@@ -12,7 +12,7 @@ import { gitDiffWithRevision } from '../lib/index.js';
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const read = (path) => readFileSync(join(root, path), 'utf8');
 const readClient = () =>
-  readFileSync(join(root, 'tests/fixtures/diff-preview.legacy.js'), 'utf8') + '\n' + read('lib/client.js');
+  readFileSync(join(root, 'src/client/components/diff/DiffPreview.tsx'), 'utf8') + '\n' + read('lib/client.js');
 
 /** Two commits on one file, then a divergent working copy. */
 async function fixture() {
@@ -69,8 +69,8 @@ test('the diff editor tells revision, commit and clipboard targets apart', () =>
   const revisionAt = client.indexOf("typeof target.revision === 'string'");
   const commitAt = client.indexOf("typeof target.commit === 'string'", revisionAt);
   assert.ok(clipboardAt > 0 && revisionAt > clipboardAt && commitAt > revisionAt);
-  assert.match(client, /op: 'diffWithRevision', hash: target\.revision, path: target\.path/);
-  assert.match(client, /t\('editor\.compareRevisionMode', \{ hash: target\.revision\.slice\(0, 7\) \}\)/);
+  assert.match(client, /op: 'diffWithRevision',\s+hash: target\.revision,\s+path: target\.path,/u);
+  assert.match(client, /t\('editor\.compareRevisionMode', \{\s+hash: target\.revision\.slice\(0, 7\),\s+\}\)/u);
 });
 
 test('the tree offers compare-with-revision through the commit log, not a free-form hash', () => {

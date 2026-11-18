@@ -3,39 +3,15 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
+import { transpileTypeScriptFunction } from './ts-source.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = readFileSync(join(root, 'lib/client.js'), 'utf8');
-
-/**
- * Evaluate one shipping function by brace balance.
- *
- * `planMoves` calls `basename`, so the helper module is loaded in one scope and
- * the returned wrapper closes over it.
- */
-function load(name) {
-  const marker = `    function ${name}(`;
-  const start = source.indexOf(marker);
-  assert.notEqual(start, -1, `${name} is missing from lib/client.js`);
-  let index = source.indexOf('{', start);
-  let depth = 0;
-  for (; index < source.length; index += 1) {
-    if (source[index] === '{') depth += 1;
-    else if (source[index] === '}') {
-      depth -= 1;
-      if (depth === 0) {
-        const baseMarker = '    function basename(';
-        const baseStart = source.indexOf(baseMarker);
-        const baseEnd = source.indexOf('\n    }', baseStart) + 6;
-        const base = source.slice(baseStart, baseEnd);
-        return new Function(`${base}\n${source.slice(start, index + 1)}; return ${name};`)();
-      }
-    }
-  }
-  throw new Error(`unbalanced braces in ${name}`);
-}
-
-const planMoves = load('planMoves');
+const source = readFileSync(join(root, 'src/client/editor-workspace.tsx'), 'utf8');
+const terminalSource = readFileSync(join(root, 'src/client/terminal.ts'), 'utf8');
+const editorCoreSource = readFileSync(join(root, 'src/client/editor-core.ts'), 'utf8');
+const planMoves = new Function(
+  `${transpileTypeScriptFunction(editorCoreSource, 'basename')}\n${transpileTypeScriptFunction(terminalSource, 'planMoves')}\nreturn planMoves;`,
+)();
 
 test('a batch move maps every source into the target directory', () => {
   const plan = planMoves(['a.txt', 'docs/b.txt'], 'lib', new Set(['a.txt', 'docs/b.txt', 'lib']));
@@ -84,7 +60,7 @@ test('empty and duplicate sources are dropped', () => {
 });
 
 test('the drop handler plans first and only then calls rename', () => {
-  const start = source.indexOf('const moveEntry = React.useCallback(');
+  const start = source.indexOf('const moveEntry =');
   assert.notEqual(start, -1);
   const block = source.slice(start, source.indexOf('/* Resolve one conflicted file', start));
   /* One plan call covering the whole selection… */
@@ -95,7 +71,7 @@ test('the drop handler plans first and only then calls rename', () => {
 });
 
 test('the plan asks the host about collapsed destinations instead of guessing', () => {
-  const start = source.indexOf('const moveEntry = React.useCallback(');
+  const start = source.indexOf('const moveEntry =');
   assert.notEqual(start, -1);
   const block = source.slice(start, source.indexOf('/* Resolve one conflicted file', start));
   /* `rows` only holds what is expanded; a collapsed directory's child must be

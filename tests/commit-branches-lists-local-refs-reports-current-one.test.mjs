@@ -52,8 +52,8 @@ test('checkout only accepts a name the repository actually has', async (t) => {
 });
 
 test('the branch popup reads the list on open and confirms before a dirty checkout', () => {
-  const client = read('lib/client.js');
-  assert.match(client, /const openBranchMenu = React.useCallback\(async \(position\) => \{/);
+  const client = read('src/client/editor-workspace.tsx');
+  assert.match(client, /const openBranchMenu = React\.useCallback\(\s+async \(position\) => \{/u);
   assert.match(client, /op: 'branches'/);
   /* A checkout under unsaved edits must ask first, like IDEA. */
   assert.match(client, /if \(dirty && !window\.confirm\(t\('editor\.checkoutDirty'\)\)\) return;/);
@@ -65,11 +65,11 @@ test('the branch popup reads the list on open and confirms before a dirty checko
 });
 
 test('the commit toolbar shows the branch and uses it as the popup trigger', () => {
-  const client = `${read('tests/fixtures/commit-panel.legacy.js')}\n${read('lib/client.js')}`;
+  const client = `${read('src/client/components/commit/CommitPanel.tsx')}\n${read('lib/client.js')}`;
   /* Round 125 routed the text through `branchLabel`, which also names detached HEAD. */
   assert.match(client, /const branchText = branchLabel\(git\);/);
-  assert.match(client, /badge: branchText\.length === 0/);
-  assert.match(client, /onBadge: onBranchMenu,/);
+  assert.match(client, /badge=\{\s+branchText\.length === 0/u);
+  assert.match(client, /onBadge=\{onBranchMenu\}/u);
   assert.match(panelToolbarSource, /function PanelToolbar\(\{\s+icon,\s+title,\s+titleAction = null,[\s\S]*?badgeExpanded = undefined,\s+ariaLabel = null,/);
   /* The chip stays a plain label when no handler is supplied (Project panel). */
   assert.match(panelToolbarSource, /onBadge === undefined/);

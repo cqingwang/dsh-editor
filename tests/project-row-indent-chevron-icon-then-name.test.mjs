@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = (readFileSync(join(root, 'tests/fixtures/project-panel.legacy.js'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
+const source = (readFileSync(join(root, 'src/client/components/project/ProjectPanel.tsx'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
 
 test('the row renders indent, chevron, icon, then name', () => {
   /* Round 131 dropped the git letter from the tree entirely (IDEA tints the name),
@@ -14,7 +14,7 @@ test('the row renders indent, chevron, icon, then name', () => {
   assert.notEqual(start, -1);
   const block = source.slice(start, start + 4200);
   const guideAt = block.indexOf('styles.indentGuide');
-  const iconAt = block.indexOf('React.createElement(EntryIcon');
+  const iconAt = block.indexOf('<EntryIcon');
   const nameAt = block.indexOf('...styles.treeName,');
   assert.notEqual(guideAt, -1, 'the indent guides must be rendered');
   assert.notEqual(iconAt, -1, 'the entry icon is the position reference');

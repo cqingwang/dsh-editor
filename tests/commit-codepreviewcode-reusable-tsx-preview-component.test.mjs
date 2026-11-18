@@ -18,10 +18,8 @@ test('CodePreviewCode is a reusable TSX preview component', async () => {
 test('build embeds CodePreviewCode and legacy commit.js has no duplicate component', async () => {
   const build = await read('scripts/build-client.mjs');
   const legacy = await read('src/client/commit.ts');
-  const fixture = await read('tests/fixtures/commit-panel.legacy.js');
 
   assert.match(build, /CodePreviewCode\.tsx/u);
   assert.match(build, /codePreviewCodeModule/u);
   assert.doesNotMatch(legacy, /function CodePreviewCode\(/u);
-  assert.match(fixture, /function CodePreviewCode\(/u);
 });

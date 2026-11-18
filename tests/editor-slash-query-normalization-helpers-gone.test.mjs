@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = (await readFile(new URL('./fixtures/search-everywhere.legacy.js', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
+const source = (await readFile(new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
 
 function extractFunction(name) {
   const start = source.indexOf(`function ${name}(`);
@@ -26,7 +26,7 @@ test('slash query normalization helpers are gone', () => {
 test('/replace no longer collapses All into Actions-only results', () => {
   const dialog = source.slice(
     source.indexOf('function SearchEverywhere('),
-    source.indexOf('function FindToolWindow('),
+    source.indexOf('function FindToolWindowView('),
   );
   assert.match(dialog, /const effectiveQuery = query;/);
   assert.doesNotMatch(dialog, /const commandMode = commandQuery !== null/);

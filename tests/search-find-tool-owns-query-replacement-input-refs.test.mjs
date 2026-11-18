@@ -5,23 +5,23 @@ import test from 'node:test';
 const source =
   (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) +
   '\n' +
-  (await readFile(new URL('./fixtures/find-tool.legacy.js', import.meta.url), 'utf8'));
-const findStart = source.indexOf('function FindToolWindow(');
-const findEnd = source.indexOf('/* QUICK_OPEN_BOUNDARY */', findStart);
+  (await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8'));
+const findStart = source.lastIndexOf('function FindToolWindowView(');
+const findEnd = source.indexOf('const FindToolWindow = FindToolWindowView;', findStart);
 const find = source.slice(findStart, findEnd);
 
 test('Find tool owns query and replacement input refs', () => {
   assert.match(find, /const queryInputRef = React\.useRef\(null\)/);
-  assert.match(find, /ref: queryInputRef/);
-  assert.match(find, /ref: replaceInputRef/);
+  assert.match(find, /ref=\{queryInputRef\}/);
+  assert.match(find, /ref=\{replaceInputRef\}/);
 });
 
 test('Find history menus fall back to their matching input', () => {
   assert.match(
     find,
-    /fallbackFocus: kind === 'query'[\s\S]*?queryInputRef\.current\?\.focus\?\.\(\)[\s\S]*?replaceInputRef\.current\?\.focus\?\.\(\)/,
+    /fallbackFocus:\s+kind === 'query'\s+\? \(\) => queryInputRef\.current\?\.focus\?\.\(\)\s+: \(\) => \(replaceInputRef\.current \?\? queryInputRef\.current\)\?\.focus\?\.\(\)/u,
   );
-  assert.match(find, /fallbackFocus: kind === 'query'[\s\S]*?queryInputRef\.current\?\.focus\?\.\(\)/);
+  assert.match(find, /fallbackFocus:\s+kind === 'query'/u);
 });
 
 test('Find result menu falls back to the query when its row unmounts', () => {

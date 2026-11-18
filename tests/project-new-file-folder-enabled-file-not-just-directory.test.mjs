@@ -6,7 +6,13 @@ import test from 'node:test';
 import { menuSource } from './ui-sources.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = readFileSync(join(root, 'lib/client.js'), 'utf8');
+const source = [
+  readFileSync(join(root, 'src/client/editor-workspace.tsx'), 'utf8'),
+  readFileSync(join(root, 'src/client/injected-css.ts'), 'utf8'),
+  readFileSync(join(root, 'src/client/ui/styles.ts'), 'utf8'),
+  readFileSync(join(root, 'src/client/locales.ts'), 'utf8'),
+  menuSource,
+].join('\n');
 
 /** The project-tree context menu body. */
 function treeMenu() {

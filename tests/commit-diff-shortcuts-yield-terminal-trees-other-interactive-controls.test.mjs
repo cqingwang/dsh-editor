@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = (readFileSync(join(root, 'tests/fixtures/diff-preview.legacy.js'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
+const source = (readFileSync(join(root, 'src/client/components/diff/DiffPreview.tsx'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
 
 function diffKeyboardHandler() {
   const start = source.indexOf('const onKeyDown = (event) => {', source.indexOf('function DiffPreview('));
@@ -21,7 +21,7 @@ test('diff shortcuts yield to Terminal, trees and other interactive controls', (
   assert.match(handler, /const insideDiffPane = shortcutTarget\?\.closest\('\.dsh-editor-diff-pane'\) !== null;/);
   assert.match(
     handler,
-    /const foreignKeyboardSurface = shortcutTarget\?\.closest\('\[data-dsh-editor-terminal\], \[role="tree"\], input, textarea, select, \[contenteditable="true"\]'\) !== null;/,
+    /const foreignKeyboardSurface =\s+shortcutTarget\?\.closest\(\s+'\[data-dsh-editor-terminal\], \[role="tree"\], input, textarea, select, \[contenteditable="true"\]',\s+\) !== null;/u,
   );
   assert.match(handler, /if \(!insideDiffPane && foreignKeyboardSurface\) return;/);
 });

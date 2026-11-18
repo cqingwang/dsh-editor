@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = (await readFile(new URL('./fixtures/search-everywhere.legacy.js', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
+const source = (await readFile(new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
 
 function extractSource(name) {
   const marker = `    function ${name}(`;
@@ -48,7 +48,7 @@ test('search handoff maps the active file or text row into the Find list', () =>
 });
 
 test('Search Everywhere passes active or clicked result into the shared handoff', () => {
-  const dialog = source.slice(source.indexOf('function SearchEverywhere('), source.indexOf('function FindToolWindow('));
+  const dialog = source.slice(source.indexOf('function SearchEverywhere('), source.indexOf('function FindToolWindowView('));
   assert.match(dialog, /const openSearchResultsInFind = \(mode = null, result = null, \{ refresh = false \} = \{\}\) =>/);
   assert.match(dialog, /activeRowKey: \(result \?\? activeResult\)\?\.rowKey/);
   assert.match(dialog, /onClick: \(\) => openSearchResultsInFind\(null, activeResult\)/);

@@ -2,14 +2,14 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) + '\n' + (await readFile(new URL('./fixtures/find-tool.legacy.js', import.meta.url), 'utf8'));
+const source = (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) + '\n' + (await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8'));
 const findToolDockSource = await readFile(
   new URL('../src/client/components/search/FindToolDock.tsx', import.meta.url),
   'utf8',
 );
 const findTool = source.slice(
-  source.indexOf('function FindToolWindow('),
-  source.indexOf('/* QUICK_OPEN_BOUNDARY */'),
+  source.indexOf('function FindToolWindowView('),
+  source.indexOf('const FindToolWindow = FindToolWindowView;'),
 );
 
 test('Find opens as a popup and can transfer the same state to a dock', () => {
@@ -42,13 +42,13 @@ test('Find renders one shared result model in a resizable bottom dock', () => {
 test('Open in Find Window follows query presence and warns above the shared limit', () => {
   assert.match(findTool, /if \(!floating \|\| !hasFindToolContentQuery\(query\)\) return/);
   assert.match(findTool, /searchEverywhereRequiresResultConfirmation\(scopedFileResults, scopedMatches\)/);
-  assert.match(findTool, /window\.confirm\(t\('editor\.searchTooManyResults'/);
+  assert.match(findTool, /window\.confirm\(\s+t\('editor\.searchTooManyResults'/u);
   assert.match(findTool, /onClick: requestOpenInFindWindow/);
   assert.match(findTool, /disabled: !hasFindToolContentQuery\(query\)/);
 });
 
 test('The dock reuses FindToolWindow without popup-only outside-click closing', () => {
-  assert.match(findTool, /floating = true/);
+  assert.match(findTool, /floating = true,/);
   assert.match(findTool, /if \(!floating \|\| pinned\) return undefined/);
   assert.match(findTool, /onOpenInFindWindow/);
   assert.match(source, /floating: findTool\.surface !== 'dock'/);

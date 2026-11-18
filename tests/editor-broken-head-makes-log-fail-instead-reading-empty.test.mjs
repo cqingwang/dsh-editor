@@ -40,13 +40,17 @@ test('git failures surface the sentence git actually wrote', () => {
 });
 
 test('the log failure banner offers a retry and suppresses the empty state', () => {
-  const client = `${read('lib/client.js')}\n${read('tests/fixtures/commit-log.legacy.js')}`;
+  const client = [
+    read('lib/client.js'),
+    read('src/client/components/commit/CommitLogListState.tsx'),
+    read('src/client/editor-workspace.tsx'),
+  ].join('\n');
   assert.match(client, /const \[logError, setLogError\] = React\.useState\(null\);/);
-  assert.match(client, /t\('editor\.logFailed', \{ message: logFailure \}\)/);
+  assert.match(client, /t\('editor\.logFailed', \{\s+message: logFailure,\s+\}\)/);
   assert.match(client, /t\('editor\.logRetry'\)/);
   /* "No commits" is a statement about the repository; only say it after a
      successful (empty) answer. */
-  assert.match(client, /commits\.length === 0 && !loading && logFailure === null/);
+  assert.match(client, /!graphMode && commitCount === 0 && !loading && logFailure === null/);
   assert.match(client, /logFailure: logError,/);
 });
 

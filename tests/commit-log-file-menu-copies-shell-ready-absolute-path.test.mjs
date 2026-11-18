@@ -5,16 +5,14 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = readFileSync(join(root, 'lib/client.js'), 'utf8');
+const source = readFileSync(join(root, 'src/client/editor-workspace.tsx'), 'utf8');
+const fileMenuSource = readFileSync(join(root, 'src/client/components/commit/file-menu.ts'), 'utf8');
 
 test('Commit Log file menu copies a shell-ready absolute path', () => {
-  const workspace = source.slice(source.indexOf('function EditorWorkspace('), source.indexOf('function clampChatPercent('));
-  const menu = workspace.slice(
-    workspace.indexOf('const buildCommitFileMenu = React.useCallback('),
-    workspace.indexOf('const buildLogMenu = React.useCallback(', workspace.indexOf('const buildCommitFileMenu = React.useCallback(')),
-  );
+  const workspace = source;
+  const menu = fileMenuSource;
   assert.match(menu, /id: 'copyAbsolute'/);
   assert.match(menu, /label: t\('editor\.copyAbsolutePath'\)/);
-  assert.match(menu, /shellQuote\(root === '' \? path : `\$\{root\}\/\$\{path\}`\)/);
-  assert.match(workspace, /\[showCommitDiff, editLocalVersion, openInTerminal, openRepositoryVersion, revealPath, showFileHistory, root, t\]/);
+  assert.match(workspace, /absoluteClipboardPath: shellQuote\(root === '' \? path : `\$\{root\}\/\$\{path\}`\)/);
+  assert.match(workspace, /onCopyText: \(value\) => void copyText\(value\)/);
 });

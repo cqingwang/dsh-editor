@@ -5,15 +5,18 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = (readFileSync(join(root, 'tests/fixtures/commit-panel.legacy.js'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
+const source = (readFileSync(join(root, 'src/client/components/commit/CommitPanel.tsx'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
 
 test('a directory row in the change tree has its own context menu', () => {
   const start = source.indexOf("if (row.kind === 'directory') {");
   assert.notEqual(start, -1);
   const block = source.slice(start, start + 3200);
   /* The directory row must open a menu that acts on the whole subtree. */
-  assert.match(block, /onContextMenu: \(event\) => \{/);
-  assert.match(block, /onContextMenu\?\.\(\{ directory: row\.path, changes: row\.changes \?\? \[\], group: group\.id, x: event\.clientX, y: event\.clientY \}\)/);
+  assert.match(block, /onContextMenu=\{\(event\) => \{/);
+  assert.match(
+    block,
+    /onContextMenu\?\.\(\{\s+directory: row\.path,\s+changes: row\.changes \?\? \[\],\s+group: group\.id,\s+x: event\.clientX,\s+y: event\.clientY,\s+\}\)/u,
+  );
 });
 
 test('the directory menu stages, unstages and rolls back the subtree', () => {

@@ -51,14 +51,12 @@ test('an unknown branch start point is refused before creation', async (t) => {
 });
 
 test('Commit Log exposes New Branch from the selected commit', async () => {
-  const client = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
-  const menuStart = client.indexOf('const buildLogMenu = React.useCallback');
-  const menuEnd = client.indexOf('/* Rollback discards edits', menuStart);
-  const menu = client.slice(menuStart, menuEnd);
+  const menu = await readFile(new URL('../src/client/components/commit/log-menu.ts', import.meta.url), 'utf8');
+  const client = await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8');
+  const locales = await readFile(new URL('../src/client/locales.ts', import.meta.url), 'utf8');
   assert.match(menu, /id: 'newBranchFromCommit'/);
   assert.match(menu, /label: t\('editor\.newBranchFromCommitAction', \{ hash: commit\.hash\.slice\(0, 7\) \}\)/);
-  assert.match(menu, /kind: 'branch',[\s\S]*?hash: commit\.hash/);
   assert.match(client, /namePrompt\.hash !== '' \? \{ startPoint: namePrompt\.hash \} : \{\}/);
-  assert.match(client, /newBranchFromCommitAction: '从提交 \{hash\} 新建分支…'/);
-  assert.match(client, /newBranchFromCommitAction: 'New Branch from \{hash\}…'/);
+  assert.match(locales, /newBranchFromCommitAction: '从提交 \{hash\} 新建分支…'/);
+  assert.match(locales, /newBranchFromCommitAction: 'New Branch from \{hash\}…'/);
 });

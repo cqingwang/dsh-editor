@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = (await readFile(new URL('./fixtures/search-everywhere.legacy.js', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
+const source = (await readFile(new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
 
 function extractFunction(name) {
   const start = source.indexOf(`function ${name}(`);
@@ -48,7 +48,7 @@ test('Text empty state offers Clear all options only when search options affecte
 test('Clear all options resets only the four search options', () => {
   const dialog = source.slice(
     source.indexOf('function SearchEverywhere('),
-    source.indexOf('function FindToolWindow('),
+    source.indexOf('function FindToolWindowView('),
   );
   const start = dialog.indexOf('const clearSearchOptions =');
   const end = dialog.indexOf('};', start) + 2;
@@ -63,7 +63,7 @@ test('Clear all options resets only the four search options', () => {
 test('the Text empty result state exposes IDEA Clear all options', () => {
   const dialog = source.slice(
     source.indexOf('function SearchEverywhere('),
-    source.indexOf('function FindToolWindow('),
+    source.indexOf('function FindToolWindowView('),
   );
   assert.match(dialog, /const showClearOptionsFallback = searchEverywhereOffersClearOptions\(\{/);
   assert.match(dialog, /data-dsh-search-clear-options/);

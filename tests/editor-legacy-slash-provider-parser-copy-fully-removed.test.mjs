@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = (await readFile(new URL('./fixtures/search-everywhere.legacy.js', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
+const source = (await readFile(new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
 
 test('legacy slash/provider parser and copy are fully removed', () => {
   for (const helper of [
@@ -54,7 +54,7 @@ test('narrow Search Everywhere keeps tabs and toolbar non-shrinking', () => {
 
   const dialog = source.slice(
     source.indexOf('function SearchEverywhere('),
-    source.indexOf('function FindToolWindow('),
+    source.indexOf('function FindToolWindowView('),
   );
   assert.match(dialog, /style: styles\.searchEverywhereActionBar/);
   assert.match(dialog, /slotWidth: 30/);
@@ -69,7 +69,7 @@ test('narrow Search Everywhere keeps tabs and toolbar non-shrinking', () => {
 test('tab stop stays on the active tab while all tabs remain reachable', () => {
   const dialog = source.slice(
     source.indexOf('function SearchEverywhere('),
-    source.indexOf('function FindToolWindow('),
+    source.indexOf('function FindToolWindowView('),
   );
   assert.match(dialog, /tabIndex: effectiveTab === tab\.id \? 0 : -1/);
   assert.match(dialog, /cycleTab\(event\.shiftKey \? -1 : 1\)/);

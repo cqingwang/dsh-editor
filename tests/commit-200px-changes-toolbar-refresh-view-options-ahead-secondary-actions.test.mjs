@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { compactActionBarSource } from './ui-sources.mjs';
 
-const source = ((await readFile(new URL('./fixtures/commit-panel.legacy.js', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'))) + '\n' + await readFile(new URL('./fixtures/commit-log.legacy.js', import.meta.url), 'utf8');
+const source = ((await readFile(new URL('../src/client/components/commit/CommitPanel.tsx', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'))) + '\n' + await readFile(new URL('../src/client/components/commit/CommitLog.tsx', import.meta.url), 'utf8');
 
 function extract(name) {
   const marker = `    function ${name}(`;
@@ -82,7 +82,10 @@ test('the compact action bar renders the selected set and overflows every other 
 });
 
 test('Refresh and View Options are pinned Changes toolbar actions', () => {
-  const panel = source.slice(source.indexOf('function CommitPanel('), source.indexOf('function CommitLog('));
-  assert.match(panel, /id: 'refresh', group: 'refresh', icon: 'refresh', label: t\('editor\.refresh'\), pinned: true/);
-  assert.match(panel, /id: 'viewOptions',[\s\S]*?label: t\('editor\.viewOptions'\),[\s\S]*?pinned: true/);
+  const panel = source.slice(source.indexOf('function CommitPanel('), source.indexOf('function CommitLogView('));
+  assert.match(
+    panel,
+    /id: 'refresh',\s+group: 'refresh',\s+icon: 'refresh',\s+label: t\('editor\.refresh'\),\s+pinned: true,/u,
+  );
+  assert.match(panel, /id: 'viewOptions',[\s\S]*?label: t\('editor\.viewOptions'\),[\s\S]*?pinned: true/u);
 });

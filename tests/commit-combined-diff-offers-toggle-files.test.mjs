@@ -5,10 +5,10 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = (readFileSync(join(root, 'tests/fixtures/diff-preview.legacy.js'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
+const source = (readFileSync(join(root, 'src/client/components/diff/DiffPreview.tsx'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
 
 function diffPreview() {
-  return source.slice(source.indexOf('function DiffPreview('), source.indexOf('* Commit tool window: grouped'));
+  return source.slice(source.indexOf('function DiffPreview('), source.indexOf('export { DiffPreview };'));
 }
 
 test('combined diff offers a toggle for all files', () => {

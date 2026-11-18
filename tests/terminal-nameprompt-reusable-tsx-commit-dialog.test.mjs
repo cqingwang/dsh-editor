@@ -19,10 +19,8 @@ test('NamePrompt is a reusable TSX commit dialog', async () => {
 test('build embeds NamePrompt TSX and legacy commit.js has no duplicate component', async () => {
   const build = await read('scripts/build-client.mjs');
   const legacy = await read('src/client/commit.ts');
-  const fixture = await read('tests/fixtures/commit-panel.legacy.js');
 
   assert.match(build, /NamePrompt\.tsx/u);
   assert.match(build, /namePromptModule/u);
   assert.doesNotMatch(legacy, /function NamePrompt\(/u);
-  assert.match(fixture, /function NamePrompt\(/u);
 });

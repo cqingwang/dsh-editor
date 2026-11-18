@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = (readFileSync(join(root, 'tests/fixtures/diff-preview.legacy.js'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
+const source = (readFileSync(join(root, 'src/client/components/diff/DiffPreview.tsx'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
 
 function extractFunction(name) {
   const start = source.indexOf(`function ${name}(`);
@@ -48,19 +48,19 @@ test('the file navigator degrades before it pushes close outside the diff pane',
 });
 
 test('DiffPreview measures the toolbar width and renders the three file-nav modes', () => {
-  const diff = source.slice(source.indexOf('function DiffPreview('), source.indexOf('* Commit tool window: grouped'));
+  const diff = source.slice(source.indexOf('function DiffPreview('), source.indexOf('export { DiffPreview };'));
   assert.match(diff, /const \[diffToolbarWidth, setDiffToolbarWidth\] = React\.useState\(Number\.POSITIVE_INFINITY\)/);
   assert.match(diff, /setDiffToolbarWidth\(\(current\) =>/);
   assert.match(diff, /const fileNavMode = diffFileNavModeForWidth\(diffToolbarWidth\)/);
-  assert.match(diff, /fileNavMode === 'hidden'\s*\?\s*null/);
-  assert.match(diff, /fileNavMode === 'compact'/);
-  assert.match(diff, /className: 'dsh-editor-file-nav dsh-editor-file-nav-capsule'/);
+  assert.match(diff, /fileNavMode === 'hidden' \? null/u);
+  assert.match(diff, /fileNavMode ===\s+'compact'/u);
+  assert.match(diff, /className='dsh-editor-file-nav dsh-editor-file-nav-capsule'/);
 });
 
 test('the compact file counter is keyboard-operable and keeps the close action', () => {
-  const diff = source.slice(source.indexOf('function DiffPreview('), source.indexOf('* Commit tool window: grouped'));
-  assert.match(diff, /onClick: \(event\) => \(event\.shiftKey \? previousFileAction : nextFileAction\)\?\.\(\)/);
+  const diff = source.slice(source.indexOf('function DiffPreview('), source.indexOf('export { DiffPreview };'));
+  assert.match(diff, /onClick=\{\(event\) => \(event\.shiftKey \? previousFileAction : nextFileAction\)\?\.\(\)\}/u);
   assert.match(diff, /event\.key === 'ArrowLeft'/);
   assert.match(diff, /event\.key === 'ArrowRight'/);
-  assert.match(diff, /label: t\('editor\.closeDiff'\)/);
+  assert.match(diff, /label=\{t\('editor\.closeDiff'\)\}/u);
 });

@@ -5,12 +5,12 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = ((readFileSync(join(root, 'tests/fixtures/commit-panel.legacy.js'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'))) + '\n' + readFileSync(join(root, 'tests/fixtures/commit-log.legacy.js'), 'utf8');
+const source = ((readFileSync(join(root, 'src/client/components/commit/CommitPanel.tsx'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'))) + '\n' + readFileSync(join(root, 'src/client/components/commit/CommitLog.tsx'), 'utf8');
 
 function commitPanel() {
   const start = source.indexOf('function CommitPanel({');
   assert.notEqual(start, -1);
-  const end = source.indexOf('function CommitLog({', start);
+  const end = source.indexOf('function CommitLogView({', start);
   assert.notEqual(end, -1);
   return source.slice(start, end);
 }

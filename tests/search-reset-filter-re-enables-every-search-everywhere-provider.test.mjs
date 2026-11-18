@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = (await readFile(new URL('./fixtures/search-everywhere.legacy.js', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
+const source = (await readFile(new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
 
 function extractFunction(name) {
   const start = source.indexOf(`function ${name}(`);
@@ -36,7 +36,7 @@ test('Reset filter re-enables every Search Everywhere provider', () => {
 test('Reset filter preserves the query, scope, options and File Mask', () => {
   const dialog = source.slice(
     source.indexOf('function SearchEverywhere('),
-    source.indexOf('function FindToolWindow('),
+    source.indexOf('function FindToolWindowView('),
   );
   const resetStart = dialog.indexOf('const resetSearchFilters = React.useCallback');
   const resetEnd = dialog.indexOf('}, []);', resetStart) + '}, []);'.length;
@@ -50,11 +50,11 @@ test('Reset filter preserves the query, scope, options and File Mask', () => {
 test('the empty result state exposes the IDEA Reset filter link', () => {
   const dialog = source.slice(
     source.indexOf('function SearchEverywhere('),
-    source.indexOf('function FindToolWindow('),
+    source.indexOf('function FindToolWindowView('),
   );
   assert.match(dialog, /const canResetSearchFilters = effectiveTab === 'all' && searchEverywhereFiltersNeedReset\(searchFilters\)/);
   assert.match(dialog, /data-dsh-search-reset-filter/);
-  assert.match(dialog, /canResetSearchFilters \? React\.createElement\(\s*'button'/);
+  assert.match(dialog, /canResetSearchFilters \? \(\s*<button/u);
   assert.match(dialog, /t\('editor\.searchResetFilters'\)/);
   assert.match(dialog, /event\.key === 'Enter' \|\| event\.key === ' '/);
   assert.equal((source.match(/searchResetFilters:/g) ?? []).length, 2);

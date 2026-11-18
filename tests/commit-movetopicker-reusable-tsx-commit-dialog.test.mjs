@@ -21,10 +21,8 @@ test('MoveToPicker is a reusable TSX commit dialog', async () => {
 test('build embeds MoveToPicker and legacy commit.js has no duplicate component', async () => {
   const build = await read('scripts/build-client.mjs');
   const legacy = await read('src/client/commit.ts');
-  const fixture = await read('tests/fixtures/commit-panel.legacy.js');
 
   assert.match(build, /MoveToPicker\.tsx/u);
   assert.match(build, /moveToPickerModule/u);
   assert.doesNotMatch(legacy, /function MoveToPicker\(/u);
-  assert.match(fixture, /function MoveToPicker\(/u);
 });

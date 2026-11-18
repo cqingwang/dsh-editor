@@ -2,10 +2,10 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) + '\n' + (await readFile(new URL('./fixtures/find-tool.legacy.js', import.meta.url), 'utf8'));
+const source = (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) + '\n' + (await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8'));
 const findTool = source.slice(
-  source.indexOf('function FindToolWindow('),
-  source.indexOf('/* QUICK_OPEN_BOUNDARY */'),
+  source.lastIndexOf('function FindToolWindowView('),
+  source.indexOf('const FindToolWindow = FindToolWindowView;', source.lastIndexOf('function FindToolWindowView(')),
 );
 
 test('Find in Files popup is content-sized without a full-screen dimmer', () => {
@@ -19,7 +19,7 @@ test('Find in Files popup is content-sized without a full-screen dimmer', () => 
 
 test('Find in Files keeps filter and pin in the title row', () => {
   assert.match(findTool, /styles\.findToolHeaderActions/);
-  assert.doesNotMatch(findTool, /style: styles\.findToolActionBar/);
+  assert.doesNotMatch(findTool, /styles\.findToolActionBar/);
   assert.match(findTool, /id: 'filterSearch'[\s\S]*?pinned: true/);
   assert.match(findTool, /id: 'pin'[\s\S]*?pinned: true/);
 });
@@ -38,14 +38,14 @@ test('Find in Files only shows replacement actions with the Replace row', () => 
     findTool.indexOf('styles.findToolBottomBar'),
     findTool.indexOf('filterMenu === null'),
   );
-  assert.match(bottomBar, /replaceExpanded\s*\?\s*React\.createElement/);
+  assert.match(bottomBar, /replaceExpanded \? \(\s*<React\.Fragment>/u);
   assert.match(bottomBar, /t\('editor\.findOpenInFindWindow'\)/);
-  assert.match(bottomBar, /'⌘⏎'/);
+  assert.match(bottomBar, /⌘⏎/);
   assert.match(bottomBar, /styles\.findToolShortcut/);
 });
 
 test('Replace entry points expand the existing Replace row instead of mounting a second editor', () => {
   assert.match(findTool, /const focusReplaceInput = \(\) => \{\s*setReplaceExpanded\(true\)/);
-  assert.match(findTool, /if \(replaceMode\) setReplaceExpanded\(true\)/);
-  assert.equal((findTool.match(/'data-dsh-find-replace-input': ''/g) ?? []).length, 1);
+  assert.match(findTool, /const replaceMode = state\.mode === 'replace';/);
+  assert.equal((findTool.match(/data-dsh-find-replace-input=''/g) ?? []).length, 1);
 });

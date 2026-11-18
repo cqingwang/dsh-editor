@@ -10,7 +10,15 @@ import test from 'node:test';
 import { workspaceFileOperations } from '../lib/index.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = (readFileSync(join(root, 'tests/fixtures/diff-preview.legacy.js'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
+const source = (
+  readFileSync(join(root, 'src/client/components/diff/DiffPreview.tsx'), 'utf8') +
+  '\n' +
+  readFileSync(join(root, 'src/client/editor-workspace.tsx'), 'utf8') +
+  '\n' +
+  readFileSync(join(root, 'src/client/components/editor/editor-tab-model.ts'), 'utf8') +
+  '\n' +
+  readFileSync(join(root, 'src/client/locales.ts'), 'utf8')
+);
 const tabStripSource = readFileSync(join(root, 'src/client/components/editor/EditorTabStrip.tsx'), 'utf8');
 const editorDiffTabSource = readFileSync(join(root, 'src/client/components/editor/EditorDiffTab.tsx'), 'utf8');
 const editorDiffAreaSource = readFileSync(join(root, 'src/client/components/editor/EditorDiffArea.tsx'), 'utf8');
@@ -56,8 +64,11 @@ test('the tree lists every entry except .git, dot-files included', async (t) => 
 test('hidden entries are shown by default and the toggle is remembered', () => {
   /* A tree that hides `.env` behind a preference nobody finds is the same as a
      tree without it; the toggle now opts OUT of them instead. */
-  assert.match(source, /const \[showHidden, setShowHidden\] = React\.useState\(\(\) => readStoredText\('dsh-editor\.project\.showHidden', '1'\) !== '0'\);/);
-  const toggle = slice('onToggleHidden: () =>', 'singleClickOpen,');
+  assert.match(
+    source,
+    /const \[showHidden, setShowHidden\] = React\.useState\(\s+\(\) => readStoredText\('dsh-editor\.project\.showHidden', '1'\) !== '0',?\s+\)/,
+  );
+  const toggle = slice('onToggleHidden={() =>', 'singleClickOpen={singleClickOpen}');
   assert.match(toggle, /window\.localStorage\.setItem\('dsh-editor\.project\.showHidden', next \? '1' : '0'\);/);
 });
 
@@ -89,43 +100,50 @@ test('a change opened from Commit gets ONE "Commit: <name>" tab', () => {
   /* IDEA keeps a single diff tab: previewing a second change swaps its content
      instead of piling up a tab per file. `diffTarget` is the content and
      `diffActive` says whether that tab currently owns the code area. */
-  assert.match(source, /const \[diffActive, setDiffActive\] = React\.useState\(true\);/);
+  assert.match(source, /const \[diffActive, setDiffActive\] =\s+React\.useState\(true\);/);
   assert.match(source, /const diffOpen = diffTarget !== null && diffActive;/);
-  assert.match(source, /const diffTabName = diffTarget === null[\s\S]*?t\(diffIsCompare \? 'editor\.compareTab' : 'editor\.commitTab', \{ name: basename\(diffTarget\.path\) \}\);/);
+  assert.match(
+    source,
+    /const diffTabName =\s+diffTarget === null[\s\S]*?t\(diffIsCompare \? 'editor\.compareTab' : 'editor\.commitTab', \{\s+name: basename\(diffTarget\.path\),\s+\}\)/,
+  );
   /* The tab is pinned first, so the one the user is reading never overflows. */
-  assert.match(source, /const allTabs = diffTab === null \? openFiles : \[DIFF_TAB_KEY, \.\.\.openFiles\];/);
+  assert.match(source, /const allTabs =\s+diffTab === null \? openFiles : \[DIFF_TAB_KEY, \.\.\.openFiles\];/);
   assert.match(source, /const activeTabKey = diffActive \? DIFF_TAB_KEY : activePath;/);
   /* One key, not one per path: that is what makes it a replace. */
-  assert.match(source, /const DIFF_TAB_KEY = '\\u0000dsh-editor-diff';/);
-  assert.match(source, /key: 'dsh-editor-difftab',/);
+  assert.match(source, /export const DIFF_TAB_KEY = '\\u0000dsh-editor-diff';/);
+  assert.match(source, /key='dsh-editor-difftab'/);
 });
 
 test('selecting another change replaces the tab content instead of adding a tab', () => {
-  const select = slice('onSelectDiff: (target) => {', 'onStage: (paths)');
+  const select = slice('onSelectDiff={(target) => {', 'onStage={(paths)');
   /* The same change toggles the preview off; a different one re-binds the tab. */
   assert.match(select, /setDiffTarget\(same \? null : target\);/);
   assert.match(select, /setDiffActive\(true\);/);
-  assert.match(select, /const same = diffTarget !== null && diffActive && diffTarget\.path === target\.path && diffTarget\.staged === target\.staged;/);
+  assert.match(
+    select,
+    /const same =\s+diffTarget !== null &&\s+diffActive &&\s+diffTarget\.path === target\.path &&\s+diffTarget\.staged === target\.staged;/,
+  );
 });
 
 test('the diff tab and the file tabs hand the code area back and forth', () => {
   /* Opening a file must not destroy the diff: the tab stays, ready to click. */
-  const open = slice('const openFile = React.useCallback(async (path, options = {}) => {', 'openingRef.current.add(path);');
+  const open = slice('const openFile = React.useCallback(', 'openingRef.current.add(path);');
   assert.match(open, /setDiffActive\(false\);/);
   assert.doesNotMatch(open, /setDiffTarget\(null\);/);
   /* A file tab click does the same, and a tab click keeps the caret on the strip
      (a tree click already did) so the next arrow key still walks the rows. */
-  assert.match(source, /onActivate: \(\) => \{\n\s+setActivePath\(file\.path\);\n\s+setDiffActive\(false\);\n\s+\},/);
-  assert.match(source, /const inTabs = activeNode\?\.closest\('\[data-dsh-editor-tabstrip\]'\) != null;/);
+  assert.match(source, /onActivate=\{\(\) => \{\n\s+setActivePath\(file\.path\);\n\s+setDiffActive\(false\);\n\s+\}\}/);
+  assert.match(source, /const inTabs =\s+activeNode\?\.closest\('\[data-dsh-editor-tabstrip\]'\) != null;/);
   assert.match(tabStripSource, /data-dsh-editor-tabstrip=''/);
   /* The file surface owns either one or both editor groups, but never a diff,
      annotate view or editor terminal. */
-  assert.match(source, /const fileSurfaceVisible = \(activeFile !== null \|\| splitFile !== null\)[\s\S]*?diffOpen === false[\s\S]*?annotateTarget === null[\s\S]*?editorTerminals\.length === 0/);
-  assert.match(source, /React\.createElement\(\s*EditorFileSurface,\s*\{/);
-  assert.match(source, /visible: fileSurfaceVisible/);
+  assert.match(
+    source,
+    /const fileSurfaceVisible =\s+\(activeFile !== null \|\| splitFile !== null\) &&\s+diffOpen === false &&\s+annotateTarget === null &&\s+editorTerminals\.length === 0;/,
+  );
+  assert.match(source, /<EditorFileSurface[\s\S]*?visible=\{fileSurfaceVisible\}/);
   assert.match(editorFileSurfaceSource, /display: visible \? 'flex' : 'none'/);
-  assert.match(source, /React\.createElement\(EditorDiffArea, \{/);
-  assert.match(source, /active: diffOpen/);
+  assert.match(source, /<EditorDiffArea[\s\S]*?active=\{diffOpen\}/);
   assert.match(editorDiffAreaSource, /if \(!active \|\| target === null\) return null;/);
   assert.match(editorDiffAreaSource, /<RepositoryVersionPreview/);
   assert.match(editorDiffAreaSource, /<DiffPreview/);
@@ -134,10 +152,10 @@ test('the diff tab and the file tabs hand the code area back and forth', () => {
 });
 
 test('closing the diff tab drops the preview and returns to the file', () => {
-  const tab = slice("key: 'dsh-editor-difftab',", '/* One layout for this render');
-  assert.match(tab, /onActivate: \(\) => setDiffActive\(true\)/);
-  assert.match(tab, /onAuxClick: \(event\) => \{/);
-  assert.match(tab, /onClose: closeDiff/);
+  const tab = slice("key='dsh-editor-difftab'", '/* One layout for this render');
+  assert.match(tab, /onActivate=\{\(\) => setDiffActive\(true\)\}/);
+  assert.match(tab, /onAuxClick=\{\(event\) => \{/);
+  assert.match(tab, /onClose=\{closeDiff\}/);
   assert.match(editorDiffTabSource, /event\.stopPropagation\(\);\n\s+onClose\(\);/);
   /* ⌘W closes the tab that is showing, which may be the diff. */
   assert.match(source, /if \(diffActiveRef\.current\) closeDiff\(\);/);
@@ -146,13 +164,22 @@ test('closing the diff tab drops the preview and returns to the file', () => {
 test('the diff tab is named Commit: for changes and Compare: for a revision', () => {
   /* Clipboard and revision comparisons are not commits; everything the Commit
      tool window opens is. */
-  assert.match(source, /const diffIsCompare = diffTarget !== null && \(typeof diffTarget\.clipboardText === 'string' \|\| typeof diffTarget\.revision === 'string'\);/);
-  assert.match(source, /commitTab: '提交: \{name\}',\n        compareTab: '比较: \{name\}',/);
-  assert.match(source, /commitTab: 'Commit: \{name\}',\n        compareTab: 'Compare: \{name\}',/);
+  assert.match(
+    source,
+    /const diffIsCompare =\s+diffTarget !== null &&\s+\(typeof diffTarget\.clipboardText === 'string' \|\| typeof diffTarget\.revision === 'string'\);/,
+  );
+  assert.match(source, /commitTab: '提交: \{name\}',\s+compareTab: '比较: \{name\}',/);
+  assert.match(source, /commitTab: 'Commit: \{name\}',\s+compareTab: 'Compare: \{name\}',/);
   /* The name in the tab is the file name; the full path stays in the tooltip. */
-  assert.match(source, /title: diffTarget\.combined === true \|\| diffTarget\.repositoryVersion[\s\S]*?diffTabName\n\s+: `\$\{diffTabName\} — \$\{diffTarget\.path\}`,/);
+  assert.match(
+    source,
+    /title=\{\s+diffTarget\.combined === true \|\|\s+\(diffTarget\.repositoryVersion !== null && typeof diffTarget\.repositoryVersion === 'object'\)\s+\? diffTabName\s+: `\$\{diffTabName\} — \$\{diffTarget\.path\}`/,
+  );
   /* The overflow list carries the same entry, or the pinned tab could vanish. */
-  assert.match(source, /entry === DIFF_TAB_KEY\n\s+\? \{ id: 'tab:diff', label: diffTabName, run: \(\) => setDiffActive\(true\) \}/);
+  assert.match(
+    source,
+    /entry === DIFF_TAB_KEY\s+\? \{\s+id: 'tab:diff',\s+label: diffTabName,\s+run: \(\) => setDiffActive\(true\),\s+\}/,
+  );
 });
 
 test('the host still serves the workspace the tree reads', async () => {

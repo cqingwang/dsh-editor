@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = (readFileSync(join(root, 'tests/fixtures/diff-preview.legacy.js'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
+const source = (readFileSync(join(root, 'src/client/components/diff/DiffPreview.tsx'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
 const host = readFileSync(join(root, 'lib/index.js'), 'utf8');
 
 /** Evaluate one shipping helper by brace balance, so the test runs the real code. */
@@ -41,42 +41,45 @@ test('IDEA numbers a diff from 1, but an unchanged file still reports 0/0', () =
 });
 
 test('the diff settles the hunk counter after Monaco has computed changes', () => {
-  const body = source.slice(source.indexOf('function DiffPreview('), source.indexOf('* Commit tool window: grouped'));
+  const body = source.slice(source.indexOf('function DiffPreview('), source.indexOf('export { DiffPreview };'));
   assert.match(body, /diff\.revealFirstDiff\(\);/);
   assert.match(body, /diff\.waitForDiff\(\)\.then\(\(\) => \{[\s\S]*?focusFirstHunkRef\.current\?\.\(\);[\s\S]*?syncHunksRef\.current\?\.\(\);/);
 });
 
 test('the first hunk owns the caret, so the counter reads 1/N like IDEA', () => {
-  const body = source.slice(source.indexOf('function DiffPreview('), source.indexOf('* Commit tool window: grouped'));
+  const body = source.slice(source.indexOf('function DiffPreview('), source.indexOf('export { DiffPreview };'));
   assert.match(body, /const focusFirstHunkRef = React\.useRef\(null\);/);
   assert.match(body, /focusFirstHunkRef\.current = \(\) => \{/);
   assert.match(body, /const first = changes\[0\];/);
-  assert.match(body, /editor\.setPosition\(\{ lineNumber: Math\.max\(1, Number\(first\.modifiedStartLineNumber\) \|\| 1\), column: 1 \}\);/);
+  assert.match(
+    body,
+    /editor\.setPosition\(\{\s+lineNumber: Math\.max\(1, Number\(first\.modifiedStartLineNumber\) \|\| 1\),\s+column: 1,\s+\}\);/u,
+  );
 });
 
 test('diff headers name both sides the way IDEA does', () => {
-  const body = source.slice(source.indexOf('function DiffPreview('), source.indexOf('* Commit tool window: grouped'));
-  assert.match(body, /const sideLabels = target\?\.combined === true[\s\S]*?typeof target\?\.commit === 'string'/);
-  assert.match(body, /target\.commit\.slice\(0, 7\), right: t\('editor\.commitVersion'\)/);
+  const body = source.slice(source.indexOf('function DiffPreview('), source.indexOf('export { DiffPreview };'));
+  assert.match(body, /const sideLabels =\s+target\?\.combined === true[\s\S]*?typeof target\?\.commit === 'string'/u);
+  assert.match(body, /left: target\.commit\.slice\(0, 7\),\s+right: t\('editor\.commitVersion'\)/u);
   assert.match(body, /typeof target\?\.revision === 'string'/);
   assert.match(body, /t\('editor\.clipboardVersion'\)/);
   assert.match(body, /: target\?\.staged === true/);
-  assert.match(body, /className: 'dsh-editor-diff-side-headers'/);
+  assert.match(body, /className='dsh-editor-diff-side-headers'/);
   assert.match(body, /displayedSideLabels\.left/);
   assert.match(body, /displayedSideLabels\.right/);
   assert.match(body, /t\('editor\.currentVersion'\)/);
-  assert.match(body, /sideBySide\n\s+\? React\.createElement\(\n\s+'div'/);
+  assert.match(body, /sideBySide \? \(\s*<div/u);
   assert.match(source, /indexVersion: '索引'/);
   assert.match(source, /currentVersion: '当前版本'/);
 });
 
 test('the side captions disappear in unified mode', () => {
-  const body = source.slice(source.indexOf('function DiffPreview('), source.indexOf('* Commit tool window: grouped'));
-  const headers = body.slice(body.indexOf("className: 'dsh-editor-diff-side-headers'"), body.indexOf('state.error !== null'));
+  const body = source.slice(source.indexOf('function DiffPreview('), source.indexOf('export { DiffPreview };'));
+  const headers = body.slice(body.indexOf("className='dsh-editor-diff-side-headers'"), body.indexOf('state.error !== null'));
   assert.match(headers, /displayedSideLabels\.left/);
   assert.match(headers, /displayedSideLabels\.right/);
-  assert.match(headers, /:\s*null,/);
-  assert.match(body, /sideBySide\n\s+\? React\.createElement\(\n\s+'div',\n\s+\{ style: styles\.diffSideHeaders/);
+  assert.match(headers, /\) : null\}/u);
+  assert.match(body, /sideBySide \? \(\s*<div\s+style=\{styles\.diffSideHeaders\}/u);
 });
 
 test('the compact diff keeps the path hint out of the title when it would starve it', () => {
@@ -87,27 +90,30 @@ test('the compact diff keeps the path hint out of the title when it would starve
 });
 
 test('the narrow toolbar keeps its hunk count and close action on screen', () => {
-  const body = source.slice(source.indexOf('function DiffPreview('), source.indexOf('* Commit tool window: grouped'));
+  const body = source.slice(source.indexOf('function DiffPreview('), source.indexOf('export { DiffPreview };'));
   const toolbar = body.slice(body.indexOf("className: 'dsh-editor-diff-toolbar'"), body.indexOf("className: 'dsh-editor-diff-side-headers'"));
-  assert.match(toolbar, /style: styles\.diffToolbarActions/);
-  assert.match(toolbar, /className: 'dsh-editor-diff-toolbar-actions'/);
+  assert.match(body, /style=\{styles\.diffToolbarActions\}/);
+  assert.match(body, /className='dsh-editor-diff-toolbar-actions'/);
   assert.match(source, /diffToolbar:\s*\{/);
   assert.match(source, /diffToolbarActions:\s*\{/);
   assert.match(source, /\.dsh-editor-diff-toolbar-actions/);
 });
 
 test('a compact hunk capsule leaves the close action visible at quarter width', () => {
-  const body = source.slice(source.indexOf('function DiffPreview('), source.indexOf('* Commit tool window: grouped'));
-  assert.match(body, /className: 'dsh-editor-hunk-nav dsh-editor-hunk-capsule'/);
+  const body = source.slice(source.indexOf('function DiffPreview('), source.indexOf('export { DiffPreview };'));
+  assert.match(body, /className='dsh-editor-hunk-nav dsh-editor-hunk-capsule'/);
   assert.match(source, /@container dsh-editor-editor \(max-width: 440px\)[^{]*\{[\s\S]*?\.dsh-editor-hunk-nav \{ display: none !important; \}/);
   assert.match(source, /@container dsh-editor-editor \(max-width: 440px\)[^{]*\{[\s\S]*?\.dsh-editor-hunk-capsule \{ display: inline-flex !important; \}/);
 });
 
 test('the compact capsule advances on click while F7 keeps the keyboard path', () => {
-  const body = source.slice(source.indexOf('function DiffPreview('), source.indexOf('* Commit tool window: grouped'));
-  const capsule = body.slice(body.indexOf("className: 'dsh-editor-hunk-nav dsh-editor-hunk-capsule'"), body.indexOf('React.createElement(ToolbarButton, { icon: \'hide\''));
-  assert.match(capsule, /onClick: \(event\) => walkHunk\(event\.shiftKey \? 'previous' : 'next'\)/);
-  assert.match(capsule, /t\('editor\.hunkCapsuleHint', \{ index: hunks\.index, total: hunks\.total \}\)/);
+  const body = source.slice(source.indexOf('function DiffPreview('), source.indexOf('export { DiffPreview };'));
+  const capsule = body.slice(
+    body.indexOf("className='dsh-editor-hunk-nav dsh-editor-hunk-capsule'"),
+    body.indexOf("<ToolbarButton\n              icon='hide'"),
+  );
+  assert.match(capsule, /onClick=\{\(event\) => walkHunk\(event\.shiftKey \? 'previous' : 'next'\)\}/u);
+  assert.match(capsule, /t\('editor\.hunkCapsuleHint', \{\s+index: hunks\.index,\s+total: hunks\.total,\s+\}\)/u);
   assert.match(body, /event\.key !== 'F7'/);
   assert.match(body, /walkHunk\(event\.shiftKey \? 'previous' : 'next'\)/);
 });
@@ -120,7 +126,7 @@ test('the restore hint is one compact line, matching IDEA density', () => {
 });
 
 test('the restore history names the index side for staged diffs', () => {
-  const body = source.slice(source.indexOf('function DiffPreview('), source.indexOf('* Commit tool window: grouped'));
+  const body = source.slice(source.indexOf('function DiffPreview('), source.indexOf('export { DiffPreview };'));
   assert.match(body, /side: loaded\.side,/);
   assert.match(body, /side: entry\.side,/);
   assert.match(host, /async function gitApplyChunk/);

@@ -1,5 +1,265 @@
 # dsh-editor 工程记忆
 
+## 2026-11-18 — workspace oracle 增量退役（进行中）
+
+**作用域**：`tests/fixtures/legacy/editor-workspace.legacy.js` 与读取
+`lib/client.js` 的历史 workspace 文本契约。
+
+**症状/风险**：顶层组件 fixture 已清零，但 `client-source-oracle.mjs` 仍会在
+测试读取 `lib/client.js` 时把当前 workspace 段替换成历史 oracle。测试通过并不
+证明它们覆盖当前 `editor-workspace.tsx`。
+
+**当前证据**：
+
+- 直接运行无 oracle 套件：**2613 pass / 191 fail**，涉及 **141** 个测试文件；
+- 正常 `npm test`：**2806 pass / 0 fail**；
+- 初始无 oracle 基线为 2516 pass / 290 fail、199 个文件；
+- 失败文件由 **180 → 141**；Project 与 Terminal 的原始失败文件已全部清零。
+
+**已迁移**：
+
+- Search Action 注册/快捷键/action identity 测试改读 `editor-workspace.tsx`、
+  `SearchEverywhere.tsx`、`commit.ts`、`find-tool.ts` 和 locales；
+- Commit tool-width、branch menu、message undo、push busy/error 测试改读
+  `editor-workspace.tsx`、`CommitPanel.tsx`、`injected-css.ts`；
+- TS helper 使用 `transpileTypeScriptFunction` 执行，不再依赖编译产物文本。
+- 普通文件打开、Project reveal、批量移动 plan/notice、右栏批量关闭与搜索批量
+  关闭改读 `editor-workspace.tsx`、`terminal.ts`、`ProjectPanel.tsx` 和 locales。
+- Commit Change row menu、Group By、group/range selection 与 filtered diff
+  navigation 改读 `editor-workspace.tsx`、`CommitPanel.tsx`、`diff.ts` 和
+  `commit-options-menu.ts`。
+- Project 的 options/menu、单双击偏好、tree loading、prefetch、递归展开、
+  path remap、filtered view、删除确认、F4/EditSource、watch refresh 与非递归
+  Directory 搜索测试全部改读 `ProjectPanel.tsx`、`editor-workspace.tsx`、
+  `terminal.ts`、`project.ts`、`editor-core.ts`、`project-options-menu.ts`、
+  `commit.ts`、`FindToolWindow.tsx` 和 locales；
+- Terminal 焦点回传、MRU、Editor terminal 恢复、Project Options 导航入口测试
+  改读 `editor-workspace.tsx`、`TerminalPanel.tsx`、`TerminalScreen.tsx`、
+  `terminal.ts`、`project-options-menu.ts` 和 locales；
+- `tests/ts-source.mjs` 的函数提取改为 Babel AST 定位，支持 `async` 函数和
+  TS 返回类型，避免把类型字面量误当成函数体。
+
+**下一批**：优先处理 Search Everywhere Actions/Find handoff、Commit 菜单与日志
+动作，以及 Editor workspace 的 SSE/session/batch 状态测试；每批先跑无 oracle
+定向组，再跑全量。在 141 个失败文件清零前，不删除 workspace oracle。
+
+## 2026-11-18 — 顶层 legacy oracle 全部退役，测试回到 TS/TSX 模块边界
+
+**作用域**：`commit-panel.legacy.js`、`diff-preview.legacy.js`、
+`find-tool.legacy.js`、`search-everywhere.legacy.js` 及其全部引用测试。
+
+**症状/风险**：TS/TSX 拆分完成后，测试仍通过旧单文件 fixture、旧函数边界和
+`React.createElement` 文本确认行为；fixture 中的 `FindToolWindow` /
+`QuickOpen` 等历史混合实现会继续掩盖真实组件拆分，并让顶层 legacy oracle
+长期停留在 4 份。
+
+**触发条件**：`rg '\\.legacy\\.js' tests --glob '!tests/editor-legacy-fixture-budget.test.mjs'`
+仍命中 Commit、Diff、Find 和 Search Everywhere 测试。
+
+**根因**：历史测试按迁移前边界切片，而不是读取当前模块；其中
+`find-tool.legacy.js` 同时冻结了 `FindToolWindow` 与 `QuickOpen`，
+`search-everywhere.legacy.js` 又承载了多个已拆出的搜索职责。仅替换路径仍会
+切到 `lib/client.js` 的编译产物，而不是后置的 TSX 源。
+
+**修复**：
+
+- CommitPanel 群组迁入 `CommitPanel.tsx`、`editor-workspace.tsx`、
+  `locales.ts`、`styles.ts` 与 `injected-css.ts`；
+- Diff 群组迁入 `DiffPreview.tsx`、`diff.ts`、`DiffViewModeControl.tsx` 和真实
+  editor-workspace 调用点；
+- Find 群组迁入 `FindToolWindow.tsx`、`QuickOpen.tsx`、`find-tool.ts`、
+  `FindScopeEditor.tsx` 与 `FindToolPopup.tsx`；
+- Search Everywhere 群组迁入 `SearchEverywhere.tsx`、`ShowUsagesPopup.tsx`、
+  shared menu/search-result 模型和真实 workspace handoff；
+- 对仍从 `lib/client.js` 误切编译实现的测试，改为 `lastIndexOf` 命中后置 TSX
+  源并限定自己的结束边界；
+- 删除仅验证 fixture/build 已迁移的断言，保留用户行为与模块契约测试；
+- 删除四份顶层 fixture，fixture budget 的 `allowedLegacyFixtures` 收紧为 `[]`。
+
+**回归**：
+
+- `commit-panel` 迁移组：**228 pass / 0 fail**；
+- `diff-preview` 迁移组：**284 pass / 0 fail**；
+- `find-tool` 迁移组：**386 pass / 0 fail**；
+- `search-everywhere` 迁移组：**375 pass / 0 fail**；
+- 全量 `npm test`：**2808 pass / 0 fail**；
+- 顶层 legacy fixture：**4 → 0**；仅保留
+  `tests/fixtures/legacy/editor-workspace.legacy.js` 历史工作区 oracle；
+- `roundNN.test.mjs`：**0**；`src/client/**/*.js.bak`：**0**；
+- `check:client-build`、TSX Prettier、fixture/命名守卫、
+  `node --check` 与 `git diff --check` 全部通过；
+- 未修改生产运行时代码。
+
+**命名约束**：后续新增或修改的 `test.mjs` 必须使用
+`<module>-<feature>.test.mjs`；禁止 `roundNN`、日期、批次号、迁移序号或
+无语义名称。跨模块测试按主模块命名，并由
+`tests/editor-test-naming.test.mjs` 递归守卫。
+
+**下一轮**：fixture 退役已完成；后续缺陷修复和体验对齐直接落到对应模块的
+`<module>-<feature>.test.mjs`。
+
+## 2026-11-18 — ProjectPanel legacy oracle 退役
+
+**作用域**：`project-panel.legacy.js` 及其 57 个引用测试。
+
+**症状/风险**：Project 树的选择、拖拽、搜索、展开折叠、上传、Project View、
+toolbar 和上下文菜单测试仍拼接旧单文件实现；TSX 拆分后大量断言仍使用旧
+createElement 对象和旧 toolbar/context 边界。
+
+**修复**：
+
+- ProjectPanel 行渲染、双击、拖拽、indent/chevron、root title、view menu、
+  speed search 和 tree placeholder 改为直接读取 `ProjectPanel.tsx`；
+- 纯树 helper / git tint 测试读取 `terminal.ts`；
+- toolbar 与 Project Options 测试读取 `PanelToolbar` / `project-options-menu.ts`
+  的当前模型；
+- 删除 `project-panel.legacy.js` 并收窄 fixture budget。
+
+**回归**：
+
+- `project-panel.legacy.js` 引用：57 → 0；
+- 定向 Project group：**214 pass / 0 fail**；
+- 全量 `npm test`：**2808 pass / 0 fail**；
+- 顶层 legacy fixture：5 → 4；
+- `check:client-build`、TSX Prettier、fixture/命名守卫和
+  `git diff --check` 通过；
+- 未修改生产运行时代码。
+
+**下一轮**：处理 `commit-panel.legacy.js`（67 个引用），优先迁移 Changes/Commit
+列表、提交消息、菜单动作和 toolbar。
+
+## 2026-11-18 — CommitLog legacy oracle 退役
+
+**作用域**：`commit-log.legacy.js` 及其 40 个引用测试。
+
+**症状/风险**：日志筛选、分页、flat row、graph/fold、详情文件操作、上下文菜单
+和 toolbar 测试仍拼接旧单文件 `CommitLog` 文本；TSX 拆分后这些断言使用旧
+`function CommitLog(`、`COMMIT_LOG_BOUNDARY` 和 createElement 对象属性，
+无法覆盖当前 `CommitLogView` 及其子组件。
+
+**修复**：
+
+- 删除仅验证 fixture/boundary 的迁移专用断言；
+- flat list 测试迁入 `CommitLog.tsx` 与 `CommitLogFlatRow.tsx`；
+- 详情文件点击、双击、F4、上下文菜单和可用性测试迁入
+  `CommitLogDetailPane.tsx`；
+- 文件菜单测试迁入 `file-menu.ts`，workspace 只验证调用参数；
+- 错误/retry 测试迁入 `CommitLogListState.tsx` 与 editor-workspace；
+- 搜索关闭测试迁入 `CommitLogToolbar.tsx`；
+- 删除 `commit-log.legacy.js` 并收窄 fixture budget。
+
+**回归**：
+
+- `commit-log.legacy.js` 引用：40 → 0；
+- 定向 CommitLog group：**110 pass / 0 fail**；
+- 全量 `npm test`：**2808 pass / 0 fail**；
+- 顶层 legacy fixture：6 → 5；
+- `check:client-build`、TSX Prettier、fixture/命名守卫和
+  `git diff --check` 通过；
+- 未修改生产运行时代码。
+
+**下一轮**：处理 `project-panel.legacy.js`（57 个引用），优先迁移文件树选择、
+拖拽、搜索、上传、目录折叠和 Project Options 交叉测试。
+
+## 2026-11-18 — ContextMenu legacy oracle 退役
+
+**作用域**：`context-menu.legacy.js` 及其 22 个引用测试。
+
+**症状/风险**：菜单子项、几何翻转、键盘导航、ARIA 状态和 toolbar overflow
+测试仍拼接旧 `ContextMenu` 文本；组件已拆为 `Menu.tsx` + `menu-model.ts`
+后，测试切片使用旧函数签名和 `React.createElement` 对象属性，无法反映当前
+TSX 的真实结构。
+
+**触发条件**：`rg 'context-menu.legacy.js' tests`。
+
+**根因**：历史测试按旧单文件 JSX 的 `function ContextMenu({ menu, onClose, t })`
+和对象参数形状切片；TSX 迁移后签名、JSX 属性与类型泛型均发生变化。
+
+**修复**：
+
+- 菜单动作、子菜单、悬停焦点、Escape/方向键、ARIA checkbox/popup 状态、
+  几何翻转和 toolbar overflow 测试改为读取 `Menu.tsx` / `menu-model.ts`；
+- 断言从对象属性语法改为当前 JSX 属性、泛型 `querySelector` 和类型化 ref；
+- Project Options、Changes group、Copy Path/Reference、Search Everywhere 和
+  usage row 的交叉测试同步切换到真实模块边界；
+- 删除 `context-menu.legacy.js`，fixture budget 白名单同步移除。
+
+**回归**：
+
+- `context-menu.legacy.js` 引用：22 → 0；
+- 定向菜单引用组：**80 pass / 0 fail**；
+- 顶层 legacy fixture：7 → 6；
+- 未修改生产运行时代码。
+
+**下一轮**：处理 `commit-log.legacy.js`（40 个引用），优先迁移日志筛选、
+分页、折叠、详情文件导航和 context menu，再清理 fixture。
+
+## 2026-11-18 — 测试命名硬约束：模块-功能
+
+**规则**：所有新增或重命名的 `test.mjs` 必须使用
+`<module>-<feature>.test.mjs`，例如 `editor-find-focus.test.mjs`、
+`terminal-tab-reorder.test.mjs`。`module` 必须对应实际归属模块，`feature`
+描述被验证的用户行为或组件职责；禁止使用 `roundNN`、日期、批次号、迁移序号
+或只写 `misc / behavior / test` 之类无法定位功能的名称。
+
+**允许的模块前缀**：`commit`、`project`、`terminal`、`search`、`editor`、
+`plugin`、`i18n`、`file`、`git`、`client`、`static`。跨模块测试优先按主模块
+命名；继续演进时应拆分到各自模块的行为测试，不把 round/批次编号当作边界。
+
+**本轮修复**：
+
+- `commit-round12` → `commit-unversioned-gitignore-history-log`
+- `editor-round14` → `editor-commit-conflicts-message-status`
+- `editor-round16` → `editor-tabs-status-terminal-and-commit-badges`
+- `project-round13` → `project-sort-open-terminal-hosting`
+- `terminal-round15` → `terminal-tab-order-cross-panel-actions`
+- `toolwindow-round11` → `editor-project-selection-terminal-shortcuts-toolbars`
+- `syntax` → `static-bundle-syntax`
+- `write-guard` → `file-write-guard`
+
+**防回归**：`tests/editor-test-naming.test.mjs` 递归扫描
+`tests/**/*.test.mjs`，拒绝文件名任意位置出现 `roundNN`，并校验所有测试文件
+符合模块-功能命名。后续新增测试从创建文件时就受该守卫约束，不再等到迁移结束
+后批量改名。
+
+## 2026-11-18 — TerminalPanel legacy oracle 退役
+
+**作用域**：`terminal-panel.legacy.js` 及其全部测试引用。
+
+**症状/风险**：此前分批迁移只完成了引用较少的部分，剩余测试仍拼接 legacy
+fixture 与 `lib/client.js`；测试无法证明当前 `TerminalPanel.tsx`、
+`terminal.ts`、`find-tool.ts` 和 editor-workspace 的 TS/TSX 行为，fixture
+还会继续固化旧 createElement 文本形状。
+
+**触发条件**：`rg 'terminal-panel.legacy.js' tests` 仍命中 close、dock、
+font、menu、overflow、session 和跨模块键盘测试。
+
+**根因**：历史断言使用旧单文件缩进、`React.createElement` 对象和 legacy
+function 边界；组件拆分后测试未跟随真实模块边界。
+
+**修复**：
+
+- 将 commit/find、right-pane、block helper、close、dock、font、menu、overflow、
+  tab accessibility、session 与跨模块键盘测试改为直接读取
+  `TerminalPanel.tsx`、`TerminalScreen.tsx`、`terminal.ts`、`find-tool.ts`、
+  `editor-workspace.tsx`、ProjectPanel / CommitPanel 和 locales；
+- TS 纯函数使用 `esbuild` 剥离类型后执行真实源码；JSX 断言改为当前属性与
+  事件语义；
+- `terminal-panel.legacy.js` 删除，fixture budget 白名单同步移除；
+- 未修改生产运行时代码。
+
+**回归**：
+
+- `terminal-panel.legacy.js` 引用：27 → 0；
+- 顶层 legacy fixture：8 → 7；
+- 全量 `npm test`：**2809 pass / 0 fail**；
+- `check:client-build`、TSX Prettier、fixture/命名守卫和
+  `git diff --check` 通过。
+
+**剩余 legacy**：`context-menu`、`commit-log`、`project-panel`、
+`commit-panel`、`diff-preview`、`find-tool`、`search-everywhere`。下一轮优先
+从引用最少的 `context-menu.legacy.js` 开始。
+
 ## 2026-11-18 — TerminalPanel 引用分批迁移
 
 **作用域**：`terminal-panel.legacy.js` 的 41 个引用测试。

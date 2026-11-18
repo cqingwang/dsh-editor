@@ -5,23 +5,25 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = (readFileSync(join(root, 'tests/fixtures/project-panel.legacy.js'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
+const workspaceSource = readFileSync(join(root, 'src/client/editor-workspace.tsx'), 'utf8');
 const projectPanelSource = readFileSync(join(root, 'src/client/components/project/ProjectPanel.tsx'), 'utf8');
 
 test('Project View stores IDEA Open Directories with Single Click off by default', () => {
   assert.match(
-    source,
-    /const \[openDirectoriesSingleClick, setOpenDirectoriesSingleClick\] = React\.useState\(\(\) => readStoredText\('dsh-editor\.project\.openDirectoriesSingleClick', '0'\) === '1'\);/,
+    workspaceSource,
+    /const \[\s*openDirectoriesSingleClick,\s*setOpenDirectoriesSingleClick,\s*\]\s*=\s*React\.useState\(\(\) => readStoredText\('dsh-editor\.project\.openDirectoriesSingleClick', '0'\) === '1'\)/,
   );
-  assert.match(source, /\{ id: 'openDirectoriesSingleClick', label: t\('editor\.openDirectoriesSingleClick'\), shortcut: openDirectoriesSingleClick \? '✓' : ''/);
-  assert.match(source, /window\.localStorage\.setItem\('dsh-editor\.project\.openDirectoriesSingleClick', next \? '1' : '0'\)/);
+  assert.match(
+    workspaceSource,
+    /window\.localStorage\.setItem\('dsh-editor\.project\.openDirectoriesSingleClick', next \? '1' : '0'\)/,
+  );
 });
 
 test('a directory row selects on one click and toggles on double click by default', () => {
-  const start = source.indexOf("const isDirectory = row.kind === 'directory';");
-  const row = source.slice(start, source.indexOf('onContextMenu:', start));
+  const start = projectPanelSource.indexOf("const isDirectory = row.kind === 'directory';");
+  const row = projectPanelSource.slice(start, projectPanelSource.indexOf('onContextMenu:', start));
   assert.match(row, /if \(isDirectory\) \{[\s\S]*?if \(row\.root !== true && openDirectoriesSingleClick === true\) onToggle\(row\.path\);/);
-  assert.match(row, /onDoubleClick: \(event\) => \{[\s\S]*?if \(isDirectory && openDirectoriesSingleClick !== true\) onToggle\(row\.path\);/);
+  assert.match(row, /onDoubleClick=\{\(event\) => \{[\s\S]*?if \(isDirectory && openDirectoriesSingleClick !== true\) onToggle\(row\.path\);/);
 });
 
 test('the directory chevron remains a direct one-click toggle', () => {
@@ -34,8 +36,15 @@ test('the directory chevron remains a direct one-click toggle', () => {
 });
 
 test('the ProjectPanel wiring carries the directory preference', () => {
-  const panel = source.slice(source.indexOf('function ProjectPanel({'), source.indexOf('const visibleRows = React.useMemo'));
+  const panel = projectPanelSource.slice(
+    projectPanelSource.indexOf('function ProjectPanel({'),
+    projectPanelSource.indexOf('const visibleRows = React.useMemo'),
+  );
   assert.match(panel, /openDirectoriesSingleClick,/);
   assert.match(panel, /onToggleOpenDirectoriesSingleClick,/);
-  assert.match(source, /openDirectoriesSingleClick,\n\s+onToggleOpenDirectoriesSingleClick,/);
+  assert.match(workspaceSource, /openDirectoriesSingleClick=\{openDirectoriesSingleClick\}/);
+  assert.match(
+    workspaceSource,
+    /onToggleOpenDirectoriesSingleClick=\{\(\) => toggleOpenDirectoriesSingleClick\(\)\}/,
+  );
 });

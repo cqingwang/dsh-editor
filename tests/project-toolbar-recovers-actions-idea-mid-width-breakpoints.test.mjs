@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { panelToolbarSource } from './ui-sources.mjs';
 
-const source = (await readFile(new URL('./fixtures/context-menu.legacy.js', import.meta.url), 'utf8') + '\n' + await readFile(new URL('./fixtures/project-panel.legacy.js', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
+const source = (await readFile(new URL('../src/client/components/ui/Menu.tsx', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../src/client/components/project/ProjectPanel.tsx', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
 
 function extract(name) {
   const marker = `    function ${name}(`;
@@ -31,7 +31,7 @@ test('Project toolbar recovers actions at IDEA mid-width breakpoints', () => {
 
 test('Project toolbar declares IDEA create, navigation and window groups', () => {
   const panel = source.slice(source.indexOf('function ProjectPanel('), source.indexOf('/**\n     * IDEA-style context menu'));
-  const toolbar = panel.slice(panel.indexOf('title: t(\'editor.project\')'), panel.indexOf('searchOpen\n'));
+  const toolbar = panel.slice(panel.indexOf('left={['), panel.indexOf('dropActive={toolbarDropActive}'));
   assert.match(toolbar, /id: 'newEntry'[\s\S]*?group: 'create'/);
   assert.match(toolbar, /id: 'reveal'[\s\S]*?group: 'navigation'/);
   assert.match(toolbar, /id: 'expandSelected'[\s\S]*?group: 'navigation'/);
@@ -46,9 +46,6 @@ test('PanelToolbar preserves semantic groups in its overflow menu', () => {
 });
 
 test('ContextMenu exposes null entries as menu separators', () => {
-  const menu = source.slice(
-    source.indexOf('function ContextMenu({ menu, onClose, t })'),
-    source.indexOf('function groupDiffToolbarActions('),
-  );
-  assert.match(menu, /key: `sep-\$\{index\}`,[\s\S]*?role: 'separator'/);
+  const menu = source;
+  assert.match(menu, /key=\{`sep-\$\{index\}`\}[\s\S]*?role='separator'/);
 });

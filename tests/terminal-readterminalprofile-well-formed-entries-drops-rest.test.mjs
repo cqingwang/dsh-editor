@@ -118,7 +118,10 @@ test('a deleted open file is announced as deleted and offers recreation', () => 
 });
 
 test('a file that vanished is struck through in the project tree', () => {
-  assert.match(source, /const \[deletedPaths, setDeletedPaths\] = React\.useState\(\(\) => new Set\(\)\);/);
+  assert.match(
+    source,
+    /const \[\s+deletedPaths,\s+setDeletedPaths,\s+\] = React\.useState\(\(\) => new Set\(\)\);/s,
+  );
   /* Applied through an updater now: an unchanged membership keeps the SAME Set,
      so React skips the re-render and a no-op refresh cannot flash the tree. */
   assert.match(source, /setDeletedPaths\(\(current\) => \{/);

@@ -5,7 +5,7 @@ import test from 'node:test';
 const source =
   (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) +
   '\n' +
-  (await readFile(new URL('./fixtures/find-tool.legacy.js', import.meta.url), 'utf8'));
+  (await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8'));
 
 function extractFunction(name) {
   const start = source.indexOf(`    function ${name}(`);
@@ -40,7 +40,7 @@ test('Current File is exposed in the IDEA Scope selector', () => {
     source,
     /state\.searchScopePreset === 'openFiles'[\s\S]*?state\.searchScopePreset === 'changedFiles'[\s\S]*?state\.searchScopePreset === 'currentFile'/u,
   );
-  assert.match(source, /value: 'currentFile', disabled: activeFilePath === null \}, t\('editor\.findScopeCurrentFile'\)/u);
+  assert.match(source, /value='currentFile'\s+disabled=\{activeFilePath === null\}>\s+\{t\('editor\.findScopeCurrentFile'\)\}/u);
   assert.match(source, /findScopeCurrentFile: '当前文件'/u);
   assert.match(source, /findScopeCurrentFile: 'Current File'/u);
 });

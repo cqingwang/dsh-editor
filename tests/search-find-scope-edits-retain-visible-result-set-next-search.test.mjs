@@ -2,10 +2,10 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) + '\n' + (await readFile(new URL('./fixtures/find-tool.legacy.js', import.meta.url), 'utf8'));
+const source = (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) + '\n' + (await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8'));
 const findTool = source.slice(
-  source.indexOf('function FindToolWindow('),
-  source.indexOf('/* QUICK_OPEN_BOUNDARY */'),
+  source.lastIndexOf('function FindToolWindowView('),
+  source.indexOf('const FindToolWindow = FindToolWindowView;', source.lastIndexOf('function FindToolWindowView(')),
 );
 
 test('Find scope edits retain the visible result set while the next search starts', () => {
@@ -29,18 +29,30 @@ test('A new Find search generation preserves results instead of blanking them', 
 });
 
 test('Loading is reported in the header and only fills an otherwise empty list', () => {
-  assert.match(findTool, /state\.loading === true\s+\? t\('editor\.loading'\)\s+: findToolResultSummary\(t, resultMatches, resultFiles\)/u);
+  assert.match(findTool, /state\.loading === true \? t\('editor\.loading'\) : findToolResultSummary\(t, resultMatches, resultFiles\)/u);
   assert.match(findTool, /state\.loading === true && occurrences\.length === 0/u);
 });
 
 test('Scope filtering waits for the new generation instead of hiding retained rows immediately', () => {
-  assert.match(findTool, /const retainPreviousResultsWhileLoading = state\.loading === true\s+&& state\.loadedGeneration !== state\.searchGeneration/u);
+  assert.match(
+    findTool,
+    /const retainPreviousResultsWhileLoading =\s+\(state\.loading === true && state\.loadedGeneration !== state\.searchGeneration\) \|\| state\.error !== null;/u,
+  );
   assert.match(findTool, /const scopedFileResults = retainPreviousResultsWhileLoading\s+\? fileResults\s+: fileResults\.filter/u);
   assert.match(findTool, /const scopedMatches = retainPreviousResultsWhileLoading\s+\? state\.matches\s+: state\.matches\.filter/u);
 });
 
 test('Retained rows cannot be replaced before the new scope generation finishes', () => {
-  assert.match(findTool, /const replaceAllDisabledReason = state\.replaceBusy === true\s+\? t\('editor\.findReplaceBusy'\)\s+: state\.loading === true\s+\? t\('editor\.findReplaceLoading'\)/u);
-  assert.match(findTool, /disabled: state\.replaceBusy === true \|\| state\.loading === true \|\| state\.error !== null \|\| scopedMatches\.length === 0/u);
-  assert.match(findTool, /opacity: state\.replaceBusy \|\| state\.loading \|\| state\.error !== null \|\| scopedMatches\.length === 0/u);
+  assert.match(
+    findTool,
+    /const replaceAllDisabledReason =\s+state\.replaceBusy === true\s+\? t\('editor\.findReplaceBusy'\)\s+: state\.loading === true\s+\? t\('editor\.findReplaceLoading'\)/u,
+  );
+  assert.match(
+    findTool,
+    /disabled=\{\s+state\.replaceBusy === true \|\|\s+state\.loading === true \|\|\s+state\.error !== null \|\|\s+scopedMatches\.length === 0\s+\}/u,
+  );
+  assert.match(
+    findTool,
+    /opacity:\s+state\.replaceBusy \|\| state\.loading \|\| state\.error !== null \|\| scopedMatches\.length === 0 \? 0\.45 : 1/u,
+  );
 });

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = (await readFile(new URL('./fixtures/search-everywhere.legacy.js', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
+const source = (await readFile(new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
 
 function extract(name) {
   const marker = `    function ${name}(`;
@@ -36,7 +36,7 @@ test('Search Everywhere arrow navigation skips disabled results and wraps', () =
 });
 
 test('disabled actions expose a reason and cannot be activated', () => {
-  const dialog = source.slice(source.indexOf('function SearchEverywhere('), source.indexOf('function FindToolWindow('));
+  const dialog = source.slice(source.indexOf('function SearchEverywhere('), source.indexOf('function FindToolWindowView('));
   const actions = source.slice(source.indexOf('const searchEverywhereActions = React.useMemo'), source.indexOf('/* Recompute match count'));
   assert.match(actions, /disabledReason: !hasEditorModel \? t\('editor\.findEditorRequired'\) : t\('editor\.findStepInactive'\)/);
   assert.match(dialog, /nextEnabledSearchResultIndex\(results, activeIndex, direction\)/);
@@ -48,7 +48,7 @@ test('disabled actions expose a reason and cannot be activated', () => {
 });
 
 test('action filters do not bypass recent-command ranking', () => {
-  const dialog = source.slice(source.indexOf('function SearchEverywhere('), source.indexOf('function FindToolWindow('));
+  const dialog = source.slice(source.indexOf('function SearchEverywhere('), source.indexOf('function FindToolWindowView('));
   const ranking = dialog.indexOf('rankSearchActions(actions, effectiveQuery, recentCommands, {');
   const filter = dialog.indexOf('searchFilters.actions ? actionMatches.slice(0, 12)');
   assert.ok(ranking > 0 && filter > ranking);

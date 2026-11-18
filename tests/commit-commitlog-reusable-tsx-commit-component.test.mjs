@@ -24,25 +24,14 @@ test('CommitLog is a reusable TSX commit component', async () => {
 test('build embeds CommitLog and removes the legacy definition', async () => {
   const build = await read('scripts/build-client.mjs');
   const legacy = await read('src/client/find-tool.ts');
-  const fixture = await read('tests/fixtures/commit-log.legacy.js');
+  const component = await read('src/client/components/commit/CommitLog.tsx');
   const client = await read('lib/client.js');
 
   assert.match(build, /CommitLog\.tsx/u);
   assert.match(build, /commitLogModule/u);
-  assert.doesNotMatch(legacy, /function CommitLog\(/u);
-  assert.match(fixture, /function CommitLog\(/u);
+  assert.doesNotMatch(legacy, /function CommitLogView\(/u);
+  assert.match(component, /function CommitLogView\(/u);
   assert.match(client, /function CommitLogView\(/u);
   assert.doesNotMatch(client, /function CommitLog\(/u);
   assert.match(client, /React\.createElement\(CommitLog/);
-});
-
-test('CommitLog fixture keeps a log-only boundary and legacy helper oracle', async () => {
-  const fixture = await read('tests/fixtures/commit-log.legacy.js');
-  const start = fixture.indexOf('function CommitLog(');
-  const boundary = fixture.indexOf('/* COMMIT_LOG_BOUNDARY */');
-  const helper = fixture.indexOf('function formatCommitDate(', boundary);
-
-  assert.ok(start >= 0);
-  assert.ok(boundary > start);
-  assert.ok(helper > boundary);
 });

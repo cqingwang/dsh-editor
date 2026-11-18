@@ -2,10 +2,10 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) + '\n' + (await readFile(new URL('./fixtures/find-tool.legacy.js', import.meta.url), 'utf8'));
+const source = (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) + '\n' + (await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8'));
 const findTool = source.slice(
-  source.indexOf('function FindToolWindow('),
-  source.indexOf('/* QUICK_OPEN_BOUNDARY */'),
+  source.lastIndexOf('function FindToolWindowView('),
+  source.indexOf('const FindToolWindow = FindToolWindowView;', source.lastIndexOf('function FindToolWindowView(')),
 );
 
 test('Find groups can be ordered by directory or file without dropping matches', () => {
@@ -41,7 +41,10 @@ test('Find groups can be ordered by directory or file without dropping matches',
 });
 
 test('Persistent Find exposes truthful Group By choices', () => {
-  assert.match(findTool, /const \[findGroupBy, setFindGroupBy\] = React\.useState\(\(\) => normalizeFindGroupBy\(readStoredText\('dsh-editor\.find\.groupBy', 'file'\)\)\)/);
+  assert.match(
+    findTool,
+    /const \[findGroupBy, setFindGroupBy\] = React\.useState\(\(\) =>\s+normalizeFindGroupBy\(readStoredText\('dsh-editor\.find\.groupBy', 'file'\)\),\s+\)/u,
+  );
   assert.match(findTool, /id: 'groupBy'/);
   assert.match(findTool, /label: t\('editor\.findGroupByDirectory'\),[\s\S]*?shortcut: '⌃D'/);
   assert.match(findTool, /label: t\('editor\.findGroupByFile'\),[\s\S]*?shortcut: '⌃S'/);
@@ -52,8 +55,8 @@ test('Persistent Find exposes truthful Group By choices', () => {
 
 test('Group By keyboard shortcuts stay out of text inputs', () => {
   const rootKeydown = findTool.slice(
-    findTool.indexOf("'data-dsh-find-tool-window': ''"),
-    findTool.indexOf('React.createElement(\n          \'div\',\n          { style: styles.findToolToolbar }'),
+    findTool.indexOf("data-dsh-find-tool-window=''"),
+    findTool.indexOf("data-dsh-find-popup-drag"),
   );
   assert.match(rootKeydown, /event\.ctrlKey === true/);
   assert.match(rootKeydown, /if \(key === 'd' \|\| key === 's'\)/);
@@ -63,7 +66,7 @@ test('Group By keyboard shortcuts stay out of text inputs', () => {
 
 test('Directory grouping renders real directory headers before file groups', () => {
   assert.match(findTool, /const displayGroups = findToolDisplayGroups\(groups, findGroupBy\)/);
-  assert.match(findTool, /'data-dsh-find-directory': group\.path/);
+  assert.match(findTool, /data-dsh-find-directory=\{group\.path\}/u);
   assert.match(findTool, /t\('editor\.findDirectoryRoot'\)/);
   assert.match(findTool, /styles\.findToolDirectoryRow/);
 });

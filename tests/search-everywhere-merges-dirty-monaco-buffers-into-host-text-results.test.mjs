@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = (await readFile(new URL('./fixtures/search-everywhere.legacy.js', import.meta.url), 'utf8') + '\n' + (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) + '\n' + (await readFile(new URL('./fixtures/find-tool.legacy.js', import.meta.url), 'utf8')));
+const source = (await readFile(new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url), 'utf8') + '\n' + (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) + '\n' + (await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8')));
 
 function searchEverywhereComponent() {
   return source.slice(source.indexOf('function SearchEverywhere('), source.lastIndexOf('function QuickOpen('));
@@ -24,7 +24,7 @@ test('Dirty Search Everywhere text results preview the live Monaco content', () 
   );
   assert.match(
     dialog,
-    /\(Array\.isArray\(openFiles\) \? openFiles : \[\]\)\s+\.find\(\(file\) => file\?\.path === activeResult\.path\)/u,
+    /\(Array\.isArray\(openFiles\) \? openFiles : \[\]\)\.find\(\(file\) => file\?\.path === activeResult\.path\)/u,
   );
   assert.match(
     dialog,

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = (await readFile(new URL('./fixtures/context-menu.legacy.js', import.meta.url), 'utf8') + '\n' + await readFile(new URL('./fixtures/diff-preview.legacy.js', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
+const source = (await readFile(new URL('../src/client/components/ui/Menu.tsx', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../src/client/components/diff/DiffPreview.tsx', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
 
 function extract(name) {
   const marker = `    function ${name}(`;
@@ -49,7 +49,7 @@ test('Diff actions recover gradually and never claim clipped actions fit', () =>
 });
 
 test('Diff toolbar measures fixed controls and slices only hidden actions into overflow', () => {
-  const diff = source.slice(source.indexOf('function DiffPreview('), source.indexOf('* Commit tool window: grouped'));
+  const diff = source.slice(source.indexOf('function DiffPreview('), source.indexOf('export { DiffPreview };'));
   assert.match(diff, /data-dsh-diff-fixed/);
   assert.match(diff, /diffDirectActionCountForWidth\(/);
   assert.match(diff, /const directDiffActions = diffToolbarActions\.slice\(0, resolvedDirectActionCount\)/);
@@ -61,12 +61,9 @@ test('Diff toolbar measures fixed controls and slices only hidden actions into o
 });
 
 test('ContextMenu renders null entries inside submenus as separators', () => {
-  const menu = source.slice(
-    source.indexOf('function ContextMenu({ menu, onClose, t })'),
-    source.indexOf('function groupDiffToolbarActions('),
-  );
+  const menu = source;
   assert.match(
     menu,
-    /item\.items\.map\(\(child, childIndex\) =>\s+child === null\s+\? React\.createElement\('div', \{ key: `submenu-sep-\$\{childIndex\}`, style: styles\.menuSeparator, role: 'separator' \}\)/,
+    /item\.items\.map\(\(child, childIndex\) =>\s+child === null \? \(\s+<div\s+key=\{`submenu-sep-\$\{childIndex\}`\}\s+style=\{styles\.menuSeparator\}\s+role='separator'\s+\/>/s,
   );
 });

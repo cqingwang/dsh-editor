@@ -11,7 +11,7 @@ const host = await import('../lib/index.js');
 const source =
   (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) +
   '\n' +
-  (await readFile(new URL('./fixtures/find-tool.legacy.js', import.meta.url), 'utf8'));
+  (await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8'));
 const hostSource = await readFile(new URL('../lib/index.js', import.meta.url), 'utf8');
 
 function extractFunction(name, text = source) {
@@ -61,9 +61,9 @@ test('Find exposes Recently Viewed and both Git-backed IDEA scope presets', () =
   assert.match(source, /state\.searchScopePreset === 'recentlyViewedFiles'/u);
   assert.match(source, /state\.searchScopePreset === 'gitTrackedFiles'/u);
   assert.match(source, /state\.searchScopePreset === 'gitNonIgnoredFiles'/u);
-  assert.match(source, /value: 'gitNonIgnoredFiles'[^\n]*findScopeGitNonIgnoredFiles/u);
-  assert.match(source, /value: 'gitTrackedFiles'[^\n]*findScopeGitTrackedFiles/u);
-  assert.match(source, /value: 'recentlyViewedFiles'[^\n]*findScopeRecentlyViewedFiles/u);
+  assert.match(source, /value='gitNonIgnoredFiles'\s+disabled=\{gitAvailable !== true\}>\s+\{t\('editor\.findScopeGitNonIgnoredFiles'\)\}/u);
+  assert.match(source, /value='gitTrackedFiles'\s+disabled=\{gitAvailable !== true\}>\s+\{t\('editor\.findScopeGitTrackedFiles'\)\}/u);
+  assert.match(source, /value='recentlyViewedFiles'\s+disabled=\{recentFilePaths\.length === 0\}>\s+\{t\('editor\.findScopeRecentlyViewedFiles'\)\}/u);
   assert.match(source, /findScopeRecentlyViewedFiles: '最近查看的文件'/u);
   assert.match(source, /findScopeGitTrackedFiles: 'Git 跟踪的项目文件'/u);
   assert.match(source, /findScopeGitNonIgnoredFiles: '排除 Git 忽略项的项目文件'/u);

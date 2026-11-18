@@ -22,12 +22,10 @@ test('RevisionPicker and commit search are reusable TS/TSX modules', async () =>
 test('build embeds RevisionPicker and commit.js has no duplicate implementation', async () => {
   const build = await read('scripts/build-client.mjs');
   const legacy = await read('src/client/commit.ts');
-  const fixture = await read('tests/fixtures/commit-panel.legacy.js');
 
   assert.match(build, /RevisionPicker\.tsx/u);
   assert.match(build, /commit-search-model\.ts/u);
   assert.match(build, /revisionPickerModule/u);
   assert.doesNotMatch(legacy, /function RevisionPicker\(/u);
   assert.doesNotMatch(legacy, /function commitSearchScore\(/u);
-  assert.match(fixture, /function RevisionPicker\(/u);
 });

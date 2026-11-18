@@ -2,14 +2,14 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) + '\n' + (await readFile(new URL('./fixtures/find-tool.legacy.js', import.meta.url), 'utf8'));
+const source = (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) + '\n' + (await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8'));
 const findTool = source.slice(
-  source.indexOf('function FindToolWindow('),
-  source.indexOf('/* QUICK_OPEN_BOUNDARY */'),
+  source.lastIndexOf('function FindToolWindowView('),
+  source.indexOf('const FindToolWindow = FindToolWindowView;', source.lastIndexOf('function FindToolWindowView(')),
 );
 
 test('Find in Files bottom bar owns result and replacement actions', () => {
-  assert.match(findTool, /'data-dsh-find-bottom-bar': ''/);
+  assert.match(findTool, /data-dsh-find-bottom-bar=''/);
   assert.match(findTool, /t\('editor\.findOpenResultsInNewTab'\)/);
   assert.match(findTool, /t\('editor\.findOpenInFindWindow'\)/);
   assert.match(findTool, /t\('editor\.searchReplaceAll'\)/);
@@ -34,8 +34,8 @@ test('Directory scope provides a workspace-relative path editor', () => {
   assert.match(findTool, /findToolScopeDirectoryInput/);
   assert.match(findTool, /findScopeDirectoryPlaceholder/);
   assert.match(findTool, /findSelectDirectory/);
-  assert.match(findTool, /callFs\(\{ op: 'directories' \}\)/);
-  assert.match(findTool, /React\.createElement\(MoveToPicker/);
+  assert.match(findTool, /callFs\(\{\s+op: 'directories',\s+\}\)/u);
+  assert.match(findTool, /<MoveToPicker/);
   assert.match(source, /findScopeDirectoryPlaceholder: '工作区相对目录，例如 src'/);
   assert.match(source, /findScopeDirectoryPlaceholder: 'Workspace-relative directory, for example src'/);
   assert.match(source, /findSelectDirectory: '选择目录'/);

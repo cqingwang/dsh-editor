@@ -3,28 +3,14 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
+import { transpileTypeScriptFunction } from './ts-source.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = readFileSync(join(root, 'lib/client.js'), 'utf8');
-
-/** Evaluate one shipping function by brace balance. */
-function load(name) {
-  const marker = `    function ${name}(`;
-  const start = source.indexOf(marker);
-  assert.notEqual(start, -1, `${name} is missing from lib/client.js`);
-  let index = source.indexOf('{', start);
-  let depth = 0;
-  for (; index < source.length; index += 1) {
-    if (source[index] === '{') depth += 1;
-    else if (source[index] === '}') {
-      depth -= 1;
-      if (depth === 0) return new Function(`${source.slice(start, index + 1)}; return ${name};`)();
-    }
-  }
-  throw new Error(`unbalanced braces in ${name}`);
-}
-
-const describeMoved = load('describeMoved');
+const source = readFileSync(join(root, 'src/client/editor-workspace.tsx'), 'utf8');
+const terminalSource = readFileSync(join(root, 'src/client/terminal.ts'), 'utf8');
+const describeMoved = new Function(
+  `${transpileTypeScriptFunction(terminalSource, 'describeMoved')}\nreturn describeMoved;`,
+)();
 
 /**
  * A stand-in for the plugin translator: both dictionaries must supply both keys,
@@ -62,17 +48,20 @@ test('a fully refused move only names the conflict', () => {
 });
 
 test('the tree notice is built from the plan, after the refresh', () => {
-  const start = source.indexOf('const moveEntry = React.useCallback(');
+  const start = source.indexOf('const moveEntry =');
   assert.notEqual(start, -1);
   const block = source.slice(start, source.indexOf('/* Resolve one conflicted file', start));
   /* Round 113 routes the summary through `describeMoveResult` first, so a clean
      move can be acknowledged as well as a partial one. */
-  assert.match(block, /describeMoveResult\(\{ moved: entries\.map/);
-  assert.match(block, /describeMoved\(entries\.map\(\(\[, to\]\) => to\), summary\.blocked, t\)/);
+  assert.match(block, /const summary = describeMoveResult\(\{[\s\S]*?moved: entries\.map/);
+  assert.match(
+    block,
+    /describeMoved\(\s+entries\.map\(\(\[, to\]\) => to\),\s+summary\.blocked,\s+t,\s+\);/u,
+  );
   /* The wording must come from the plugin translator, not `navigator.language`:
      a zh UI on an en-US browser rendered English there. */
   assert.doesNotMatch(block, /navigator\.language/);
-  assert.match(block, /const moveNotice = summary === null/);
+  assert.match(block, /const moveNotice =\s+summary === null/u);
   /* The notice has to land after `refreshTree`, which clears `treeError`. */
   const refreshAt = block.indexOf('await refreshTree();');
   const noticeAt = block.indexOf('setTreeError(moveNotice);');

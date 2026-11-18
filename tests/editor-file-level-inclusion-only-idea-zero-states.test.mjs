@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = (readFileSync(join(root, 'tests/fixtures/diff-preview.legacy.js'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
+const source = (readFileSync(join(root, 'src/client/components/diff/DiffPreview.tsx'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
 
 function extractFunction(name) {
   const start = source.indexOf(`function ${name}(`);
@@ -38,7 +38,7 @@ test('the difference summary folds out before it can crowd the toolbar', () => {
 
 test('DiffPreview renders the included state only for local Commit changes', () => {
   const diffStart = source.indexOf('function DiffPreview(');
-  const diffEnd = source.indexOf('* Commit tool window: grouped', diffStart);
+  const diffEnd = source.indexOf('export { DiffPreview };', diffStart);
   assert.notEqual(diffStart, -1, 'DiffPreview is missing');
   assert.notEqual(diffEnd, -1, 'DiffPreview end marker is missing');
   const diff = source.slice(diffStart, diffEnd);

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = (await readFile(new URL('./fixtures/search-everywhere.legacy.js', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
+const source = (await readFile(new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
 
 function extractFunction(name) {
   const start = source.indexOf(`function ${name}(`);
@@ -34,7 +34,7 @@ test('Files empty state offers Find in Files only for a real content query', () 
 test('Files empty state hands the query to the persistent Find tool with a fresh search', () => {
   const dialog = source.slice(
     source.indexOf('function SearchEverywhere('),
-    source.indexOf('function FindToolWindow('),
+    source.indexOf('function FindToolWindowView('),
   );
   const openFind = source.slice(
     source.indexOf('const openFindTool = React.useCallback'),
@@ -42,7 +42,7 @@ test('Files empty state hands the query to the persistent Find tool with a fresh
   );
   assert.match(dialog, /const showFindInFilesFallback = searchEverywhereOffersFindInFiles\(\{/);
   assert.match(dialog, /data-dsh-search-find-in-files/);
-  assert.match(dialog, /openSearchResultsInFind\(null, null, \{ refresh: true \}\)/);
+  assert.match(dialog, /openSearchResultsInFind\(null, null, \{\s+refresh: true,\s+\}\)/u);
   assert.match(dialog, /t\('editor\.searchFindInFilesFallback'\)/);
   assert.match(dialog, /event\.key === 'Enter' \|\| event\.key === ' '/);
   assert.match(openFind, /initial\?\.refresh === true/);
@@ -52,7 +52,7 @@ test('Files empty state hands the query to the persistent Find tool with a fresh
 test('Reset filter is limited to the All tab where provider filters apply', () => {
   const dialog = source.slice(
     source.indexOf('function SearchEverywhere('),
-    source.indexOf('function FindToolWindow('),
+    source.indexOf('function FindToolWindowView('),
   );
   assert.match(dialog, /const canResetSearchFilters = effectiveTab === 'all' && searchEverywhereFiltersNeedReset\(searchFilters\)/);
 });

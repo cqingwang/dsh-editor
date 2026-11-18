@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import test from 'node:test';
 
 const host = await import('../lib/index.js');
-const source = (await readFile(new URL('./fixtures/search-everywhere.legacy.js', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
+const source = (await readFile(new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
 const hostSource = await readFile(new URL('../lib/index.js', import.meta.url), 'utf8');
 
 test('include non-project items searches excluded workspace directories only', async (t) => {
@@ -30,7 +30,7 @@ test('include non-project items only reuses bounded workspace scans', () => {
 });
 
 test('Search Everywhere exposes the IDEA include non-project items toggle', () => {
-  const dialog = source.slice(source.indexOf('function SearchEverywhere('), source.indexOf('function FindToolWindow('));
+  const dialog = source.slice(source.indexOf('function SearchEverywhere('), source.indexOf('function FindToolWindowView('));
   assert.match(dialog, /includeNonProject/);
   assert.match(dialog, /t\('editor\.includeNonProjectItems'\)/);
   assert.match(dialog, /onToggleIncludeNonProject/);

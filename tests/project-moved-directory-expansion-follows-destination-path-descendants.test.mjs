@@ -1,27 +1,13 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
+import { transpileTypeScriptFunction } from './ts-source.mjs';
 
-const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
-
-function extract(name) {
-  const marker = `    function ${name}(`;
-  const start = source.indexOf(marker);
-  assert.notEqual(start, -1, `${name} should exist`);
-  let index = source.indexOf('{', start);
-  let depth = 0;
-  for (; index < source.length; index += 1) {
-    if (source[index] === '{') depth += 1;
-    else if (source[index] === '}') {
-      depth -= 1;
-      if (depth === 0) return source.slice(start, index + 1);
-    }
-  }
-  assert.fail(`${name} has no closing brace`);
-}
-
+const source = await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8');
+const coreSource = await readFile(new URL('../src/client/editor-core.ts', import.meta.url), 'utf8');
+const terminalSource = await readFile(new URL('../src/client/terminal.ts', import.meta.url), 'utf8');
 const remapProjectExpandedPaths = new Function(
-  `${extract('remapPathAfterMove')}\n${extract('remapProjectExpandedPaths')}\nreturn remapProjectExpandedPaths;`,
+  `${transpileTypeScriptFunction(coreSource, 'remapPathAfterMove')}\n${transpileTypeScriptFunction(terminalSource, 'remapProjectExpandedPaths')}\nreturn remapProjectExpandedPaths;`,
 )();
 
 test('moved directory expansion follows the destination path and descendants', () => {
@@ -40,7 +26,7 @@ test('rename and move remap expansion before refreshTree', () => {
   const rename = source.slice(renameStart, source.indexOf('const selectActivity', renameStart));
   assert.match(rename, /remapProjectExpandedPathsForMoves\(\[\[renameState\.path, next\]\]\)[\s\S]*?await refreshTree\(\)/u);
 
-  const moveStart = source.indexOf('const moveEntry = React.useCallback(');
+  const moveStart = source.indexOf('const moveEntry =');
   const move = source.slice(moveStart, source.indexOf('/* Resolve one conflicted file', moveStart));
   assert.match(move, /remapProjectExpandedPathsForMoves\(entries\)[\s\S]*?await refreshTree\(\)/u);
 });

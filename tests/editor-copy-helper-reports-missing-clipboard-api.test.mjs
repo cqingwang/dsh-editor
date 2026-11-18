@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = (await readFile(new URL('./fixtures/context-menu.legacy.js', import.meta.url), 'utf8') + '\n' + (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) + '\n' + (await readFile(new URL('./fixtures/find-tool.legacy.js', import.meta.url), 'utf8')));
+const source = (await readFile(new URL('../src/client/components/ui/Menu.tsx', import.meta.url), 'utf8') + '\n' + (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) + '\n' + (await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8')));
 
 function extractSource(name) {
   const marker = `    function ${name}(`;
@@ -66,17 +66,17 @@ test('copy helper reports resolved and rejected clipboard writes', async () => {
 });
 
 test('query and focused result rows open the same menu with predictable focus owners', () => {
-  const panel = source.slice(source.indexOf('function FindToolWindow('), source.indexOf('/* QUICK_OPEN_BOUNDARY */'));
-  assert.match(panel, /\(event\.key === 'ContextMenu' \|\| \(event\.shiftKey === true && event\.key === 'F10'\)\)[\s\S]{0,320}openFindResultMenuAt/);
-  assert.match(panel, /onKeyDown: \(event\) => handleOccurrenceKeyDown\(event, rowKey, position\)/);
+  const panel = source.slice(source.lastIndexOf('function FindToolWindowView('), source.indexOf('const FindToolWindow = FindToolWindowView;', source.lastIndexOf('function FindToolWindowView(')));
+  assert.match(panel, /\(event\.key === 'ContextMenu' \|\| \(event\.shiftKey === true && event\.key === 'F10'\)\)[\s\S]{0,320}openFindResultMenuAt/u);
+  assert.match(panel, /onKeyDown=\{\(event\) => handleOccurrenceKeyDown\(event, rowKey, position\)\}/u);
   assert.match(panel, /occurrenceRefs\.current\.get\(rowKey\)\?\.getBoundingClientRect/);
   assert.match(source, /returnFocusRef\.current = document\.activeElement instanceof HTMLElement \? document\.activeElement : null/);
 });
 
 test('Find result menu reuses the viewport-clamped ContextMenu', () => {
-  const panel = source.slice(source.indexOf('function FindToolWindow('), source.indexOf('/* QUICK_OPEN_BOUNDARY */'));
+  const panel = source.slice(source.lastIndexOf('function FindToolWindowView('), source.indexOf('const FindToolWindow = FindToolWindowView;', source.lastIndexOf('function FindToolWindowView(')));
   const menu = source.slice(source.indexOf('function ContextMenu('), source.indexOf('function splitChanges('));
-  assert.match(panel, /resultMenu === null[\s\S]{0,160}React\.createElement\(ContextMenu/);
+  assert.match(panel, /resultMenu === null \? null : \(\s*<ContextMenu/u);
   assert.match(menu, /Math\.min\(menu\.x, window\.innerWidth - rect\.width - 8\)/);
   assert.match(menu, /Math\.min\(menu\.y, window\.innerHeight - rect\.height - 8\)/);
 });

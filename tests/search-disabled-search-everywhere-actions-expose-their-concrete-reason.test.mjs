@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = (await readFile(new URL('./fixtures/search-everywhere.legacy.js', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
+const source = (await readFile(new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
 
 function extractSource(name) {
   const marker = `    function ${name}(`;
@@ -64,7 +64,7 @@ test('editor-dependent and search-state-dependent actions retain distinct reason
 });
 
 test('Search Everywhere result rows connect disabled reasons to both tooltip and assistive text', () => {
-  const dialog = source.slice(source.indexOf('function SearchEverywhere('), source.indexOf('function FindToolWindow('));
+  const dialog = source.slice(source.indexOf('function SearchEverywhere('), source.indexOf('function FindToolWindowView('));
   assert.match(dialog, /'aria-description': result\.kind === 'action' \? searchEverywhereResultTooltip\(result\) : undefined/);
   assert.match(dialog, /scheduleResultTooltip\(event, result\)/);
   assert.match(dialog, /searchEverywhereResultTooltip\(result\)/);

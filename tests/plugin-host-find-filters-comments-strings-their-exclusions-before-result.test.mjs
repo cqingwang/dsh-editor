@@ -10,7 +10,7 @@ const host = await import('../lib/index.js');
 const source =
   (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) +
   '\n' +
-  (await readFile(new URL('./fixtures/find-tool.legacy.js', import.meta.url), 'utf8'));
+  (await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8'));
 
 function extractFunction(name) {
   return extractJavaScriptFunctionSource(source, name);
@@ -145,8 +145,8 @@ test('dirty Monaco buffers use the same lexical search and Replace All rules', (
 
 test('Filter Search Results exposes all six IDEA modes and reruns Find on selection', () => {
   const findTool = source.slice(
-    source.indexOf('function FindToolWindow('),
-    source.indexOf('/* QUICK_OPEN_BOUNDARY */'),
+    source.indexOf('function FindToolWindowView('),
+    source.indexOf('const FindToolWindow = FindToolWindowView;'),
   );
   assert.match(findTool, /onContextFilterChange/);
   for (const id of ['anywhere', 'comments', 'strings', 'exceptComments', 'exceptStrings', 'exceptBoth']) {

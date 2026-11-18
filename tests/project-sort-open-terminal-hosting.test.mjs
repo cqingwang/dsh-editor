@@ -37,7 +37,7 @@ test('sort mode keeps directories ahead of files in every ordering', () => {
 });
 
 test('project menu exposes open-in-terminal and reveal-in-file-manager', () => {
-  const client = `${read('tests/fixtures/terminal-panel.legacy.js')}\n${read('lib/client.js')}`;
+  const client = `${read('src/client/editor-workspace.tsx')}\n${read('src/client/components/project/ProjectPanel.tsx')}`;
   const host = read('lib/index.js');
   assert.match(client, /id: 'openTerminal'/);
   assert.match(client, /id: 'revealFinder'/);
@@ -49,18 +49,23 @@ test('project menu exposes open-in-terminal and reveal-in-file-manager', () => {
 });
 
 test('open in terminal starts the shell in the requested subdirectory', () => {
-  const client = `${read('tests/fixtures/terminal-panel.legacy.js')}\n${read('lib/client.js')}`;
+  const client = `${read('src/client/components/terminal/TerminalPanel.tsx')}\n${read('src/client/editor-workspace.tsx')}`;
   const host = read('lib/index.js');
   /* Round 123 added an explicit directory parameter; the ambient start directory is
      still the fallback when no directory is given. */
   assert.match(client, /shellPath === undefined && typeof startDirectory === 'string'/);
-  assert.match(client, /startPath: typeof directory === 'string' && directory !== ''/);
+  assert.match(client, /startPath:\s+typeof directory === 'string' && directory !== ''/);
   assert.match(host, /const startPath = typeof body\?\.startPath === 'string'/);
   assert.match(host, /cwd = resolveInside\(root, startPath\)/);
 });
 
 test('sort preference persists per browser and reloads through the toolbar', () => {
-  const client = `${read('tests/fixtures/terminal-panel.legacy.js')}\n${read('lib/client.js')}`;
+  const client = [
+    read('src/client/components/project/ProjectPanel.tsx'),
+    read('src/client/editor-workspace.tsx'),
+    read('src/client/components/project/project-options-menu.ts'),
+    read('src/client/terminal.ts'),
+  ].join('\n');
   assert.match(client, /function readStoredText/);
   assert.match(client, /dsh-editor\.project\.sort/);
   assert.match(client, /const cycleSort = React\.useCallback/);

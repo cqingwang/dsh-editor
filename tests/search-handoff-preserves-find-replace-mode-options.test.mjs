@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = (await readFile(new URL('./fixtures/search-everywhere.legacy.js', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
+const source = (await readFile(new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
 
 function extractSource(name) {
   const marker = `    function ${name}(`;
@@ -114,10 +114,13 @@ test('search handoff applies the existing bounded-result confirmation threshold'
 });
 
 test('Search Everywhere uses the pure handoff model and exposes Replace once per text row', () => {
-  const dialog = source.slice(source.indexOf('function SearchEverywhere('), source.indexOf('function FindToolWindow('));
+  const dialog = source.slice(source.indexOf('function SearchEverywhere('), source.indexOf('function FindToolWindowView('));
   assert.match(dialog, /const request = searchFindHandoff\(\{/);
-  assert.match(dialog, /if \(request\.needsConfirmation && !window\.confirm/);
-  assert.match(dialog, /onOpenInFindToolWindow\(refresh === true \? \{ \.\.\.request\.request, refresh: true \} : request\.request\)/);
+  assert.match(dialog, /if \(\s+request\.needsConfirmation &&\s+!window\.confirm\(/u);
+  assert.match(
+    dialog,
+    /onOpenInFindToolWindow\(\s+refresh === true\s+\? \{\s+\.\.\.request\.request,\s+refresh: true,\s+\}\s+: request\.request,\s+\);/u,
+  );
   const helper = source.slice(source.indexOf('function searchResultContextItems('), source.indexOf('function searchEverywhereOptionId('));
   assert.equal((helper.match(/id: 'replace'/g) ?? []).length, 1);
   assert.match(helper, /result\.kind === 'text'/);

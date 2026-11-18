@@ -9,7 +9,7 @@ import test from 'node:test';
 import { workspaceFileOperations } from '../lib/index.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = (readFileSync(join(root, 'tests/fixtures/project-panel.legacy.js'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
+const source = (readFileSync(join(root, 'src/client/components/project/ProjectPanel.tsx'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
 
 function extract(name) {
   const marker = `    function ${name}(`;
@@ -72,10 +72,10 @@ test('Project speed search requests host matches and feeds the existing navigati
   const panel = source.slice(source.indexOf('function ProjectPanel('), source.indexOf('/**\n     * IDEA-style context menu'));
   assert.match(panel, /op: 'search'/);
   assert.match(panel, /const requestId = \+\+searchRequestRef\.current/);
-  assert.match(panel, /searchEntryRows\(searchEntries, projectName, compactDirectories\)/);
+  assert.match(panel, /searchEntryRows\(searchEntries, projectName, compactDirectories, sortMode, manualOrder\)/);
   assert.match(panel, /speedSearchHitRows\(visibleRows, search\)/);
   assert.match(panel, /speedSearchTarget\(visibleRows, search, selectedPath/);
-  assert.match(panel, /treeSearchMiss\(\{ query: search, rows: visibleRows, loading: searchPending \}\)/);
+  assert.match(panel, /treeSearchMiss\(\{\s+query: search,\s+rows: visibleRows,\s+loading: searchPending,\s+\}\)/);
 });
 
 test('the host fs route exposes search beside the existing list operation', () => {

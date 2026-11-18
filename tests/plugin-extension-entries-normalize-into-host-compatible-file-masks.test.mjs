@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = (await readFile(new URL('./fixtures/search-everywhere.legacy.js', import.meta.url), 'utf8') + '\n' + (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) + '\n' + (await readFile(new URL('./fixtures/find-tool.legacy.js', import.meta.url), 'utf8')));
+const source = (await readFile(new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url), 'utf8') + '\n' + (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) + '\n' + (await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8')));
 
 function extractFunction(name) {
   const start = source.indexOf(`function ${name}(`);
@@ -65,7 +65,7 @@ test('Search Everywhere applies the shared filters to Actions and Files', () => 
 test('the three common filters live in a right-aligned toolbar group', () => {
   const dialog = source.slice(
     source.indexOf('function SearchEverywhere('),
-    source.indexOf('function FindToolWindow('),
+    source.indexOf('function FindToolWindowView('),
   );
   const caseAt = dialog.indexOf("id: 'case'");
   const wordsAt = dialog.indexOf("id: 'words'");
@@ -82,7 +82,7 @@ test('the three common filters live in a right-aligned toolbar group', () => {
 test('extension input is opened from the toolbar and hidden when unused', () => {
   const dialog = source.slice(
     source.indexOf('function SearchEverywhere('),
-    source.indexOf('function FindToolWindow('),
+    source.indexOf('function FindToolWindowView('),
   );
   assert.match(dialog, /const \[fileMaskOpen, setFileMaskOpen\] = React\.useState\(false\)/);
   assert.match(dialog, /fileMaskOpen \|\| String\(state\.fileMask \?\? ''\)\.trim\(\) !== ''/);
@@ -124,8 +124,8 @@ test('double Shift and Cmd/Ctrl+Shift+F call one Find in Files shortcut body', (
 
 test('Find in Files keeps File mask top-right and query filters at the right edge', () => {
   const findTool = source.slice(
-    source.indexOf('function FindToolWindow('),
-    source.indexOf('/* QUICK_OPEN_BOUNDARY */'),
+    source.indexOf('function FindToolWindowView('),
+    source.indexOf('const FindToolWindow = FindToolWindowView;'),
   );
   assert.match(findTool, /styles\.findToolFileMaskControl/);
   assert.match(findTool, /type: 'checkbox'/);
@@ -154,8 +154,8 @@ test('Find in Files scope row maps Project, Directory and truthful presets', () 
   assert.equal(scope('src/app.ts', 'scope', { preset: 'projectFiles' }), true);
 
   const findTool = source.slice(
-    source.indexOf('function FindToolWindow('),
-    source.indexOf('/* QUICK_OPEN_BOUNDARY */'),
+    source.indexOf('function FindToolWindowView('),
+    source.indexOf('const FindToolWindow = FindToolWindowView;'),
   );
   assert.match(findTool, /'data-dsh-find-scope': ''/);
   assert.match(findTool, /id: 'project'/);

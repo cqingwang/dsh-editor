@@ -2,11 +2,11 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) + '\n' + (await readFile(new URL('./fixtures/find-tool.legacy.js', import.meta.url), 'utf8'));
+const source = (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) + '\n' + (await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8'));
 
 function findTool() {
-  const start = source.indexOf('function FindToolWindow(');
-  const end = source.indexOf('/* QUICK_OPEN_BOUNDARY */');
+  const start = source.lastIndexOf('function FindToolWindowView(');
+  const end = source.indexOf('const FindToolWindow = FindToolWindowView;', source.lastIndexOf('function FindToolWindowView('));
   assert.notEqual(start, -1);
   assert.notEqual(end, -1);
   return source.slice(start, end);
@@ -27,7 +27,7 @@ test('Find rows expose mouse and keyboard context menu entry points', () => {
   assert.match(panel, /const \[resultMenu, setResultMenu\] = React\.useState\(null\)/);
   assert.match(panel, /const openFindResultMenuAt = \(x, y, result\) =>/);
   assert.match(panel, /items: searchResultContextItems\(\{/);
-  assert.match(panel, /onContextMenu: \(event\) => \{/);
+  assert.match(panel, /onContextMenu=\{\(event\) => \{/);
   assert.match(panel, /event\.key === 'ContextMenu' \|\| \(event\.shiftKey === true && event\.key === 'F10'\)/);
   assert.match(panel, /openFindResultMenuAt\(rect\?\.left \?\? 20, rect\?\.bottom \?\? 20, result\)/);
 });
@@ -35,10 +35,10 @@ test('Find rows expose mouse and keyboard context menu entry points', () => {
 test('Find context actions keep the tool window open and preserve active descendant', () => {
   const panel = findTool();
   assert.match(panel, /onOpenEditor: \(\) => openFindResult\(result\)/);
-  assert.match(panel, /onOpenInRightSplit: \(\) => onOpenInRightSplit\([\s\S]{0,100}result\.path[\s\S]{0,140}result\.kind === 'text'/);
+  assert.match(panel, /onOpenInRightSplit: \(\) =>\s+onOpenInRightSplit\(\s+result\.path,[\s\S]{0,180}result\.kind === 'text'/u);
   assert.match(panel, /onRevealResult: \(\) => onRevealResult\(result\.path\)/);
   assert.doesNotMatch(panel, /onOpenInRightSplit: \(\) => \{[\s\S]{0,120}onClose\(\)/);
-  assert.match(panel, /'aria-activedescendant': active === null \? undefined : findToolOptionId\(active\.rowKey\)/);
+  assert.match(panel, /aria-activedescendant=\{active === null \? undefined : findToolOptionId\(active\.rowKey\)\}/u);
 });
 
 test('Editor wires Find context actions to the existing editor surfaces', () => {

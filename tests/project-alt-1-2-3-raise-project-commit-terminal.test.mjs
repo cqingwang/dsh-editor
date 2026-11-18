@@ -5,7 +5,12 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = (readFileSync(join(root, 'tests/fixtures/terminal-panel.legacy.js'), 'utf8') + '\n' + readFileSync(join(root, 'tests/fixtures/project-panel.legacy.js'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
+const source = [
+  readFileSync(join(root, 'src/client/editor-workspace.tsx'), 'utf8'),
+  readFileSync(join(root, 'src/client/components/project/ProjectPanel.tsx'), 'utf8'),
+  readFileSync(join(root, 'src/client/components/commit/CommitPanel.tsx'), 'utf8'),
+  readFileSync(join(root, 'src/client/components/terminal/TerminalPanel.tsx'), 'utf8'),
+].join('\n');
 
 /**
  * Slice one callback/handler body out of the client bundle.
@@ -51,7 +56,7 @@ test('a tree click leaves the caret in the tree', () => {
   /* The tree's keys (F2, Delete, ⌘R, typeahead) only fire from inside the tree,
      and opening a file used to move focus into Monaco. Measured before the fix:
      Shift+F6 / Alt+2 with a row clicked did nothing at all. */
-  const block = slice("onMouseDown: (event) => {", 'onDoubleClick:');
+  const block = slice('onMouseDown={(event) => {', 'onDoubleClick=');
   assert.match(block, /if \(event\.button !== 0\) return;/);
   assert.match(block, /treeRef\.current\?\.focus\(\);/);
   /* A click that lands on the inline rename field must not blur it. */
@@ -59,7 +64,7 @@ test('a tree click leaves the caret in the tree', () => {
 });
 
 test('the editor does not steal focus from a tree click', () => {
-  const block = slice('const inlineEditing = activeNode', 'revealLines(activePath, reveal.line');
+  const block = slice('const inlineEditing =', 'revealLines(activePath');
   assert.match(block, /const inTree = activeNode\?\.closest\('\[role="tree"\]'\) != null;/);
   assert.match(block, /if \(!inlineEditing && !inTree && !inTabs\) editor\.focus\(\);/);
 });
@@ -79,11 +84,11 @@ test('⇧F6 renames the selected row and ⌘R refreshes the tree', () => {
 /* ── Commit: keyboard staging and diff ──────────────────────────────────── */
 
 test('⌘⇧A stages and ⌥⌘A unstages the current change', () => {
-  const block = slice('const stageShortcut = React.useCallback(', '\n      /**\n       * ⌘D — open the diff');
+  const block = slice('const stageShortcut = React.useCallback(', '/**\n   * ⌘D');
   assert.match(block, /event\.shiftKey === event\.altKey/);
   assert.match(block, /activityRef\.current !== 'commit'/);
   /* The band decides the direction, read from the live git snapshot. */
-  assert.match(block, /const staged = change\.status\[0\] !== ' ' && change\.status\[0\] !== '\?'/);
+  assert.match(block, /const staged =\s+change\.status\[0\] !== ' ' && change\.status\[0\] !== '\?';/);
   assert.match(block, /void restageRef\.current\(\[\.\.\.new Set\(eligible\)\], staged\);/);
   /* Text fields and the terminal keep the key. */
   assert.match(block, /closest\('\.monaco-editor'\)/);
@@ -91,18 +96,24 @@ test('⌘⇧A stages and ⌥⌘A unstages the current change', () => {
 });
 
 test('⌘D toggles the diff of the change the panel is showing', () => {
-  const block = slice('const showDiffShortcut = React.useCallback(', 'window.addEventListener(\'keydown\', showDiffShortcut, true);');
+  const block = slice('const showDiffShortcut = React.useCallback(', "window.addEventListener('keydown', showDiffShortcut, true);");
   assert.match(block, /event\.key\.toLowerCase\(\) !== 'd'/);
-  assert.match(block, /setDiffTarget\(\(current\) => \(current !== null && current\.path === path && current\.staged === staged \? null : \{ path, staged \}\)\);/);
+  assert.match(
+    block,
+    /setDiffTarget\(\(current\) =>\s+current !== null && current\.path === path && current\.staged === staged \? null : \{ path, staged \},\s+\);/s,
+  );
 });
 
 test('the last change survives closing the diff, so ⌘D can reopen it', () => {
   /* Without the remembered path the second ⌘D closed the diff and the third did
      nothing: the only source was `diffTarget`, which had just been nulled. */
   assert.match(source, /const lastChangePathRef = React\.useRef\(null\);/);
-  assert.match(source, /if \(diffTarget !== null\) lastChangePathRef\.current = \{ path: diffTarget\.path, staged: diffTarget\.staged === true \};/);
+  assert.match(
+    source,
+    /if \(diffTarget !== null\)\s+lastChangePathRef\.current = \{\s+path: diffTarget\.path,\s+staged: diffTarget\.staged === true,\s+\};/s,
+  );
   const reopen = slice('const showDiffShortcut = React.useCallback(', 'window.addEventListener(\'keydown\', showDiffShortcut, true);');
-  assert.match(reopen, /selectedDiffPathRef\.current \?\? selectedCommitPathRef\.current \?\? remembered\?\.path/);
+  assert.match(reopen, /selectedChangeRef\.current\?\.path \?\?\s+selectedDiffPathRef\.current \?\?\s+selectedCommitPathRef\.current \?\?\s+remembered\?\.path/s);
 });
 
 /* ── Terminal keys its own menu advertises ──────────────────────────────── */
@@ -111,15 +122,18 @@ test('⌘A selects the whole terminal buffer and ⇧F6 renames the tab', () => {
   const block = slice("/* ⌘A selects the whole buffer", '/* ⌘⇧C copies the selection');
   assert.match(block, /emulator\.selectAll\(\);/);
   assert.match(block, /event\.key === 'F6'/);
-  assert.match(block, /setRenaming\(\{ id: terminal\.id, value: terminal\.title, previous: terminal\.title \}\);/);
+  assert.match(block, /setRenaming\(\{\s+id: terminal\.id,\s+value: terminal\.title,\s+previous: terminal\.title,\s+\}\);/s);
   /* The rename acts on the pane the caret is in, like ⌘1–⌘9 and ⌥←/→ do. */
-  assert.match(block, /focusedPaneRef\.current === 'right' && splitIdRef\.current !== null \? splitIdRef\.current : activeRef\.current/);
+  assert.match(
+    block,
+    /focusedPaneRef\.current === 'right' && splitIdRef\.current !== null \? splitIdRef\.current : activeRef\.current/s,
+  );
 });
 
 /* ── Project sort keeps the selected row on screen ──────────────────────── */
 
 test('a re-sort scrolls the selected row back into view', () => {
-  const block = slice('React.useEffect(() => {\n        if (sortAppliedRef.current === \'\')', '/**\n       * Toggle IDEA\'s "Open Files with Single Click"');
+  const block = slice("if (sortAppliedRef.current === '')", "/**\n   * Toggle IDEA's \"Open Files with Single Click\"");
   assert.match(block, /if \(sortAppliedRef\.current === sortMode\) return;/);
   assert.match(block, /const path = selectedPathRef\.current;/);
   assert.match(block, /row\.scrollIntoView\(\{ block: 'nearest' \}\);/);

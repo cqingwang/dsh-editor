@@ -2,14 +2,14 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = (await readFile(new URL('./fixtures/search-everywhere.legacy.js', import.meta.url), 'utf8') + '\n' + (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) + '\n' + (await readFile(new URL('./fixtures/find-tool.legacy.js', import.meta.url), 'utf8')));
-const searchEverywhereFixture = await readFile(new URL('./fixtures/search-everywhere.legacy.js', import.meta.url), 'utf8');
+const source = (await readFile(new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url), 'utf8') + '\n' + (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) + '\n' + (await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8')));
+const searchEverywhereFixture = await readFile(new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url), 'utf8');
 
 test('all four query/replace history menus remain read-only', () => {
   const searchEverywhere = searchEverywhereFixture;
   const findTool = source.slice(
-    source.indexOf('function FindToolWindow('),
-    source.indexOf('/* QUICK_OPEN_BOUNDARY */'),
+    source.lastIndexOf('function FindToolWindowView('),
+    source.indexOf('const FindToolWindow = FindToolWindowView;', source.lastIndexOf('function FindToolWindowView(')),
   );
   const editorWorkspace = source.slice(
     source.indexOf('function EditorWorkspace('),
@@ -32,8 +32,8 @@ test('all four query/replace history menus remain read-only', () => {
 test('query and replacement history retain their replay owners', () => {
   const searchEverywhere = searchEverywhereFixture;
   const findTool = source.slice(
-    source.indexOf('function FindToolWindow('),
-    source.indexOf('/* QUICK_OPEN_BOUNDARY */'),
+    source.lastIndexOf('function FindToolWindowView('),
+    source.indexOf('const FindToolWindow = FindToolWindowView;', source.lastIndexOf('function FindToolWindowView(')),
   );
   const editorWorkspace = source.slice(
     source.indexOf('function EditorWorkspace('),
@@ -43,16 +43,15 @@ test('query and replacement history retain their replay owners', () => {
   assert.match(searchEverywhere, /onReplaceChange\(value\);/);
   assert.match(searchEverywhere, /searchInputRef\.current\?\.focus\?\.\(\)/);
   assert.match(searchEverywhere, /replaceInputRef\.current\?\.focus\?\.\(\)/);
-  assert.match(findTool, /if \(kind === 'query'\) onQuery\(value\);/);
-  assert.match(findTool, /else onReplace\(value\);/);
-  assert.match(findTool, /replaceInputRef\.current \?\? queryInputRef\.current/);
+  assert.match(findTool, /if \(kind === 'query'\) onQuery\(value\);\s+else onReplace\(value\);/u);
+  assert.match(findTool, /\(replaceInputRef\.current \?\? queryInputRef\.current\)/u);
   assert.match(editorWorkspace, /updateFind\(\{ find: value \}\)/);
   assert.match(editorWorkspace, /replace: value/);
 });
 
 test('field history popups preserve opener and input focus', () => {
   assert.match(source, /menu\.fallbackFocus\?\.\(\)/);
-  assert.match(source, /fallbackFocus: kind === 'query'/);
+  assert.match(source, /fallbackFocus:\s+kind === 'query'/u);
   assert.match(source, /replaceInputRef\.current \?\? queryInputRef\.current/);
   assert.match(source, /data-dsh-editor-find-history-menu/);
   assert.match(source, /data-dsh-find-history-menu/);

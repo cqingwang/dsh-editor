@@ -6,7 +6,7 @@ import test from 'node:test';
 import { loadTypeScriptFunction } from './ts-source.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = (readFileSync(join(root, 'tests/fixtures/diff-preview.legacy.js'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
+const source = (readFileSync(join(root, 'src/client/components/diff/DiffPreview.tsx'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
 const diffModelSource = readFileSync(join(root, 'src/client/components/ui/diff-model.ts'), 'utf8');
 const transferDiffLine = loadTypeScriptFunction(diffModelSource, 'transferDiffLine');
 
@@ -45,7 +45,7 @@ test('diff line transfer keeps zero-length insertion and deletion boundaries', (
 });
 
 test('Diff exposes IDEA Select Position in Opposite Diff Pane', () => {
-  const diff = source.slice(source.indexOf('function DiffPreview('), source.indexOf('* Commit tool window: grouped'));
+  const diff = source.slice(source.indexOf('function DiffPreview('), source.indexOf('export { DiffPreview };'));
   assert.match(diff, /const selectPositionInOppositeDiffPane = React\.useCallback\(/);
   assert.match(diff, /const lastFocusedDiffSideRef = React\.useRef\('modified'\)/);
   assert.match(diff, /onDidFocusEditorText\?\.\(\(\) => \{\s+lastFocusedDiffSideRef\.current = 'original'/);

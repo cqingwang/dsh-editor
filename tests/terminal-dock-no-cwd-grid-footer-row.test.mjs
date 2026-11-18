@@ -7,6 +7,7 @@ import test from 'node:test';
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const source = readFileSync(join(root, 'src/client/components/terminal/TerminalPanel.tsx'), 'utf8');
 const workspaceSource = readFileSync(join(root, 'src/client/editor-workspace.tsx'), 'utf8');
+const localeSource = readFileSync(join(root, 'src/client/locales.ts'), 'utf8');
 const terminalDockSource = readFileSync(
   join(root, 'src/client/components/terminal/EditorTerminalDock.tsx'),
   'utf8',
@@ -58,8 +59,8 @@ test('the dock title row is gone and the hide control moved into the tab strip',
   assert.match(strip, /<ToolbarButton\s+icon='hide'\s+label=\{t\('editor\.hideTerminal'\)\}\s+onClick=\{\(\) => onRequestClose\(\)\}\s+\/>/s);
   /* It reaches the panel as a prop: a tool window cannot close itself. */
   assert.match(workspaceSource, /onRequestClose=\{\(\) => \{\s+setTerminalOpen\(false\);/);
-  assert.match(source, /hideTerminal: '隐藏终端面板',/);
-  assert.match(source, /hideTerminal: 'Hide terminal',/);
+  assert.match(localeSource, /hideTerminal: '隐藏终端面板',/);
+  assert.match(localeSource, /hideTerminal: 'Hide terminal',/);
 });
 
 test('the dock keeps exactly one strip above the screen', () => {

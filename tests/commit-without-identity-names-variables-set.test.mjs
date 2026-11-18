@@ -73,9 +73,12 @@ test('status reports an in-progress merge and clears it after abort', async (t) 
 });
 
 test('the panel drops the subject warning row but names an in-progress operation', () => {
-  const client = `${read('tests/fixtures/commit-panel.legacy.js')}\n${read('lib/client.js')}`;
+  const client = `${read('src/client/components/commit/CommitPanel.tsx')}\n${read('lib/client.js')}`;
   assert.doesNotMatch(client, /COMMIT_SUBJECT_HARD_LIMIT/);
   assert.doesNotMatch(client, /editor\.commitSubjectTruncated/);
   assert.match(client, /t\('editor\.identityMissing'\)/);
-  assert.match(client, /t\('editor\.operationInProgress', \{ operation: git\.operation \}\)/);
+  assert.match(
+    client,
+    /t\('editor\.operationInProgress', \{\s+operation: git\.operation,\s+\}\)/u,
+  );
 });

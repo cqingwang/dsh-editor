@@ -2,14 +2,23 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = (await readFile(new URL('./fixtures/search-everywhere.legacy.js', import.meta.url), 'utf8') + '\n' + await readFile(new URL('./fixtures/diff-preview.legacy.js', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
-const actionsStart = source.indexOf('const searchEverywhereActions = React.useMemo');
+const source =
+  (await readFile(new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url), 'utf8')) +
+  '\n' +
+  (await readFile(new URL('../src/client/components/diff/DiffPreview.tsx', import.meta.url), 'utf8')) +
+  '\n' +
+  (await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8')) +
+  '\n' +
+  (await readFile(new URL('../src/client/commit.ts', import.meta.url), 'utf8')) +
+  '\n' +
+  (await readFile(new URL('../src/client/locales.ts', import.meta.url), 'utf8'));
+const actionsStart = source.indexOf('const searchEverywhereActions =');
 const actionsEnd = source.indexOf('/* Recompute match count', actionsStart);
 const actions = source.slice(actionsStart, actionsEnd);
 
 test('DiffPreview registers its existing Search In Changes runner', () => {
   const diffStart = source.indexOf('function DiffPreview(');
-  const diffEnd = source.indexOf('* Commit tool window: grouped', diffStart);
+  const diffEnd = source.indexOf('export { DiffPreview };', diffStart);
   const diff = source.slice(diffStart, diffEnd);
   assert.match(diff, /searchInChangesRef/);
   assert.match(diff, /searchInChangesRef\.current = searchInChanges/);
@@ -24,12 +33,12 @@ test('Search Everywhere exposes Search In Changes through the diff runner', () =
   const action = actions.slice(start, end < 0 ? actions.length : end);
   assert.match(action, /label: t\('editor\.searchInChanges'\)/);
   assert.match(action, /description: t\('editor\.searchInChangesHint'\)/);
-  assert.match(action, /disabled: diffOpen === false/);
+  assert.match(action, /disabled:\s+diffOpen === false/u);
   assert.match(action, /diffTarget\?\.repositoryVersion !== null && typeof diffTarget\?\.repositoryVersion === 'object'/);
   assert.match(action, /disabledReason: t\('editor\.searchInChangesUnavailable'\)/);
   assert.match(action, /closeSearchEverywhere\(\)/);
   assert.match(action, /diffSearchInChangesRef\.current\?\.\(\)/);
-  assert.match(source, /searchInChangesRef: diffSearchInChangesRef/);
+  assert.match(source, /searchInChangesRef=\{diffSearchInChangesRef\}/);
 });
 
 test('Search In Changes uses IDEA ActionsBundle text and the 32nd inventory slot', () => {

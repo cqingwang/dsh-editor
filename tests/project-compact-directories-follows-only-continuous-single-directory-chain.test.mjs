@@ -5,7 +5,10 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = readFileSync(join(root, 'lib/client.js'), 'utf8');
+const terminalSource = readFileSync(join(root, 'src/client/terminal.ts'), 'utf8');
+const workspaceSource = readFileSync(join(root, 'src/client/editor-workspace.tsx'), 'utf8');
+const optionsSource = readFileSync(join(root, 'src/client/components/project/project-options-menu.ts'), 'utf8');
+const source = [terminalSource, workspaceSource, optionsSource].join('\n');
 
 /**
  * Extract one top-level function body from the browser module.
@@ -78,48 +81,45 @@ test('Compact Directories stops at a sibling, file or unloaded directory', () =>
 
 test('Project stores Compact Directories off by default and exposes it under Appearance', () => {
   assert.match(
-    source,
-    /const \[compactDirectories, setCompactDirectories\] = React\.useState\(\(\) => readStoredText\('dsh-editor\.project\.compactDirectories', '0'\) === '1'\);/,
+    workspaceSource,
+    /const \[\s*compactDirectories,\s*setCompactDirectories,?\s*\] = React\.useState\(\s*\(\) => readStoredText\('dsh-editor\.project\.compactDirectories', '0'\) === '1',?\s*\)/,
   );
   assert.match(
-    source,
-    /\{ id: 'compactDirectories', label: t\('editor\.compactDirectories'\), shortcut: compactDirectories \? '✓' : ''/,
+    optionsSource,
+    /id: 'compactDirectories',\s+label: t\('editor\.compactDirectories'\),\s+shortcut: compactDirectories \? '✓' : ''/,
   );
-  assert.match(source, /window\.localStorage\.setItem\('dsh-editor\.project\.compactDirectories', next \? '1' : '0'\)/);
-  const appearance = source.slice(
-    source.indexOf("id: 'appearance'"),
-    source.indexOf('onCreateChange:', source.indexOf("id: 'appearance'")),
-  );
+  assert.match(workspaceSource, /window\.localStorage\.setItem\('dsh-editor\.project\.compactDirectories', next \? '1' : '0'\)/);
+  const appearance = optionsSource.slice(optionsSource.indexOf("id: 'appearance'"));
   assert.match(appearance, /id: 'compactDirectories'/);
 });
 
 test('flattenRows compacts loaded chains while preserving the deepest real path', () => {
+  assert.match(terminalSource, /function flattenRows\(/u);
+  assert.match(terminalSource, /compactDirectories = false,/u);
+  assert.match(terminalSource, /sortMode = 'name'/u);
+  assert.match(terminalSource, /manualOrder = null/u);
   assert.match(
-    source,
-    /function flattenRows\(\s*entries,\s*children,\s*expanded,\s*projectName,\s*root,\s*compactDirectories = false,\s*sortMode = 'name',\s*manualOrder = null\s*\)/u,
-  );
-  assert.match(
-    source,
+    terminalSource,
     /const compacted =\s*compactDirectories === true && entry\.kind === 'directory'\s+\? compactDirectoryChain\(entry, children\) : null;/u,
   );
   assert.match(
-    source,
+    terminalSource,
     /const rowEntry =\s*compacted === null[\s\S]*?path: compacted\.path,[\s\S]*?name: compacted\.name/u,
   );
-  assert.match(source, /rows\.push\(\{ \.\.\.rowEntry, depth: frame\.depth, continues \}\);/);
+  assert.match(terminalSource, /rows\.push\(\{ \.\.\.rowEntry, depth: frame\.depth, continues \}\);/);
 });
 
 test('expanding a compact chain uses the same bounded one-level lazy traversal', () => {
-  const start = source.indexOf('const toggleDirectory = React.useCallback(async (path) => {');
+  const start = workspaceSource.indexOf('const toggleDirectory = React.useCallback(');
   assert.notEqual(start, -1);
-  const body = source.slice(start, source.indexOf('}, [expanded, foldersFirst', start));
-  assert.match(body, /expandDirectorySubtrees\(/);
-  assert.match(body, /\[path\]/);
+  const body = workspaceSource.slice(start, workspaceSource.indexOf('/* Open a file, reusing its existing tab. */', start));
+  assert.match(body, /compactDirectoryExpansionPaths\(/);
+  assert.match(body, /prefetchDirectorySubtrees\(\s*\[path\]/);
   assert.match(body, /PROJECT_PREFETCH_DEPTH/);
   assert.match(body, /setExpanded\(\(current\) => new Set\(\[\.\.\.current, \.\.\.expandedPaths\]\)\)/);
 });
 
 test('renaming a compact row edits the real directory basename, not its display chain', () => {
-  assert.match(source, /run: \(\) => setRenameState\(\{ path: row\.path, value: basename\(row\.path\) \}\)/);
-  assert.match(source, /setRenameState\(\{ path: current\.path, value: basename\(current\.path\) \}\)/);
+  assert.match(workspaceSource, /run: \(\) => setRenameState\(\{ path: row\.path, value: basename\(row\.path\) \}\)/);
+  assert.match(workspaceSource, /setRenameState\(\{[\s\S]*?path: current\.path,[\s\S]*?value: basename\(current\.path\),/u);
 });

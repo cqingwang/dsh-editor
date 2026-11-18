@@ -5,25 +5,31 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = (readFileSync(join(root, 'tests/fixtures/commit-panel.legacy.js'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
+const source = (readFileSync(join(root, 'src/client/components/commit/CommitPanel.tsx'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
 
 function commitPanel() {
-  return source.slice(source.indexOf('function CommitPanel('), source.indexOf('function NamePrompt('));
+  return source.slice(source.indexOf('function CommitPanel('), source.indexOf('export { CommitPanel };'));
 }
 
 test('one click selects a change without opening its diff', () => {
   const panel = commitPanel();
-  const title = panel.indexOf('title: change.path,');
-  const row = panel.slice(title, panel.indexOf("React.createElement('input', {", title));
-  assert.match(row, /onClick: \(event\) => onSelectChange\?\.\(\{[\s\S]*?path: change\.path,[\s\S]*?staged: group\.id === 'staged',[\s\S]*?shift: event\.shiftKey,/);
-  assert.match(row, /onDoubleClick: \(event\) => \{[\s\S]*?closest\('input, button, a, \[role="checkbox"\]'\) !== null\) return;[\s\S]*?onSelectDiff\?\.\(\{ path: change\.path, staged: group\.id === 'staged' \}\);/);
-  assert.match(panel, /'aria-selected': selectedForChange,/);
+  const title = panel.indexOf('title={change.path}');
+  const row = panel.slice(title, panel.indexOf('<input', title));
+  assert.match(
+    row,
+    /onClick=\{\(event\) =>\s+onSelectChange\?\.\(\{\s+path: change\.path,\s+staged: group\.id === 'staged',\s+shift: event\.shiftKey,/u,
+  );
+  assert.match(
+    row,
+    /onDoubleClick=\{\(event\) => \{[\s\S]*?closest\('input, button, a, \[role="checkbox"\]'\) !== null[\s\S]*?onSelectDiff\?\.\(\{\s+path: change\.path,\s+staged: group\.id === 'staged',\s+\}\);/u,
+  );
+  assert.match(panel, /aria-selected=\{selectedForChange\}/);
 });
 
 test('the selected change is visibly distinct from the opened diff', () => {
   const panel = commitPanel();
   assert.match(panel, /selectedChange,\n\s+selectedGroup,\n\s+selectedChanges,\n\s+chosenChangeList = \[\],\n\s+collapsedGroups,/);
-  const row = panel.slice(panel.indexOf('const selectedForChange'), panel.indexOf("React.createElement('input', {", panel.indexOf('const selectedForChange')));
+  const row = panel.slice(panel.indexOf('const selectedForChange'), panel.indexOf('<input', panel.indexOf('const selectedForChange')));
   assert.match(row, /selectedForChange/);
   assert.match(row, /dsh-editor-commit-row-selected/);
   assert.match(row, /selectedForDiff/);

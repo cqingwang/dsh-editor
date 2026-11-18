@@ -2,12 +2,19 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = (await readFile(new URL('./fixtures/search-everywhere.legacy.js', import.meta.url), 'utf8') + '\n' + (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) + '\n' + (await readFile(new URL('./fixtures/find-tool.legacy.js', import.meta.url), 'utf8')));
-const actionsStart = source.indexOf('const searchEverywhereActions = React.useMemo');
+const source =
+  (await readFile(new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url), 'utf8')) +
+  '\n' +
+  (await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8')) +
+  '\n' +
+  (await readFile(new URL('../src/client/commit.ts', import.meta.url), 'utf8')) +
+  '\n' +
+  (await readFile(new URL('../src/client/find-tool.ts', import.meta.url), 'utf8'));
+const actionsStart = source.indexOf('const searchEverywhereActions =');
 const actionsEnd = source.indexOf('/* Recompute match count', actionsStart);
 const actions = source.slice(actionsStart, actionsEnd);
 const dialogStart = source.indexOf('function SearchEverywhere(');
-const dialogEnd = source.indexOf('function FindToolWindow(', dialogStart);
+const dialogEnd = source.indexOf('export { SearchEverywhere };', dialogStart);
 const dialog = source.slice(dialogStart, dialogEnd);
 
 function actionBlock(id) {
@@ -23,7 +30,7 @@ test('item info owns focus while open and returns it to the query', () => {
     dialog,
     /React\.useEffect\(\(\) => \{[\s\S]*?resultInfoCloseRef\.current\?\.focus\?\.\(\)[\s\S]*?\}, \[resultInfo\]\)/,
   );
-  assert.match(dialog, /ref: resultInfoCloseRef/);
+  assert.match(dialog, /ref=\{resultInfoCloseRef\}/);
   assert.match(dialog, /setResultInfo\(null\);[\s\S]*?searchInputRef\.current\?\.focus\?\.\(\)/);
 });
 
@@ -33,7 +40,7 @@ test('dialog-level Escape closes Item Info regardless of focused control', () =>
     dialog,
     /if \(event\.key === 'Escape' && resultInfo !== null\)[\s\S]*?closeResultInfo\(\)[\s\S]*?return;/,
   );
-  assert.match(dialog, /onKeyDown: handleSearchEverywhereDialogKeyDown/);
+  assert.match(dialog, /onKeyDown=\{handleSearchEverywhereDialogKeyDown\}/);
   assert.match(dialog, /openSearchHistoryShortcut\(event\)/);
 });
 

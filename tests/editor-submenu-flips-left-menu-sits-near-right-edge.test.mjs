@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = (readFileSync(join(root, 'tests/fixtures/context-menu.legacy.js'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
+const source = (readFileSync(join(root, 'src/client/components/ui/Menu.tsx'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
 
 /** Evaluate one shipping helper by brace balance. */
 function load(name) {
@@ -62,9 +62,9 @@ test('an unmeasured viewport defaults to opening right, IDEA\'s default', () => 
 });
 
 test('the submenu position is driven by that decision', () => {
-  const start = source.indexOf('function ContextMenu({ menu, onClose, t })');
+  const start = source.indexOf('export function ContextMenu(');
   assert.notEqual(start, -1);
-  const next = source.indexOf('\n    function ', start + 10);
+  const next = source.indexOf('export { ContextMenu };', start + 10);
   const block = source.slice(start, next === -1 ? undefined : next);
   assert.match(block, /submenuGeometry\(/);
   assert.match(block, /styles\.submenuLeft/);

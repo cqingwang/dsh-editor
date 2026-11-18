@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = (await readFile(new URL('./fixtures/search-everywhere.legacy.js', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
+const source = (await readFile(new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
 
 function extractFunction(name) {
   const start = source.indexOf(`function ${name}(`);
@@ -24,7 +24,7 @@ test('provider command helpers and aliases are fully removed', () => {
 });
 
 test('slash help and provider command rows are removed from the dialog', () => {
-  const dialog = source.slice(source.indexOf('function SearchEverywhere('), source.indexOf('function FindToolWindow('));
+  const dialog = source.slice(source.indexOf('function SearchEverywhere('), source.indexOf('function FindToolWindowView('));
   assert.match(dialog, /const effectiveTab = state\.tab;/);
   assert.match(dialog, /const effectiveQuery = query;/);
   assert.doesNotMatch(dialog, /providerCommandResults/);
@@ -32,9 +32,12 @@ test('slash help and provider command rows are removed from the dialog', () => {
 });
 
 test('ordinary results still record command history without provider rows', () => {
-  const dialog = source.slice(source.indexOf('function SearchEverywhere('), source.indexOf('function FindToolWindow('));
+  const dialog = source.slice(source.indexOf('function SearchEverywhere('), source.indexOf('function FindToolWindowView('));
   assert.doesNotMatch(dialog, /provider:\$\{tab\}/);
-  assert.match(dialog, /result\.rememberCommand !== false\) onRememberCommand\(result\.id\)/);
+  assert.match(
+    dialog,
+    /result\.kind === 'action' && typeof result\.id === 'string' && result\.rememberCommand !== false\)\s+onRememberCommand\(result\.id\);/u,
+  );
 });
 
 test('provider command hint copy is no longer shipped', () => {

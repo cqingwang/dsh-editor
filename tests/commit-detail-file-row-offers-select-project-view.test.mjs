@@ -5,7 +5,12 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = (readFileSync(join(root, 'lib/client.js'), 'utf8')) + '\n' + readFileSync(join(root, 'tests/fixtures/commit-log.legacy.js'), 'utf8');
+const source = [
+  readFileSync(join(root, 'src/client/components/commit/CommitLogDetailPane.tsx'), 'utf8'),
+  readFileSync(join(root, 'src/client/components/commit/file-menu.ts'), 'utf8'),
+  readFileSync(join(root, 'src/client/editor-workspace.tsx'), 'utf8'),
+  readFileSync(join(root, 'lib/client.js'), 'utf8'),
+].join('\n');
 
 /** The body of one `function name(...) {...}` (brace-balanced, template-safe enough here). */
 function bodyOf(marker) {
@@ -27,14 +32,13 @@ function bodyOf(marker) {
 }
 
 test('the commit detail file row offers Select in Project View', () => {
-  const body = bodyOf('function CommitLog({');
+  const body = bodyOf('function CommitLogDetailPane({');
   /* The menu is opened from the row, not from the whole detail pane. */
-  assert.match(body, /onContextMenu: \(event\) => \{\n\s+event\.preventDefault\(\);\n\s+event\.stopPropagation\(\);\n\s+event\.currentTarget\.focus\?\.\(\);\n\s+onFileMenu\?\.\(\{ path: file\.path, hash: detail\.hash, localExists, localDirExists, x: event\.clientX, y: event\.clientY \}\);/);
+  assert.match(body, /onContextMenu=\{\(event\) => \{\s+event\.preventDefault\(\);\s+event\.stopPropagation\(\);\s+event\.currentTarget\.focus\?\.\(\);\s+onFileMenu\?\.\(\{\s+path: file\.path,\s+hash: detail\.hash,\s+localExists,\s+localDirExists,\s+x: event\.clientX,\s+y: event\.clientY,\s+\}\);/s);
   /* The callback's body starts after its indented parameter list. */
-  const menuStart = source.indexOf('const buildCommitFileMenu = React.useCallback(');
-  const menu = source.slice(menuStart, source.indexOf('const buildLogMenu', menuStart));
+  const menu = source;
   assert.match(menu, /t\('editor\.revealInProject'\)/);
-  assert.match(menu, /run: \(\) => void revealPath\(path\)/);
+  assert.match(menu, /run: \(\) => onRevealPath\(path\)/);
   assert.match(menu, /t\('editor\.showHistory'\)/);
 });
 
@@ -46,7 +50,7 @@ test('reveal expands the ancestors instead of only moving the selection', () => 
   assert.match(tree, /setExpanded\(nextExpanded\);/);
   assert.match(tree, /rowRefs\.current\.get\(path\)\?\.scrollIntoView/);
   /* Ancestors are loaded on demand, so a collapsed directory still opens. */
-  assert.match(tree, /op: 'list', path: prefix/);
+  assert.match(tree, /op: 'list',\s+path: prefix,/);
   /* The explicit "Select in Project View" still reveals the tool window itself. */
   const body = bodyOf('const revealPath = React.useCallback(');
   assert.match(body, /setActivity\('project'\);/);

@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { diffViewModeControlSource } from './ui-sources.mjs';
 
-const source = (await readFile(new URL('./fixtures/diff-preview.legacy.js', import.meta.url), 'utf8')) + '\n' + (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
+const source = (await readFile(new URL('../src/client/components/diff/DiffPreview.tsx', import.meta.url), 'utf8')) + '\n' + (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
 
 function extract(name) {
   const marker = `    function ${name}(`;
@@ -43,10 +43,10 @@ test('the paired control exposes unified and side-by-side as independent toggles
 });
 
 test('DiffPreview renders the fixed IDEA mode control instead of a generic toolbar action', () => {
-  const diff = source.slice(source.indexOf('function DiffPreview('), source.indexOf('* Commit tool window: grouped'));
+  const diff = source.slice(source.indexOf('function DiffPreview('), source.indexOf('export { DiffPreview };'));
   assert.doesNotMatch(diff, /id: 'view'/);
   assert.match(diff, /const diffViewModeControl = diffViewModeControlForWidth\(diffToolbarWidth\)/);
-  assert.match(diff, /React\.createElement\(DiffViewModeControl, \{/);
-  assert.match(diff, /mode: diffViewModeControl/);
+  assert.match(diff, /<DiffViewModeControl/);
+  assert.match(diff, /mode=\{diffViewModeControl\}/);
   assert.match(diff, /disabled: diffUnavailable/);
 });

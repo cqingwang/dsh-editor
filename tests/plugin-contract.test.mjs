@@ -8,7 +8,7 @@ import test from 'node:test';
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const read = (path) => readFileSync(join(root, path), 'utf8');
 const readClient = () =>
-  readFileSync(join(root, 'tests/fixtures/diff-preview.legacy.js'), 'utf8') + '\n' + read('lib/client.js');
+  readFileSync(join(root, 'src/client/components/diff/DiffPreview.tsx'), 'utf8') + '\n' + read('lib/client.js');
 
 test('package declares the bundle patch and the browser client', () => {
   const manifest = JSON.parse(read('package.json'));
@@ -90,8 +90,8 @@ test('commit tool window splits staged and unstaged changes with an IDEA diff', 
   assert.match(client, /function changeTreeOf/);
   assert.match(client, /readStoredText\('dsh-editor\.diff\.sideBySide', '1'\) !== '0'/);
   assert.match(client, /renderSideBySideInlineBreakpoint: 0/);
-  assert.match(client, /renderMarginRevertIcon: true/);
-  assert.match(client, /diff\.updateOptions\(\{ renderSideBySide: sideBySide \}\)/);
+  assert.match(client, /renderMarginRevertIcon: canEdit/);
+  assert.match(client, /diff\.updateOptions\(\{\s+renderSideBySide: sideBySide,\s+\}\)/u);
   assert.match(client, /diffTarget/);
   assert.match(host, /case 'stage':/);
   assert.match(host, /case 'diff':/);

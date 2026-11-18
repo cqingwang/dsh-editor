@@ -27,7 +27,7 @@ test('a commit refreshes the log so the new row appears without a manual reload'
 });
 
 test('a change-tree directory carries its leaves and stages them in one action', () => {
-  const client = `${read('tests/fixtures/commit-panel.legacy.js')}\n${read('lib/client.js')}`;
+  const client = `${read('src/client/components/commit/CommitPanel.tsx')}\n${read('lib/client.js')}`;
   assert.match(client, /const inside = collectChanges\(leaf, \[\]\);/);
   /* The row keeps the COMPACTED path (`a/b/c` renders as one row) and adds the
      parent path for the muted label beside the name. Its visible depth follows

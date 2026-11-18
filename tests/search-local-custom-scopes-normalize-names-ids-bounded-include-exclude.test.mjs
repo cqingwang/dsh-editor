@@ -8,7 +8,7 @@ const host = await import('../lib/index.js');
 const source =
   (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) +
   '\n' +
-  (await readFile(new URL('./fixtures/find-tool.legacy.js', import.meta.url), 'utf8'));
+  (await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8'));
 const scopeEditorSource = await readFile(
   new URL('../src/client/components/search/FindScopeEditor.tsx', import.meta.url),
   'utf8',
@@ -225,8 +225,8 @@ test('Edit Scopes dialog edits local names, include and exclude patterns', () =>
   assert.match(editor, /normalizeCustomFindScopes\(drafts\)/);
   assert.match(editor, /onSave\(normalized, selectedId\)/);
   const findTool = source.slice(
-    source.indexOf('function FindToolWindow('),
-    source.indexOf('/* QUICK_OPEN_BOUNDARY */'),
+    source.indexOf('function FindToolWindowView('),
+    source.indexOf('const FindToolWindow = FindToolWindowView;'),
   );
   assert.match(findTool, /setScopeEditorOpen\(true\)/);
   assert.match(findTool, /`custom:\$\{savedId\}`/);

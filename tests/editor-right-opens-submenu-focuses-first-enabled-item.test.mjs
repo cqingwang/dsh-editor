@@ -6,17 +6,17 @@ import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const source =
-  readFileSync(join(root, 'tests/fixtures/context-menu.legacy.js'), 'utf8') +
+  readFileSync(join(root, 'src/client/components/ui/Menu.tsx'), 'utf8') +
   '\n' +
   readFileSync(join(root, 'lib/client.js'), 'utf8');
 
 function contextMenu() {
-  return source.slice(source.indexOf('function ContextMenu('), source.indexOf('/**\n     * A tool-window splitter'));
+  return source;
 }
 
 test('Right opens a submenu and focuses its first enabled item', () => {
   const menu = contextMenu();
-  assert.match(menu, /const openSubmenu = \(item\) => \{/);
+  assert.match(menu, /const openSubmenu = \(item: MenuAction\) => \{/);
   assert.match(menu, /setItemRect\(parent\.getBoundingClientRect\(\)\)/);
   assert.match(menu, /setSubmenu\(item\.id\)/);
   assert.match(menu, /setTimeout\(\(\) => childButtons\(item\.id\)\[0\]\?\.focus\(\), 0\)/);
@@ -39,8 +39,8 @@ test('Up/Down stay inside the open submenu instead of walking the parent menu', 
 });
 
 test('every menu row carries its stable id for keyboard submenu navigation', () => {
-  assert.match(source, /'data-menu-item-id': item\.id,/);
-  assert.match(source, /'data-menu-item-id': child\.id,/);
+  assert.match(source, /data-menu-item-id=\{item\.id\}/);
+  assert.match(source, /data-menu-item-id=\{child\.id\}/);
 });
 
 test('Editor is still a View-row toggle, never an injected tab', () => {

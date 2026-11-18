@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = (await readFile(new URL('./fixtures/search-everywhere.legacy.js', import.meta.url), 'utf8') + '\n' + await readFile(new URL('./fixtures/context-menu.legacy.js', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
+const source = (await readFile(new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../src/client/components/ui/Menu.tsx', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
 
 function extract(name) {
   const marker = `    function ${name}(`;
@@ -33,7 +33,7 @@ test('empty Search Everywhere separates recent searches from actions', () => {
 });
 
 test('Search Everywhere renders group labels without making them actionable rows', () => {
-  const dialog = source.slice(source.indexOf('function SearchEverywhere('), source.indexOf('function FindToolWindow('));
+  const dialog = source.slice(source.indexOf('function SearchEverywhere('), source.indexOf('function FindToolWindowView('));
   assert.match(dialog, /searchEverywhereSection\(/);
   assert.match(dialog, /results\[position - 1\]/);
   assert.match(dialog, /'data-search-everywhere-section'/);
@@ -49,8 +49,8 @@ test('action tooltips expose description and disabled reason', () => {
 });
 
 test('Filter menu keeps ContextMenu keyboard navigation and opener focus', () => {
-  const menu = source.slice(source.indexOf('function ContextMenu('), source.indexOf('function MenuItems'));
-  assert.match(menu, /querySelector\('button\[data-menu-item-id\]:not\(:disabled\)'\)/);
+  const menu = source;
+  assert.match(menu, /querySelector<HTMLButtonElement>\('button\[data-menu-item-id\]:not\(:disabled\)'\)/);
   assert.match(menu, /event\.key === 'ArrowDown' \|\| event\.key === 'ArrowUp'/);
   assert.match(menu, /previous !== null && previous\.isConnected\) previous\.focus\(\)/);
 });

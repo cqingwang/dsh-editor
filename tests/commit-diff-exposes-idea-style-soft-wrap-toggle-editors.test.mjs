@@ -5,18 +5,18 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = (readFileSync(join(root, 'tests/fixtures/diff-preview.legacy.js'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
+const source = (readFileSync(join(root, 'src/client/components/diff/DiffPreview.tsx'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
 
 function diffPreview() {
-  return source.slice(source.indexOf('function DiffPreview('), source.indexOf('* Commit tool window: grouped'));
+  return source.slice(source.indexOf('function DiffPreview('), source.indexOf('export { DiffPreview };'));
 }
 
 test('diff exposes an IDEA-style Soft-Wrap toggle on both editors', () => {
   const diff = diffPreview();
   assert.match(diff, /const \[softWrap, setSoftWrap\] = React\.useState\(\(\) => readStoredText\('dsh-editor\.diff\.softWrap', '0'\) === '1'\)/);
   assert.match(diff, /wordWrap: readStoredText\('dsh-editor\.diff\.softWrap', '0'\) === '1' \? 'on' : 'off'/);
-  assert.match(diff, /original\?\.updateOptions\(\{ wordWrap: softWrap \? 'on' : 'off' \}\)/);
-  assert.match(diff, /modified\?\.updateOptions\(\{ wordWrap: softWrap \? 'on' : 'off' \}\)/);
+  assert.match(diff, /original\?\.updateOptions\(\{\s+wordWrap: softWrap \? 'on' : 'off',\s+\}\)/u);
+  assert.match(diff, /modified\?\.updateOptions\(\{\s+wordWrap: softWrap \? 'on' : 'off',\s+\}\)/u);
   assert.match(diff, /id: 'softWrap'/);
   assert.match(diff, /shortcut: softWrap \? '✓' : ''/);
   assert.match(diff, /run: \(\) => setSoftWrap\(\(value\) => !value\)/);

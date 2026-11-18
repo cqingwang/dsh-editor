@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { panelToolbarSource } from './ui-sources.mjs';
 
-const source = (await readFile(new URL('./fixtures/project-panel.legacy.js', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
+const source = (await readFile(new URL('../src/client/components/project/ProjectPanel.tsx', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
 
 function extract(name) {
   const marker = `    function ${name}(`;
@@ -40,6 +40,5 @@ test('PanelToolbar uses the pure fit result and a bounded Project view title', (
 
 test('Project direct toolbar keeps Options and Hide at 200px', () => {
   const panel = source.slice(source.indexOf('function ProjectPanel('), source.indexOf('/**\n     * IDEA-style context menu'));
-  const toolbar = panel.slice(panel.indexOf('title: t(\'editor.project\')'), panel.indexOf('searchOpen\n'));
-  assert.match(toolbar, /id: 'options'[\s\S]*?id: 'hide'/);
+  assert.match(panel, /id: 'options'[\s\S]*?id: 'hide'/s);
 });

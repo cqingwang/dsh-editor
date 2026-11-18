@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+const source = await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8');
+const terminalSource = await readFile(new URL('../src/client/terminal.ts', import.meta.url), 'utf8');
 
 function buildTreeMenuBlock() {
   const start = source.indexOf('const buildTreeMenu = React.useCallback(');
@@ -20,15 +21,15 @@ test('filtered Project views expose row-specific Select in Project View', () => 
 
 test('the row-specific reveal action is wired into buildTreeMenu dependencies', () => {
   const menu = buildTreeMenuBlock();
-  const dependencies = menu.slice(menu.lastIndexOf('[compareWithClipboard'));
+  const dependencies = menu.slice(menu.lastIndexOf('compareWithClipboard') - 16);
   assert.match(dependencies, /filteredView/);
   assert.match(dependencies, /revealPath/);
 });
 
 test('Open Files remains a stable projection of tab order with no stale rows', () => {
-  const start = source.indexOf("normalized === 'openFiles'");
+  const start = terminalSource.indexOf("normalized === 'openFiles'");
   assert.notEqual(start, -1);
-  const block = source.slice(start, start + 500);
+  const block = terminalSource.slice(start, start + 500);
   assert.match(block, /Array\.isArray\(openFiles\) \? openFiles : \[\]/);
   assert.match(block, /map\(\(file\) => file\?\.path\)/);
   assert.doesNotMatch(block, /localStorage/);
@@ -37,7 +38,7 @@ test('Open Files remains a stable projection of tab order with no stale rows', (
 test('explicit row reveal opens Project without an automatic follow pass', () => {
   const revealStart = source.indexOf('const revealPath = React.useCallback(');
   const revealEnd = source.indexOf('const revealPath = React.useCallback(', revealStart + 1);
-  const revealBlock = source.slice(revealStart, revealEnd < 0 ? revealStart + 800 : revealEnd);
+  const revealBlock = source.slice(revealStart, revealEnd < 0 ? revealStart + 900 : revealEnd);
   assert.match(revealBlock, /setActivity\('project'\)/);
   assert.match(revealBlock, /setPanelVisible\(true\)/);
   assert.match(revealBlock, /await revealInProjectTree\(path\)/);

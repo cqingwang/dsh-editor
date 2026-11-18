@@ -86,12 +86,12 @@ test('a detached HEAD refuses to push', async (t) => {
 });
 
 test('a failed push keeps its own state so a retry button can appear', () => {
-  const client = read('lib/client.js');
-  assert.match(client, /const \[pushError, setPushError\] = React\.useState\(null\);/);
+  const client = read('src/client/editor-workspace.tsx');
+  assert.match(client, /const \[pushError, setPushError\] =\s+React\.useState\(null\);/u);
   assert.match(client, /const pushNow = React\.useCallback\(async \(\) => \{/);
   assert.match(client, /op: 'push' \}/);
   /* The commit no longer hides the failure inside the generic error slot. */
-  assert.match(client, /setPushError\(value\.pushError \?\? null\);/);
-  assert.match(client, /t\('editor\.retryPush'\)/);
-  assert.match(client, /onPush: \(\) => void pushNow\(\)/);
+  assert.match(client, /setPushError\(\s+value\.pushError \?\? null,\s+\);/u);
+  assert.match(read('src/client/components/commit/CommitPanel.tsx'), /t\('editor\.retryPush'\)/);
+  assert.match(client, /onPush=\{\(\) => void pushNow\(\)\}/);
 });

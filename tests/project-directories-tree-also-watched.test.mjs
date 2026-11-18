@@ -11,7 +11,7 @@ import { WorkspaceWatcher } from '../lib/index.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const host = readFileSync(join(root, 'lib/index.js'), 'utf8');
-const source = readFileSync(join(root, 'lib/client.js'), 'utf8');
+const source = readFileSync(join(root, 'src/client/editor-workspace.tsx'), 'utf8');
 
 /**
  * Wait until `check` is true, or fail after `timeout`.
@@ -145,8 +145,11 @@ test('a cache entry whose directory vanished is dropped', () => {
      is deleted, its parent's listing stops mentioning it and its rows stop
      rendering — but the entry kept the old files, so re-creating a directory of
      the same name briefly showed a listing from before it existed. */
-  const refresh = source.slice(source.indexOf('const refreshTree = React.useCallback('), source.indexOf('Files that appeared since the last refresh'));
-  assert.match(refresh, /const read = new Map\(\[\['', Array\.isArray\(listing\) \? listing : \[\]\], \.\.\.Object\.entries\(next\)\]\);/);
+  const refresh = source.slice(
+    source.indexOf('const refreshTree = React.useCallback('),
+    source.indexOf('/* Files that appeared since the last refresh'),
+  );
+  assert.match(refresh, /const read = new Map\(\[\s+\['', Array\.isArray\(listing\) \? listing : \[\]\],\s+\.\.\.Object\.entries\(next\),\s+\]\)/);
   assert.match(refresh, /const parent = dirname\(path\);/);
   assert.match(refresh, /if \(siblings === undefined\) continue;/);
   assert.match(refresh, /if \(siblings\.some\(\(entry\) => entry\?\.path === path\)\) continue;/);
@@ -156,11 +159,14 @@ test('a cache entry whose directory vanished is dropped', () => {
 test('pruning only trusts listings that were actually read this round', () => {
   /* Otherwise a collapsed branch — whose parent was not re-read — would lose its
      cache on every refresh and re-fetch on the next expand. */
-  const refresh = source.slice(source.indexOf('const refreshTree = React.useCallback('), source.indexOf('Files that appeared since the last refresh'));
+  const refresh = source.slice(
+    source.indexOf('const refreshTree = React.useCallback('),
+    source.indexOf('/* Files that appeared since the last refresh'),
+  );
   const pruneAt = refresh.indexOf('const read = new Map(');
-  const expandAt = refresh.indexOf('for (const path of narrowed ?? [...expandedRef.current])');
+  const expandAt = refresh.indexOf('for (const path of narrowed ?? [');
   assert.ok(expandAt !== -1 && expandAt < pruneAt, 'pruning must follow the reads it trusts');
-  assert.match(source, /for \(const path of narrowed \?\? \[\.\.\.expandedRef\.current\]\) \{/);
+  assert.match(source, /for \(const path of narrowed \?\? \[\s+\.\.\.expandedRef\.current,\s+\]\) \{/);
 });
 
 test('a watcher frame re-reads the parent of every changed directory', () => {
@@ -173,7 +179,10 @@ test('a watcher frame re-reads the parent of every changed directory', () => {
   /* Search FORWARD: `error` appears in unrelated handlers earlier in the file. */
   const effect = source.slice(changeAt, source.indexOf("if (event.type === 'error') {", changeAt));
   assert.match(effect, /const changedDirectories = Array\.isArray\(event\.dirs\) \? event\.dirs : null;/);
-  assert.match(effect, /await refreshTree\(changedDirectories === null \? undefined : changedDirectories\);/);
+  assert.match(
+    effect,
+    /const changedListings = await refreshTree\(\s+changedDirectories === null \? undefined : changedDirectories,\s+\);/,
+  );
   assert.match(effect, /await loadGit\(\);/);
   assert.match(effect, /await checkExternalChanges\(\);/);
 });

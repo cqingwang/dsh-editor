@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = readFileSync(join(root, 'lib/client.js'), 'utf8');
+const source = readFileSync(join(root, 'src/client/editor-workspace.tsx'), 'utf8');
 
 function sliceBetween(start, end) {
   const from = source.indexOf(start);
@@ -18,17 +18,20 @@ function sliceBetween(start, end) {
 test('closing a right-tab range confirms dirty files once and keeps shared documents', () => {
   const close = sliceBetween('const closeSplitTabs = React.useCallback(', 'const closeSplitTab = React.useCallback(');
   assert.match(close, /const doomed = splitTabsRef\.current\.filter\(\(path\) => wanted\.has\(path\)\)/);
-  assert.match(close, /const dirty = doomed\.filter\(\(path\) => openFilesRef\.current\.find\(\(file\) => file\.path === path\)\?\.dirty === true\)\.length/);
+  assert.match(
+    close,
+    /const dirty = doomed\.filter\(\s+\(path\) => openFilesRef\.current\.find\(\(file\) => file\.path === path\)\?\.dirty === true,\s+\)\.length;/u,
+  );
   assert.match(close, /t\('editor\.unsavedTabsConfirm', \{ count: dirty \}\)/);
   assert.match(close, /const remaining = splitTabsRef\.current\.filter\(\(path\) => wanted\.has\(path\) === false\)/);
   assert.doesNotMatch(close, /model\?\.dispose|modelsRef\.current\.delete/);
 });
 
 test('right tab context menu closes only that group and targets the clicked tab', () => {
-  const attributeAt = source.indexOf("dataAttributeName: 'data-dsh-editor-split-path'");
-  const start = source.lastIndexOf('return React.createElement(EditorFileTab', attributeAt);
-  const tab = source.slice(start, source.indexOf('\n                          splitTabLayout.hidden.length === 0', start));
-  assert.match(tab, /onContextMenu: \(event\) => \{/);
+  const attributeAt = source.indexOf("dataAttributeName='data-dsh-editor-split-path'");
+  const start = source.lastIndexOf('<EditorFileTab', attributeAt);
+  const tab = source.slice(start, start + 7000);
+  assert.match(tab, /onContextMenu=\{\(event\) => \{/);
   assert.match(tab, /id: 'closeOthers'/);
   assert.match(tab, /id: 'closeLeft'/);
   assert.match(tab, /id: 'closeRight'/);
@@ -41,10 +44,10 @@ test('right tab context menu closes only that group and targets the clicked tab'
 });
 
 test('middle-click closes only the right group tab', () => {
-  const attributeAt = source.indexOf("dataAttributeName: 'data-dsh-editor-split-path'");
-  const start = source.lastIndexOf('return React.createElement(EditorFileTab', attributeAt);
-  const tab = source.slice(start, source.indexOf('\n                          splitTabLayout.hidden.length === 0', start));
-  assert.match(tab, /onAuxClick: \(event\) => \{/);
+  const attributeAt = source.indexOf("dataAttributeName='data-dsh-editor-split-path'");
+  const start = source.lastIndexOf('<EditorFileTab', attributeAt);
+  const tab = source.slice(start, start + 7000);
+  assert.match(tab, /onAuxClick=\{\(event\) => \{/);
   assert.match(tab, /event\.button !== 1/);
   assert.match(tab, /closeSplitTab\(splitTab\)/);
 });
@@ -56,7 +59,7 @@ test('Alt+Left/Right cycles only the focused right group history', () => {
   assert.match(cycle, /splitPathRef\.current = next/);
   assert.match(cycle, /setSplitPath\(next\)/);
 
-  const shortcut = sliceBetween('const splitTabShortcut = React.useCallback(', 'React.useEffect(() => {\n        window.addEventListener(\'keydown\', splitTabShortcut, true)');
+  const shortcut = sliceBetween('const splitTabShortcut =', 'React.useEffect(() => {\n    window.addEventListener(\'keydown\', splitTabShortcut, true);');
   assert.match(shortcut, /event\.altKey/);
   assert.match(shortcut, /event\.metaKey \|\| event\.ctrlKey \|\| event\.shiftKey/);
   assert.match(shortcut, /splitContainerRef\.current\?\.contains\(target\)/);

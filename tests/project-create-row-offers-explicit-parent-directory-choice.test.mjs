@@ -6,7 +6,7 @@ import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const source =
-  readFileSync(join(root, 'tests/fixtures/project-panel.legacy.js'), 'utf8') +
+  readFileSync(join(root, 'src/client/components/project/ProjectPanel.tsx'), 'utf8') +
   '\n' +
   readFileSync(join(root, 'lib/client.js'), 'utf8');
 
@@ -35,9 +35,9 @@ test('the create row offers an explicit parent directory choice', () => {
   assert.match(source, /const directoryChoices = React\.useMemo\(\(\) => \{/);
   assert.match(source, /const seen = new Set\(\[''\]\);/);
   /* The root is always first, whatever the tree happens to contain. */
-  assert.match(source, /const choices = \[\{ path: '', name: projectName \}\];/);
-  assert.match(source, /style: styles\.createParentSelect,/);
-  assert.match(source, /onCreateParent: \(parent\) => setCreateState/);
+  assert.match(source, /const choices = \[\s+\{\s+path: '',\s+name: projectName,\s+\},\s+\];/);
+  assert.match(source, /style=\{styles\.createParentSelect\}/);
+  assert.match(source, /onChange=\{\(event\) => onCreateParent\(event\.target\.value\)\}/);
   assert.match(source, /t\('editor\.createIn'\)/);
 });
 

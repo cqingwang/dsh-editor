@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = (await readFile(new URL('./fixtures/search-everywhere.legacy.js', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
+const source = (await readFile(new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
 
 function extract(name) {
   const marker = `    function ${name}(`;
@@ -29,9 +29,9 @@ test('large Search Everywhere result sets require explicit confirmation', () => 
 });
 
 test('Open in Find Tool Window confirms oversized result sets', () => {
-  const dialog = source.slice(source.indexOf('function SearchEverywhere('), source.indexOf('function FindToolWindow('));
+  const dialog = source.slice(source.indexOf('function SearchEverywhere('), source.indexOf('function FindToolWindowView('));
   assert.match(dialog, /const request = searchFindHandoff\(\{/);
-  assert.match(dialog, /request\.needsConfirmation && !window\.confirm\(t\('editor\.searchTooManyResults'/);
+  assert.match(dialog, /request\.needsConfirmation &&\s+!window\.confirm\(\s+t\('editor\.searchTooManyResults'/u);
   assert.match(dialog, /count: request\.total/);
 });
 

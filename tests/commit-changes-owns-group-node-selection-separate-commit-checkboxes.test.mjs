@@ -5,23 +5,30 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = ((readFileSync(join(root, 'tests/fixtures/commit-panel.legacy.js'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'))) + '\n' + readFileSync(join(root, 'tests/fixtures/commit-log.legacy.js'), 'utf8');
+const source =
+  readFileSync(join(root, 'src/client/editor-workspace.tsx'), 'utf8') +
+  '\n' +
+  readFileSync(join(root, 'src/client/components/commit/CommitPanel.tsx'), 'utf8');
 
 test('Changes owns a group-node selection separate from commit checkboxes', () => {
-  assert.match(source, /const \[selectedGroup, setSelectedGroup\] = React\.useState\(null\);/);
-  const parent = source.slice(source.indexOf('const chooseGroup = React.useCallback('), source.indexOf('/**\n       * Visible Changes rows selected'));
+  assert.match(source, /const \[\s+selectedGroup,\s+setSelectedGroup,\s+\] = React\.useState\(null\);/u);
+  const parentStart = source.indexOf('const chooseGroup = React.useCallback(');
+  const parent = source.slice(parentStart, source.indexOf('}, []);', parentStart) + 8);
   assert.match(parent, /setSelectedGroup\(group\)/);
   assert.match(parent, /setSelectedChange\(null\)/);
   assert.doesNotMatch(parent, /setCommitSelection/);
-  assert.match(source, /onSelectGroup: chooseGroup/);
+  assert.match(source, /onSelectGroup=\{chooseGroup\}/);
 });
 
 test('the group header is the selectable tree row and controls do not re-select it', () => {
-  const panel = source.slice(source.indexOf('function CommitPanel('), source.indexOf('function CommitLog('));
-  assert.match(panel, /'data-dsh-change-group': group\.id/);
-  assert.match(panel, /role: 'treeitem'/);
-  assert.match(panel, /'aria-selected': selectedGroup === group\.id/);
-  assert.match(panel, /onClick: \(event\) => \{\s+if \(event\.target instanceof Element && event\.target\.closest\('input, button, \[role="button"\]'\) !== null\) return;/);
+  const panel = source.slice(source.indexOf('function CommitPanel('), source.indexOf('function CommitLogView('));
+  assert.match(panel, /data-dsh-change-group=\{group\.id\}/);
+  assert.match(panel, /role='treeitem'/);
+  assert.match(panel, /aria-selected=\{selectedGroup === group\.id\}/);
+  assert.match(
+    panel,
+    /onClick=\{\(event\) => \{\s+if \(event\.target instanceof Element && event\.target\.closest\('input, button, \[role="button"\]'\) !== null\)\s+return;/u,
+  );
   assert.match(panel, /onSelectGroup\?\.\(group\.id\)/);
 });
 

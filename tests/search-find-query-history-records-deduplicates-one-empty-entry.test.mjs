@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = (await readFile(new URL('./fixtures/search-everywhere.legacy.js', import.meta.url), 'utf8') + '\n' + (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) + '\n' + (await readFile(new URL('./fixtures/find-tool.legacy.js', import.meta.url), 'utf8')));
+const source = (await readFile(new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url), 'utf8') + '\n' + (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) + '\n' + (await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8')));
 
 function extractFunction(name) {
   const start = source.indexOf(`function ${name}(`);
@@ -83,15 +83,15 @@ test('Reading and writing history does not append a synthetic blank entry', () =
 
 test('Find and replacement history menus replay blank entries through their owners', () => {
   const findTool = source.slice(
-    source.indexOf('function FindToolWindow('),
-    source.indexOf('/* QUICK_OPEN_BOUNDARY */'),
+    source.lastIndexOf('function FindToolWindowView('),
+    source.indexOf('const FindToolWindow = FindToolWindowView;', source.lastIndexOf('function FindToolWindowView(')),
   );
   assert.match(findTool, /if \(kind === 'query'\) onQuery\(value\);\s+else onReplace\(value\);/u);
   assert.match(findTool, /label: value,/u);
 
   const searchEverywhere = source.slice(
     source.indexOf('function SearchEverywhere('),
-    source.indexOf('/* QUICK_OPEN_BOUNDARY */'),
+    source.indexOf('const FindToolWindow = FindToolWindowView;', source.lastIndexOf('function FindToolWindowView(')),
   );
   assert.match(searchEverywhere, /onReplaceChange\(value\);/u);
   assert.match(searchEverywhere, /label: value,/u);
@@ -99,15 +99,15 @@ test('Find and replacement history menus replay blank entries through their owne
 
 test('History replay returns keyboard ownership to the replayed field', () => {
   const findTool = source.slice(
-    source.indexOf('function FindToolWindow('),
-    source.indexOf('/* QUICK_OPEN_BOUNDARY */'),
+    source.lastIndexOf('function FindToolWindowView('),
+    source.indexOf('const FindToolWindow = FindToolWindowView;', source.lastIndexOf('function FindToolWindowView(')),
   );
-  assert.match(findTool, /kind === 'query'\s+\? queryInputRef\.current\s+: replaceInputRef\.current \?\? queryInputRef\.current/u);
+  assert.match(findTool, /kind === 'query' \? queryInputRef\.current : \(replaceInputRef\.current \?\? queryInputRef\.current\)/u);
   assert.match(findTool, /input\?\.focus\?\.\(\)/u);
 
   const searchEverywhere = source.slice(
     source.indexOf('function SearchEverywhere('),
-    source.indexOf('/* QUICK_OPEN_BOUNDARY */'),
+    source.indexOf('const FindToolWindow = FindToolWindowView;', source.lastIndexOf('function FindToolWindowView(')),
   );
   assert.match(searchEverywhere, /onQuery\(value\);\s+window\.setTimeout\(\(\) => searchInputRef\.current\?\.focus\?\.\(\), 0\)/u);
   assert.match(searchEverywhere, /onReplaceChange\(value\);\s+window\.setTimeout\(\(\) => replaceInputRef\.current\?\.focus\?\.\(\), 0\)/u);

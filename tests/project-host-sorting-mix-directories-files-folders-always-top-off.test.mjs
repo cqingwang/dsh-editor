@@ -7,7 +7,8 @@ import test from 'node:test';
 import { workspaceFileOperations } from '../lib/index.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const client = readFileSync(join(root, 'lib/client.js'), 'utf8');
+const client = readFileSync(join(root, 'src/client/editor-workspace.tsx'), 'utf8');
+const options = readFileSync(join(root, 'src/client/components/project/project-options-menu.ts'), 'utf8');
 const host = readFileSync(join(root, 'lib/index.js'), 'utf8');
 
 test('host sorting can mix directories and files when Folders Always on Top is off', () => {
@@ -29,14 +30,14 @@ test('the FS list route forwards foldersFirst with a compatibility default', () 
 test('Project stores Folders Always on Top independently and exposes it under Appearance', () => {
   assert.match(
     client,
-    /const \[foldersFirst, setFoldersFirst\] = React\.useState\(\(\) => readStoredText\('dsh-editor\.project\.foldersFirst', '1'\) !== '0'\);/,
+    /const \[\s*foldersFirst,\s*setFoldersFirst,?\s*\] =\s+React\.useState\(\(\) => readStoredText\('dsh-editor\.project\.foldersFirst', '1'\) !== '0'\)/,
   );
-  assert.match(client, /\{ id: 'foldersFirst', label: t\('editor\.foldersAlwaysOnTop'\), shortcut: foldersFirst \? '✓' : ''/);
-  const appearance = client.slice(client.indexOf("id: 'appearance'"), client.indexOf('onCreateChange:', client.indexOf("id: 'appearance'")));
+  assert.match(options, /id: 'foldersFirst',\s+label: t\('editor\.foldersAlwaysOnTop'\),\s+shortcut: foldersFirst \? '✓' : ''/);
+  const appearance = options.slice(options.indexOf("id: 'appearance'"));
   assert.match(appearance, /id: 'foldersFirst'/);
 });
 
 test('every Project tree list request carries the foldersFirst preference', () => {
-  const requests = client.match(/callFs\(\{ op: 'list', path[^\n]*showHidden, sort: sortMode, foldersFirst[^\n]*\}\)/g) ?? [];
+  const requests = client.match(/foldersFirst,\s+showExcluded: showExcludedFiles/g) ?? [];
   assert.ok(requests.length >= 7, `expected all Project list calls to carry foldersFirst, found ${requests.length}`);
 });

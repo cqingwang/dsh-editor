@@ -62,12 +62,10 @@ test('invalid reset mode or commit is rejected without moving HEAD', async (t) =
 });
 
 test('Commit Log exposes reset modes with Hard protected by dirty-tab confirmation', async () => {
-  const client = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
-  const menuStart = client.indexOf('const buildLogMenu = React.useCallback');
-  const menuEnd = client.indexOf('/* Rollback discards edits', menuStart);
-  const menu = client.slice(menuStart, menuEnd);
+  const client = await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8');
+  const menu = await readFile(new URL('../src/client/components/commit/log-menu.ts', import.meta.url), 'utf8');
   assert.match(menu, /id: 'resetBranchHere'/);
-  assert.match(menu, /disabled: git\?\.detached === true/);
+  assert.match(menu, /disabled: detached/);
   assert.match(menu, /id: 'resetSoft'/);
   assert.match(menu, /id: 'resetMixed'/);
   assert.match(menu, /id: 'resetHard'[\s\S]*?danger: true/);
@@ -83,12 +81,13 @@ test('Commit Log exposes reset modes with Hard protected by dirty-tab confirmati
 });
 
 test('reset actions are localized and routed by the host', async () => {
-  const client = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+  const client = await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8');
+  const locales = await readFile(new URL('../src/client/locales.ts', import.meta.url), 'utf8');
   const host = await readFile(new URL('../lib/index.js', import.meta.url), 'utf8');
-  assert.match(client, /resetBranchHereAction: '将当前分支重置到此处…'/);
-  assert.match(client, /resetHard: 'Hard（丢弃已跟踪修改）'/);
-  assert.match(client, /resetBranchHereAction: 'Reset Current Branch to Here…'/);
-  assert.match(client, /resetHard: 'Hard \(discard tracked changes\)'/);
+  assert.match(locales, /resetBranchHereAction: '将当前分支重置到此处…'/);
+  assert.match(locales, /resetHard: 'Hard（丢弃已跟踪修改）'/);
+  assert.match(locales, /resetBranchHereAction: 'Reset Current Branch to Here…'/);
+  assert.match(locales, /resetHard: 'Hard \(discard tracked changes\)'/);
   assert.match(host, /case 'resetBranch':\s+return ok\(await gitResetToRevision\(root, body\)\);/);
   assert.match(host, /export \{[\s\S]*gitResetToRevision[\s\S]*\};/);
 });

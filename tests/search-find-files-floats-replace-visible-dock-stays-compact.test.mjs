@@ -2,29 +2,29 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) + '\n' + (await readFile(new URL('./fixtures/find-tool.legacy.js', import.meta.url), 'utf8'));
+const source = (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) + '\n' + (await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8'));
 const findTool = source.slice(
-  source.indexOf('function FindToolWindow('),
-  source.indexOf('/* QUICK_OPEN_BOUNDARY */'),
+  source.lastIndexOf('function FindToolWindowView('),
+  source.indexOf('const FindToolWindow = FindToolWindowView;', source.lastIndexOf('function FindToolWindowView(')),
 );
 
 test('Find in Files floats with Replace visible while the dock stays compact', () => {
   assert.match(findTool, /const \[searchNewLine, setSearchNewLine\] = React\.useState\(false\)/);
   assert.match(findTool, /const \[replaceNewLine, setReplaceNewLine\] = React\.useState\(false\)/);
   assert.match(findTool, /const \[replaceExpanded, setReplaceExpanded\] = React\.useState\(\(\) => floating \|\| state\.mode === 'replace'\)/);
-  assert.match(findTool, /replaceExpanded\s*\?\s*React\.createElement\([\s\S]*?styles\.findToolReplaceRow/);
-  assert.match(findTool, /label: replaceExpanded \? t\('editor\.findToolHideReplace'\) : t\('editor\.findToolShowReplace'\)/);
-  assert.match(findTool, /'data-dsh-find-replace-input': ''/);
+  assert.match(findTool, /replaceExpanded \? \(\s*<div style=\{styles\.findToolReplaceRow\}/u);
+  assert.match(findTool, /label=\{replaceExpanded \? t\('editor\.findToolHideReplace'\) : t\('editor\.findToolShowReplace'\)\}/u);
+  assert.match(findTool, /data-dsh-find-replace-input=''/);
   assert.ok(findTool.indexOf('styles.findToolSearchRow') < findTool.indexOf('styles.findToolReplaceRow'));
 });
 
 test('Search and Replace support New Line mode with textarea controls', () => {
-  assert.match(findTool, /React\.createElement\(searchNewLine \? 'textarea' : 'input'/);
-  assert.match(findTool, /React\.createElement\(replaceNewLine \? 'textarea' : 'input'/);
+  assert.match(findTool, /const QueryField = searchNewLine \? 'textarea' : 'input';/);
+  assert.match(findTool, /const ReplaceField = replaceNewLine \? 'textarea' : 'input';/);
   assert.match(findTool, /searchNewLine && event\.key === 'Enter'/);
-  assert.match(findTool, /replaceNewLine\s+&& event\.key === 'Enter'/);
-  assert.match(findTool, /checked: searchNewLine/);
-  assert.match(findTool, /checked: replaceNewLine/);
+  assert.match(findTool, /replaceNewLine &&\s+event\.key === 'Enter'/u);
+  assert.match(findTool, /checked=\{searchNewLine\}/);
+  assert.match(findTool, /checked=\{replaceNewLine\}/);
   assert.match(findTool, /findToolMultilineInput/);
   assert.equal((source.match(/findNewLine: '换行'/g) ?? []).length, 1);
   assert.equal((source.match(/findNewLine: 'New Line'/g) ?? []).length, 1);
@@ -35,11 +35,11 @@ test('Preserve case is part of the Replace row', () => {
     findTool.indexOf('styles.findToolReplaceRow'),
     findTool.indexOf('state.error !== null', findTool.indexOf('styles.findToolReplaceRow')),
   );
-  assert.match(replaceRow, /icon: 'preserveCase'/);
-  assert.match(replaceRow, /label: t\('editor\.searchPreserveCase'\)/);
-  assert.match(replaceRow, /active: state\.preserveCase === true/);
-  assert.match(replaceRow, /onClick: onTogglePreserveCase/);
-  const toolbar = findTool.slice(findTool.indexOf('const toolbarActions = ['), findTool.indexOf('React.useEffect(() => {\n        if (handoffRevision'));
+  assert.match(replaceRow, /icon='preserveCase'/);
+  assert.match(replaceRow, /label=\{t\('editor\.searchPreserveCase'\)\}/u);
+  assert.match(replaceRow, /active=\{state\.preserveCase === true\}/u);
+  assert.match(replaceRow, /onClick=\{onTogglePreserveCase\}/u);
+  const toolbar = findTool.slice(findTool.indexOf('const toolbarActions = ['), findTool.indexOf("data-dsh-find-bottom-bar=''"));
   assert.doesNotMatch(toolbar, /id: 'preserveCase'/);
 });
 

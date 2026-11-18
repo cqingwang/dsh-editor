@@ -10,7 +10,7 @@ import test from 'node:test';
 import { gitCombinedDiff } from '../lib/index.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = (readFileSync(join(root, 'tests/fixtures/diff-preview.legacy.js'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
+const source = (readFileSync(join(root, 'src/client/components/diff/DiffPreview.tsx'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
 const host = readFileSync(join(root, 'lib/index.js'), 'utf8');
 
 async function fixture() {
@@ -68,7 +68,10 @@ test('Commit offers Show Combined Diff and the preview requests the aggregate', 
 });
 
 test('combined diff is read-only and cannot show single-file restore affordances', () => {
-  assert.match(source, /const diffReadOnly = typeof target\?\.commit === 'string'[\s\S]*?\|\| target\?\.combined === true;/);
-  assert.match(source, /target\?\.combined === true\n\s+\? null\n\s+: React\.createElement\(\n\s+'div',\n\s+\{ style: styles\.diffRestoreHint/);
+  assert.match(
+    source,
+    /const diffReadOnly =\s+typeof target\?\.commit === 'string' \|\|\s+typeof target\?\.revision === 'string' \|\|\s+typeof target\?\.clipboardText === 'string' \|\|\s+target\?\.combined === true;/u,
+  );
+  assert.match(source, /target\?\.combined === true \? null : \(\s*<div\s+style=\{styles\.diffRestoreHint\}/u);
   assert.match(source, /typeof current\.revision === 'string' \|\| typeof current\.commit === 'string'[\s\S]*?\|\| current\.combined === true\) return current;/);
 });

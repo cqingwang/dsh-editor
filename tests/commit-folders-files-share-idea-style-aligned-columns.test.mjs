@@ -5,10 +5,10 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = (readFileSync(join(root, 'tests/fixtures/commit-panel.legacy.js'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
+const source = (readFileSync(join(root, 'src/client/components/commit/CommitPanel.tsx'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
 
 function commitPanel() {
-  return source.slice(source.indexOf('function CommitPanel('), source.indexOf('function NamePrompt('));
+  return source.slice(source.indexOf('function CommitPanel('), source.indexOf('export { CommitPanel };'));
 }
 
 test('Commit folders and files share IDEA-style aligned columns', () => {
@@ -31,8 +31,8 @@ test('the file name and its parent path keep stable, separate grid cells', () =>
 test('file rows reserve the disclosure column without a porcelain letter badge', () => {
   const panel = commitPanel();
   const fileBody = panel.slice(panel.indexOf("const change = row.change;"));
-  assert.match(fileBody, /React\.createElement\('span', \{ style: styles\.commitChevron \}\)/);
-  assert.match(fileBody, /React\.createElement\('input', \{[\s\S]*?type: 'checkbox'/);
+  assert.match(fileBody, /<span style=\{styles\.commitChevron\} \/>/);
+  assert.match(fileBody, /<input[\s\S]*?type='checkbox'/u);
   assert.doesNotMatch(fileBody, /styles\.statusBadge/);
-  assert.match(fileBody, /React\.createElement\(EntryIcon/);
+  assert.match(fileBody, /<EntryIcon/);
 });

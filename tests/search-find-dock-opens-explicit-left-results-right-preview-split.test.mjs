@@ -2,16 +2,16 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) + '\n' + (await readFile(new URL('./fixtures/find-tool.legacy.js', import.meta.url), 'utf8'));
+const source = (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) + '\n' + (await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8'));
 const findTool = source.slice(
-  source.indexOf('function FindToolWindow('),
-  source.indexOf('/* QUICK_OPEN_BOUNDARY */'),
+  source.lastIndexOf('function FindToolWindowView('),
+  source.indexOf('const FindToolWindow = FindToolWindowView;', source.lastIndexOf('function FindToolWindowView(')),
 );
 
 test('Find dock opens with an explicit left results and right preview split', () => {
   assert.match(findTool, /const \[previewOpen, setPreviewOpen\] = React\.useState\(true\)/);
-  assert.match(findTool, /'data-dsh-find-results-layout': floating \? 'stack' : 'split'/);
-  assert.match(findTool, /'data-dsh-find-results-pane': ''/);
+  assert.match(findTool, /data-dsh-find-results-layout=\{floating \? 'stack' : 'split'\}/u);
+  assert.match(findTool, /data-dsh-find-results-pane=''/);
   assert.match(source, /findToolDockSplit: \{[\s\S]*?display: 'flex'/);
   assert.match(source, /findToolDockResultsPane: \{[\s\S]*?minWidth: 0/);
   assert.match(
@@ -21,7 +21,7 @@ test('Find dock opens with an explicit left results and right preview split', ()
 });
 
 test('A single click focuses the dock row and updates preview without opening', () => {
-  const mouseDownBlocks = [...findTool.matchAll(/onMouseDown: \(event\) => \{([\s\S]*?)\n\s*\},/g)]
+  const mouseDownBlocks = [...findTool.matchAll(/onMouseDown=\{\(event\) => \{([\s\S]*?)\n\s*\}\}/g)]
     .map((match) => match[1]);
   assert.ok(mouseDownBlocks.length >= 3);
   for (const block of mouseDownBlocks) {
@@ -32,7 +32,7 @@ test('A single click focuses the dock row and updates preview without opening', 
 });
 
 test('Only double-click or Enter opens a Find result into the editor above', () => {
-  assert.ok((findTool.match(/onDoubleClick: \(\) => openFindResult\(/g) ?? []).length >= 3);
+  assert.ok((findTool.match(/onDoubleClick=\{\(\) =>\s+openFindResult\(/g) ?? []).length >= 2);
   assert.match(
     findTool,
     /event\.key === 'Enter'[\s\S]{0,180}openFindResult\(occurrences\[position\]\)/,

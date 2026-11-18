@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) + '\n' + (await readFile(new URL('./fixtures/find-tool.legacy.js', import.meta.url), 'utf8'));
+const source = (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) + '\n' + (await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8'));
 const findBarSource = await readFile(
   new URL('../src/client/components/editor/EditorFindBar.tsx', import.meta.url),
   'utf8',
@@ -47,8 +47,8 @@ test('query and replacement histories are workspace-scoped', () => {
 
 test('Find query and replace fields expose history menus and Alt+ArrowDown', () => {
   const findToolWindow = source.slice(
-    source.indexOf('function FindToolWindow('),
-    source.indexOf('/* QUICK_OPEN_BOUNDARY */'),
+    source.indexOf('function FindToolWindowView('),
+    source.indexOf('const FindToolWindow = FindToolWindowView;'),
   );
   assert.match(findToolWindow, /editor\.findSearchHistory/);
   assert.match(findToolWindow, /editor\.findReplaceHistory/);

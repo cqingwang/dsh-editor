@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { compactActionBarSource } from './ui-sources.mjs';
 
-const source = (await readFile(new URL('./fixtures/commit-panel.legacy.js', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
+const source = (await readFile(new URL('../src/client/components/commit/CommitPanel.tsx', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
 
 function block(startMarker, endMarker) {
   const start = source.indexOf(startMarker);
@@ -14,7 +14,7 @@ function block(startMarker, endMarker) {
 }
 
 function commitPanel() {
-  return block('function CommitPanel({', 'function NamePrompt(');
+  return block('function CommitPanel({', 'export { CommitPanel };');
 }
 
 test('CompactActionBar forwards popup semantics from visible actions', () => {
@@ -37,7 +37,7 @@ test('group More actions reports the group menu it owns', () => {
   const panel = commitPanel();
   assert.match(
     panel,
-    /label: t\('editor\.moreActionsFor', \{ group: group\.label \}\),[\s\S]*?ariaHasPopup: 'menu',[\s\S]*?ariaExpanded: groupActionMenu\?\.owner === `group-actions:\$\{group\.id\}`/,
+    /label=\{t\('editor\.moreActionsFor', \{\s+group: group\.label,\s+\}\)\}[\s\S]*?ariaHasPopup='menu'[\s\S]*?ariaExpanded=\{groupActionMenu\?\.owner === `group-actions:\$\{group\.id\}`\}/u,
   );
   const ownerWrites = panel.match(/owner: `group-actions:\$\{group\.id\}`/g) ?? [];
   assert.equal(ownerWrites.length, 3);

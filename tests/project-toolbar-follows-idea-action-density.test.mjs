@@ -6,7 +6,11 @@ import test from 'node:test';
 import { panelToolbarSource } from './ui-sources.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = (readFileSync(join(root, 'tests/fixtures/project-panel.legacy.js'), 'utf8') + '\n' + (readFileSync(join(root, 'lib/client.js'), 'utf8') + '\n' + readFileSync(join(root, 'tests/fixtures/find-tool.legacy.js'), 'utf8')));
+const projectPanelSource = readFileSync(join(root, 'src/client/components/project/ProjectPanel.tsx'), 'utf8');
+const workspaceSource = readFileSync(join(root, 'src/client/editor-workspace.tsx'), 'utf8');
+const optionsSource = readFileSync(join(root, 'src/client/components/project/project-options-menu.ts'), 'utf8');
+const localesSource = readFileSync(join(root, 'src/client/locales.ts'), 'utf8');
+const source = [projectPanelSource, workspaceSource, optionsSource, localesSource].join('\n');
 
 function slice(from, to) {
   const start = source.indexOf(from);
@@ -17,19 +21,19 @@ function slice(from, to) {
 }
 
 function projectPanel() {
-  return slice('function ProjectPanel({', '/**\n     * IDEA-style context menu');
+  return projectPanelSource;
 }
 
 test('the Project toolbar follows IDEA action density', () => {
   const panel = projectPanel();
-  const toolbar = slice('title: t(\'editor.project\'),', 'searchOpen\n');
+  const toolbar = slice('left={[', 'dropActive={toolbarDropActive}');
 
   assert.match(toolbar, /id: 'newEntry'/);
   assert.match(toolbar, /id: 'reveal',[\s\S]*?icon: 'target',[\s\S]*?label: t\('editor\.reveal'\)/);
   assert.match(toolbar, /id: 'expandSelected'/);
-  assert.match(toolbar, /id: 'collapse', group: 'navigation', icon: 'collapse', label: t\('editor\.collapseAll'\)/);
+  assert.match(toolbar, /id: 'collapse',[\s\S]*?group: 'navigation',[\s\S]*?icon: 'collapse'[\s\S]*?label: t\('editor\.collapseAll'\)/);
   assert.match(toolbar, /id: 'options',[\s\S]*?icon: 'settings',[\s\S]*?label: t\('editor\.options'\)/);
-  assert.match(toolbar, /id: 'hide', group: 'window', icon: 'hide', label: t\('editor\.hide'\)/);
+  assert.match(toolbar, /id: 'hide',[\s\S]*?group: 'window',[\s\S]*?icon: 'hide'[\s\S]*?label: t\('editor\.hide'\)/);
 
   /* IDEA's visible toolbar is not a second place to configure the tree. */
   assert.doesNotMatch(toolbar, /id: 'sort'/);
@@ -56,12 +60,15 @@ test('Expand Selected follows IDEA recursive selection semantics', () => {
   assert.match(panel, /disabled: !projectCanExpandSelection\(rows, selection\)/);
   assert.match(panel, /label: t\('editor\.revealSelected'\)/);
 
-  const wiring = slice('onExpandSelected:', 'onExpandAll: expandAll,');
+  const wiring = workspaceSource.slice(
+    workspaceSource.indexOf('onExpandSelected='),
+    workspaceSource.indexOf('onExpandAll={expandAll}'),
+  );
   assert.match(wiring, /void expandSelectedTree\(\)/);
 });
 
 test('Options keeps the hidden actions reachable in one grouped menu', () => {
-  const wiring = slice('onOpenOptions: (event) => {', 'onHide: () => setPanelVisible(false),');
+  const wiring = optionsSource;
   for (const id of ['refresh', 'gotoFile', 'recent', 'expandAll', 'behavior', 'appearance']) {
     assert.match(wiring, new RegExp(`id: '${id}'`));
   }
@@ -69,21 +76,21 @@ test('Options keeps the hidden actions reachable in one grouped menu', () => {
     assert.match(wiring, new RegExp(`id: '${id}'`));
   }
   assert.doesNotMatch(wiring, /id: 'autoscroll'/);
-  assert.match(wiring, /void refreshTree\(\)/);
-  assert.match(wiring, /void openQuickOpen\(\)/);
-  assert.match(wiring, /openRecent\(\)/);
+  assert.match(workspaceSource, /onRefresh: \(\) => runProjectOption\(\(\) => void refreshTree\(\)\)/);
+  assert.match(workspaceSource, /onGotoFile: \(\) => void openQuickOpen\(\)/);
+  assert.match(workspaceSource, /onRecentFiles: openRecent/);
   assert.match(wiring, /\['name', 'type', 'modified', 'modified-asc', 'manual'\]\.map/);
-  assert.match(wiring, /applySortMode\(mode\)/);
+  assert.match(workspaceSource, /onApplySortMode: \(mode\) => runProjectOption\(\(\) => applySortMode\(mode\)\)/);
 });
 
 test('the creation entry opens IDEA File and Directory choices', () => {
-  const wiring = slice('onOpenCreateMenu: (event) => {', 'onOpenOptions: (event) => {');
+  const wiring = optionsSource;
   assert.match(wiring, /id: 'newFile'/);
   assert.match(wiring, /id: 'newFolder'/);
   assert.match(wiring, /shortcut: '⌘N'/);
   assert.match(wiring, /shortcut: '⌥⌘N'/);
-  assert.match(wiring, /startCreate\('file'\)/);
-  assert.match(wiring, /startCreate\('directory'\)/);
+  assert.match(wiring, /onStartCreate\('file'\)/);
+  assert.match(wiring, /onStartCreate\('directory'\)/);
 });
 
 test('both locale dictionaries describe Expand Selected consistently', () => {

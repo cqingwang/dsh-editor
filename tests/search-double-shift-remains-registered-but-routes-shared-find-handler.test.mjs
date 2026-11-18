@@ -6,7 +6,7 @@ import { readFile as readSource } from 'node:fs/promises';
 import test from 'node:test';
 
 const host = await import('../lib/index.js');
-const source = (await readSource(new URL('./fixtures/search-everywhere.legacy.js', import.meta.url), 'utf8') + '\n' + await readSource(new URL('../lib/client.js', import.meta.url), 'utf8'));
+const source = (await readSource(new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url), 'utf8') + '\n' + await readSource(new URL('../lib/client.js', import.meta.url), 'utf8'));
 
 function extract(name) {
   const marker = `    function ${name}(`;

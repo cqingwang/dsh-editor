@@ -3,28 +3,13 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
+import { loadTypeScriptFunction } from './ts-source.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = readFileSync(join(root, 'lib/client.js'), 'utf8');
+const source = readFileSync(join(root, 'src/client/editor-workspace.tsx'), 'utf8');
+const findToolSource = readFileSync(join(root, 'src/client/find-tool.ts'), 'utf8');
 const editorFileTabSource = readFileSync(join(root, 'src/client/components/editor/EditorFileTab.tsx'), 'utf8');
-
-function extractFunction(name) {
-  const start = source.indexOf(`    function ${name}(`);
-  assert.notEqual(start, -1, `${name} is missing`);
-  let depth = 0;
-  for (let index = source.indexOf('{', start); index < source.length; index += 1) {
-    if (source[index] === '{') depth += 1;
-    else if (source[index] === '}') {
-      depth -= 1;
-      if (depth === 0) return source.slice(start, index + 1);
-    }
-  }
-  assert.fail(`${name} has no closing brace`);
-}
-
-const reorderTabPaths = new Function(
-  `${extractFunction('reorderTabPaths')}; return reorderTabPaths;`,
-)();
+const reorderTabPaths = loadTypeScriptFunction(findToolSource, 'reorderTabPaths');
 
 test('tab reorder respects the insertion side and rejects no-op drops', () => {
   const files = [{ path: 'a' }, { path: 'b' }, { path: 'c' }];
@@ -65,18 +50,19 @@ test('left and right tab drops reorder only their own collection', () => {
 test('left file tabs and right split tabs are draggable with per-target hints', () => {
   const leftTab = source.slice(source.indexOf('const tabs = openFiles.map('), source.indexOf('/**\n       * The diff\'s own editor tab'));
   assert.match(editorFileTabSource, /draggable=\{true\}/);
-  assert.match(leftTab, /onDragStart: \(event\) => beginEditorTabDrag\(event, 'left', file\.path\)/);
-  assert.match(leftTab, /onDragOver: \(event\) => dragOverEditorTab\(event, 'left', file\.path\)/);
-  assert.match(leftTab, /onDrop: \(event\) => dropEditorTab\(event, 'left', file\.path\)/);
+  assert.match(leftTab, /onDragStart=\{\(event\) => beginEditorTabDrag\(event, 'left', file\.path\)\}/);
+  assert.match(leftTab, /onDragOver=\{\(event\) => dragOverEditorTab\(event, 'left', file\.path\)\}/);
+  assert.match(leftTab, /onDrop=\{\(event\) => dropEditorTab\(event, 'left', file\.path\)\}/);
   assert.match(leftTab, /editorTabDrop\?\.group === 'left' && editorTabDrop\.path === file\.path/);
 
-  const attributeAt = source.indexOf("dataAttributeName: 'data-dsh-editor-split-path'");
-  const splitStart = source.lastIndexOf('return React.createElement(EditorFileTab', attributeAt);
+  const attributeAt = source.indexOf("dataAttributeName='data-dsh-editor-split-path'");
+  assert.notEqual(attributeAt, -1);
+  const splitStart = source.lastIndexOf('<EditorFileTab', attributeAt);
   const splitTab = source.slice(splitStart, source.indexOf('\n                          splitTabLayout.hidden.length === 0', splitStart));
   assert.match(editorFileTabSource, /draggable=\{true\}/);
-  assert.match(splitTab, /onDragStart: \(event\) => beginEditorTabDrag\(event, 'right', splitTab\)/);
-  assert.match(splitTab, /onDragOver: \(event\) => dragOverEditorTab\(event, 'right', splitTab\)/);
-  assert.match(splitTab, /onDrop: \(event\) => dropEditorTab\(event, 'right', splitTab\)/);
+  assert.match(splitTab, /onDragStart=\{\(event\) => beginEditorTabDrag\(event, 'right', splitTab\)\}/);
+  assert.match(splitTab, /onDragOver=\{\(event\) => dragOverEditorTab\(event, 'right', splitTab\)\}/);
+  assert.match(splitTab, /onDrop=\{\(event\) => dropEditorTab\(event, 'right', splitTab\)\}/);
   assert.match(editorFileTabSource, /onDragStart=\{onDragStart\}/);
   assert.match(editorFileTabSource, /onDrop=\{onDrop\}/);
 });

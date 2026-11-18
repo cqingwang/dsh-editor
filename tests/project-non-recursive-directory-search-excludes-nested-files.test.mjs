@@ -5,7 +5,14 @@ import { join } from 'node:path';
 import test from 'node:test';
 
 const host = await import('../lib/index.js');
-const source = (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) + '\n' + (await readFile(new URL('./fixtures/find-tool.legacy.js', import.meta.url), 'utf8'));
+const source =
+  (await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8')) +
+  '\n' +
+  (await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8')) +
+  '\n' +
+  (await readFile(new URL('../src/client/commit.ts', import.meta.url), 'utf8')) +
+  '\n' +
+  (await readFile(new URL('../src/client/locales.ts', import.meta.url), 'utf8'));
 const hostSource = await readFile(new URL('../lib/index.js', import.meta.url), 'utf8');
 
 async function fixture(t) {
@@ -51,7 +58,7 @@ test('Find UI persists recursive state and invalidates requests when toggled', (
   );
   assert.match(
     source,
-    /const changeFindDirectoryRecursive = React\.useCallback\(\(recursive\) => \{[\s\S]*?searchScopeRecursive: next,[\s\S]*?searchGeneration: \(current\.searchGeneration \?\? 0\) \+ 1,[\s\S]*?loadedGeneration: -1,/u,
+    /const changeFindDirectoryRecursive = React\.useCallback\(\s+\(recursive\) => \{[\s\S]*?searchScopeRecursive: next,[\s\S]*?searchGeneration: \(current\.searchGeneration \?\? 0\) \+ 1,[\s\S]*?loadedGeneration: -1,/u,
   );
 });
 
@@ -66,11 +73,11 @@ test('Find requests, dirty merging and host route forward recursive', () => {
 
 test('Directory scope renders an aria-pressed recursive toggle', () => {
   const findTool = source.slice(
-    source.indexOf('function FindToolWindow('),
-    source.indexOf('/* QUICK_OPEN_BOUNDARY */'),
+    source.indexOf('function FindToolWindowView('),
+    source.indexOf('const FindToolWindow = FindToolWindowView;'),
   );
   assert.match(findTool, /searchScopeRecursive !== false/u);
-  assert.match(findTool, /'aria-pressed': scopeRecursive === true/u);
+  assert.match(findTool, /aria-pressed=\{scopeRecursive === true\}/u);
   assert.match(findTool, /t\('editor\.findScopeSearchRecursively'\)/u);
   assert.match(findTool, /onDirectoryRecursiveChange\?\.\(next\)/u);
   assert.match(source, /findScopeSearchRecursively: '在子目录中递归搜索'/u);

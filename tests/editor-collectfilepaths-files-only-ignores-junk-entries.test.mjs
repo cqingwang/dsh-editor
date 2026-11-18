@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = (readFileSync(join(root, 'tests/fixtures/project-panel.legacy.js'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
+const source = (readFileSync(join(root, 'src/client/components/project/ProjectPanel.tsx'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
 
 /**
  * Extract one module-level helper and evaluate it in Node.
@@ -61,7 +61,10 @@ test('a path stops being new once it disappears from the listing', () => {
 
 test('the tree tints a newly appeared file', () => {
   assert.match(source, /const \[newPaths, setNewPaths\] = React\.useState\(\(\) => new Set\(\)\);/);
-  assert.match(source, /newPaths\?\.has\?\.\(row\.path\) \? \{ color: '#1a7f37' \} : null/);
+  assert.match(
+    source,
+    /newPaths\?\.has\?\.\(row\.path\)\s+\? \{\s+color: '#1a7f37',\s+\}\s+: null/s,
+  );
   assert.match(source, /newPaths,/);
 });
 
@@ -75,7 +78,7 @@ test('⌘⇧T reopens the most recently closed terminal', () => {
 });
 
 test('the new-file baseline is established on initial load, not on the first refresh', () => {
-  const source = (readFileSync(join(root, 'tests/fixtures/project-panel.legacy.js'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
+  const source = (readFileSync(join(root, 'src/client/components/project/ProjectPanel.tsx'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
   /* Without this, the first refresh only re-baselines and reports nothing new. */
   assert.match(source, /if \(knownPathsRef\.current === null\) knownPathsRef\.current = new Set\(collectFilePaths\(listing\)\);/);
   /* loadRoot must hand its listing back so refreshTree does not read a stale snapshot. */

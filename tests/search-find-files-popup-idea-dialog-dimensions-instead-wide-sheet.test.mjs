@@ -2,10 +2,10 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) + '\n' + (await readFile(new URL('./fixtures/find-tool.legacy.js', import.meta.url), 'utf8'));
+const source = (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) + '\n' + (await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8'));
 const findTool = source.slice(
-  source.indexOf('function FindToolWindow('),
-  source.indexOf('/* QUICK_OPEN_BOUNDARY */'),
+  source.lastIndexOf('function FindToolWindowView('),
+  source.indexOf('const FindToolWindow = FindToolWindowView;', source.lastIndexOf('function FindToolWindowView(')),
 );
 
 test('Find in Files popup uses IDEA dialog dimensions instead of a wide sheet', () => {
@@ -31,8 +31,8 @@ test('Find in Files popup auto-previews the active text hit', () => {
 });
 
 test('Find in Files popup keeps the query row to query, history and search filters', () => {
-  const searchRowStart = findTool.indexOf("style: floating ? { ...styles.findToolSearchRow");
-  const searchRowEnd = findTool.indexOf("        replaceExpanded\n          ? React.createElement(", searchRowStart);
+  const searchRowStart = findTool.indexOf('styles.findToolPopupSearchRow');
+  const searchRowEnd = findTool.indexOf('{replaceExpanded ? (', searchRowStart);
   assert.ok(searchRowStart >= 0 && searchRowEnd > searchRowStart);
   const searchRow = findTool.slice(searchRowStart, searchRowEnd);
   assert.match(searchRow, /findClearSearch/);
@@ -42,7 +42,7 @@ test('Find in Files popup keeps the query row to query, history and search filte
 
 test('Find in Files popup headers keep only filter and pin actions', () => {
   assert.match(findTool, /const popupHeaderActions = toolbarActions\.filter/);
-  assert.match(findTool, /actions: floating \? popupHeaderActions : toolbarActions/);
+  assert.match(findTool, /actions=\{floating \? popupHeaderActions : toolbarActions\}/u);
 });
 
 test('Find occurrence preview style is not overwritten by the preview pane style', () => {

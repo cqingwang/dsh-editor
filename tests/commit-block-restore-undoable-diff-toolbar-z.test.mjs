@@ -9,7 +9,11 @@ import { en, zh } from './locale-source.mjs';
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const read = (path) => readFileSync(join(root, path), 'utf8');
 const readClient = () =>
-  readFileSync(join(root, 'tests/fixtures/diff-preview.legacy.js'), 'utf8') + '\n' + read('lib/client.js');
+  readFileSync(join(root, 'src/client/components/diff/DiffPreview.tsx'), 'utf8') +
+  '\n' +
+  read('src/client/editor-workspace.tsx') +
+  '\n' +
+  read('lib/client.js');
 const iconSource = read('src/client/components/ui/Icon.tsx');
 const toolWindowResizerSource = read('src/client/components/editor/EditorToolWindowResizer.tsx');
 
@@ -20,9 +24,12 @@ test('a block restore is undoable from the diff toolbar and ⌘Z', () => {
   assert.match(client, /const restoreUndoRef = undoRef \?\? React\.useRef\(\[\]\);/);
   assert.match(client, /const undoRestore = React\.useCallback\(\(\) => \{/);
   assert.match(client, /restoreUndoRef\.current\.pop\(\)/);
-  assert.match(client, /label: t\('editor\.diffUndoRestore'\), group: 'history', shortcut: '⌘Z', disabled: editLocked \|\| diffUnavailable, run: undoRestore/);
+  assert.match(
+    client,
+    /label: t\('editor\.diffUndoRestore'\),\s+group: 'history',\s+shortcut: '⌘Z',\s+disabled: editLocked \|\| diffUnavailable,\s+run: undoRestore/u,
+  );
   assert.match(iconSource, /case 'undo':/);
-  assert.match(client, /icon: 'undo', label: t\('editor\.diffUndoRestore'\)/);
+  assert.match(client, /icon: 'undo',\s+label: t\('editor\.diffUndoRestore'\)/u);
   assert.match(client, /const \[undoNotice, setUndoNotice\] = React\.useState\(null\);/);
   assert.match(client, /undoNotice \?\? t\(target\?\.staged === true \? 'editor\.diffRestoreHintStaged' : 'editor\.diffRestoreHint'\)/);
   assert.match(client, /event\.key\.toLowerCase\(\) === 'z'/);
@@ -47,10 +54,16 @@ test('one user restore creates one undo entry despite duplicate model events', (
 
 test('read-only comparisons get no restore or undo affordance', () => {
   const client = readClient();
-  assert.match(client, /const writable = typeof target\.clipboardText !== 'string' && typeof target\.revision !== 'string' && typeof target\.commit !== 'string';/);
+  assert.match(
+    client,
+    /const writable =\s+typeof target\.clipboardText !== 'string' &&\s+typeof target\.revision !== 'string' &&\s+typeof target\.commit !== 'string';/u,
+  );
   assert.match(client, /const canEdit = diffEditingEnabled\(\{[\s\S]*?writable,[\s\S]*?swapped: swapSidesRef\.current,[\s\S]*?locked: editLockedRef\.current,/);
   assert.match(client, /diff\.updateOptions\(\{\n\s+readOnly: canEdit === false,\n\s+renderMarginRevertIcon: canEdit,/);
-  assert.match(client, /typeof target\?\.commit === 'string' \|\| typeof target\?\.revision === 'string' \|\| typeof target\?\.clipboardText === 'string'/);
+  assert.match(
+    client,
+    /typeof target\?\.commit === 'string' \|\|\s+typeof target\?\.revision === 'string' \|\|\s+typeof target\?\.clipboardText === 'string'/u,
+  );
 });
 
 test('restore feedback and undo affordances are bilingual', () => {
@@ -68,7 +81,7 @@ test('redo restores the last undone block and clears on a new restore', () => {
   assert.match(client, /restoreRedoRef\.current\.push\(entry\);/);
   assert.match(client, /restoreRedoRef\.current = \[\];/);
   assert.match(iconSource, /case 'redo':/);
-  assert.match(client, /icon: 'redo', label: t\('editor\.diffRedoRestore'\)/);
+  assert.match(client, /icon: 'redo',\s+label: t\('editor\.diffRedoRestore'\)/u);
   assert.match(client, /event\.key\.toLowerCase\(\) === 'y'/);
   for (const key of ['diffRedoRestore', 'diffRedoEmpty', 'diffRedoDone']) {
     const matches = [...client.matchAll(new RegExp(`${key}:`, 'g'))];
@@ -83,7 +96,7 @@ test('selection restore only targets changed character ranges', () => {
   assert.match(client, /originalRange: \{/);
   assert.match(client, /modifiedRange: \{/);
   assert.match(client, /editor\.onDidChangeCursorSelection/);
-  assert.match(client, /icon: 'target', label: t\('editor\.diffSelectionRestore'\)/);
+  assert.match(client, /icon: 'target',\s+label: t\('editor\.diffSelectionRestore'\)/u);
   assert.match(client, /event\.selection/);
 
   /* Execute the pure range selector against a realistic char-change payload. */
@@ -129,7 +142,7 @@ test('selection restore only targets changed character ranges', () => {
 
 test('Commit opens at one quarter and remembers a dragged width per workspace', () => {
   const client = readClient();
-  assert.match(client, /const \[toolWidths, setToolWidths\] = React\.useState\(\{ project: 28, commit: 25 \}\);/);
+  assert.match(client, /const \[toolWidths, setToolWidths\] =\s+React\.useState\(\{ project: 28, commit: 25 \}\);/u);
   assert.match(client, /function readToolWidth\(root, activity, fallback\) \{/);
   assert.match(client, /dsh-editor\.toolWidth\.\$\{activity\}:\$\{root\}/);
   assert.match(client, /writeToolWidth\(rootRef\.current, activity, final\)/);
@@ -176,10 +189,13 @@ test('restore history survives switching between diff targets', () => {
   assert.match(client, /redoRef \?\? React\.useRef\(\[\]\)/);
   /* Loading a different model must not reset history; a NEW restore still
      clears redo, which is standard editor semantics. */
-  const modelSwap = client.slice(client.indexOf('diff.setModel({ original, modified });'), client.indexOf('setState({ binary: false, error: null, missing: value.missing });'));
+  const modelSwap = client.slice(
+    client.indexOf('diffModelsRef.current = {'),
+    client.indexOf('const previous = diff.getModel();'),
+  );
   assert.doesNotMatch(modelSwap, /restoreUndoRef\.current = \[\];/);
   assert.doesNotMatch(modelSwap, /restoreRedoRef\.current = \[\];/);
-  assert.match(client, /const applyHistoryEntry = React\.useCallback\(\(entry, redo\) => \{/);
+  assert.match(client, /const applyHistoryEntry = React\.useCallback\(\s+\(entry, redo\) => \{/u);
   assert.match(client, /path: entry\.path,/);
   assert.match(client, /side: entry\.side,/);
   assert.match(client, /active\.path !== entry\.path \|\| active\.side !== entry\.side/);

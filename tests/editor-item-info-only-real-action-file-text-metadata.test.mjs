@@ -2,9 +2,9 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = (await readFile(new URL('./fixtures/search-everywhere.legacy.js', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
+const source = (await readFile(new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
 const dialogStart = source.indexOf('function SearchEverywhere(');
-const dialogEnd = source.indexOf('function FindToolWindow(', dialogStart);
+const dialogEnd = source.indexOf('function FindToolWindowView(', dialogStart);
 const dialog = source.slice(dialogStart, dialogEnd);
 
 function extractFunction(name) {

@@ -3,29 +3,32 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
+import { loadTypeScriptFunction, transpileTypeScriptFunction } from './ts-source.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const source =
-  readFileSync(join(root, 'tests/fixtures/commit-panel.legacy.js'), 'utf8') +
+  readFileSync(join(root, 'src/client/components/commit/CommitPanel.tsx'), 'utf8') +
   '\n' +
-  readFileSync(join(root, 'tests/fixtures/diff-preview.legacy.js'), 'utf8') +
+  readFileSync(join(root, 'src/client/editor-workspace.tsx'), 'utf8') +
   '\n' +
-  readFileSync(join(root, 'lib/client.js'), 'utf8');
+  readFileSync(join(root, 'src/client/components/diff/DiffPreview.tsx'), 'utf8');
+const stylesSource = readFileSync(join(root, 'src/client/ui/styles.ts'), 'utf8');
+const editorCoreSource = readFileSync(join(root, 'src/client/editor-core.ts'), 'utf8');
 const pathLabelSource = readFileSync(join(root, 'src/client/components/ui/PathLabel.tsx'), 'utf8');
 const annotatePreviewSource = readFileSync(join(root, 'src/client/components/diff/AnnotatePreview.tsx'), 'utf8');
 
 /** Slice one `styles.<name> = { … }` / `name: { … }` block by brace balance. */
 function styleBlock(name) {
-  const marker = `      ${name}: {`;
-  const start = source.indexOf(marker);
-  assert.notEqual(start, -1, `styles.${name} is missing from lib/client.js`);
-  let index = source.indexOf('{', start);
+  const marker = `  ${name}: {`;
+  const start = stylesSource.indexOf(marker);
+  assert.notEqual(start, -1, `styles.${name} is missing from styles.ts`);
+  let index = stylesSource.indexOf('{', start);
   let depth = 0;
-  for (; index < source.length; index += 1) {
-    if (source[index] === '{') depth += 1;
-    else if (source[index] === '}') {
+  for (; index < stylesSource.length; index += 1) {
+    if (stylesSource[index] === '{') depth += 1;
+    else if (stylesSource[index] === '}') {
       depth -= 1;
-      if (depth === 0) return source.slice(start, index + 1);
+      if (depth === 0) return stylesSource.slice(start, index + 1);
     }
   }
   throw new Error(`unbalanced braces in styles.${name}`);
@@ -33,8 +36,8 @@ function styleBlock(name) {
 
 /** The props destructured by CommitPanel, from its signature to the body. */
 function commitPanelProps() {
-  const start = source.indexOf('    function CommitPanel({');
-  const end = source.indexOf('    }) {', start);
+  const start = source.indexOf('function CommitPanel({');
+  const end = source.indexOf('}: CommitPanelProps) {', start);
   assert.notEqual(start, -1, 'CommitPanel is missing');
   assert.notEqual(end, -1, 'CommitPanel signature is missing');
   return source.slice(start, end);
@@ -45,11 +48,8 @@ function commitPanelProps() {
  * marker, so an unrelated function growing does not silently empty the slice.
  */
 function renderGroupBody() {
-  const start = source.indexOf('      const renderGroup = (group, groupIndex) => {');
-  const end = source.indexOf(
-    '      return React.createElement(\n        React.Fragment,\n        null,\n        React.createElement(PanelToolbar, {',
-    start,
-  );
+  const start = source.indexOf('  const renderGroup = (group, groupIndex) => {');
+  const end = source.indexOf('  return (\n    <React.Fragment>', start);
   assert.notEqual(start, -1, 'renderGroup is missing');
   assert.notEqual(end, -1, 'renderGroup end marker moved');
   return source.slice(start, end);
@@ -68,10 +68,10 @@ test('CommitPanel receives the change filter as a prop, not from an outer scope'
   assert.match(props, /^\s+onPathQuery,/mu, 'the setter must be passed in too');
   /* Every use inside the panel must be the prop; a bare setter is the old bug. */
   assert.doesNotMatch(source, /setPathQuery\(event\.target\.value\)/, 'the filter must call onPathQuery');
-  assert.match(source, /onChange: \(event\) => onPathQuery\?\.\(event\.target\.value\)/);
-  assert.match(source, /placeholder: t\('editor\.changeFilterPlaceholder'\)/);
+  assert.match(source, /onChange=\{\(event\) => onPathQuery\?\.\(event\.target\.value\)\}/);
+  assert.match(source, /placeholder=\{t\('editor\.changeFilterPlaceholder'\)\}/);
   /* And the call site must actually hand them over. */
-  assert.match(source, /onPathQuery: setPathQuery,/);
+  assert.match(source, /onPathQuery=\{setPathQuery\}/);
 });
 
 test('the change filter narrows what is shown and never the selection', () => {
@@ -80,7 +80,7 @@ test('the change filter narrows what is shown and never the selection', () => {
   /* The hint shown when nothing matches is the "no matches" one, not "no changes". */
   assert.match(
     source,
-    /visibleGroups\.length === 0\s*\n\s*\? React\.createElement\('div', \{ style: styles\.treeMessage \}, t\('editor\.noMatches'\)\)/,
+    /visibleGroups\.length === 0 \? \(\s*<div style=\{styles\.treeMessage\}>\{t\('editor\.noMatches'\)\}<\/div>\s*\) : \(/u,
   );
 });
 
@@ -128,11 +128,11 @@ test('the same rule holds for a directory row and its name', () => {
 test('the file name is rendered as its own unclipped span, with a full-path tooltip', () => {
   const body = renderGroupBody();
   /* `row.name` is the basename — the same value IDEA prints first. */
-  assert.match(body, /React\.createElement\('span', \{ style: styles\.commitFileName \}, row\.name\)/);
+  assert.match(body, /<span style=\{styles\.commitFileName\}>\{row\.name\}<\/span>/u);
   /* A pathologically long name in a 180px tool window can exceed the pane;
      IDEA scrolls there too, so the tooltip has to spell the path out. */
   assert.match(body, /dirName|commitFileDir/);
-  assert.match(body, /title: change\.path,/);
+  assert.match(body, /title=\{change\.path\}/);
 });
 
 test('no change-row label keeps both a clamp and an ellipsis', () => {
@@ -152,9 +152,9 @@ test('no change-row label keeps both a clamp and an ellipsis', () => {
 test('the group header still hides a long branch chip instead of pushing the row', () => {
   /* The group header carries the branch badge; it is the one row that must
      keep a hard width so the change count and the action buttons stay put. */
-  const header = source.slice(
-    source.indexOf('      commitGroupHeader: {'),
-    source.indexOf('      commitGroupLabel: {'),
+  const header = stylesSource.slice(
+    stylesSource.indexOf('  commitGroupHeader: {'),
+    stylesSource.indexOf('  commitGroupLabel: {'),
   );
   assert.match(header, /height: 24/);
   assert.match(header, /whiteSpace: 'nowrap'/);
@@ -164,19 +164,7 @@ test('the group header still hides a long branch chip instead of pushing the row
 
 /** Load `splitPathLabel` — a pure function, so it can be executed for real. */
 function loadSplitPathLabel() {
-  const marker = '    function splitPathLabel(';
-  const start = source.indexOf(marker);
-  assert.notEqual(start, -1, 'splitPathLabel is missing');
-  let index = source.indexOf('{', start);
-  let depth = 0;
-  for (; index < source.length; index += 1) {
-    if (source[index] === '{') depth += 1;
-    else if (source[index] === '}') {
-      depth -= 1;
-      if (depth === 0) break;
-    }
-  }
-  return new Function(`${source.slice(start, index + 1)}; return splitPathLabel;`)();
+  return loadTypeScriptFunction(pathLabelSource, 'splitPathLabel');
 }
 
 test('splitPathLabel keeps the name whole and the parent as its prefix', () => {
@@ -193,9 +181,9 @@ test('splitPathLabel keeps the name whole and the parent as its prefix', () => {
 test('one PathLabel serves both diff and annotate headers', () => {
   /* Both headers used to inline `target?.path` into a shrinkable ellipsis box,
      so the NAME was what got cut (`r147nest/engineering-memory-and-d…`). */
-  assert.equal((source.match(/React\.createElement\(PathLabel, \{ path: target\?\.path \?\? ''/g) ?? []).length, 1);
+  assert.equal((source.match(/<PathLabel\s+path=\{target\?\.path \?\? ''\}/gu) ?? []).length, 1);
   assert.match(annotatePreviewSource, /<PathLabel\s+path=\{target\?\.path \?\? ''\}/u);
-  assert.doesNotMatch(source, /style: styles\.diffTitle \}, target\?\.path/);
+  assert.doesNotMatch(source, /style=\{styles\.diffTitle\}>target\?\.path/u);
   /* The name is rendered first so a squeezed header spends its width on it. */
   const body = pathLabelSource.slice(pathLabelSource.indexOf('export function PathLabel('));
   assert.match(body, /parts\.name/);
@@ -217,22 +205,14 @@ test('the label styles let the path give way and the name survive', () => {
 
 test('the parent path is printed with a trailing slash, root falls back to the project', () => {
   /* `note.md  spark` read as two files on one row; IDEA prints `spark/`. */
-  const marker = '    function parentDirLabel(';
-  const start = source.indexOf(marker);
-  assert.notEqual(start, -1, 'parentDirLabel is missing');
-  let index = source.indexOf('{', start);
-  let depth = 0;
-  for (; index < source.length; index += 1) {
-    if (source[index] === '{') depth += 1;
-    else if (source[index] === '}') {
-      depth -= 1;
-      if (depth === 0) break;
-    }
-  }
-  const fn = new Function('dirname', `${source.slice(start, index + 1)}; return parentDirLabel;`)((p) => {
+  const parentDirLabel = new Function(
+    'dirname',
+    `${transpileTypeScriptFunction(editorCoreSource, 'parentDirLabel')}\nreturn parentDirLabel;`,
+  )((p) => {
     const cut = p.lastIndexOf('/');
     return cut < 0 ? '' : p.slice(0, cut);
   });
+  const fn = (path) => parentDirLabel(path);
   assert.equal(fn('spark/note.md'), 'spark/');
   assert.equal(fn('r147nest/deep/inner/x.ts'), 'r147nest/deep/inner/');
   assert.equal(fn('README.md'), '');

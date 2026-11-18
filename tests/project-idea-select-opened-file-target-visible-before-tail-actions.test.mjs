@@ -2,27 +2,16 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { panelToolbarSource, toolbarModelSource } from './ui-sources.mjs';
+import { loadTypeScriptFunction } from './ts-source.mjs';
 
-const source = (await readFile(new URL('./fixtures/project-panel.legacy.js', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
-
-function extractFunction(name) {
-  const plain = source.indexOf(`    function ${name}(`);
-  const asynchronous = source.indexOf(`    async function ${name}(`);
-  const start = plain >= 0 ? plain : asynchronous;
-  assert.notEqual(start, -1, `${name} is missing`);
-  const bodyStart = source.indexOf('{', start);
-  let depth = 0;
-  for (let index = bodyStart; index < source.length; index += 1) {
-    if (source[index] === '{') depth += 1;
-    if (source[index] === '}') depth -= 1;
-    if (depth === 0) return source.slice(start, index + 1);
-  }
-  assert.fail(`${name} has no closing brace`);
-}
-
-const panelToolbarFit = new Function(
-  `${extractFunction('panelToolbarFit')}; return panelToolbarFit;`,
-)();
+const projectPanelSource = await readFile(
+  new URL('../src/client/components/project/ProjectPanel.tsx', import.meta.url),
+  'utf8',
+);
+const workspaceSource = await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8');
+const coreSource = await readFile(new URL('../src/client/editor-core.ts', import.meta.url), 'utf8');
+const source = `${projectPanelSource}\n${workspaceSource}\n${coreSource}`;
+const panelToolbarFit = loadTypeScriptFunction(toolbarModelSource, 'panelToolbarFit');
 
 test('Project keeps the IDEA Select Opened File target visible before tail actions overflow', () => {
   assert.deepEqual(panelToolbarFit(220, 94.5, 2, 4, 0, 1), { left: 1, right: 2 });
@@ -38,11 +27,8 @@ test('PanelToolbar renders pinned leading actions through the shared selection p
 });
 
 test('Project target action is pinned and retains IDEA reveal semantics', () => {
-  const panel = source.slice(
-    source.indexOf('function ProjectPanel('),
-    source.indexOf('/**\n     * IDEA-style context menu'),
-  );
-  assert.match(panel, /titleActionStyle: \{ maxWidth: '68%' \}/);
+  const panel = projectPanelSource;
+  assert.match(panel, /titleActionStyle=\{\{\s+maxWidth: '68%',\s+\}\}/s);
   const reveal = panel.slice(panel.indexOf("id: 'reveal'"), panel.indexOf("id: 'expandSelected'"));
   assert.match(reveal, /icon: 'target'/);
   assert.match(reveal, /pinned: true/);
@@ -51,20 +37,20 @@ test('Project target action is pinned and retains IDEA reveal semantics', () => 
 });
 
 test('One-level Project loading remains prefetch-only and anchored on directory clicks', () => {
-  const prefetch = extractFunction('prefetchDirectorySubtrees');
-  assert.match(prefetch, /maxDepth = 1/);
-  assert.doesNotMatch(prefetch, /setExpanded/);
-  assert.match(prefetch, /while \(queue\.length > 0 && visited < limit\)/);
-  assert.match(prefetch, /item\.depth < depthLimit/);
-  assert.match(source, /const PROJECT_PREFETCH_DEPTH = 1;/);
+  const prefetchSource = coreSource.slice(coreSource.indexOf('async function prefetchDirectorySubtrees('));
+  assert.match(prefetchSource, /maxDepth = 1/);
+  assert.doesNotMatch(prefetchSource, /setExpanded/);
+  assert.match(prefetchSource, /while \(queue\.length > 0 && visited < limit\)/);
+  assert.match(prefetchSource, /item\.depth < depthLimit/);
+  assert.match(coreSource, /const PROJECT_PREFETCH_DEPTH = 1;/);
 
   const toggle = source.slice(
-    source.indexOf('const toggleDirectory = React.useCallback(async (path) => {'),
+    source.indexOf('const toggleDirectory = React.useCallback('),
     source.indexOf('/* Open a file, reusing its existing tab. */'),
   );
   assert.match(toggle, /void prefetchDirectorySubtrees\(\s*\[path\],/);
   assert.match(toggle, /PROJECT_PREFETCH_DEPTH/);
-  assert.match(toggle, /let expandedPaths = compactDirectories === true/);
+  assert.match(toggle, /let expandedPaths =\s+compactDirectories === true/);
   assert.match(toggle, /setExpanded\(\(current\) => new Set\(\[\.\.\.current, \.\.\.expandedPaths\]\)\)/);
   assert.doesNotMatch(toggle, /await prefetchDirectorySubtrees/);
   assert.doesNotMatch(toggle, /setExpanded\(\(current\) => new Set\(\[\.\.\.current, \.\.\.Object\.keys\(value\.children\)\]\)\)/);

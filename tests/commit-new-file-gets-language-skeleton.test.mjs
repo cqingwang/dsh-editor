@@ -9,10 +9,16 @@ import test from 'node:test';
 import { loadTypeScriptFunction } from './ts-source.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = (readFileSync(join(root, 'lib/client.js'), 'utf8') + '\n' + readFileSync(join(root, 'tests/fixtures/find-tool.legacy.js'), 'utf8'));
+const source =
+  readFileSync(join(root, 'lib/client.js'), 'utf8') +
+  '\n' +
+  readFileSync(join(root, 'src/client/components/search/FindToolWindow.tsx'), 'utf8') +
+  '\n' +
+  readFileSync(join(root, 'src/client/components/search/QuickOpen.tsx'), 'utf8');
 const host = readFileSync(join(root, 'lib/index.js'), 'utf8');
 const revisionPickerSource = readFileSync(join(root, 'src/client/components/commit/RevisionPicker.tsx'), 'utf8');
 const moveToPickerSource = readFileSync(join(root, 'src/client/components/commit/MoveToPicker.tsx'), 'utf8');
+const quickOpenSource = readFileSync(join(root, 'src/client/components/search/QuickOpen.tsx'), 'utf8');
 const fileTemplateModel = readFileSync(
   join(root, 'src/client/components/editor/editor-file-template-model.ts'),
   'utf8',
@@ -151,7 +157,7 @@ test('every palette-based picker renders rows through the shared list style', ()
   /* Go to File, Compare with Revision and Move to… all share `paletteList`;
      the collapse bug hit all three at once, so all three must stay on it. */
   const bodies = [
-    ['QuickOpen', source.slice(source.lastIndexOf('function QuickOpen('), source.lastIndexOf('function fuzzyScore('))],
+    ['QuickOpen', quickOpenSource],
     ['RevisionPicker', revisionPickerSource],
     ['MoveToPicker', moveToPickerSource],
   ];

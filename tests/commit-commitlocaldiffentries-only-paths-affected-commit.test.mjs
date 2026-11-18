@@ -4,6 +4,7 @@ import { mkdtemp, readFile, rm, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
+import { loadTypeScriptFunction } from './ts-source.mjs';
 
 import { gitCombinedDiff, gitShowCommit } from '../lib/index.js';
 
@@ -27,24 +28,11 @@ async function localComparisonFixture() {
   return { dir, hash, cleanup: () => rm(dir, { recursive: true, force: true }) };
 }
 
-function extractFunction(source, name) {
-  const start = source.indexOf(`function ${name}(`);
-  assert.notEqual(start, -1, `${name} is missing`);
-  const bodyStart = source.indexOf('{', start);
-  let depth = 0;
-  for (let index = bodyStart; index < source.length; index += 1) {
-    if (source[index] === '{') depth += 1;
-    if (source[index] === '}') depth -= 1;
-    if (depth === 0) return source.slice(start, index + 1);
-  }
-  assert.fail(`${name} has no closing brace`);
-}
-
 test('commitLocalDiffEntries keeps only paths affected by the commit', async (t) => {
   const { dir, hash, cleanup } = await localComparisonFixture();
   t.after(cleanup);
-  const client = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
-  const fn = new Function(`${extractFunction(client, 'commitLocalDiffEntries')}; return commitLocalDiffEntries;`)();
+  const client = await readFile(new URL('../src/client/find-tool.ts', import.meta.url), 'utf8');
+  const fn = loadTypeScriptFunction(client, 'commitLocalDiffEntries');
   const detail = await gitShowCommit(dir, hash);
   const entries = fn(detail, hash);
 
@@ -79,10 +67,9 @@ test('combined diff can show commit versions against local working files', async
 });
 
 test('Commit Log exposes Compare with Local through the combined diff model', async () => {
-  const client = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
-  const menuStart = client.indexOf('const buildLogMenu = React.useCallback');
-  const menuEnd = client.indexOf('/* Rollback discards edits', menuStart);
-  const menu = client.slice(menuStart, menuEnd);
+  const client = await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8');
+  const menu = await readFile(new URL('../src/client/components/commit/log-menu.ts', import.meta.url), 'utf8');
+  const locales = await readFile(new URL('../src/client/locales.ts', import.meta.url), 'utf8');
   const actionStart = client.indexOf('const compareCommitWithLocal = React.useCallback');
   const actionEnd = client.indexOf('const createCommitPatch = React.useCallback', actionStart);
   const action = client.slice(actionStart, actionEnd);
@@ -94,8 +81,8 @@ test('Commit Log exposes Compare with Local through the combined diff model', as
   assert.match(action, /commitLocalDiffEntries\(detail, hash, t\('editor\.currentVersion'\)\)/);
   assert.match(action, /setDiffTarget\(\{\s*combined: true,\s*entries,\s*commitWithLocal: hash,\s*staged: false,/);
   assert.match(action, /setDiffActive\(true\)/);
-  assert.match(client, /compareWithLocalCommitAction: '与本地比较'/);
-  assert.match(client, /compareWithLocalCommitAction: 'Compare with Local'/);
+  assert.match(locales, /compareWithLocalCommitAction: '与本地比较'/);
+  assert.match(locales, /compareWithLocalCommitAction: 'Compare with Local'/);
   assert.match(client, /commitWithLocal/);
   assert.match(client, /target\?\.combined === true[\s\S]*?typeof target\?\.commitWithLocal === 'string'/);
 });

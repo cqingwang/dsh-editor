@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 const source =
-  (await readFile(new URL('./fixtures/search-everywhere.legacy.js', import.meta.url), 'utf8')) +
+  (await readFile(new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url), 'utf8')) +
   '\n' +
   (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
 
@@ -46,11 +46,11 @@ test('search Actions receive truthful explicit IDEA categories', () => {
 });
 
 test('Action rows expose category without displacing the shortcut', () => {
-  const dialog = source.slice(source.indexOf('function SearchEverywhere('), source.indexOf('function FindToolWindow('));
+  const dialog = source.slice(source.indexOf('function SearchEverywhere('), source.indexOf('function FindToolWindowView('));
   assert.match(dialog, /category: searchEverywhereActionCategory\(action\.id, t\)/);
-  assert.match(dialog, /'data-dsh-search-category': ''/);
-  assert.match(dialog, /className: 'dsh-editor-search-everywhere-category'/);
-  assert.ok(dialog.indexOf("'data-dsh-search-category'") < dialog.indexOf('result.shortcut ? React.createElement'));
+  assert.match(dialog, /data-dsh-search-category=''/);
+  assert.match(dialog, /className='dsh-editor-search-everywhere-category'/);
+  assert.ok(dialog.indexOf('data-dsh-search-category') < dialog.indexOf('result.shortcut ? <span'));
 });
 
 test('category is removed before narrow rows squeeze primary content', () => {

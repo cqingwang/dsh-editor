@@ -5,16 +5,22 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = (readFileSync(join(root, 'tests/fixtures/diff-preview.legacy.js'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
+const source = (readFileSync(join(root, 'src/client/components/diff/DiffPreview.tsx'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
 
 function diffPreview() {
-  return source.slice(source.indexOf('function DiffPreview('), source.indexOf('* Commit tool window: grouped'));
+  return source.slice(source.indexOf('function DiffPreview('), source.indexOf('export { DiffPreview };'));
 }
 
 test('selection restore is exposed only for a writable diff with real changed ranges', () => {
   const diff = diffPreview();
-  assert.match(diff, /const actionableSelection = selectionRange !== null\s+&& !diffReadOnly\s+&& !swapSides\s+&& !editLocked\s+&& !diffUnavailable\s+&& selectedCharChanges\(diffRef\.current\?\.getLineChanges\?\.\(\) \?\? \[\], selectionRange\)\.length > 0;/);
-  assert.match(diff, /actionableSelection\s+\?\s+\[\{ id: 'selection',[\s\S]*?label: t\('editor\.diffSelectionRestore'\),[\s\S]*?run: restoreSelection \}\]\s+: \[\]/);
+  assert.match(
+    diff,
+    /const actionableSelection =\s+selectionRange !== null &&\s+!diffReadOnly &&\s+!swapSides &&\s+!editLocked &&\s+!diffUnavailable &&\s+selectedCharChanges\(diffRef\.current\?\.getLineChanges\?\.\(\) \?\? \[\], selectionRange\)\.length > 0;/u,
+  );
+  assert.match(
+    diff,
+    /\.\.\.\(actionableSelection\s+\?\s+\[[\s\S]*?id: 'selection',[\s\S]*?label: t\('editor\.diffSelectionRestore'\),[\s\S]*?run: restoreSelection,[\s\S]*?\]\s+: \[\],?\)/u,
+  );
 });
 
 test('restoreSelection refuses read-only diff sides even if called defensively', () => {
@@ -31,5 +37,5 @@ test('the same actionable flag gates toolbar and compact overflow entries', () =
   const diff = diffPreview();
   assert.match(diff, /const diffToolbarActions = \[/);
   assert.match(diff, /actionableSelection/);
-  assert.doesNotMatch(diff, /selectionRange === null\s+\?\s+\[\]\s+: \[\{ id: 'selection'/);
+  assert.doesNotMatch(diff, /selectionRange === null\s+\?\s+\[\]\s+: \[\s*\{\s*id: 'selection'/u);
 });

@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { compactActionBarSource } from './ui-sources.mjs';
 
-const source = ((await readFile(new URL('./fixtures/commit-panel.legacy.js', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'))) + '\n' + await readFile(new URL('./fixtures/commit-log.legacy.js', import.meta.url), 'utf8');
+const source = ((await readFile(new URL('../src/client/components/commit/CommitPanel.tsx', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'))) + '\n' + await readFile(new URL('../src/client/components/commit/CommitLog.tsx', import.meta.url), 'utf8');
 
 function extract(name) {
   const marker = `    function ${name}(`;
@@ -56,7 +56,7 @@ test('compact overflow inserts separators only between semantic action groups', 
 });
 
 test('Commit Changes actions declare IDEA semantic groups without changing order', () => {
-  const panel = source.slice(source.indexOf('function CommitPanel('), source.indexOf('function CommitLog('));
+  const panel = source.slice(source.indexOf('function CommitPanel('), source.indexOf('function CommitLogView('));
   const toolbar = panel.slice(panel.indexOf("id: 'refresh'"), panel.indexOf("id: 'expandChanges'") + 900);
   const groups = [...toolbar.matchAll(/id: '([^']+)'[\s\S]*?group: '([^']+)'/g)].map((match) => [match[1], match[2]]);
   assert.deepEqual(groups, [

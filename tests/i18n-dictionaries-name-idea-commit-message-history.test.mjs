@@ -5,20 +5,21 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = ((readFileSync(join(root, 'tests/fixtures/commit-panel.legacy.js'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'))) + '\n' + readFileSync(join(root, 'tests/fixtures/commit-log.legacy.js'), 'utf8');
+const source = ((readFileSync(join(root, 'src/client/components/commit/CommitPanel.tsx'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'))) + '\n' + readFileSync(join(root, 'src/client/components/commit/CommitLog.tsx'), 'utf8');
+const locales = readFileSync(join(root, 'src/client/locales.ts'), 'utf8');
 const iconSource = readFileSync(join(root, 'src/client/components/ui/Icon.tsx'), 'utf8');
 
 function commitPanel() {
   const start = source.indexOf('function CommitPanel(');
   assert.notEqual(start, -1);
-  const end = source.indexOf('function CommitLog(', start);
+  const end = source.indexOf('function CommitLogView(', start);
   assert.notEqual(end, -1);
   return source.slice(start, end);
 }
 
 test('both dictionaries name IDEA Commit Message History', () => {
-  assert.match(source, /commitMessageHistory: '提交信息历史',/);
-  assert.match(source, /commitMessageHistory: 'Commit Message History',/);
+  assert.match(locales, /commitMessageHistory: '提交信息历史',/);
+  assert.match(locales, /commitMessageHistory: 'Commit Message History',/);
   assert.match(iconSource, /case 'history':/);
 });
 
@@ -36,7 +37,7 @@ test('the history menu reuses stored messages and selects one directly', () => {
   assert.match(panel, /history\.map\(\(entry, index\) =>/);
   assert.match(panel, /label: entry\.split\('\\n'\)\[0\]/);
   assert.match(panel, /onPickHistory\?\.\(index\)/);
-  assert.match(panel, /React\.createElement\(ContextMenu, \{ menu: historyMenu/);
+  assert.match(panel, /<ContextMenu\s+menu=\{historyMenu\}/u);
   assert.match(source, /onPickHistory: \(index\) => selectHistoryMessage\(index\)/);
 });
 

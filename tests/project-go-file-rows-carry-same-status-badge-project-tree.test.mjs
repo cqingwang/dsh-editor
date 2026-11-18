@@ -6,7 +6,8 @@ import test from 'node:test';
 import { transpileTypeScriptFunction } from './ts-source.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = (readFileSync(join(root, 'lib/client.js'), 'utf8') + '\n' + readFileSync(join(root, 'tests/fixtures/find-tool.legacy.js'), 'utf8'));
+const source = (readFileSync(join(root, 'lib/client.js'), 'utf8') + '\n' + readFileSync(join(root, 'src/client/components/search/FindToolWindow.tsx'), 'utf8'));
+const quickOpenSource = readFileSync(join(root, 'src/client/components/search/QuickOpen.tsx'), 'utf8');
 const gitStatusModelSource = readFileSync(join(root, 'src/client/components/ui/git-status-model.ts'), 'utf8');
 const gitChangeModelSource = readFileSync(join(root, 'src/client/components/ui/git-change-model.ts'), 'utf8');
 
@@ -57,6 +58,5 @@ test('the palette receives a status map built from the loaded git status', () =>
   assert.notEqual(start, -1);
   const block = source.slice(start, start + 1200);
   assert.match(block, /changes: new Map\(\(git\?\.changes \?\? \[\]\)\.map\(\(change\) => \[change\.path, change\.status\]\)\)/);
-  const component = source.slice(source.lastIndexOf('function QuickOpen('), source.lastIndexOf('function fuzzyScore('));
-  assert.match(component, /React\.createElement\(GitStatusBadge, \{ selected: false, info: badge \}\)/);
+  assert.match(quickOpenSource, /<GitStatusBadge\s+selected=\{false\}\s+info=\{badge\}/u);
 });

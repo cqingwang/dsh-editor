@@ -5,10 +5,14 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = (readFileSync(join(root, 'lib/client.js'), 'utf8')) + '\n' + readFileSync(join(root, 'tests/fixtures/commit-log.legacy.js'), 'utf8');
+const source = [
+  readFileSync(join(root, 'lib/client.js'), 'utf8'),
+  readFileSync(join(root, 'src/client/components/commit/CommitLogDetailPane.tsx'), 'utf8'),
+  readFileSync(join(root, 'src/client/editor-workspace.tsx'), 'utf8'),
+].join('\n');
 
 test('Commit Log file rows use IDEA EditSource F4 and focus the editor', () => {
-  const log = source.slice(source.indexOf('function CommitLog('), source.indexOf('/* COMMIT_LOG_BOUNDARY */'));
+  const log = source.slice(source.indexOf('function CommitLogDetailPane({'), source.indexOf('export { CommitLogDetailPane };'));
   assert.match(log, /onEditSource,/);
   assert.match(log, /event\.key === 'F4'[\s\S]*?if \(!localExists\) return;[\s\S]*?event\.preventDefault\(\);[\s\S]*?event\.stopPropagation\(\);[\s\S]*?onEditSource\?\.\(file\.path\);/);
 

@@ -5,7 +5,8 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = readFileSync(join(root, 'lib/client.js'), 'utf8');
+const source = readFileSync(join(root, 'src/client/editor-workspace.tsx'), 'utf8');
+const locales = readFileSync(join(root, 'src/client/locales.ts'), 'utf8');
 
 function slice(from, to) {
   const start = source.indexOf(from);
@@ -16,7 +17,7 @@ function slice(from, to) {
 }
 
 test('batch close replaces the open-tab state once and keeps the strip order', () => {
-  const close = slice('const closePaths = React.useCallback(', 'const closeOtherTabs = React.useCallback(');
+  const close = slice('const closePaths = React.useCallback(', 'const closeOtherTabs =');
   assert.match(close, /const before = openFilesRef\.current;/);
   assert.match(close, /const remaining = before\.filter\(\(file\) => wanted\.has\(file\.path\) === false\);/);
   assert.match(close, /setOpenFiles\(remaining\);/);
@@ -32,21 +33,21 @@ test('close to left/right uses the combined diff + file tab order', () => {
   assert.match(close, /if \(includesDiff\) \{[\s\S]*?setDiffTarget\(null\);/);
   assert.doesNotMatch(close, /else if \(activePathRef\.current !== null\) setDiffActive\(false\)/);
 
-  const fileMenu = slice('onContextMenu: (event) => {', 'onClose: () => closeFile(file.path)');
+  const fileMenu = slice('onContextMenu={(event) => {', 'onClose={() => closeFile(file.path)}');
   assert.match(fileMenu, /const tabIndex = allTabs\.indexOf\(file\);/);
   assert.match(fileMenu, /closeEditorTabs\(allTabs\.slice\(0, tabIndex\)\)/);
   assert.match(fileMenu, /closeEditorTabs\(allTabs\.slice\(tabIndex \+ 1\)\)/);
-  assert.match(fileMenu, /id: 'closeLeft', label: t\('editor\.closeTabsLeft'\)/);
-  assert.match(fileMenu, /id: 'closeRight', label: t\('editor\.closeTabsRight'\)/);
+  assert.match(fileMenu, /id: 'closeLeft',\s+label: t\('editor\.closeTabsLeft'\)/u);
+  assert.match(fileMenu, /id: 'closeRight',\s+label: t\('editor\.closeTabsRight'\)/u);
 
-  const diffMenu = slice("key: 'dsh-editor-difftab',", '/* One layout for this render');
-  assert.match(diffMenu, /id: 'closeOthers', label: t\('editor\.closeOtherTabs'\)/);
-  assert.match(diffMenu, /id: 'closeRight', label: t\('editor\.closeTabsRight'\)/);
-  assert.match(diffMenu, /id: 'closeAll', label: t\('editor\.closeAllTabs'\)/);
+  const diffMenu = slice("key='dsh-editor-difftab'", '/* One layout for this render');
+  assert.match(diffMenu, /id: 'closeOthers',\s+label: t\('editor\.closeOtherTabs'\)/u);
+  assert.match(diffMenu, /id: 'closeRight',\s+label: t\('editor\.closeTabsRight'\)/u);
+  assert.match(diffMenu, /id: 'closeAll',\s+label: t\('editor\.closeAllTabs'\)/u);
 });
 
 test('closeDiff clears the diff tab active flag and activates a neighbouring file tab', () => {
-  const diff = slice('const closeDiff = React.useCallback(', 'React.useEffect(() => {\n        selectedCommitPathRef');
+  const diff = slice('const closeDiff = React.useCallback(', 'React.useEffect(() => {\n    selectedCommitPathRef');
   assert.match(diff, /setDiffTarget\(null\);/);
   assert.match(diff, /setDiffActive\(false\);/);
   assert.match(diff, /const path = activePathRef\.current;/);
@@ -54,8 +55,8 @@ test('closeDiff clears the diff tab active flag and activates a neighbouring fil
 });
 
 test('close-menu copy exists in both dictionaries', () => {
-  assert.match(source, /closeTabsLeft: '关闭左侧标签页'/);
-  assert.match(source, /closeTabsRight: '关闭右侧标签页'/);
-  assert.match(source, /closeTabsLeft: 'Close Tabs to the Left'/);
-  assert.match(source, /closeTabsRight: 'Close Tabs to the Right'/);
+  assert.match(locales, /closeTabsLeft: '关闭左侧标签页'/);
+  assert.match(locales, /closeTabsRight: '关闭右侧标签页'/);
+  assert.match(locales, /closeTabsLeft: 'Close Tabs to the Left'/);
+  assert.match(locales, /closeTabsRight: 'Close Tabs to the Right'/);
 });

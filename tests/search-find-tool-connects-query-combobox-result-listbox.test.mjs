@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) + '\n' + (await readFile(new URL('./fixtures/find-tool.legacy.js', import.meta.url), 'utf8'));
+const source = (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) + '\n' + (await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8'));
 
 function extract(name) {
   const marker = `    function ${name}(`;
@@ -21,8 +21,8 @@ function extract(name) {
 }
 
 function findTool() {
-  const start = source.indexOf('function FindToolWindow(');
-  const end = source.indexOf('/* QUICK_OPEN_BOUNDARY */');
+  const start = source.lastIndexOf('function FindToolWindowView(');
+  const end = source.indexOf('const FindToolWindow = FindToolWindowView;', source.lastIndexOf('function FindToolWindowView('));
   assert.notEqual(start, -1);
   assert.notEqual(end, -1);
   return source.slice(start, end);
@@ -31,18 +31,18 @@ function findTool() {
 test('Find tool connects its query combobox to the result listbox', () => {
   const panel = findTool();
   assert.match(panel, /const FIND_TOOL_LISTBOX_ID = 'dsh-editor-find-tool-listbox'/);
-  assert.match(panel, /role: 'combobox'/);
-  assert.match(panel, /'aria-autocomplete': 'list'/);
-  assert.match(panel, /'aria-controls': FIND_TOOL_LISTBOX_ID/);
-  assert.match(panel, /id: FIND_TOOL_LISTBOX_ID/);
-  assert.match(panel, /'aria-activedescendant': active === null \? undefined : findToolOptionId\(active\.rowKey\)/);
+  assert.match(panel, /role='combobox'/);
+  assert.match(panel, /aria-autocomplete='list'/);
+  assert.match(panel, /aria-controls=\{FIND_TOOL_LISTBOX_ID\}/);
+  assert.match(panel, /id=\{FIND_TOOL_LISTBOX_ID\}/);
+  assert.match(panel, /aria-activedescendant=\{active === null \? undefined : findToolOptionId\(active\.rowKey\)\}/u);
 });
 
 test('Find file and occurrence rows expose stable option ids', () => {
   const panel = findTool();
   assert.match(panel, /rowKey: `file:\$\{file\.path\}`/);
-  assert.match(panel, /id: findToolOptionId\(rowKey\)/);
-  assert.match(panel, /'aria-selected': position === activeIndex/);
+  assert.match(panel, /id=\{findToolOptionId\(rowKey\)\}/);
+  assert.match(panel, /aria-selected=\{position === activeIndex\}/);
 });
 
 test('Find option ids encode result identities without collisions', () => {
@@ -54,10 +54,10 @@ test('Find option ids encode result identities without collisions', () => {
 
 test('Find exposes one non-duplicated live result status', () => {
   const panel = findTool();
-  assert.match(panel, /const findResultStatus = state\.error !== null[\s\S]*?: state\.loading === true/);
-  assert.match(panel, /'aria-live': 'polite'/);
-  assert.match(panel, /'aria-atomic': 'true'/);
-  assert.match(panel, /style: styles\.screenReaderOnly/);
+  assert.match(panel, /const findResultStatus =\s+state\.error !== null[\s\S]*?: state\.loading === true/u);
+  assert.match(panel, /aria-live='polite'/);
+  assert.match(panel, /aria-atomic='true'/);
+  assert.match(panel, /style=\{styles\.screenReaderOnly\}/);
   assert.match(panel, /findToolResultSummary\(t, resultMatches, resultFiles\)/);
   assert.match(panel, /!hasFindToolContentQuery\(query\)[\s\S]*?styles\.findToolPopupMessage[\s\S]*?t\('editor\.findToolEmptyQuery'\)/);
 });

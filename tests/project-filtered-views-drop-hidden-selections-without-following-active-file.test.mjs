@@ -1,28 +1,11 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
+import { loadTypeScriptFunction } from './ts-source.mjs';
 
-const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
-
-function extract(name) {
-  const marker = `    function ${name}(`;
-  const start = source.indexOf(marker);
-  assert.notEqual(start, -1, `${name} should exist`);
-  let index = source.indexOf('{', start);
-  let depth = 0;
-  for (; index < source.length; index += 1) {
-    if (source[index] === '{') depth += 1;
-    else if (source[index] === '}') {
-      depth -= 1;
-      if (depth === 0) break;
-    }
-  }
-  return source.slice(start, index + 1);
-}
-
-const filteredViewSelection = new Function(
-  `${extract('filteredViewSelection')}\nreturn filteredViewSelection;`,
-)();
+const source = await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8');
+const terminalSource = await readFile(new URL('../src/client/terminal.ts', import.meta.url), 'utf8');
+const filteredViewSelection = loadTypeScriptFunction(terminalSource, 'filteredViewSelection');
 
 test('filtered views drop hidden selections without following the active file', () => {
   const rows = ['README.md', 'src/a.ts'];
@@ -57,6 +40,6 @@ test('view changes sanitize selection using the helper', () => {
 test('leaving a filtered view returns to the last real project tree view', () => {
   assert.match(source, /const lastProjectTreeViewRef = React\.useRef\(/);
   assert.match(source, /if \(projectViewIsTree\(normalized\)\) lastProjectTreeViewRef\.current = normalized;/);
-  assert.match(source, /applyProjectView\(lastProjectTreeViewRef\.current\)/);
+  assert.match(source, /applyProjectView\(\s+lastProjectTreeViewRef\.current,\s+\)/);
   assert.doesNotMatch(source, /applyProjectView\('project'\);\s*setActivity\('project'\)/);
 });

@@ -5,11 +5,11 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = (readFileSync(join(root, 'tests/fixtures/project-panel.legacy.js'), 'utf8') + '\n' + readFileSync(join(root, 'tests/fixtures/diff-preview.legacy.js'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
+const source = (readFileSync(join(root, 'src/client/components/project/ProjectPanel.tsx'), 'utf8') + '\n' + readFileSync(join(root, 'src/client/components/diff/DiffPreview.tsx'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
 
 test('Project toolbar follows IDEA action order in both groups', () => {
   const panel = source.slice(source.indexOf('function ProjectPanel('), source.indexOf('/**\n     * IDEA-style context menu'));
-  const toolbar = panel.slice(panel.indexOf("title: t('editor.project'),"), panel.indexOf('searchOpen\n'));
+  const toolbar = panel.slice(panel.indexOf('left={['), panel.indexOf('dropActive={toolbarDropActive}'));
   const left = [...toolbar.matchAll(/id: '(newEntry|reveal)'/g)].map((match) => match[1]);
   const right = [...toolbar.matchAll(/id: '(expandSelected|collapse|options|hide)'/g)].map((match) => match[1]);
   assert.deepEqual(left, ['newEntry', 'reveal']);
@@ -18,9 +18,9 @@ test('Project toolbar follows IDEA action order in both groups', () => {
 
 test('diff side headers have an explicit divider and retain both version labels', () => {
   assert.match(source, /diffSideHeaderDivider: \{[\s\S]*?borderLeft:/);
-  assert.match(source, /\.\.\.styles\.diffSideHeader, \.\.\.styles\.diffSideHeaderDivider/);
-  assert.match(source, /sideLabels\.left/);
-  assert.match(source, /sideLabels\.right/);
+  assert.match(source, /\.\.\.styles\.diffSideHeader,\s+\.\.\.styles\.diffSideHeaderDivider,/u);
+  assert.match(source, /displayedSideLabels\.left/);
+  assert.match(source, /displayedSideLabels\.right/);
 });
 
 test('unchanged-region folds use the host surface tokens', () => {

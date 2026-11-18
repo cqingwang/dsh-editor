@@ -2,10 +2,10 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = (await readFile(new URL('./fixtures/search-everywhere.legacy.js', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
+const source = (await readFile(new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
 
 test('Search Everywhere file and text rows expose an IDEA-style context menu', () => {
-  const dialog = source.slice(source.indexOf('function SearchEverywhere('), source.indexOf('function FindToolWindow('));
+  const dialog = source.slice(source.indexOf('function SearchEverywhere('), source.indexOf('function FindToolWindowView('));
   const menu = source.slice(source.indexOf('function searchResultContextItems('), source.indexOf('function searchEverywhereOptionId('));
   assert.match(dialog, /const \[resultMenu, setResultMenu\] = React\.useState\(null\)/);
   assert.match(dialog, /onContextMenu: \(event\) => openResultMenu\(event, result\)/);
@@ -17,7 +17,7 @@ test('Search Everywhere file and text rows expose an IDEA-style context menu', (
 });
 
 test('context menu actions close Search Everywhere before navigating', () => {
-  const dialog = source.slice(source.indexOf('function SearchEverywhere('), source.indexOf('function FindToolWindow('));
+  const dialog = source.slice(source.indexOf('function SearchEverywhere('), source.indexOf('function FindToolWindowView('));
   assert.match(dialog, /onOpenInRightSplit\([\s\S]{0,80}result\.path[\s\S]{0,140}result\.kind === 'text'/);
   assert.match(dialog, /onRevealResult\(result\.path\)/);
   assert.match(dialog, /onClose\(\);\s*onOpenInRightSplit\([\s\S]{0,100}result\.path/);

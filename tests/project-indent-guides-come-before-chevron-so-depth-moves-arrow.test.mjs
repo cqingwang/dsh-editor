@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = (readFileSync(join(root, 'tests/fixtures/project-panel.legacy.js'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
+const source = (readFileSync(join(root, 'src/client/components/project/ProjectPanel.tsx'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
 
 test('the indent guides come BEFORE the chevron, so depth moves the arrow', () => {
   /* The guides were rendered after the chevron: every row's arrow sat at the same
@@ -27,9 +27,9 @@ test('a file row still reserves the chevron column', () => {
      left of the folders at the same depth. */
   const start = source.indexOf('onDrop(sources, row.path);');
   assert.notEqual(start, -1);
-  const block = source.slice(start, start + 2200);
+  const block = source.slice(start, start + 2600);
   /* The invisible chevron placeholder keeps the icon column aligned for files. */
-  assert.match(block, /styles\.chevron, opacity: 0/);
+  assert.match(block, /\.\.\.styles\.chevron,\s+opacity: 0,/s);
 });
 
 test('the indent step matches the placeholder row', () => {

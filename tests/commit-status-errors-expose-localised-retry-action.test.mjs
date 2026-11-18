@@ -5,11 +5,11 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = ((readFileSync(join(root, 'tests/fixtures/commit-panel.legacy.js'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'))) + '\n' + readFileSync(join(root, 'tests/fixtures/commit-log.legacy.js'), 'utf8');
+const source = ((readFileSync(join(root, 'src/client/components/commit/CommitPanel.tsx'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'))) + '\n' + readFileSync(join(root, 'src/client/components/commit/CommitLog.tsx'), 'utf8');
 
 test('Commit status errors expose a localised retry action', () => {
   const panelStart = source.indexOf('function CommitPanel({');
-  const panelEnd = source.indexOf('function CommitLog(', panelStart);
+  const panelEnd = source.indexOf('function CommitLogView(', panelStart);
   assert.notEqual(panelStart, -1);
   assert.notEqual(panelEnd, -1);
   const panel = source.slice(panelStart, panelEnd);

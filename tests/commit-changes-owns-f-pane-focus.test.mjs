@@ -5,10 +5,10 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = (readFileSync(join(root, 'tests/fixtures/commit-panel.legacy.js'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
+const source = (readFileSync(join(root, 'src/client/components/commit/CommitPanel.tsx'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
 
 function commitPanel() {
-  return source.slice(source.indexOf('function CommitPanel('), source.indexOf('function formatCommitDate('));
+  return source.slice(source.indexOf('function CommitPanel('), source.indexOf('export { CommitPanel };'));
 }
 
 test('Commit Changes owns ⌘F when its pane has focus', () => {
@@ -25,8 +25,8 @@ test('Commit Changes owns ⌘F when its pane has focus', () => {
 
 test('the filter input is the same node the shortcut focuses', () => {
   const panel = commitPanel();
-  assert.match(panel, /ref: changeFilterRef,[\s\S]*?placeholder: t\('editor\.changeFilterPlaceholder'\)/);
-  assert.match(panel, /'data-dsh-changes-panel': ''/);
+  assert.match(panel, /ref=\{changeFilterRef\}[\s\S]*?placeholder=\{t\('editor\.changeFilterPlaceholder'\)\}/);
+  assert.match(panel, /data-dsh-changes-panel=''/);
 });
 
 test('editor find yields Changes panel shortcuts to the tool window', () => {

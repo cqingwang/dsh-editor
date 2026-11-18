@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = (readFileSync(join(root, 'tests/fixtures/diff-preview.legacy.js'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
+const source = (readFileSync(join(root, 'src/client/components/diff/DiffPreview.tsx'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
 const iconSource = readFileSync(join(root, 'src/client/components/ui/Icon.tsx'), 'utf8');
 
 test('Diff stores IDEA Show Whitespaces off by default', () => {
@@ -13,7 +13,7 @@ test('Diff stores IDEA Show Whitespaces off by default', () => {
   assert.match(source, /diffShowWhitespaces: 'Show whitespaces',/);
   assert.match(
     source,
-    /const \[showWhitespaces, setShowWhitespaces\] = React\.useState\(\(\) => readStoredText\('dsh-editor\.diff\.showWhitespaces', '0'\) === '1'\);/,
+    /const \[showWhitespaces, setShowWhitespaces\] = React\.useState\(\s+\(\) => readStoredText\('dsh-editor\.diff\.showWhitespaces', '0'\) === '1',\s+\);/u,
   );
 });
 
@@ -21,8 +21,8 @@ test('Monaco renders all whitespace only while the toggle is active', () => {
   assert.match(source, /renderWhitespace: readStoredText\('dsh-editor\.diff\.showWhitespaces', '0'\) === '1' \? 'all' : 'none',/);
   assert.match(source, /const original = diff\.getOriginalEditor\?\.\(\);/);
   assert.match(source, /const modified = diff\.getModifiedEditor\?\.\(\);/);
-  assert.match(source, /original\?\.updateOptions\(\{ renderWhitespace \}\);/);
-  assert.match(source, /modified\?\.updateOptions\(\{ renderWhitespace \}\);/);
+  assert.match(source, /original\?\.updateOptions\(\{\s+renderWhitespace,\s+\}\);/u);
+  assert.match(source, /modified\?\.updateOptions\(\{\s+renderWhitespace,\s+\}\);/u);
   assert.match(source, /window\.localStorage\.setItem\('dsh-editor\.diff\.showWhitespaces', showWhitespaces \? '1' : '0'\)/);
 });
 

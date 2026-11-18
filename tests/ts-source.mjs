@@ -1,8 +1,39 @@
 import { transformSync } from '@babel/core';
+import { parse } from '@babel/parser';
 
 /** Extract one function declaration by brace balance. */
 export function extractFunctionSource(source, name) {
-  const candidates = [`export function ${name}(`, `export function ${name}<`, `function ${name}(`, `function ${name}<`]
+  try {
+    const ast = parse(source, {
+      sourceType: 'module',
+      plugins: ['typescript', 'jsx'],
+    });
+    const queue = [ast];
+    while (queue.length > 0) {
+      const node = queue.shift();
+      if (node === null || typeof node !== 'object') continue;
+      if (node.type === 'FunctionDeclaration' && node.id?.name === name && typeof node.start === 'number' && typeof node.end === 'number') {
+        return source.slice(node.start, node.end).replace(/^export\s+/u, '').trim();
+      }
+      for (const [key, value] of Object.entries(node)) {
+        if (key === 'loc' || key === 'start' || key === 'end' || key === 'extra') continue;
+        if (Array.isArray(value)) queue.push(...value);
+        else if (value !== null && typeof value === 'object') queue.push(value);
+      }
+    }
+  } catch {
+    /* Fall back to textual brace matching for non-standard fragments. */
+  }
+  const candidates = [
+    `export async function ${name}(`,
+    `export async function ${name}<`,
+    `export function ${name}(`,
+    `export function ${name}<`,
+    `async function ${name}(`,
+    `async function ${name}<`,
+    `function ${name}(`,
+    `function ${name}<`,
+  ]
     .map((marker) => source.indexOf(marker))
     .filter((index) => index >= 0);
   const start = candidates.length === 0 ? -1 : Math.min(...candidates);

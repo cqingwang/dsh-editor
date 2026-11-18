@@ -5,14 +5,16 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = (readFileSync(join(root, 'tests/fixtures/context-menu.legacy.js'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
+const source = [
+  readFileSync(join(root, 'src/client/components/ui/Menu.tsx'), 'utf8'),
+  readFileSync(join(root, 'src/client/components/project/project-options-menu.ts'), 'utf8'),
+  readFileSync(join(root, 'src/client/locales.ts'), 'utf8'),
+].join('\n');
 
 function projectOptions() {
-  const start = source.indexOf("title: t('editor.options'),");
+  const start = source.indexOf('export function projectOptionsMenu(');
   assert.notEqual(start, -1);
-  const end = source.indexOf('onCreateChange:', start);
-  assert.notEqual(end, -1);
-  return source.slice(start, end);
+  return source.slice(start);
 }
 
 test('Project Behavior follows IDEA action order', () => {
@@ -44,11 +46,11 @@ test('Project Appearance uses IDEA Show and Sort By sections', () => {
 });
 
 test('menu section labels are non-interactive', () => {
-  const start = source.indexOf('function ContextMenu(');
-  const menu = source.slice(start, source.indexOf('/**\n     * A tool-window splitter', start));
+  const start = source.indexOf('export function ContextMenu(');
+  const menu = source.slice(start, source.indexOf('export { ContextMenu };', start));
   assert.match(menu, /item\.kind === 'section'/);
   assert.match(menu, /child\.kind === 'section'/);
-  assert.match(menu, /role: 'presentation'/);
+  assert.match(menu, /role='presentation'/);
   assert.match(menu, /styles\.menuSectionLabel/);
 });
 

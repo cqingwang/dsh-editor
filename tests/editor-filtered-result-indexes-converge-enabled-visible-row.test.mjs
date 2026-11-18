@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = (await readFile(new URL('./fixtures/search-everywhere.legacy.js', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
+const source = (await readFile(new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
 
 function extractSource(name) {
   const marker = `    function ${name}(`;
@@ -42,14 +42,14 @@ test('filtered result indexes converge to an enabled visible row', () => {
 });
 
 test('Search Everywhere synchronizes a stale index after filters change', () => {
-  const dialog = source.slice(source.indexOf('function SearchEverywhere('), source.indexOf('function FindToolWindow('));
+  const dialog = source.slice(source.indexOf('function SearchEverywhere('), source.indexOf('function FindToolWindowView('));
   assert.match(dialog, /const activeIndex = normalizeSearchResultIndex\(results, state\.index\)/);
   assert.match(dialog, /state\.index !== activeIndex/);
   assert.match(dialog, /onMove\(0, results\.length, activeIndex\)/);
 });
 
 test('normalized slash results keep disabled actions visible but guarded', () => {
-  const dialog = source.slice(source.indexOf('function SearchEverywhere('), source.indexOf('function FindToolWindow('));
+  const dialog = source.slice(source.indexOf('function SearchEverywhere('), source.indexOf('function FindToolWindowView('));
   assert.match(dialog, /rankSearchActions\(actions, effectiveQuery, recentCommands, \{/);
   assert.match(dialog, /searchFilters\.actions \? actionMatches/);
   assert.match(dialog, /searchFilters\.files \? fileMatches/);

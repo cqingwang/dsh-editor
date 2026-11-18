@@ -2,20 +2,20 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const client = (await readFile(new URL('./fixtures/search-everywhere.legacy.js', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
+const client = (await readFile(new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
 const searchEverywhere = client.slice(
   client.indexOf('function SearchEverywhere('),
-  client.indexOf('function FindToolWindow('),
+  client.indexOf('function FindToolWindowView('),
 );
 
 test('Search Everywhere error owns the only live announcement', () => {
   assert.match(
     searchEverywhere,
-    /const searchResultStatus = error !== null\s+\? ''\s+: textLoading/u,
+    /const searchResultStatus =\s+error !== null\s+\? ''\s+: textLoading/u,
   );
   assert.match(
     searchEverywhere,
-    /error !== null\s+\? React\.createElement\('div', \{ style: styles\.searchEverywhereError, role: 'alert' \}, error\)/u,
+    /error !== null \? \(\s*<div\s+style=\{styles\.searchEverywhereError\}\s+role='alert'>\s*\{error\}\s*<\/div>/u,
   );
 });
 

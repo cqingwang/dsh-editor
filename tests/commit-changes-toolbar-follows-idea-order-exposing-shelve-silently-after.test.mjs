@@ -2,11 +2,11 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = (await readFile(new URL('./fixtures/commit-panel.legacy.js', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
+const source = (await readFile(new URL('../src/client/components/commit/CommitPanel.tsx', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
 
 function commitPanel() {
   const start = source.indexOf('function CommitPanel(');
-  const end = source.indexOf('function NamePrompt(', start);
+  const end = source.indexOf('export { CommitPanel };', start);
   assert.notEqual(start, -1);
   assert.notEqual(end, -1);
   return source.slice(start, end);
@@ -23,13 +23,16 @@ test('Changes toolbar follows IDEA order by exposing Shelve Silently after Show 
   assert.ok(refresh >= 0 && rollback > refresh && showDiff > rollback);
   assert.ok(shelve > showDiff && combinedDiff > shelve);
   assert.match(panel, /id: 'shelve',[\s\S]*?icon: 'stash',[\s\S]*?label: t\('editor\.shelve'\)/);
-  assert.match(panel, /id: 'shelve',[\s\S]*?disabled: busy \|\| onShelve === undefined/);
+  assert.match(panel, /id: 'shelve',[\s\S]*?disabled: busy \|\| onShelve === undefined/u);
 });
 
 test('Shelve toolbar action reuses the existing shelf menu and selection semantics', () => {
   const panel = commitPanel();
 
   assert.match(panel, /onShelve,/);
-  assert.match(panel, /onShelve\?\.\(rect === undefined \? \{ x: 240, y: 120 \} : \{ x: rect\.left, y: rect\.bottom \+ 4 \}\)/);
+  assert.match(
+    panel,
+    /onShelve\?\.\(\s+rect === undefined\s+\? \{\s+x: 240,\s+y: 120,\s+\}\s+: \{\s+x: rect\.left,\s+y: rect\.bottom \+ 4,\s+\},?\s+\);/u,
+  );
   assert.match(source, /onShelve: \(position\) => void openShelveMenu\(position\)/);
 });

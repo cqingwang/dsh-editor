@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = (await readFile(new URL('./fixtures/commit-panel.legacy.js', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
+const source = (await readFile(new URL('../src/client/components/commit/CommitPanel.tsx', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
 
 function extract(name) {
   const marker = `    function ${name}(`;
@@ -32,14 +32,14 @@ test('both IDEA tool windows keep the supported 200px minimum', () => {
 });
 
 test('Commit keeps the IDEA trailing toolbar controls direct at minimum width', () => {
-  const start = source.indexOf('React.createElement(PanelToolbar, {', source.indexOf('function CommitPanel('));
+  const start = source.indexOf('<PanelToolbar', source.indexOf('function CommitPanel('));
   const toolbar = source.slice(start, source.indexOf('historyMenu === null', start));
   assert.match(toolbar, /id: 'options'[\s\S]*?id: 'refresh'[\s\S]*?id: 'hide'/);
 });
 
 test('Changes keeps Refresh and View Options pinned before compact overflow', () => {
-  const commit = source.slice(source.indexOf('function CommitPanel('), source.indexOf('function groupActionMenuItems('));
-  assert.match(commit, /id: 'refresh', group: 'refresh',[\s\S]*?pinned: true/);
+  const commit = source.slice(source.indexOf('function CommitPanel('), source.indexOf('export { CommitPanel };'));
+  assert.match(commit, /id: 'refresh',[\s\S]*?group: 'refresh',[\s\S]*?pinned: true/u);
   assert.match(commit, /id: 'viewOptions',[\s\S]*?pinned: true/);
-  assert.match(commit, /<CommitPanel|React\.createElement\(CompactActionBar, \{/);
+  assert.match(commit, /<CompactActionBar/);
 });

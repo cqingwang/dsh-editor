@@ -76,7 +76,7 @@ test('log clamps a bad skip to zero instead of failing', async (t) => {
 });
 
 test('commit asks before leaving unversioned files behind', () => {
-  const client = read('tests/fixtures/project-panel.legacy.js') + '\n' + read('lib/client.js');
+  const client = read('src/client/components/project/ProjectPanel.tsx') + '\n' + read('lib/client.js');
   assert.match(
     client,
     /const untrackedLeft = \(git\?\.changes \?\? \[\]\)\.filter\(\(change\) => change\.status === '\?\?' && !paths\.includes\(change\.path\)\);/,
@@ -87,7 +87,7 @@ test('commit asks before leaving unversioned files behind', () => {
 });
 
 test('the log pages in on scroll and shows its end', () => {
-  const client = read('tests/fixtures/project-panel.legacy.js') + '\n' + read('lib/client.js');
+  const client = read('src/client/components/project/ProjectPanel.tsx') + '\n' + read('lib/client.js');
   assert.match(client, /const LOG_PAGE = 60;/);
   assert.match(client, /op: 'log', limit: LOG_PAGE, skip: commits\.length, author: logAuthorRef\.current/);
   assert.match(client, /if \(page\.length < LOG_PAGE\) setLogExhausted\(true\);/);
@@ -100,21 +100,21 @@ test('the log pages in on scroll and shows its end', () => {
 });
 
 test('project tree filters in place on ⌘F and keeps ancestors of a hit', () => {
-  const client = read('tests/fixtures/project-panel.legacy.js') + '\n' + read('lib/client.js');
+  const client = read('src/client/components/project/ProjectPanel.tsx') + '\n' + read('src/client/terminal.ts');
   assert.match(client, /function filterTreeRows\(rows, query\) \{/);
   assert.match(client, /for \(const path of \[\.\.\.keep\]\) \{/);
   assert.match(client, /const localRows = React\.useMemo\(\(\) => filterTreeRows\(rows, search\), \[rows, search\]\);/);
-  assert.match(client, /searchEntryRows\(searchEntries, projectName, compactDirectories\)/);
+  assert.match(client, /searchEntryRows\(searchEntries, projectName, compactDirectories, sortMode, manualOrder\)/);
   assert.match(client, /visibleRows\.map\(\(row, rowIndex\) => \{/);
   /* The editor keeps ⌘F while its textarea has focus. */
   assert.match(client, /if \(document\.activeElement\?\.closest\('\.monaco-editor'\) != null\) return;/);
 });
 
 test('a collapsed directory still shows the strongest descendant state', () => {
-  const client = read('tests/fixtures/project-panel.legacy.js') + '\n' + read('lib/client.js');
+  const client = read('src/client/components/project/ProjectPanel.tsx') + '\n' + read('src/client/terminal.ts');
   /* Round 129 moved the precedence into `directoryTint` and dropped the letter: a
      changed folder is tinted on its name, never stamped with M/A/D. */
-  assert.match(client, /const directoryStatus = \(path\) => directoryTint\(/);
+  assert.match(client, /const directoryStatus = \(path\) =>\s+directoryTint\(/);
   assert.match(client, /return \{ color: '#cf222e' \};/);
   assert.match(client, /return \{ color: '#8250df' \};/);
   /* The tint is computed from paths, so expansion state never gates it. */
@@ -122,7 +122,7 @@ test('a collapsed directory still shows the strongest descendant state', () => {
 });
 
 test('terminal clipboard shortcuts use the localized multi-line prompt', () => {
-  const client = read('tests/fixtures/project-panel.legacy.js') + '\n' + read('lib/client.js');
+  const client = read('src/client/components/project/ProjectPanel.tsx') + '\n' + read('lib/client.js');
   assert.match(client, /t\('editor\.terminalPasteConfirm', \{ count: lines \}\)/);
   assert.match(client, /event\.key\.toLowerCase\(\) === 'c' \|\| event\.key\.toLowerCase\(\) === 'v'/);
   assert.match(client, /async function pasteIntoTerminal\(\s*emulator,\s*active,\s*t,\s*onRefused,\s*onPasted\s*\)/u);
@@ -131,7 +131,7 @@ test('terminal clipboard shortcuts use the localized multi-line prompt', () => {
 });
 
 test('⌘F opens exactly one find surface, decided by focus', () => {
-  const client = read('tests/fixtures/project-panel.legacy.js') + '\n' + read('lib/client.js');
+  const client = read('src/client/components/project/ProjectPanel.tsx') + '\n' + read('lib/client.js');
   /* The editor's own keybinding must not fire while another surface owns focus. */
   assert.match(client, /if \(document\.activeElement\?\.closest\('\.monaco-editor'\) == null\) return;/);
   /* The global find listener bows out for the terminal and for the Project tree. */
@@ -143,7 +143,7 @@ test('⌘F opens exactly one find surface, decided by focus', () => {
 });
 
 test('a short first page already marks the history as ended', () => {
-  const client = read('tests/fixtures/project-panel.legacy.js') + '\n' + read('lib/client.js');
+  const client = read('src/client/components/project/ProjectPanel.tsx') + '\n' + read('lib/client.js');
   /* Otherwise the "end of history" row never appears for small repositories. */
   assert.match(client, /setLogExhausted\(firstPage\.length < LOG_PAGE\);/);
 });

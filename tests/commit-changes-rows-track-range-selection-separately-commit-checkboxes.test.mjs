@@ -5,14 +5,16 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = (readFileSync(join(root, 'tests/fixtures/commit-panel.legacy.js'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
+const workspaceSource = readFileSync(join(root, 'src/client/editor-workspace.tsx'), 'utf8');
+const panelSource = readFileSync(join(root, 'src/client/components/commit/CommitPanel.tsx'), 'utf8');
+const source = workspaceSource + '\n' + panelSource;
 
 function workspace() {
-  return source.slice(source.indexOf('function EditorWorkspace('), source.indexOf('function clampChatPercent('));
+  return workspaceSource;
 }
 
 function commitPanel() {
-  return source.slice(source.indexOf('function CommitPanel('), source.indexOf('function NamePrompt('));
+  return panelSource;
 }
 
 test('Changes rows track a range selection separately from commit checkboxes', () => {
@@ -22,7 +24,7 @@ test('Changes rows track a range selection separately from commit checkboxes', (
   assert.match(panel, /dsh-editor-commit-row-range/);
   assert.match(panel, /shift: event\.shiftKey/);
   assert.match(panel, /toggle: event\.metaKey \|\| event\.ctrlKey/);
-  assert.match(panel, /onChange: \(\) => onTogglePath\(change\.path\)/);
+  assert.match(panel, /onChange=\{\(\) => onTogglePath\(change\.path\)\}/);
 });
 
 test('Shift and Command/Ctrl clicks extend or toggle the visible row range', () => {
@@ -40,7 +42,10 @@ test('Shift and Command/Ctrl clicks extend or toggle the visible row range', () 
 test('the context menu acts on all selected rows, not just the clicked one', () => {
   const body = workspace();
   const menu = body.slice(body.indexOf('const buildChangeMenu = React.useCallback('), body.indexOf('Context menu for one directory node'));
-  assert.match(menu, /const range = payload\.selectedChanges instanceof Set && payload\.selectedChanges\.size > 0/);
+  assert.match(
+    menu,
+    /const range =\s+payload\.selectedChanges instanceof Set && payload\.selectedChanges\.size > 0/u,
+  );
   assert.match(menu, /const paths = \[\.\.\.new Set\(selected\.map\(\(entry\) => entry\.path\)\)\]/);
   assert.match(menu, /run: \(\) => void restage\(removalOnly \? removablePaths : paths, allStaged\)/);
   assert.match(menu, /run: \(\) => void rollback\(paths, allUnversioned \? \{ unversioned: true \} : undefined\)/);
@@ -66,10 +71,13 @@ test('rollback keeps checkboxes and selects the nearest surviving Changes row', 
   assert.match(reconcile, /const selectedAfterRemoval = keysInVisualOrder\.find/);
   assert.match(reconcile, /const candidate = keysInVisualOrder\[Math\.min\(firstRemoved \+ offset/);
   assert.doesNotMatch(reconcile, /setCommitSelection/);
-  const rollback = body.slice(body.indexOf('const rollback = React.useCallback('), body.indexOf('const buildChangeMenu = React.useCallback('));
+  const rollback = body.slice(body.indexOf('const rollback ='), body.indexOf('const buildChangeMenu = React.useCallback('));
   assert.match(rollback, /setCommitSelection\(\(current\) =>/);
   assert.match(rollback, /reconcileChangeSelection\(value\?\.changes \?\? \[\], pickedKeys\)/);
-  assert.match(rollback, /\.filter\(\(entry\) => stagedOnly \? entry\.staged === true : entry\.staged !== true\)/);
+  assert.match(
+    rollback,
+    /\.filter\(\(entry\) => \(stagedOnly \? entry\.staged === true : entry\.staged !== true\)\)/u,
+  );
 });
 
 test('nearestRowAfterRemoval follows visual order, including staged and unstaged sides', () => {

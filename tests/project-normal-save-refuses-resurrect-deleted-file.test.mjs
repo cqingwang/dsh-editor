@@ -50,9 +50,13 @@ test('creating still refuses a path outside the workspace', async (t) => {
 });
 
 test('the recreate button asks the host to create, not to overwrite', () => {
-  const client = read('lib/client.js');
-  assert.match(client, /t\('editor\.recreateFile'\)/);
-  assert.match(client, /op: 'write', path, content: model\.getValue\(\), force: true, create: true/);
+  const conflictBars = read('src/client/components/editor/EditorConflictBars.tsx');
+  const workspace = read('src/client/editor-workspace.tsx');
+  assert.match(conflictBars, /t\('editor\.recreateFile'\)/);
+  assert.match(
+    workspace,
+    /op: 'write',[\s\S]*?path,[\s\S]*?content: model\.getValue\(\),[\s\S]*?force: true,[\s\S]*?create: true,/,
+  );
   const host = read('lib/index.js');
   assert.match(host, /if \(create !== true\) throw new Error\('the file no longer exists on disk'\);/);
   assert.match(host, /await mkdir\(dirname\(file\), \{ recursive: true \}\);/);

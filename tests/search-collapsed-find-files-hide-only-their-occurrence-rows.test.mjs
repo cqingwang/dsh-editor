@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) + '\n' + (await readFile(new URL('./fixtures/find-tool.legacy.js', import.meta.url), 'utf8'));
+const source = (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) + '\n' + (await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8'));
 
 function extractSource(name) {
   const marker = `    function ${name}(`;
@@ -50,7 +50,7 @@ test('collapsed find files hide only their occurrence rows', () => {
 });
 
 test('Find tool window exposes group collapse, expand/collapse all and source preview', () => {
-  const dialog = source.slice(source.indexOf('function FindToolWindow('), source.indexOf('/* QUICK_OPEN_BOUNDARY */'));
+  const dialog = source.slice(source.lastIndexOf('function FindToolWindowView('), source.indexOf('const FindToolWindow = FindToolWindowView;', source.lastIndexOf('function FindToolWindowView(')));
   assert.match(dialog, /const \[collapsedFiles, setCollapsedFiles\] = React\.useState/);
   assert.match(dialog, /const \[previewOpen, setPreviewOpen\] = React\.useState/);
   assert.match(dialog, /findToolExpandFile/);
@@ -58,7 +58,7 @@ test('Find tool window exposes group collapse, expand/collapse all and source pr
   assert.match(dialog, /t\('editor\.expandAll'\)/);
   assert.match(dialog, /t\('editor\.collapseAll'\)/);
   assert.match(dialog, /t\('editor\.findToolPreviewSource'\)/);
-  assert.match(dialog, /'data-dsh-find-preview': ''/);
-  assert.match(dialog, /callFs\(\{ op: 'read', path: active\.path \}, \{ signal: previewAbort\.signal \}\)/);
+  assert.match(dialog, /data-dsh-find-preview=''/);
+  assert.match(dialog, /callFs\(\s+\{\s+op: 'read',\s+path: active\.path,\s+\},\s+\{\s+signal: previewAbort\.signal,\s+\},\s+\)/u);
   assert.match(dialog, /searchEverywherePreviewWindow\(/);
 });

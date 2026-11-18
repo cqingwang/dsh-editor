@@ -3,25 +3,16 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
+import { loadTypeScriptFunction } from './ts-source.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = (readFileSync(join(root, 'tests/fixtures/project-panel.legacy.js'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
-
-function extractFunction(name) {
-  const start = source.indexOf(`function ${name}(`);
-  assert.notEqual(start, -1, `${name} is missing`);
-  const bodyStart = source.indexOf('{', start);
-  let depth = 0;
-  for (let index = bodyStart; index < source.length; index += 1) {
-    if (source[index] === '{') depth += 1;
-    if (source[index] === '}') depth -= 1;
-    if (depth === 0) return source.slice(start, index + 1);
-  }
-  assert.fail(`${name} has no closing brace`);
-}
+const projectPanelSource = readFileSync(join(root, 'src/client/components/project/ProjectPanel.tsx'), 'utf8');
+const workspaceSource = readFileSync(join(root, 'src/client/editor-workspace.tsx'), 'utf8');
+const coreSource = readFileSync(join(root, 'src/client/editor-core.ts'), 'utf8');
+const source = [projectPanelSource, workspaceSource, coreSource].join('\n');
+const expandDirectorySubtrees = loadTypeScriptFunction(coreSource, 'expandDirectorySubtrees');
 
 test('recursive expansion loads every descendant directory', async () => {
-  const fn = new Function(`async ${extractFunction('expandDirectorySubtrees')}; return expandDirectorySubtrees;`)();
   const listings = {
     a: [
       { path: 'a/b', kind: 'directory' },
@@ -33,7 +24,7 @@ test('recursive expansion loads every descendant directory', async () => {
     'a/empty': [],
   };
   const calls = [];
-  const result = await fn(
+  const result = await expandDirectorySubtrees(
     ['a'],
     { expanded: new Set(['']), children: {} },
     async (path) => {
@@ -48,9 +39,8 @@ test('recursive expansion loads every descendant directory', async () => {
 });
 
 test('multiple starts share one traversal, ignore duplicates and keep failed paths absent', async () => {
-  const fn = new Function(`async ${extractFunction('expandDirectorySubtrees')}; return expandDirectorySubtrees;`)();
   const calls = [];
-  const result = await fn(
+  const result = await expandDirectorySubtrees(
     ['a', 'a', 'a/b', 'missing'],
     { expanded: new Set(), children: { a: [{ path: 'a/b', kind: 'directory' }] } },
     async (path) => {
@@ -68,8 +58,7 @@ test('multiple starts share one traversal, ignore duplicates and keep failed pat
 });
 
 test('recursive expansion stops at the configured safety bound', async () => {
-  const fn = new Function(`async ${extractFunction('expandDirectorySubtrees')}; return expandDirectorySubtrees;`)();
-  const result = await fn(
+  const result = await expandDirectorySubtrees(
     ['d0'],
     { expanded: new Set(), children: {} },
     async (path) => {
@@ -84,9 +73,12 @@ test('recursive expansion stops at the configured safety bound', async () => {
 });
 
 test('Expand Selected follows IDEA and acts on every selected path', () => {
-  const panel = source.slice(source.indexOf('function ProjectPanel({'), source.indexOf('/**\n     * IDEA-style context menu'));
+  const panel = projectPanelSource;
   assert.match(panel, /disabled: !projectCanExpandSelection\(rows, selection\)/);
-  const wiring = source.slice(source.indexOf('onExpandSelected:'), source.indexOf('onExpandAll: expandAll,'));
+  const wiring = workspaceSource.slice(
+    workspaceSource.indexOf('onExpandSelected='),
+    workspaceSource.indexOf('onExpandAll={expandAll}'),
+  );
   assert.match(wiring, /void expandSelectedTree\(\)/);
   assert.match(source, /const expandSelectedTree = React\.useCallback\(/);
   assert.match(source, /\[\.\.\.selection\]/);
@@ -95,7 +87,10 @@ test('Expand Selected follows IDEA and acts on every selected path', () => {
 });
 
 test('Expand All reuses the same recursive traversal', () => {
-  const expandAll = source.slice(source.indexOf('const expandAll = React.useCallback('), source.indexOf('/* Clear every expansion state. */'));
+  const expandAll = workspaceSource.slice(
+    workspaceSource.indexOf('const expandAll ='),
+    workspaceSource.indexOf('/* Clear every expansion state. */'),
+  );
   assert.match(expandAll, /expandSubtrees\(/);
   assert.match(expandAll, /entries\.filter\(\(entry\) => entry\.kind === 'directory'\)/);
   assert.doesNotMatch(expandAll, /while \(queue\.length > 0/);

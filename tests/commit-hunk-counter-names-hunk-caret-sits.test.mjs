@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = (readFileSync(join(root, 'tests/fixtures/diff-preview.legacy.js'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
+const source = (readFileSync(join(root, 'src/client/components/diff/DiffPreview.tsx'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
 
 /** Evaluate one shipping helper by brace balance. */
 function load(name) {
@@ -91,7 +91,7 @@ test('an unchanged file reports no hunks, and bad input does not throw', () => {
 });
 
 test('the diff toolbar walks hunks with the buttons and F7', () => {
-  const body = source.slice(source.indexOf('function DiffPreview('), source.indexOf('* Commit tool window: grouped'));
+  const body = source.slice(source.indexOf('function DiffPreview('), source.indexOf('export { DiffPreview };'));
   assert.match(body, /diff\.goToDiff\(direction === 'previous' \? 'previous' : 'next'\)/);
   assert.match(body, /diff\.onDidUpdateDiff/);
   assert.match(body, /diff\.revealFirstDiff\(\)/);

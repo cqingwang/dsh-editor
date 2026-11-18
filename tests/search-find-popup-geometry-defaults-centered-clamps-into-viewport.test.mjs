@@ -5,7 +5,9 @@ import test from 'node:test';
 const source =
   (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) +
   '\n' +
-  (await readFile(new URL('./fixtures/find-tool.legacy.js', import.meta.url), 'utf8'));
+  (await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8')) +
+  '\n' +
+  (await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8'));
 const findToolPopupSource = await readFile(
   new URL('../src/client/components/search/FindToolPopup.tsx', import.meta.url),
   'utf8',
@@ -97,12 +99,12 @@ test('The floating wrapper uses persisted geometry and exposes move/resize handl
   assert.match(findToolPopupSource, /top: geometry\.y/u);
   assert.match(findToolPopupSource, /width: geometry\.width/u);
   assert.match(findToolPopupSource, /height: geometry\.height/u);
-  assert.match(source, /React\.createElement\(FindToolPopup, \{/u);
+  assert.match(source, /<FindToolPopup/u);
   assert.match(source, /geometry: findToolPopupGeometry/u);
-  assert.match(source, /onPopupDragStart: startFindPopupInteraction/u);
-  assert.match(source, /onPopupResizeStart: \(event, direction\) => startFindPopupInteraction\(event, direction\)/u);
-  assert.match(source, /'data-dsh-find-popup-resize': direction/u);
+  assert.match(source, /onPopupDragStart=\{startFindPopupInteraction\}/u);
+  assert.match(source, /onPopupResizeStart=\{\(event, direction\) => startFindPopupInteraction\(event, direction\)\}/u);
+  assert.match(source, /data-dsh-find-popup-resize=\{direction\}/u);
   assert.match(source, /const FIND_POPUP_RESIZE_DIRECTIONS = \['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'\]/u);
-  assert.match(source, /onPointerDown: floating/u);
+  assert.match(source, /onPointerDown=\{\s+floating\s+\?/u);
   assert.match(source, /closest\('button, input, textarea, select, a, \[role="menuitem"\]'\)/u);
 });

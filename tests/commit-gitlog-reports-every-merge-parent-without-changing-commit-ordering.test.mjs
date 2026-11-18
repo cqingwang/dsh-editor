@@ -4,6 +4,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
+import { loadTypeScriptFunction } from './ts-source.mjs';
 
 import { gitLog } from '../lib/index.js';
 
@@ -32,19 +33,6 @@ async function mergeFixture() {
   };
 }
 
-function extractFunction(source, name) {
-  const start = source.indexOf(`function ${name}(`);
-  assert.notEqual(start, -1, `${name} is missing`);
-  const bodyStart = source.indexOf('{', start);
-  let depth = 0;
-  for (let index = bodyStart; index < source.length; index += 1) {
-    if (source[index] === '{') depth += 1;
-    if (source[index] === '}') depth -= 1;
-    if (depth === 0) return source.slice(start, index + 1);
-  }
-  assert.fail(`${name} has no closing brace`);
-}
-
 test('gitLog reports every merge parent without changing commit ordering', async (t) => {
   const { dir, cleanup } = await mergeFixture();
   t.after(cleanup);
@@ -56,8 +44,8 @@ test('gitLog reports every merge parent without changing commit ordering', async
 });
 
 test('commitRelationTargets finds loaded parents, children and merge branches', async () => {
-  const client = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
-  const fn = new Function(`${extractFunction(client, 'commitRelationTargets')}; return commitRelationTargets;`)();
+  const client = await readFile(new URL('../src/client/find-tool.ts', import.meta.url), 'utf8');
+  const fn = loadTypeScriptFunction(client, 'commitRelationTargets');
   const entries = [
     { hash: 'merge', parents: ['main', 'side'], subject: 'merge' },
     { hash: 'main', parents: ['root'], subject: 'main' },
@@ -72,9 +60,10 @@ test('commitRelationTargets finds loaded parents, children and merge branches', 
 });
 
 test('Relation navigation chooses the first visible target for arrow-key actions', async () => {
-  const client = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+  const source = await readFile(new URL('../src/client/find-tool.ts', import.meta.url), 'utf8');
+  const commitRelationTargets = loadTypeScriptFunction(source, 'commitRelationTargets');
   const fn = new Function(
-    `${extractFunction(client, 'commitRelationTargets')}; ${extractFunction(client, 'commitRelationTarget')}; return commitRelationTarget;`,
+    `${commitRelationTargets.toString()}; ${loadTypeScriptFunction(source, 'commitRelationTarget').toString()}; return commitRelationTarget;`,
   )();
   const entries = [
     { hash: 'child', parents: ['middle'] },
@@ -89,11 +78,10 @@ test('Relation navigation chooses the first visible target for arrow-key actions
 });
 
 test('Commit Log exposes parent and child actions and wires IDEA arrow keys', async () => {
-  const client = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+  const client = await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8');
   const host = await readFile(new URL('../lib/index.js', import.meta.url), 'utf8');
-  const menuStart = client.indexOf('const buildLogMenu = React.useCallback');
-  const menuEnd = client.indexOf('/* Rollback discards edits', menuStart);
-  const menu = client.slice(menuStart, menuEnd);
+  const menu = await readFile(new URL('../src/client/components/commit/log-menu.ts', import.meta.url), 'utf8');
+  const locales = await readFile(new URL('../src/client/locales.ts', import.meta.url), 'utf8');
 
   assert.match(menu, /id: 'goToParentCommit'/);
   assert.match(menu, /id: 'goToChildCommit'/);
@@ -103,10 +91,10 @@ test('Commit Log exposes parent and child actions and wires IDEA arrow keys', as
   assert.match(menu, /shortcut: '←'/);
   assert.match(menu, /disabled: parentTargets\.length === 0/);
   assert.match(menu, /disabled: childTargets\.length === 0/);
-  assert.match(client, /goToParentCommitAction: '转到父提交'/);
-  assert.match(client, /goToChildCommitAction: '转到子提交'/);
-  assert.match(client, /goToParentCommitAction: 'Go to Parent Commit'/);
-  assert.match(client, /goToChildCommitAction: 'Go to Child Commit'/);
+  assert.match(locales, /goToParentCommitAction: '转到父提交'/);
+  assert.match(locales, /goToChildCommitAction: '转到子提交'/);
+  assert.match(locales, /goToParentCommitAction: 'Go to Parent Commit'/);
+  assert.match(locales, /goToChildCommitAction: 'Go to Child Commit'/);
   const graphKeys = client.slice(
     client.indexOf('commitLogGraphListCommand('),
     client.indexOf("if (command?.type === 'move')", client.indexOf('commitLogGraphListCommand(')),

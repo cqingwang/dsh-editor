@@ -2,10 +2,10 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) + '\n' + (await readFile(new URL('./fixtures/find-tool.legacy.js', import.meta.url), 'utf8'));
+const source = (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) + '\n' + (await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8'));
 const replaceAll = source.slice(source.indexOf('const replaceInFindTool = React.useCallback'), source.indexOf('const replaceFindToolOccurrence = React.useCallback'));
 const replaceOne = source.slice(source.indexOf('const replaceFindToolOccurrence = React.useCallback'), source.indexOf('/**', source.indexOf('const replaceFindToolOccurrence = React.useCallback') + 100));
-const component = source.slice(source.indexOf('function FindToolWindow('), source.indexOf('/* QUICK_OPEN_BOUNDARY */'));
+const component = source.slice(source.indexOf('function FindToolWindowView('), source.indexOf('const FindToolWindow = FindToolWindowView;'));
 
 test('Replace All requests replacement-field focus after dirty or mtime failures', () => {
   assert.match(replaceAll, /replaceFocusRequest: \(current\.replaceFocusRequest \?\? 0\) \+ 1/);

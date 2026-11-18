@@ -69,7 +69,7 @@ test('an invalid commit is refused before Git writes anything', async (t) => {
 });
 
 test('commit patch download names keep the hash and sanitize the subject', async () => {
-  const client = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+  const client = await readFile(new URL('../src/client/editor-core.ts', import.meta.url), 'utf8');
   const start = client.indexOf('function commitPatchDownloadName(');
   assert.notEqual(start, -1, 'commitPatchDownloadName is missing');
   const bodyStart = client.indexOf('{', start);
@@ -95,17 +95,16 @@ test('commit patch download names keep the hash and sanitize the subject', async
 });
 
 test('Commit Log exposes Create Patch from Commit through the host route', async () => {
-  const client = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+  const client = await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8');
   const host = await readFile(new URL('../lib/index.js', import.meta.url), 'utf8');
-  const menuStart = client.indexOf('const buildLogMenu = React.useCallback');
-  const menuEnd = client.indexOf('/* Rollback discards edits', menuStart);
-  const menu = client.slice(menuStart, menuEnd);
+  const menu = await readFile(new URL('../src/client/components/commit/log-menu.ts', import.meta.url), 'utf8');
+  const locales = await readFile(new URL('../src/client/locales.ts', import.meta.url), 'utf8');
 
   assert.match(menu, /id: 'createCommitPatch'/);
   assert.match(menu, /label: t\('editor\.createPatchFromCommitAction'\)/);
   assert.match(menu, /void createCommitPatch\(commit\.hash\)/);
-  assert.match(client, /createPatchFromCommitAction: '从提交创建补丁…'/);
-  assert.match(client, /createPatchFromCommitAction: 'Create Patch from Commit…'/);
+  assert.match(locales, /createPatchFromCommitAction: '从提交创建补丁…'/);
+  assert.match(locales, /createPatchFromCommitAction: 'Create Patch from Commit…'/);
   assert.match(client, /callGit\(\{ op: 'commitPatch', hash \}\)/);
   assert.match(client, /anchor\.download = downloadName/);
   assert.match(host, /async function gitCommitPatch\(/);

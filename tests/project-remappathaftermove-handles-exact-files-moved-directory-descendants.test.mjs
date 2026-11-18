@@ -3,30 +3,19 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
+import { loadTypeScriptFunction } from './ts-source.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = readFileSync(join(root, 'lib/client.js'), 'utf8');
-
-function extractFunction(name) {
-  const start = source.indexOf(`function ${name}(`);
-  assert.notEqual(start, -1, `${name} is missing`);
-  const bodyStart = source.indexOf('{', start);
-  let depth = 0;
-  for (let index = bodyStart; index < source.length; index += 1) {
-    if (source[index] === '{') depth += 1;
-    if (source[index] === '}') depth -= 1;
-    if (depth === 0) return source.slice(start, index + 1);
-  }
-  assert.fail(`${name} has no closing brace`);
-}
+const source = readFileSync(join(root, 'src/client/editor-workspace.tsx'), 'utf8');
+const coreSource = readFileSync(join(root, 'src/client/editor-core.ts'), 'utf8');
+const remapPathAfterMove = loadTypeScriptFunction(coreSource, 'remapPathAfterMove');
 
 test('remapPathAfterMove handles exact files and moved directory descendants', () => {
-  const fn = new Function(`${extractFunction('remapPathAfterMove')}; return remapPathAfterMove;`)();
-  assert.equal(fn('note.txt', [['note.txt', 'renamed.txt']]), 'renamed.txt');
-  assert.equal(fn('src/deep/file.ts', [['src', 'lib']]), 'lib/deep/file.ts');
-  assert.equal(fn('src2/file.ts', [['src', 'lib']]), 'src2/file.ts');
-  assert.equal(fn('keep.txt', []), 'keep.txt');
-  assert.equal(fn(null, [['a', 'b']]), null);
+  assert.equal(remapPathAfterMove('note.txt', [['note.txt', 'renamed.txt']]), 'renamed.txt');
+  assert.equal(remapPathAfterMove('src/deep/file.ts', [['src', 'lib']]), 'lib/deep/file.ts');
+  assert.equal(remapPathAfterMove('src2/file.ts', [['src', 'lib']]), 'src2/file.ts');
+  assert.equal(remapPathAfterMove('keep.txt', []), 'keep.txt');
+  assert.equal(remapPathAfterMove(null, [['a', 'b']]), null);
 });
 
 test('rename and move share one editor-path remap callback', () => {
@@ -35,7 +24,7 @@ test('rename and move share one editor-path remap callback', () => {
   const rename = source.slice(renameStart, source.indexOf('const selectActivity', renameStart));
   assert.match(rename, /remapEditorPaths\(\[\[renameState\.path, next\]\]\)/);
 
-  const moveStart = source.indexOf('const moveEntry = React.useCallback(');
+  const moveStart = source.indexOf('const moveEntry =');
   const move = source.slice(moveStart, source.indexOf('const resolveConflict', moveStart));
   assert.match(move, /remapEditorPaths\(entries\)/);
 });

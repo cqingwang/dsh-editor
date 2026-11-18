@@ -6,7 +6,8 @@ import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const screenSource = readFileSync(join(root, 'src/client/components/terminal/TerminalScreen.tsx'), 'utf8');
-const source = `${readFileSync(join(root, 'src/client/components/terminal/TerminalPanel.tsx'), 'utf8')}\n${screenSource}\n${readFileSync(join(root, 'lib/client.js'), 'utf8')}`;
+const workspaceSource = readFileSync(join(root, 'src/client/editor-workspace.tsx'), 'utf8');
+const source = `${readFileSync(join(root, 'src/client/components/terminal/TerminalPanel.tsx'), 'utf8')}\n${screenSource}\n${workspaceSource}`;
 
 function slice(from, to) {
   const start = source.indexOf(from);
@@ -38,20 +39,26 @@ test('Alt+F12 records the originating surface and restores it on close', () => {
   assert.match(origin, /previous instanceof HTMLElement && previous\.isConnected/);
   assert.match(origin, /previous\.focus\(\)/);
   assert.match(origin, /else editorRef\.current\?\.focus\(\);/);
-  assert.match(origin, /terminalReturnFocusRef\.current = current !== null/);
+  assert.match(origin, /terminalReturnFocusRef\.current =\s+current !== null/);
   assert.match(origin, /current\.closest\('\[data-dsh-editor-terminal\]'\) === null/);
-  assert.match(toggle, /rememberTerminalOrigin\(\);\n\s+setTerminalOpen\(true\);/);
+  assert.match(toggle, /rememberTerminalOrigin\(\);[\s\S]*?setTerminalOpen\(true\);/);
   assert.match(toggle, /setTerminalFocusGeneration\(\(value\) => value \+ 1\);/);
-  assert.match(source, /terminalReturnFocusRef = React\.useRef\(null\);/);
-  assert.match(source, /const \[terminalFocusGeneration, setTerminalFocusGeneration\] = React\.useState\(0\);/);
-  assert.match(source, /focusGeneration: terminalFocusGeneration,/);
-  const keys = slice("if (event.altKey && !event.metaKey && !event.ctrlKey && event.key === 'F12')", "if (event.altKey && !event.metaKey && !event.ctrlKey && (event.key === '1'");
+  assert.match(source, /terminalReturnFocusRef =\s+React\.useRef\(null\);/);
+  assert.match(source, /const \[\s*terminalFocusGeneration,\s*setTerminalFocusGeneration,\s*\] = React\.useState\(0\);/);
+  assert.match(source, /focusGeneration=\{terminalFocusGeneration\}/);
+  const keys = slice(
+    "if (event.altKey && !event.metaKey && !event.ctrlKey && event.key === 'F12')",
+    'if (event.ctrlKey && event.shiftKey',
+  );
   assert.match(keys, /toggleTerminalDock\(\);/);
 });
 
 test('closing the dock through its own toolbar restores focus too', () => {
-  const panel = source.slice(source.indexOf('onRequestNew: () => setTerminalGeneration'), source.indexOf('onEditorTerminals: (list)'));
-  assert.match(panel, /onRequestClose: \(\) => \{/);
+  const panel = workspaceSource.slice(
+    workspaceSource.indexOf('onRequestNew={() => setTerminalGeneration'),
+    workspaceSource.indexOf('onEditorTerminals={(list)'),
+  );
+  assert.match(panel, /onRequestClose=\{\(\) => \{/);
   assert.match(panel, /setTerminalOpen\(false\);/);
   assert.match(panel, /terminalReturnFocusRef\.current = null;/);
   assert.match(panel, /else editorRef\.current\?\.focus\(\);/);

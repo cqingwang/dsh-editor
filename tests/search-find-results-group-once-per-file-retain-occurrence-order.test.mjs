@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = (await readFile(new URL('./fixtures/search-everywhere.legacy.js', import.meta.url), 'utf8') + '\n' + (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) + '\n' + (await readFile(new URL('./fixtures/find-tool.legacy.js', import.meta.url), 'utf8')));
+const source = (await readFile(new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url), 'utf8') + '\n' + (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) + '\n' + (await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8')));
 
 function extract(name) {
   const marker = `    function ${name}(`;
@@ -46,7 +46,7 @@ test('Search Everywhere can hand current results to the persistent Find tool win
 
 test('Find and Replace in Files use the IDEA-style search popup', () => {
   assert.match(source, /const openFindTool = React\.useCallback/);
-  assert.match(source, /function FindToolWindow\(/);
+  assert.match(source, /function FindToolWindowView\(/);
   assert.match(source, /'data-dsh-find-tool-window': ''/);
   assert.match(source, /data-dsh-find-tool-popup/);
   assert.match(source, /findToolPopup: \{[\s\S]*?position: 'fixed'/);
