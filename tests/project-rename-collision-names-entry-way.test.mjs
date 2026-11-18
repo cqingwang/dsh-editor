@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
+import { loadTypeScriptCallback } from './ts-source.mjs';
 
 import { workspaceFileOperations } from '../lib/index.js';
 
@@ -46,11 +47,27 @@ test('a rename into a fresh name still works', async (t) => {
 
 test('amend prefills subject and body, and only into an empty box', () => {
   const client = read('src/client/editor-workspace.tsx');
-  assert.match(client, /const preAmendMessage =\s+React\.useRef\(null\);/);
-  /* A half-written new message must never be replaced by the previous commit. */
-  assert.match(client, /if \(commitMessage\.trim\(\) !== ''\) return;/);
-  assert.match(client, /setCommitMessage\(body === '' \? previous\.subject : `\$\{previous\.subject\}\\n\\n\$\{body\}`\);/);
-  /* The previous commit object must actually carry a body for this to be useful. */
+  let message = '';
+  const preAmendMessage = { current: null };
+  const scope = {
+    setAmend: () => {},
+    preAmendMessage,
+    git: { lastCommit: { subject: 'Subject', body: 'Body\n' } },
+    setCommitMessage: (value) => {
+      message = value;
+    },
+    get commitMessage() {
+      return message;
+    },
+  };
+  const toggleAmend = loadTypeScriptCallback(client, 'toggleAmend', scope);
+  toggleAmend(true);
+  assert.equal(message, 'Subject\n\nBody');
+  assert.equal(preAmendMessage.current, '');
+  message = 'draft';
+  toggleAmend(true);
+  assert.equal(message, 'draft');
+
   const host = read('lib/index.js');
   assert.match(host, /return \{ hash, subject, body: body\.trim\(\) \};/);
 });

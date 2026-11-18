@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
+import { loadTypeScriptCallback } from './ts-source.mjs';
 
 import { gitGraph } from '../lib/index.js';
 
@@ -75,11 +76,32 @@ test('the log tab toggles into graph mode and back', () => {
   assert.match(row, /name=\{isMerge \? 'graphMerge' : 'graphNode'\}/);
 });
 
-test('the graph loads on demand, not with every log refresh', () => {
+test('the graph loads on demand, not with every log refresh', async () => {
   const client = read('src/client/editor-workspace.tsx');
-  const log = read('src/client/components/commit/CommitLog.tsx');
-  assert.match(client, /const loadGraph = React\.useCallback\(async \(branch, at\) => \{/);
-  assert.match(client, /op: 'graph',\s+limit: 80,\s+branch: branchValue,\s+at: atValue,/);
-  /* Toggling on triggers the load; the flat log never does. */
-  assert.match(log, /if \(next\.loadGraph\) \{[\s\S]*?onLoadGraph\?\.\(graph\?\.branch \?\? '', graph\?\.at \?\? ''\);/);
+  const requests = [];
+  let graph = null;
+  const loadGraph = loadTypeScriptCallback(client, 'loadGraph', {
+    callGit: async (request) => {
+      requests.push(request);
+      return {
+        entries: [{ hash: 'a' }],
+        branches: ['main'],
+        tags: ['v1'],
+        branchList: ['main'],
+        tagList: ['v1'],
+        head: 'a',
+        branch: 'main',
+        at: 'v1',
+      };
+    },
+    setLogLoading: () => {},
+    setGraph: (value) => {
+      graph = value;
+    },
+    setLogError: () => {},
+  });
+  await loadGraph('main', 'v1');
+  assert.deepEqual(requests, [{ op: 'graph', limit: 80, branch: 'main', at: 'v1' }]);
+  assert.deepEqual(graph.entries, [{ hash: 'a' }]);
+  assert.deepEqual(graph.branches, ['main']);
 });

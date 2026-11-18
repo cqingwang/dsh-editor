@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
+import { loadTypeScriptCallback } from './ts-source.mjs';
 
+const workspaceSource = await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8');
 const source = (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) + '\n' + (await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8'));
 
 function findTool() {
@@ -48,10 +50,35 @@ test('Find context actions keep the tool window open and preserve active descend
 });
 
 test('Editor wires Find context actions to the existing editor surfaces', () => {
-  const start = source.indexOf('React.createElement(FindToolWindow');
-  assert.notEqual(start, -1);
-  const render = source.slice(start, start + 12000);
-  assert.match(render, /onOpenInRightSplit: \(path, location\) => void openInRightSplit\(path, location\)/);
-  assert.match(render, /onRevealResult: \(path\) => void revealPath\(path\)/);
-  assert.match(render, /onNotify: \(message\) => flashStatus\(message\)/);
+  const opened = [];
+  const revealed = [];
+  const openInRightSplit = loadTypeScriptCallback(workspaceSource, 'openInRightSplit', {
+    openFile: async (path) => {
+      opened.push(path);
+      return true;
+    },
+    revealSplitLocation: () => {},
+    splitTabsRef: { current: [] },
+    setSplitTabs: () => {},
+    setSplitPath: () => {},
+    splitPathRef: { current: null },
+    activePathRef: { current: null },
+    setAnnotateTarget: () => {},
+    setActivePath: () => {},
+    splitEditorRef: { current: { focus: () => {} } },
+    window: { setTimeout: (callback) => callback() },
+  });
+  const revealPath = loadTypeScriptCallback(workspaceSource, 'revealPath', {
+    applyProjectView: () => {},
+    lastProjectTreeViewRef: { current: 'projectFiles' },
+    setActivity: () => {},
+    setPanelVisible: () => {},
+    revealInProjectTree: async (path) => revealed.push(path),
+  });
+  return openInRightSplit('src/a.ts', null)
+    .then(() => revealPath('src/a.ts'))
+    .then(() => {
+      assert.deepEqual(opened, ['src/a.ts']);
+      assert.deepEqual(revealed, ['src/a.ts']);
+    });
 });

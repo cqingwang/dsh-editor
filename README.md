@@ -325,7 +325,7 @@ Editor **不再插入“对话 / 轨迹 / 上下文”标签行**；没有 View 
 - 编辑器标签栏与行号 gutter 使用 IDEA 风格的灰色 surface；所有 Monaco 编辑器（主编辑器、右侧 split、修订预览与 diff 两侧）的行号区都与正文对齐，并在 gutter 与代码区之间绘制细分隔线。
 - `⌥⌘S`（`Ctrl+Alt+S`）保存全部，结果以 4 秒状态栏提示反馈；冲突文件不会被强制写回。
 - `⌘/Ctrl+L` 打开 IDEA 风格 **Go to Line/Column** 浮层，接受 `123`、`12:7` 或 `12,7`；Enter 跳转并将焦点交给对应 Monaco，Esc 关闭并回焦编辑器，非法输入保留浮层并显示行列格式错误。左侧文件 tab 与右侧 split tab 都可聚焦（`role="tab"`、roving `tabIndex`），焦点在 tab 上时同一快捷键作用于该 tab 自己的文件；`⌘/Ctrl+W` 关闭当前标签。
-- `⌘/Ctrl+点击`、`⌘/Ctrl+B` 与 `F12` 执行 **Go to Declaration / 转到声明**：JS/TS/Python 的相对 import 会直接解析目标模块，其他语言回退到有界工作区声明搜索；声明定位后由 Monaco 聚焦目标行与列。支持 Java/Kotlin/C#/Swift/Dart/C/C++/Go/Rust/Ruby/PHP/Shell 等常见函数、方法和类型声明。
+- `⌘/Ctrl+点击`、`⌘/Ctrl+B` 与 `F12` 执行 **Go to Declaration / 转到声明**：JS/TS/Python 的相对 import 会直接解析目标模块；Java 会结合 `package` / `import` / `import static` 推断源码根、类型与静态成员；C/C++ 会优先读取引号/尖括号 include 指向的头文件；Go 会把 import path 的后缀转换为有界搜索 scope，再按同目录/同扩展名优先寻找函数、方法、类型和变量声明。其余未知情况继续回退到有界工作区声明搜索；声明定位后由 Monaco 聚焦目标行与列。支持 Java/Kotlin/C#/Swift/Dart/C/C++/Go/Rust/Ruby/PHP/Shell 等常见函数、方法和类型声明，并覆盖 C/C++ 头文件原型与限定名方法定义。
 - Monaco 的 TS/JS language defaults 使用 Node-style module resolution 并忽略 module-not-found 假错误 `TS2307 / TS2792`。插件没有完整 tsconfig/project service，未打开的 extensionless 相对 import 仍可由本插件跨文件导航，但不应被 worker 错误标红；语法错误和其他 semantic diagnostics 保持启用。
 - 编辑器导航历史与浏览器一致：`⌘[` / `Ctrl+[` 返回上一编辑位置，`⌘]` / `Ctrl+]` 前进；声明跳转、搜索跳转与终端文件定位都会记录来源，新跳转会清空 forward 历史。
 - 状态栏顺序为 `row:column → UTF-8 → 总行数 → 绝对路径 → 选区字符数`；行列不带“行 / 列”单位，路径按钮保留完整 `title`，点击后复制绝对路径并短暂显示“已复制”，浏览器拒绝剪贴板写入时显示本地化失败原因。

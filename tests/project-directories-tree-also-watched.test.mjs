@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
+import { extractVariableInitializerExpression, loadTypeScriptExpression } from './ts-source.mjs';
 
 import { WorkspaceWatcher } from '../lib/index.js';
 
@@ -170,19 +171,40 @@ test('pruning only trusts listings that were actually read this round', () => {
 });
 
 test('a watcher frame re-reads the parent of every changed directory', () => {
-  /* The watcher names directories on disk; the tree only renders an EXPANDED
-     one, so a `mkdir assets/x` frame that names `assets` still has to re-read
-     `assets` even when it is the changed path itself. `narrowed` carries the
-     host's names straight into the read loop. */
-  const changeAt = source.indexOf("if (event.type === 'change') {");
-  assert.notEqual(changeAt, -1);
-  /* Search FORWARD: `error` appears in unrelated handlers earlier in the file. */
-  const effect = source.slice(changeAt, source.indexOf("if (event.type === 'error') {", changeAt));
-  assert.match(effect, /const changedDirectories = Array\.isArray\(event\.dirs\) \? event\.dirs : null;/);
-  assert.match(
-    effect,
-    /const changedListings = await refreshTree\(\s+changedDirectories === null \? undefined : changedDirectories,\s+\);/,
+  const refreshes = [];
+  let loadGitCalls = 0;
+  let externalChecks = 0;
+  let revisions = null;
+  const handle = loadTypeScriptExpression(
+    source,
+    extractVariableInitializerExpression(source, 'handle'),
+    {
+      disposed: false,
+      chain: Promise.resolve(),
+      refreshTree: async (directories) => {
+        refreshes.push(directories);
+        return ['assets'];
+      },
+      loadGit: async () => {
+        loadGitCalls += 1;
+      },
+      checkExternalChanges: async () => {
+        externalChecks += 1;
+      },
+      setMarkdownAssetRevisions: (updater) => {
+        revisions = updater({ global: 0, directories: {} });
+      },
+      nextMarkdownAssetRevisions: (current, changed) => ({
+        global: current.global,
+        directories: Object.fromEntries((changed ?? []).map((directory) => [directory, 1])),
+      }),
+    },
   );
-  assert.match(effect, /await loadGit\(\);/);
-  assert.match(effect, /await checkExternalChanges\(\);/);
+  handle({ type: 'change', dirs: ['assets', 7] });
+  return new Promise((resolve) => setImmediate(resolve)).then(() => {
+    assert.deepEqual(refreshes, [['assets']]);
+    assert.equal(loadGitCalls, 1);
+    assert.equal(externalChecks, 1);
+    assert.deepEqual(revisions, { global: 0, directories: { assets: 1 } });
+  });
 });

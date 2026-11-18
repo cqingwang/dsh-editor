@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
+import { loadTypeScriptCallback } from './ts-source.mjs';
 
 const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+const workspaceSource = await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8');
 const groupStart = source.indexOf('function createCodeEditorGroup(');
 const groupEnd = source.indexOf('\n    /**\n     * Reuse one workspace model', groupStart);
 const group = source.slice(groupStart, groupEnd);
@@ -52,15 +54,35 @@ test('selection-only actions reuse the current editor Find/Replace chain', () =>
 });
 
 test('selection Find accepts an explicit query and focus target without a second state path', () => {
-  const opener = source.slice(
-    source.indexOf('const openEditorFindInSelection = React.useCallback'),
-    source.indexOf("/* IDEA's editor search family"),
-  );
-  assert.match(opener, /\(scope, withReplace = null, initialQuery = null, focusTarget = null\) =>/);
-  assert.match(opener, /const requestedFind = typeof initialQuery === 'string' \? initialQuery\.trim\(\) : ''/);
-  assert.match(opener, /const hasExplicitQuery = typeof initialQuery === 'string'/);
-  assert.match(opener, /const find = hasExplicitQuery \? requestedFind : base\.find/);
-  assert.match(opener, /index: hasExplicitQuery \? 0 : Math\.min/);
-  assert.match(opener, /focusTarget === 'replace'/);
-  assert.match(opener, /}, 40\);/);
+  let state = null;
+  let focused = null;
+  const openEditorFindInSelection = loadTypeScriptCallback(workspaceSource, 'openEditorFindInSelection', {
+    currentCodeEditor: () => ({
+      getModel: () => ({
+        getValue: () => 'alpha beta alpha',
+      }),
+    }),
+    readSearchOptions: () => ({}),
+    editorFindResult: (text, query) => ({
+      matches: query === '' ? [] : [{ offset: text.indexOf(query), length: query.length, text: query }],
+      error: null,
+    }),
+    setReplaceState: (updater) => {
+      state = updater(state);
+    },
+    window: { setTimeout: (callback) => callback() },
+    document: {
+      querySelector: (selector) => ({
+        focus: () => {
+          focused = selector;
+        },
+      }),
+    },
+  });
+  openEditorFindInSelection({ start: 0, end: 10 }, true, '  alpha  ', 'replace');
+  assert.equal(state.find, 'alpha');
+  assert.equal(state.withReplace, true);
+  assert.deepEqual(state.scope, { start: 0, end: 10 });
+  assert.equal(state.index, 0);
+  assert.equal(focused, '[data-dsh-editor-find-replace-input]');
 });

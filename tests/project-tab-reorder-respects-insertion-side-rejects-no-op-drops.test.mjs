@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
-import { loadTypeScriptFunction } from './ts-source.mjs';
+import { loadTypeScriptCallback, loadTypeScriptFunction } from './ts-source.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const source = readFileSync(join(root, 'src/client/editor-workspace.tsx'), 'utf8');
@@ -22,13 +22,49 @@ test('tab reorder respects the insertion side and rejects no-op drops', () => {
 });
 
 test('editor tabs expose IDE-style drag state and insertion side', () => {
-  assert.match(source, /const \[editorTabDrag, setEditorTabDrag\] = React\.useState(?:<[^>]+>)?\(null\)/);
-  assert.match(source, /const \[editorTabDrop, setEditorTabDrop\] = React\.useState(?:<[^>]+>)?\(null\)/);
-  assert.match(source, /const editorTabDragRef = React\.useRef\(null\)/);
-  assert.match(source, /const beginEditorTabDrag = React\.useCallback\(/);
-  assert.match(source, /const dragOverEditorTab = React\.useCallback\(/);
-  assert.match(source, /const dropEditorTab = React\.useCallback\(/);
-  assert.match(source, /after: event\.clientX > rect\.left \+ rect\.width \/ 2/);
+  const editorTabDragRef = { current: null };
+  let dragState = null;
+  let dropState = null;
+  const dataTransfer = {
+    effectAllowed: '',
+    dropEffect: '',
+    setData: () => {},
+  };
+  const beginEditorTabDrag = loadTypeScriptCallback(source, 'beginEditorTabDrag', {
+    editorTabDragRef,
+    setEditorTabDrag: (value) => {
+      dragState = value;
+    },
+    setEditorTabDrop: (value) => {
+      dropState = value;
+    },
+  });
+  beginEditorTabDrag(
+    {
+      dataTransfer,
+      currentTarget: { getBoundingClientRect: () => ({ left: 0, width: 100 }) },
+    },
+    'left',
+    'b.ts',
+  );
+  assert.deepEqual(dragState, { group: 'left', path: 'b.ts' });
+  const dragOverEditorTab = loadTypeScriptCallback(source, 'dragOverEditorTab', {
+    editorTabDragRef,
+    setEditorTabDrop: (value) => {
+      dropState = value;
+    },
+  });
+  dragOverEditorTab(
+    {
+      preventDefault: () => {},
+      dataTransfer,
+      currentTarget: { getBoundingClientRect: () => ({ left: 0, width: 100 }) },
+      clientX: 80,
+    },
+    'left',
+    'c.ts',
+  );
+  assert.deepEqual(dropState, { group: 'left', path: 'c.ts', after: true });
 });
 
 test('left and right tab drops reorder only their own collection', () => {

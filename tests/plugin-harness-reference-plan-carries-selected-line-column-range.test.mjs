@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
+import { loadTypeScriptCallback } from './ts-source.mjs';
 
 import { transpileTypeScriptFunction } from './ts-source.mjs';
 
@@ -146,13 +147,26 @@ test('Monaco body context menu registers the direct Harness action', () => {
 });
 
 test('editor requests forward the selected range to the composer bridge', () => {
-  assert.match(
-    source,
-    /line: position\?\.line \?\? null,[\s\S]*?column: position\?\.column \?\? null,[\s\S]*?endLine: position\?\.endLine \?\? null,[\s\S]*?endColumn: position\?\.endColumn \?\? null,/u,
-  );
-  assert.match(source, /const sendHarnessEditorReference = React\.useCallback\(\s*\(editor\) => \{/u);
-  assert.match(source, /const location = harnessEditorLocation\(editor\);/u);
-  assert.match(source, /void sendHarnessReference\(\[\{ path: location\.path, isDirectory: false \}\], location\)/u);
+  const forwarded = [];
+  const sendHarnessEditorReference = loadTypeScriptCallback(workspaceSource, 'sendHarnessEditorReference', {
+    harnessEditorLocation: () => ({
+      path: 'src/a.ts',
+      line: 4,
+      column: 2,
+      endLine: 5,
+      endColumn: 3,
+    }),
+    sendHarnessReference: (entries, location) => forwarded.push({ entries, location }),
+    flashStatus: () => {},
+    t: (key) => key,
+  });
+  sendHarnessEditorReference({ getModel: () => null });
+  assert.deepEqual(forwarded, [
+    {
+      entries: [{ path: 'src/a.ts', isDirectory: false }],
+      location: { path: 'src/a.ts', line: 4, column: 2, endLine: 5, endColumn: 3 },
+    },
+  ]);
 });
 
 test('the composer bridge prefers the public addFiles verb without submitting', async () => {

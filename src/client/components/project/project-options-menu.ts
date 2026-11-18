@@ -8,7 +8,7 @@ interface ProjectMenuPosition {
 interface ProjectMenuItem {
   id: string;
   kind?: 'section';
-  label?: string;
+  label: string;
   shortcut?: string;
   disabled?: boolean;
   restoreFocus?: boolean;

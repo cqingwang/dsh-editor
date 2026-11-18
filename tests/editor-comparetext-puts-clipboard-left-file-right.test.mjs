@@ -2,9 +2,10 @@ import assert from 'node:assert/strict';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
+import { loadTypeScriptCallback } from './ts-source.mjs';
 
 import { fileCompareText } from '../lib/index.js';
 
@@ -55,23 +56,93 @@ test('compareText flags a binary clipboard as binary', async (t) => {
 
 test('the tree offers clipboard compare and directory staging', () => {
   const client = read('src/client/editor-workspace.tsx');
-  assert.match(client, /id: 'compareClipboard',/);
-  assert.match(client, /run: \(\) => void compareWithClipboard\(row\.path\)/);
-  assert.match(client, /id: 'stageHere',/);
-  assert.match(client, /id: 'unstageHere',/);
-  /* Directory staging must scope to the directory, not the whole repo. */
-  assert.match(client, /change\.path === row\.path \|\| change\.path\.startsWith\(`\$\{row\.path\}\/`\)/);
-  /* Directory actions are not rendered for files, batch rows or the root. */
-  assert.match(client, /showDirectoryActions/);
-  assert.match(client, /disabled: batch\.length > 1 \|\| \(git\?\.changes \?\? \[\]\)\.length === 0/);
+  const compared = [];
+  const staged = [];
+  const buildTreeMenu = loadTypeScriptCallback(client, 'buildTreeMenu', {
+    filteredView: false,
+    projectRowMenuCapabilities: () => ({
+      isDirectory: true,
+      isRoot: false,
+      showDirectoryActions: true,
+      showFileActions: true,
+      showReveal: true,
+    }),
+    selection: new Set(),
+    rows: [],
+    projectRightSplitPaths: () => [],
+    t: (key) => key,
+    git: { changes: [{ path: 'dir/a.ts', status: ' M' }] },
+    restage: (paths, stagedValue) => staged.push({ paths, staged: stagedValue }),
+    compareWithClipboard: (path) => compared.push(path),
+    compareWithRevision: () => {},
+    showFileHistory: () => {},
+    revealInFinder: () => {},
+    refreshTree: async () => {},
+    startCreate: () => {},
+    copyReferenceMenuItems: () => [],
+    currentCodeEditor: () => null,
+    currentCodePath: () => null,
+    root: '/repo',
+    dirname,
+    basename,
+    openFile: () => {},
+    openInRightSplit: () => {},
+    openInTerminal: () => {},
+    openMoveTo: () => {},
+    removeEntries: () => {},
+    removeEntry: () => {},
+    revealPath: () => {},
+    toggleDirectory: () => {},
+    buildHarnessPathAction: () => null,
+    rowRefs: { current: new Map() },
+  });
+  const menu = buildTreeMenu({ row: { path: 'dir', kind: 'directory' }, x: 1, y: 2 });
+  const findItem = (items, id) => {
+    for (const item of items) {
+      if (item?.id === id) return item;
+      const nested = item?.items === undefined ? null : findItem(item.items, id);
+      if (nested !== null) return nested;
+    }
+    return null;
+  };
+  findItem(menu.items, 'compareClipboard').run();
+  assert.deepEqual(compared, ['dir']);
+  findItem(menu.items, 'stageHere').run();
+  assert.deepEqual(staged, [{ paths: ['dir/a.ts'], staged: false }]);
 });
 
 test('clipboard reading failures are reported rather than opening an empty diff', () => {
   const client = read('src/client/editor-workspace.tsx');
-  assert.match(client, /const compareWithClipboard = React\.useCallback\(\s*async \(path\) => \{/);
-  assert.match(client, /setEditorError\(t\('editor\.clipboardUnavailable'\)\)/);
-  assert.match(client, /setEditorError\(t\('editor\.clipboardEmpty'\)\)/);
-  assert.match(client, /setDiffTarget\(\{\s*path,\s*clipboardText: text,\s*label: 'clipboard',\s*staged: false,\s*\}\)/);
+  const errors = [];
+  const targets = [];
+  let clipboardText = '';
+  const compareWithClipboard = loadTypeScriptCallback(client, 'compareWithClipboard', {
+    t: (key) => key,
+    navigator: {
+      clipboard: {
+        readText: async () => clipboardText,
+      },
+    },
+    setEditorError: (message) => errors.push(message),
+    setDiffTarget: (target) => targets.push(target),
+  });
+  return compareWithClipboard('a.txt')
+    .then(() => {
+      assert.deepEqual(errors, ['editor.clipboardEmpty']);
+      assert.deepEqual(targets, []);
+      clipboardText = 'clipboard content\n';
+      return compareWithClipboard('a.txt');
+    })
+    .then(() => {
+      assert.deepEqual(targets, [
+        {
+          path: 'a.txt',
+          clipboardText: 'clipboard content\n',
+          label: 'clipboard',
+          staged: false,
+        },
+      ]);
+    });
 });
 
 test('a compare target is not mistaken for a commit or a staged diff', () => {

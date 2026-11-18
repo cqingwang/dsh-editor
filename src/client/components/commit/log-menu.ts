@@ -12,7 +12,7 @@ interface CommitLogTarget {
 
 interface CommitLogMenuItem {
   id: string;
-  label?: string;
+  label: string;
   shortcut?: string;
   disabled?: boolean;
   danger?: boolean;

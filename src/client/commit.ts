@@ -150,16 +150,7 @@ interface SearchFindHandoffOptions extends FindSearchOptionsInput {
   limit?: unknown;
 }
 
-interface DirtyReplaceModel {
-  getValue: () => string;
-  getFullModelRange: () => unknown;
-  pushStackElement?: () => void;
-  pushEditOperations: (
-    ranges: unknown[],
-    edits: Array<{ range: unknown; text: string; forceMoveMarkers: boolean }>,
-    changeAccessor: () => null,
-  ) => unknown;
-}
+type DirtyReplaceModel = Monaco.editor.ITextModel;
 
 interface DirtyReplacePlan {
   path: string;
@@ -831,7 +822,7 @@ export function searchEverywhereRequiresResultConfirmation(
  * @param {object|null} editor - active Monaco editor.
  * @returns {{query: string, reason: 'editor'|'symbol'|null}} search request.
  */
-export function findUsagesSearchTarget(editor: Monaco.editor.IStandaloneCodeEditor | null | undefined): {
+export function findUsagesSearchTarget(editor: Monaco.editor.ICodeEditor | null | undefined): {
   query: string;
   reason: 'editor' | 'symbol' | null;
 } {
@@ -970,10 +961,10 @@ export function hasFindToolContentQuery(query: unknown): boolean {
  * @param {unknown} query - next raw query text.
  * @returns {object|null} next Find state.
  */
-export function findToolQueryTransition(
-  current: FindToolState | null | undefined,
+export function findToolQueryTransition<T extends FindToolState>(
+  current: T | null | undefined,
   query: unknown,
-): FindToolState | null | undefined {
+): T | null | undefined {
   if (current === null || typeof current !== 'object') return current;
   const nextQuery = findToolContentQuery(query);
   return {
@@ -987,7 +978,7 @@ export function findToolQueryTransition(
     error: null,
     loadedGeneration: -1,
     searchGeneration: (Number(current.searchGeneration) || 0) + 1,
-  };
+  } as T;
 }
 
 /**
@@ -1001,10 +992,10 @@ export function findToolQueryTransition(
  * @param {unknown} tab - requested provider tab.
  * @returns {object|null} next state.
  */
-export function searchEverywhereTabTransition(
-  current: FindToolState | null | undefined,
+export function searchEverywhereTabTransition<T extends FindToolState>(
+  current: T | null | undefined,
   tab: unknown,
-): FindToolState | null | undefined {
+): T | null | undefined {
   if (current === null || typeof current !== 'object') return current;
   const nextTab = tab === 'files' || tab === 'text' || tab === 'actions' ? tab : 'all';
   const textCapable = nextTab === 'all' || nextTab === 'text';
@@ -1014,7 +1005,7 @@ export function searchEverywhereTabTransition(
     index: 0,
     error: null,
     textLoading: textCapable ? current.textLoading === true : false,
-  };
+  } as T;
 }
 
 /**
@@ -1305,11 +1296,11 @@ export function replaceInputAction(
  * @param {string} message - replacement failure text.
  * @returns {object|null} settled Find state.
  */
-export function replaceFailureState(
-  current: FindToolState | null,
+export function replaceFailureState<T extends FindToolState>(
+  current: T | null,
   requestGeneration: number,
   message: unknown,
-): FindToolState | null {
+): T | null {
   if (current === null) return current;
   const currentGeneration = Number(current.searchGeneration) || 0;
   const currentRequest = Number(requestGeneration) || 0;
@@ -1321,7 +1312,7 @@ export function replaceFailureState(
     replaceFocusRequest: isCurrent
       ? (Number(current.replaceFocusRequest) || 0) + 1
       : Number(current.replaceFocusRequest) || 0,
-  };
+  } as T;
 }
 
 /**

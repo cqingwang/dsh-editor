@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
+import { loadTypeScriptCallback } from './ts-source.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const workspaceSource = readFileSync(join(root, 'src/client/editor-workspace.tsx'), 'utf8');
@@ -28,28 +29,91 @@ test('Changes rows track a range selection separately from commit checkboxes', (
 });
 
 test('Shift and Command/Ctrl clicks extend or toggle the visible row range', () => {
-  const body = workspace();
-  const choose = body.slice(body.indexOf('const chooseChange = React.useCallback('), body.indexOf('const chosenChanges = React.useCallback('));
-  assert.match(choose, /const rows = node === null \? \[\] : \[\.\.\.node\.querySelectorAll(?:<[^>]+>)?\('\[data-dsh-change-path\]'\)\]/);
-  assert.match(choose, /if \(options\.shift === true\)/);
-  assert.match(choose, /const start = Math\.min\(anchorIndex, targetIndex\)/);
-  assert.match(choose, /rows\.slice\(start, end \+ 1\)\.map\(keyOf\)/);
-  assert.match(choose, /else if \(options\.toggle === true\)/);
-  assert.match(choose, /if \(next\.size === 0\) next\.add\(targetKey\)/);
-  assert.match(choose, /changeSelectionAnchorRef\.current = \{ key: targetKey \}/);
+  const makeRow = (path, staged) => ({
+    getAttribute: (name) => {
+      if (name === 'data-dsh-change-path') return path;
+      if (name === 'data-dsh-change-staged') return String(staged);
+      return null;
+    },
+  });
+  const rows = [makeRow('a.ts', false), makeRow('b.ts', false), makeRow('c.ts', false)];
+  let selected = new Set(['unstaged:a.ts']);
+  let anchor = { key: 'unstaged:a.ts' };
+  const selectedChangesRef = { current: selected };
+  const changeSelectionAnchorRef = { current: anchor };
+  const chooseChange = loadTypeScriptCallback(workspaceSource, 'chooseChange', {
+    document: {
+      querySelector: () => ({ querySelectorAll: () => rows }),
+    },
+    setSelectedGroup: () => {},
+    setSelectedChanges: (next) => {
+      selected = next;
+    },
+    setSelectedChange: () => {},
+    selectedChangesRef,
+    changeSelectionAnchorRef,
+  });
+  chooseChange({ path: 'c.ts', staged: false }, { shift: true });
+  assert.deepEqual([...selected], ['unstaged:a.ts', 'unstaged:b.ts', 'unstaged:c.ts']);
+  chooseChange({ path: 'b.ts', staged: false }, { toggle: true });
+  assert.deepEqual([...selected], ['unstaged:a.ts', 'unstaged:c.ts']);
+  assert.deepEqual(changeSelectionAnchorRef.current, { key: 'unstaged:b.ts' });
 });
 
 test('the context menu acts on all selected rows, not just the clicked one', () => {
-  const body = workspace();
-  const menu = body.slice(body.indexOf('const buildChangeMenu = React.useCallback('), body.indexOf('Context menu for one directory node'));
-  assert.match(
-    menu,
-    /const range =\s+payload\.selectedChanges instanceof Set && payload\.selectedChanges\.size > 0/u,
-  );
-  assert.match(menu, /const paths = \[\.\.\.new Set\(selected\.map\(\(entry\) => entry\.path\)\)\]/);
-  assert.match(menu, /run: \(\)(?:: void)? => void restage\(removalOnly \? removablePaths : paths, allStaged\)/);
-  assert.match(menu, /run: \(\) => void rollback\(paths, allUnversioned \? \{ unversioned: true \} : undefined\)/);
-  assert.match(menu, /disabled: allStaged === false && allWorking === false/);
+  const change = { path: 'a.ts', status: ' M' };
+  const changesByPathRef = {
+    current: new Map([
+      ['a.ts', change],
+      ['b.ts', { path: 'b.ts', status: ' M' }],
+    ]),
+  };
+  const restaged = [];
+  const rolledBack = [];
+  const buildChangeMenu = loadTypeScriptCallback(workspaceSource, 'buildChangeMenu', {
+    changesByPathRef,
+    allPathsUnversioned: () => false,
+    pathsScheduledForRemoval: () => [],
+    isConflict: () => false,
+    t: (key) => key,
+    restage: (paths, staged) => {
+      restaged.push({ paths, staged });
+    },
+    rollback: (paths) => {
+      rolledBack.push(paths);
+    },
+    showCombinedDiff: () => {},
+    openFile: () => {},
+    resolveConflict: () => {},
+    copyReferenceMenuItems: () => [],
+    addToGitignore: () => {},
+    createSelectedPatch: () => {},
+    requestSelectedPatch: async () => null,
+    root: '/repo',
+    currentCodeEditor: () => null,
+    currentCodePath: () => null,
+    setDiffTarget: () => {},
+    setDiffActive: () => {},
+  });
+  const menu = buildChangeMenu({
+    change,
+    staged: false,
+    selectedChanges: new Set(['unstaged:a.ts', 'unstaged:b.ts']),
+    x: 10,
+    y: 20,
+  });
+  const findItem = (items, id) => {
+    for (const item of items) {
+      if (item?.id === id) return item;
+      const nested = item?.items === undefined ? null : findItem(item.items, id);
+      if (nested !== null) return nested;
+    }
+    return null;
+  };
+  findItem(menu.items, 'stage').run();
+  assert.deepEqual(restaged, [{ paths: ['a.ts', 'b.ts'], staged: false }]);
+  findItem(menu.items, 'rollbackWorking').run();
+  assert.deepEqual(rolledBack, [['a.ts', 'b.ts']]);
 });
 
 test('batch shortcuts act only on rows from the appropriate git band', () => {

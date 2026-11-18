@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
+import { loadTypeScriptCallback } from './ts-source.mjs';
 
+const workspaceSource = await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8');
 const source = (await readFile(new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
 
 test('Search Everywhere file and text rows expose an IDEA-style context menu', () => {
@@ -32,7 +34,35 @@ test('text search copy action carries line and column while file copy stays path
 });
 
 test('Search Everywhere receives right-split and reveal callbacks from the Editor', () => {
-  const render = source.slice(source.indexOf('React.createElement(SearchEverywhere'), source.indexOf('quickOpen === null'));
-  assert.match(render, /onOpenInRightSplit: \(path, location\) => void openInRightSplit\(path, location\)/);
-  assert.match(render, /onRevealResult: \(path\) => void revealPath\(path\)/);
+  const opened = [];
+  const revealed = [];
+  const openInRightSplit = loadTypeScriptCallback(workspaceSource, 'openInRightSplit', {
+    openFile: async (path) => {
+      opened.push(path);
+      return true;
+    },
+    revealSplitLocation: () => {},
+    splitTabsRef: { current: [] },
+    setSplitTabs: () => {},
+    setSplitPath: () => {},
+    splitPathRef: { current: null },
+    activePathRef: { current: null },
+    setAnnotateTarget: () => {},
+    setActivePath: () => {},
+    splitEditorRef: { current: { focus: () => {} } },
+    window: { setTimeout: (callback) => callback() },
+  });
+  const revealPath = loadTypeScriptCallback(workspaceSource, 'revealPath', {
+    applyProjectView: () => {},
+    lastProjectTreeViewRef: { current: 'projectFiles' },
+    setActivity: () => {},
+    setPanelVisible: () => {},
+    revealInProjectTree: async (path) => revealed.push(path),
+  });
+  return openInRightSplit('src/a.ts', { path: 'src/a.ts', line: 1, column: 1 }).then(() => {
+    assert.deepEqual(opened, ['src/a.ts']);
+    return revealPath('src/a.ts');
+  }).then(() => {
+    assert.deepEqual(revealed, ['src/a.ts']);
+  });
 });

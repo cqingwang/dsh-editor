@@ -30,6 +30,7 @@ import {
   navigationPathForModel,
   normalizeNavigationLocation,
   resolveWorkspaceDefinition,
+  type DefinitionSearchOptions,
   type NavigationHistory,
   type NavigationLocation,
 } from './code-navigation';
@@ -129,6 +130,7 @@ import { SearchEverywhere } from './components/search/SearchEverywhere';
 import { ShowUsagesPopup } from './components/search/ShowUsagesPopup';
 import { EditorTerminalArea } from './components/terminal/EditorTerminalArea';
 import { EditorTerminalDock } from './components/terminal/EditorTerminalDock';
+import type { EditorTerminalDescriptor } from './components/terminal/EditorTerminalTab';
 import { TerminalPanel } from './components/terminal/TerminalPanel';
 import { ActivityStripe } from './components/ui/ActivityStripe';
 import {
@@ -251,7 +253,6 @@ import {
   writeRecentFiles,
   writeStoredNumber,
   writeToolWidth,
-  type TerminalDescription,
 } from './terminal';
 import type * as Monaco from 'monaco-editor';
 import React from 'react';
@@ -279,7 +280,7 @@ interface WorkspaceGitStatus {
   ahead?: number;
   behind?: number;
   operation?: string;
-  lastCommit?: { hash?: string; subject?: string } | null;
+  lastCommit?: { hash?: string; subject?: string; body?: string } | null;
   created?: string;
   entries?: ShelfEntry[];
   patch?: string;
@@ -289,6 +290,7 @@ interface WorkspaceGitStatus {
   remotes?: unknown[];
   pushError?: string;
   appliedFiles?: unknown[];
+  [key: string]: unknown;
 }
 
 interface WorkspaceLogCommit {
@@ -358,10 +360,24 @@ interface EditorFocusRef {
   current: { focus?: () => void } | null;
 }
 
-type FindToolState = NonNullable<React.ComponentProps<typeof FindToolWindow>['state']>;
-type FindToolInitial = {
-  files?: NonNullable<FindToolState['files']>;
-  matches?: NonNullable<FindToolState['matches']>;
+type FindToolState = NonNullable<React.ComponentProps<typeof FindToolWindow>['state']> & {
+  surface?: 'popup' | 'dock';
+  handoffRevision?: number;
+  replaceBusy?: boolean;
+  replaceFocusRequest?: number;
+  replaceAdvanceRevision?: number;
+  loading?: boolean;
+  error?: string | null;
+  truncated?: boolean;
+  searchScopeMode?: string;
+  searchScopePreset?: string;
+  searchScopeDirectory?: string;
+  searchScopeRecursive?: boolean;
+  contextFilter?: string;
+};
+type FindToolInitial = Record<string, unknown> & {
+  files?: unknown[];
+  matches?: unknown[];
   truncated?: boolean;
   index?: number;
   includeExcluded?: boolean;
@@ -372,6 +388,7 @@ type FindToolFile = NonNullable<FindToolState['files']>[number];
 type FindToolMatch = NonNullable<FindToolState['matches']>[number];
 type FileListResponse = { files?: string[]; truncated?: boolean };
 type TextSearchResponse = { matches?: FindToolMatch[]; truncated?: boolean; dirtyPaths?: string[] };
+type EditorFindMatches = Pick<ReturnType<typeof editorFindResult>, 'matches' | 'error'>;
 type SearchEverywhereFile = React.ComponentProps<typeof SearchEverywhere>['files'][number];
 type SearchEverywhereText = React.ComponentProps<typeof SearchEverywhere>['textMatches'][number];
 type SearchEverywhereState = NonNullable<React.ComponentProps<typeof SearchEverywhere>['state']> & {
@@ -383,13 +400,17 @@ type SearchEverywhereState = NonNullable<React.ComponentProps<typeof SearchEvery
   error: string | null;
   replaceBusy: boolean;
   replaceFocusRequest: number;
+  [key: string]: unknown;
 };
 type ShowUsagesState = NonNullable<React.ComponentProps<typeof ShowUsagesPopup>['state']>;
 type RevisionPickerState = NonNullable<React.ComponentProps<typeof RevisionPicker>['state']> & { path: string };
-type NamePromptState = NonNullable<React.ComponentProps<typeof NamePrompt>['state']>;
-type MoveToPickerState = NonNullable<React.ComponentProps<typeof MoveToPicker>['state']>;
+type NamePromptState = NonNullable<React.ComponentProps<typeof NamePrompt>['state']> & {
+  kind?: 'branch' | 'tag';
+  hash?: string;
+};
+type MoveToPickerState = NonNullable<React.ComponentProps<typeof MoveToPicker>['state']> & { sources: string[] };
 type ProjectCreateState = NonNullable<React.ComponentProps<typeof ProjectPanel>['createState']>;
-type ProjectRenameState = NonNullable<React.ComponentProps<typeof ProjectPanel>['renameState']>;
+type ProjectRenameState = NonNullable<React.ComponentProps<typeof ProjectPanel>['renameState']> & { fresh?: boolean };
 type ProjectRow = React.ComponentProps<typeof ProjectPanel>['rows'][number];
 type ProjectUploadProgress = NonNullable<React.ComponentProps<typeof ProjectPanel>['uploadProgress']>;
 type AnnotateTarget = React.ComponentProps<typeof EditorAnnotateArea>['target'];
@@ -441,6 +462,8 @@ interface CommitScrollOffsets {
   log: number | null;
 }
 
+type WorkspaceMenuModel = ContextMenuModel & { owner?: string };
+
 interface HarnessReferenceEntry {
   path: string;
   isDirectory?: boolean;
@@ -453,6 +476,42 @@ interface HarnessReferenceLocation {
   column: number;
   endLine: number | null;
   endColumn: number | null;
+}
+
+function completeSearchMatches(
+  matches: ReadonlyArray<{ path?: string; line?: number; column?: number }>,
+): FindToolMatch[] {
+  const completed: FindToolMatch[] = [];
+  for (const match of matches) {
+    if (typeof match.path !== 'string' || typeof match.line !== 'number' || typeof match.column !== 'number') continue;
+    completed.push({ ...match, path: match.path, line: match.line, column: match.column });
+  }
+  return completed;
+}
+
+function completeFindFiles(value: unknown): FindToolFile[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item): FindToolFile[] => {
+    if (item === null || typeof item !== 'object') return [];
+    const record = item as Record<string, unknown>;
+    if (typeof record.path !== 'string' || record.path === '') return [];
+    return [{ ...record, path: record.path }];
+  });
+}
+
+function completeFindMatches(value: unknown): FindToolMatch[] {
+  if (!Array.isArray(value)) return [];
+  const candidates: Array<{ path?: string; line?: number; column?: number }> = [];
+  for (const item of value) {
+    if (item === null || typeof item !== 'object') continue;
+    const record = item as Record<string, unknown>;
+    const candidate: { path?: string; line?: number; column?: number; [key: string]: unknown } = { ...record };
+    if (typeof record.path === 'string') candidate.path = record.path;
+    if (typeof record.line === 'number') candidate.line = record.line;
+    if (typeof record.column === 'number') candidate.column = record.column;
+    candidates.push(candidate);
+  }
+  return completeSearchMatches(candidates);
 }
 
 /**
@@ -582,7 +641,7 @@ function EditorWorkspace({
   /* Terminals living in the EDITOR area (IDEA's Move to Editor). The PTY is
          owned by the host, so only the description is needed here to render a
          second view onto the same shell. */ const [editorTerminals, setEditorTerminals] = React.useState<
-    TerminalDescription[]
+    EditorTerminalDescriptor[]
   >([]);
   /**
    * Return one editor-area terminal to the dock.
@@ -593,7 +652,7 @@ function EditorWorkspace({
    * @param {{id: string}} terminal - editor terminal being returned.
    * @returns {void}
    */ const returnEditorTerminalToDock = React.useCallback(
-    (terminal: TerminalDescription) => {
+    (terminal: EditorTerminalDescriptor) => {
       if (terminal === null || terminal === undefined || typeof terminal.id !== 'string') return;
       const next = editorTerminals.filter((entry) => entry.id !== terminal.id);
       setEditorTerminals(next);
@@ -625,8 +684,17 @@ function EditorWorkspace({
         if (cancelled) return;
         const listed = Array.isArray(value?.terminals) ? value.terminals : [];
         /* Only ids the host still holds: a terminal closed while the page was
-               away must not be resurrected as a dangling tab. */ const restored = listed.filter((terminal) =>
-          remembered.includes(terminal.id),
+               away must not be resurrected as a dangling tab. */ const restored = listed.flatMap(
+          (terminal): EditorTerminalDescriptor[] => {
+            if (!remembered.includes(terminal.id)) return [];
+            return [
+              {
+                id: terminal.id,
+                title: typeof terminal.title === 'string' && terminal.title !== '' ? terminal.title : terminal.id,
+                cwd: typeof terminal.cwd === 'string' ? terminal.cwd : '',
+              },
+            ];
+          },
         );
         setEditorTerminals(restored);
         writeEditorTerminals(restored.map((terminal) => terminal.id));
@@ -687,8 +755,9 @@ function EditorWorkspace({
     identityMissing,
     setIdentityMissing,
   ] = React.useState(false);
-  /* The reason the last push failed; clears on a successful one. */ const [pushError, setPushError] =
-    React.useState<string | null>(null);
+  /* The reason the last push failed; clears on a successful one. */ const [pushError, setPushError] = React.useState<
+    string | null
+  >(null);
   /* A push can take a while; it needs its own busy flag so Commit stays usable. */ const [pushBusy, setPushBusy] =
     React.useState(false);
   /* Fetch and Update share the network cost of push, so each gets its own flag. */ const [fetchBusy, setFetchBusy] =
@@ -742,8 +811,9 @@ function EditorWorkspace({
     React.useRef<string | null>(null);
   const selectedCommitPathRef = React.useRef<string | null>(null);
   /* The context menu resolves conflict actions against the same git snapshot
-         the row was rendered from, so a ref keeps the callback stable. */ const changesByPathRef =
-    React.useRef<Map<string, DiffChange>>(new Map());
+         the row was rendered from, so a ref keeps the callback stable. */ const changesByPathRef = React.useRef<
+    Map<string, DiffChange>
+  >(new Map());
   /* The change the Commit panel last pointed at, kept after the diff closes:
          ⌘D closes the diff, and pressing it again must reopen the same one rather
          than fall through to "no current change" and do nothing. */ const lastChangePathRef =
@@ -852,7 +922,7 @@ function EditorWorkspace({
    * disables Show Diff and rollback until a file row is selected again.
    * @param {'staged'|'unstaged'|'unversioned'} group - selected band.
    * @returns {void}
-  */ const chooseGroup = React.useCallback((group: ChangeGroup | null) => {
+   */ const chooseGroup = React.useCallback((group: ChangeGroup | null) => {
     if (group !== null && group !== 'staged' && group !== 'unstaged' && group !== 'unversioned') return;
     setSelectedGroup(group);
     setSelectedChange(null);
@@ -973,7 +1043,7 @@ function EditorWorkspace({
     collapsedGroups,
     setCollapsedGroups,
   ] = React.useState<Set<string>>(() => new Set());
-  const [menu, setMenu] = React.useState<ContextMenuModel | null>(null);
+  const [menu, setMenu] = React.useState<WorkspaceMenuModel | null>(null);
   const [renameState, setRenameState] = React.useState<ProjectRenameState | null>(null);
   /* Hidden entries are shown BY DEFAULT: the tree hides only `.git`, because
          `.env` / `.github` / `.vscode` are files people actually open. The toggle
@@ -1089,7 +1159,7 @@ function EditorWorkspace({
   const [findReplaceUndoStack, setFindReplaceUndoStack] = React.useState<ReplaceHistoryEntry[]>([]);
   const [findReplaceRedoStack, setFindReplaceRedoStack] = React.useState<ReplaceHistoryEntry[]>([]);
   const [recentCommands, setRecentCommands] = React.useState(() => readCommandHistory());
-  const searchEverywhereFilesRef = React.useRef<string[]>([]);
+  const searchEverywhereFilesRef = React.useRef<SearchEverywhereFile[]>([]);
   const searchEverywhereFilesScopeRef = React.useRef<boolean | null>(null);
   const searchEverywhereFilesRequestRef = React.useRef(0);
   const searchEverywhereFilesAbortRef = React.useRef<AbortController | null>(null);
@@ -1117,69 +1187,69 @@ function EditorWorkspace({
     return () => window.removeEventListener('resize', onViewportResize);
   }, []);
   const startFindPopupInteraction = React.useCallback(
-    (event: React.PointerEvent<HTMLElement>, direction = 'move') => {
-    if (event.button !== 0) return;
-    const action =
-      direction === 'move'
-        ? 'move'
-        : ['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'].includes(direction)
-          ? direction
-          : null;
-    if (action === null) return;
-    const target = event.target instanceof Element ? event.target : null;
-    if (
-      action === 'move' &&
-      target !== null &&
-      target.closest('button, input, textarea, select, a, [role="menuitem"]') !== null
-    )
-      return;
-    const surface = event.currentTarget?.closest?.('[data-dsh-find-tool-popup]') ?? null;
-    if (surface === null) return;
-    event.preventDefault();
-    event.stopPropagation();
-    const rect = surface.getBoundingClientRect();
-    const startGeometry = clampFindPopupGeometry(
-      { x: rect.left, y: rect.top, width: rect.width, height: rect.height },
-      window.innerWidth,
-      window.innerHeight,
-    );
-    const startX = event.clientX;
-    const startY = event.clientY;
-    let latest = startGeometry;
-    let moved = false;
-    const previousCursor = document.body.style.cursor;
-    document.body.style.cursor = action === 'move' ? 'move' : `${action}-resize`;
-    const onPointerMove = (moveEvent: PointerEvent) => {
-      moved = true;
-      latest =
-        action === 'move'
-          ? moveFindPopupGeometry(
-              startGeometry,
-              moveEvent.clientX - startX,
-              moveEvent.clientY - startY,
-              window.innerWidth,
-              window.innerHeight,
-            )
-          : resizeFindPopupGeometry(
-              startGeometry,
-              moveEvent.clientX - startX,
-              moveEvent.clientY - startY,
-              action,
-              window.innerWidth,
-              window.innerHeight,
-            );
-      setFindToolPopupGeometry(latest);
-    };
-    const finish = () => {
-      window.removeEventListener('pointermove', onPointerMove, true);
-      window.removeEventListener('pointerup', finish, true);
-      window.removeEventListener('pointercancel', finish, true);
-      document.body.style.cursor = previousCursor;
-      if (moved) writeFindPopupGeometry(latest);
-    };
-    window.addEventListener('pointermove', onPointerMove, true);
-    window.addEventListener('pointerup', finish, true);
-    window.addEventListener('pointercancel', finish, true);
+    (event: React.PointerEvent<HTMLElement> | React.MouseEvent<HTMLElement>, direction = 'move') => {
+      if (event.button !== 0) return;
+      const action =
+        direction === 'move'
+          ? 'move'
+          : ['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'].includes(direction)
+            ? direction
+            : null;
+      if (action === null) return;
+      const target = event.target instanceof Element ? event.target : null;
+      if (
+        action === 'move' &&
+        target !== null &&
+        target.closest('button, input, textarea, select, a, [role="menuitem"]') !== null
+      )
+        return;
+      const surface = event.currentTarget?.closest?.('[data-dsh-find-tool-popup]') ?? null;
+      if (surface === null) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const rect = surface.getBoundingClientRect();
+      const startGeometry = clampFindPopupGeometry(
+        { x: rect.left, y: rect.top, width: rect.width, height: rect.height },
+        window.innerWidth,
+        window.innerHeight,
+      );
+      const startX = event.clientX;
+      const startY = event.clientY;
+      let latest = startGeometry;
+      let moved = false;
+      const previousCursor = document.body.style.cursor;
+      document.body.style.cursor = action === 'move' ? 'move' : `${action}-resize`;
+      const onPointerMove = (moveEvent: PointerEvent) => {
+        moved = true;
+        latest =
+          action === 'move'
+            ? moveFindPopupGeometry(
+                startGeometry,
+                moveEvent.clientX - startX,
+                moveEvent.clientY - startY,
+                window.innerWidth,
+                window.innerHeight,
+              )
+            : resizeFindPopupGeometry(
+                startGeometry,
+                moveEvent.clientX - startX,
+                moveEvent.clientY - startY,
+                action,
+                window.innerWidth,
+                window.innerHeight,
+              );
+        setFindToolPopupGeometry(latest);
+      };
+      const finish = () => {
+        window.removeEventListener('pointermove', onPointerMove, true);
+        window.removeEventListener('pointerup', finish, true);
+        window.removeEventListener('pointercancel', finish, true);
+        document.body.style.cursor = previousCursor;
+        if (moved) writeFindPopupGeometry(latest);
+      };
+      window.addEventListener('pointermove', onPointerMove, true);
+      window.addEventListener('pointerup', finish, true);
+      window.addEventListener('pointercancel', finish, true);
     },
     [],
   );
@@ -1254,7 +1324,7 @@ function EditorWorkspace({
    * Put the incoming tab back where the user left it.
    * @param {'changes'|'log'} mode - tab that just rendered.
    * @returns {void}
-  */ const rememberCommitScroll = React.useCallback((mode: CommitMode) => {
+   */ const rememberCommitScroll = React.useCallback((mode: CommitMode) => {
     const node = mode === 'changes' ? commitChangesRef.current : commitLogRef.current;
     if (node === null || node === undefined) return;
     const next = restoreScrollTop({
@@ -1298,8 +1368,9 @@ function EditorWorkspace({
   const splitPathRef = React.useRef<string | null>(null);
   const splitTabsRef = React.useRef<string[]>([]);
   const previewPathRef = React.useRef<string | null>(null);
-  /* The editor groups mount before the Find tool callback is declared. */ const findUsagesRunnerRef =
-    React.useRef<((editor: Monaco.editor.ICodeEditor) => void) | null>(null);
+  /* The editor groups mount before the Find tool callback is declared. */ const findUsagesRunnerRef = React.useRef<
+    ((editor: Monaco.editor.ICodeEditor) => void) | null
+  >(null);
   const findToolContextRunnerRef = React.useRef<
     ((editor: Monaco.editor.ICodeEditor, mode: 'find' | 'replace') => void) | null
   >(null);
@@ -1330,13 +1401,13 @@ function EditorWorkspace({
     const next = rememberWorkspaceReplacement(rootRef.current, replacement);
     if (next !== null) setRecentReplacements(next);
   }, []);
-  /* Which workspace's fold state is currently loaded (see loadRoot). */ const collapsedRestoredFor =
-    React.useRef('');
+  /* Which workspace's fold state is currently loaded (see loadRoot). */ const collapsedRestoredFor = React.useRef('');
   const rowRefs = React.useRef<Map<string, HTMLElement>>(new Map());
   const treeRef = React.useRef<HTMLDivElement | null>(null);
   /* Per-directory background prefetch generation, so a slower older walk
-         cannot overwrite a newer listing after rapid expand/collapse. */ const projectPrefetchTokensRef =
-    React.useRef<Map<string, number>>(new Map());
+         cannot overwrite a newer listing after rapid expand/collapse. */ const projectPrefetchTokensRef = React.useRef<
+    Map<string, number>
+  >(new Map());
   /* Read by the one-shot keyboard handlers, which must not re-bind per render. */ const panelVisibleRef =
     React.useRef(true);
   const activityRef = React.useRef<'project' | 'commit'>('project');
@@ -1414,33 +1485,32 @@ function EditorWorkspace({
   }, [git]);
   const beginEditorTabDrag = React.useCallback(
     (event: React.DragEvent<HTMLElement>, group: EditorGroup, path: string) => {
-    if ((group !== 'left' && group !== 'right') || typeof path !== 'string' || path === '') return;
-    const source = { group, path };
-    editorTabDragRef.current = source;
-    setEditorTabDrag(source);
-    setEditorTabDrop(null);
-    event.dataTransfer?.setData('text/plain', path);
-    if (event.dataTransfer !== null && event.dataTransfer !== undefined) event.dataTransfer.effectAllowed = 'move';
+      if ((group !== 'left' && group !== 'right') || typeof path !== 'string' || path === '') return;
+      const source = { group, path };
+      editorTabDragRef.current = source;
+      setEditorTabDrag(source);
+      setEditorTabDrop(null);
+      event.dataTransfer?.setData('text/plain', path);
+      if (event.dataTransfer !== null && event.dataTransfer !== undefined) event.dataTransfer.effectAllowed = 'move';
     },
     [],
   );
   const dragOverEditorTab = React.useCallback(
     (event: React.DragEvent<HTMLElement>, group: EditorGroup, path: string) => {
-    const source = editorTabDragRef.current;
-    if (source === null || source.group !== group || source.path === path) return;
-    event.preventDefault();
-    if (event.dataTransfer !== null && event.dataTransfer !== undefined) event.dataTransfer.dropEffect = 'move';
-    const rect = event.currentTarget.getBoundingClientRect();
-    setEditorTabDrop({
-      group,
-      path,
-      after: event.clientX > rect.left + rect.width / 2,
-    });
+      const source = editorTabDragRef.current;
+      if (source === null || source.group !== group || source.path === path) return;
+      event.preventDefault();
+      if (event.dataTransfer !== null && event.dataTransfer !== undefined) event.dataTransfer.dropEffect = 'move';
+      const rect = event.currentTarget.getBoundingClientRect();
+      setEditorTabDrop({
+        group,
+        path,
+        after: event.clientX > rect.left + rect.width / 2,
+      });
     },
     [],
   );
-  const moveEditorTab = React.useCallback(
-    (group: EditorGroup, source: string, target: string, after: boolean) => {
+  const moveEditorTab = React.useCallback((group: EditorGroup, source: string, target: string, after: boolean) => {
     if (group === 'left') {
       const next = reorderTabPaths(openFilesRef.current, source, target, after, (file) => file.path);
       if (next === openFilesRef.current) return;
@@ -1454,9 +1524,7 @@ function EditorWorkspace({
       splitTabsRef.current = next;
       setSplitTabs(next);
     }
-    },
-    [],
-  );
+  }, []);
   /** Move one tab by ±1 while preserving the active document. */ const moveEditorTabByOffset = React.useCallback(
     (group: EditorGroup, path: string, direction: number) => {
       const order =
@@ -1993,7 +2061,7 @@ function EditorWorkspace({
       loading: true,
     });
     try {
-      const value = await callGit({ op: 'log', limit: 100 });
+      const value = await callGit<WorkspaceLogResponse>({ op: 'log', limit: 100 });
       setRevisionPicker((current) =>
         current === null ? current : { ...current, commits: value.commits ?? [], loading: false },
       );
@@ -2232,8 +2300,9 @@ function EditorWorkspace({
     const draft = readCommitDraft(root);
     if (draft !== '') setCommitMessage((current) => (current === '' ? draft : current));
   }, [root]);
-  /* Debounce writes: typing must not hit localStorage on every keystroke. */ const draftTimer =
-    React.useRef<number | null>(null);
+  /* Debounce writes: typing must not hit localStorage on every keystroke. */ const draftTimer = React.useRef<
+    number | null
+  >(null);
   React.useEffect(() => {
     if (root === '') return undefined;
     if (draftTimer.current !== null) window.clearTimeout(draftTimer.current);
@@ -2581,10 +2650,7 @@ function EditorWorkspace({
    * @param {string|string[]} target - one path or an ordered file batch.
    * @returns {Promise<void>} resolves after the right pane is requested.
    */ const openInRightSplit = React.useCallback(
-    async (
-      target: string | string[],
-      location: { path?: string; line: number; column: number } | null = null,
-    ) => {
+    async (target: string | string[], location: { path?: string; line: number; column: number } | null = null) => {
       const requested = Array.isArray(target) ? target : [target];
       const paths = [...new Set(requested.filter((path) => typeof path === 'string' && path !== ''))];
       if (paths.length === 0) return;
@@ -2807,26 +2873,29 @@ function EditorWorkspace({
     },
     [loadLog, showCommit],
   );
-  /* Reveal a line requested by a terminal link once the model is bound. */ const pendingReveal =
-    React.useRef<{ path: string; line: number; column: number } | null>(null);
+  /* Reveal a line requested by a terminal link once the model is bound. */ const pendingReveal = React.useRef<{
+    path: string;
+    line: number;
+    column: number;
+  } | null>(null);
   const revealLines = React.useCallback(
     (path: string, line: number, column: number, pane: 'left' | 'right' | null = null) => {
-    const focused = focusedEditorRef.current;
-    const preferred = pane === 'right' ? splitEditorRef.current : pane === 'left' ? editorRef.current : null;
-    const editor =
-      preferred ??
-      (focused?.path === path
-        ? focused.editor
-        : path === splitPathRef.current
-          ? splitEditorRef.current
-          : editorRef.current);
-    const model = modelsRef.current.get(path);
-    if (editor === null || model === undefined || typeof line !== 'number' || line < 1) return;
-    const safeLine = Math.min(Math.max(1, line), model.getLineCount());
-    const safeColumn = Math.min(Math.max(1, column ?? 1), model.getLineMaxColumn(safeLine));
-    editor.setSelection(new window.monaco.Range(safeLine, safeColumn, safeLine, safeColumn));
-    editor.revealLineInCenter(safeLine);
-    editor.focus();
+      const focused = focusedEditorRef.current;
+      const preferred = pane === 'right' ? splitEditorRef.current : pane === 'left' ? editorRef.current : null;
+      const editor =
+        preferred ??
+        (focused?.path === path
+          ? focused.editor
+          : path === splitPathRef.current
+            ? splitEditorRef.current
+            : editorRef.current);
+      const model = modelsRef.current.get(path);
+      if (editor === null || model === undefined || typeof line !== 'number' || line < 1) return;
+      const safeLine = Math.min(Math.max(1, line), model.getLineCount());
+      const safeColumn = Math.min(Math.max(1, column ?? 1), model.getLineMaxColumn(safeLine));
+      editor.setSelection(new window.monaco.Range(safeLine, safeColumn, safeLine, safeColumn));
+      editor.revealLineInCenter(safeLine);
+      editor.focus();
     },
     [],
   );
@@ -3029,15 +3098,16 @@ function EditorWorkspace({
         readFile: async (target: string): Promise<string> => {
           const existing = modelsRef.current.get(target);
           if (existing !== undefined) return existing.getValue();
-          const value = await callFs({ op: 'read', path: target });
+          const value = await callFs<{ content?: string }>({ op: 'read', path: target });
           return value?.content ?? '';
         },
-        searchText: async (query: string) => {
+        searchText: async (query: string, options?: DefinitionSearchOptions) => {
           const value = await callFs({
             op: 'searchText',
             query,
             regex: true,
             maxMatches: 80,
+            scopeIncludePatterns: options?.scopeIncludePatterns,
           });
           return Array.isArray(value?.matches) ? value.matches : [];
         },
@@ -3179,8 +3249,8 @@ function EditorWorkspace({
       if (path === '') return;
       pendingReveal.current = {
         path,
-        line: detail.line ?? null,
-        column: detail.column ?? null,
+        line: typeof detail.line === 'number' ? detail.line : 1,
+        column: typeof detail.column === 'number' ? detail.column : 1,
       };
       void openFile(path);
     };
@@ -3191,7 +3261,7 @@ function EditorWorkspace({
     (editor: Monaco.editor.ICodeEditor | null) => {
       const model = editor?.getModel?.();
       if (model === null || model === undefined) return;
-      const options = model.getOptions?.() ?? {};
+      const options = (model.getOptions?.() ?? {}) as { tabSize?: number; insertSpaces?: boolean };
       setFileMode({
         tabSize: typeof options.tabSize === 'number' ? options.tabSize : 2,
         insertSpaces: options.insertSpaces !== false,
@@ -3907,8 +3977,8 @@ function EditorWorkspace({
     )
       .then((value) => {
         if (searchEverywhereFilesRequestRef.current !== requestId) return;
-        const files = Array.isArray(value?.files)
-          ? value.files.filter((path): path is string => typeof path === 'string')
+        const files: SearchEverywhereFile[] = Array.isArray(value?.files)
+          ? value.files.filter((path): path is string => typeof path === 'string').map((path) => ({ path }))
           : [];
         searchEverywhereFilesRef.current = files;
         searchEverywhereFilesScopeRef.current = includeNonProject === true;
@@ -3947,7 +4017,7 @@ function EditorWorkspace({
       const savedOptions = readSearchOptions();
       const includeNonProject = savedOptions.includeExcluded === true;
       const cachedFilesMatchScope = searchEverywhereFilesScopeRef.current === includeNonProject;
-      const initial = {
+      const initial: SearchEverywhereState = {
         tab,
         query,
         index: 0,
@@ -4052,7 +4122,7 @@ function EditorWorkspace({
               ? current
               : {
                   ...current,
-                  textMatches: merged.matches,
+                  textMatches: completeSearchMatches(merged.matches),
                   textTruncated: value?.truncated === true || merged.truncated,
                   textLoading: false,
                   error: null,
@@ -4115,15 +4185,14 @@ function EditorWorkspace({
       const textQuery = findToolContentQuery(query);
       const savedOptions = normalizeSearchOptions(initial === null ? readSearchOptions() : initial);
       const savedScope = readFindScope(rootRef.current);
-      const initialFiles = Array.isArray(initial?.files) ? initial.files : [];
-      const initialMatches = Array.isArray(initial?.matches) ? initial.matches : [];
-      const initialCount =
-        (Array.isArray(initial?.files) ? initial.files.length : 0) +
-        (Array.isArray(initial?.matches) ? initial.matches.length : 0);
+      const initialFiles = completeFindFiles(initial?.files);
+      const initialMatches = completeFindMatches(initial?.matches);
+      const initialCount = initialFiles.length + initialMatches.length;
       setTerminalOpen(false);
       setSearchEverywhere(null);
       setFindTool({
         surface: surface === 'dock' ? 'dock' : 'popup',
+        ...savedOptions,
         query: textQuery,
         mode: mode === 'replace' ? 'replace' : 'find',
         replace: '',
@@ -4135,7 +4204,6 @@ function EditorWorkspace({
         index: Math.max(0, Math.min(initialCount - 1, Number(initial?.index) || 0)),
         handoffRevision: ++findToolHandoffSequenceRef.current,
         replaceBusy: false,
-        ...savedOptions,
         includeExcluded: initial !== null ? initial.includeExcluded === true : savedOptions.includeExcluded === true,
         searchScopeMode: savedScope.mode,
         searchScopePreset: savedScope.preset,
@@ -4185,7 +4253,7 @@ function EditorWorkspace({
    * outside a directory or file preset cannot starve the selected range.
    * @param {{mode?: string, preset?: string, directory?: string}} scope - selected scope.
    * @returns {void}
-  */ const changeFindToolScope = React.useCallback((scope: FindToolScope) => {
+   */ const changeFindToolScope = React.useCallback((scope: FindToolScope) => {
     const normalized = writeFindScope(rootRef.current, scope);
     const { mode, preset, directory } = normalized;
     setFindTool((current) => {
@@ -4694,7 +4762,7 @@ function EditorWorkspace({
               ? current
               : {
                   ...current,
-                  matches: merged.matches,
+                  matches: completeSearchMatches(merged.matches),
                   truncated: value?.truncated === true || merged.truncated,
                   loading: false,
                   loadedGeneration: generation,
@@ -4754,7 +4822,9 @@ function EditorWorkspace({
       if (searchEverywhereOpen) return;
       const host = document.querySelector<HTMLElement>('[data-dsh-editor-workspace]');
       if (host === null || !host.contains(document.activeElement)) return;
-      if (findActionShortcutBlockedByChildContext(event.target, document.activeElement)) return;
+      const shortcutTarget = event.target instanceof Element ? event.target : null;
+      const shortcutActive = document.activeElement instanceof Element ? document.activeElement : null;
+      if (findActionShortcutBlockedByChildContext(shortcutTarget, shortcutActive)) return;
       event.preventDefault();
       event.stopPropagation();
       openSearchEverywhere('actions');
@@ -4897,7 +4967,7 @@ function EditorWorkspace({
         };
         const find = hasExplicitQuery ? requestedFind : base.find;
         const scope = scopeOverride === undefined ? (hasExplicitQuery ? null : (base.scope ?? null)) : scopeOverride;
-        const result =
+        const result: EditorFindMatches =
           model !== null && find !== ''
             ? editorFindResult(model.getValue(), find, { ...base, scope })
             : { matches: [], error: null };
@@ -4958,7 +5028,7 @@ function EditorWorkspace({
         };
         const nextScope = { start: scope.start, end: scope.end };
         const find = hasExplicitQuery ? requestedFind : base.find;
-        const result =
+        const result: EditorFindMatches =
           find === ''
             ? { matches: [], error: null }
             : editorFindResult(model.getValue(), find, {
@@ -5700,14 +5770,15 @@ function EditorWorkspace({
       ],
     );
   /* Recompute match count whenever the query or the active file changes. */ const updateFind = React.useCallback(
-    (patch) => {
+    (patch: Partial<EditorFindState>) => {
       setReplaceState((current) => {
         if (current === null) return current;
         const next = { ...current, ...patch };
         const path = currentCodePath();
         const model = path === null ? undefined : modelsRef.current.get(path);
         const text = model?.getValue() ?? '';
-        const result = next.find === '' ? { matches: [], error: null } : editorFindResult(text, next.find, next);
+        const result: EditorFindMatches =
+          next.find === '' ? { matches: [], error: null } : editorFindResult(text, next.find, next);
         next.total = result.matches.length;
         next.error = result.error;
         next.index = Math.min(next.index, Math.max(0, next.total - 1));
@@ -5717,7 +5788,7 @@ function EditorWorkspace({
     [currentCodePath],
   );
   const toggleFindOption = React.useCallback(
-    (key) => {
+    (key: 'caseSensitive' | 'wholeWords' | 'regex' | 'preserveCase') => {
       setReplaceState((current) => {
         if (current === null) return current;
         const next = { ...current, [key]: current[key] !== true };
@@ -5743,7 +5814,7 @@ function EditorWorkspace({
       if (!scoped && nextScope === null) return current;
       const path = currentCodePath();
       const model = path === null ? undefined : modelsRef.current.get(path);
-      const result =
+      const result: EditorFindMatches =
         current.find === ''
           ? { matches: [], error: null }
           : editorFindResult(model?.getValue() ?? '', current.find, {
@@ -5761,7 +5832,7 @@ function EditorWorkspace({
   }, [currentCodePath, currentCodeEditor]);
   /* IDEA Toggle Find in Selection: ⌃⌥E. Keep editor Find as the sole
          owner of scope state instead of adding a second selection matcher. */ React.useEffect(() => {
-    const onKeyDown = (event) => {
+    const onKeyDown = (event: KeyboardEvent) => {
       if (
         event.ctrlKey !== true ||
         event.altKey !== true ||
@@ -5793,14 +5864,14 @@ function EditorWorkspace({
     window.addEventListener('keydown', onKeyDown, true);
     return () => window.removeEventListener('keydown', onKeyDown, true);
   }, [currentCodeEditor, openEditorFindInSelection, replaceState, toggleFindSelectionScope]);
-  const openEditorFindHistory = (event, kind) => {
+  const openEditorFindHistory = (event: React.SyntheticEvent<HTMLElement>, kind: 'query' | 'replace') => {
     event.preventDefault();
     event.stopPropagation();
     const rect = event.currentTarget.getBoundingClientRect();
     setEditorFindHistoryMenu({ kind, x: rect.left, y: rect.bottom + 4 });
   };
   /* Move the editor selection to the next/previous match. */ const jumpToMatch = React.useCallback(
-    (direction) => {
+    (direction: number) => {
       const editor = currentCodeEditor();
       const model = editor?.getModel() ?? null;
       if (editor === null || model === null) return;
@@ -5973,7 +6044,7 @@ function EditorWorkspace({
    * this instead — otherwise the tab keeps showing stale bytes.
    * @param {string} path - workspace-relative file path.
    * @returns {Promise<void>} resolves once the tab reflects the disk.
-   */ const reloadFile = React.useCallback(async (path) => {
+   */ const reloadFile = React.useCallback(async (path: string) => {
     if (typeof path !== 'string' || path === '') return;
     try {
       const value = await callFs<{ content?: string; mtime?: number | null }>({ op: 'read', path });
@@ -6165,7 +6236,7 @@ function EditorWorkspace({
    * isolated as its own undo step.
    * @returns {Promise<void>} resolves after the guarded write and refresh.
    */ const replaceInFindTool = React.useCallback(
-    async (allowedPaths = null) => {
+    async (allowedPaths: Set<string> | null = null) => {
       const query = findToolContentQuery(findTool?.query);
       const requestGeneration = Math.max(0, Number(findTool?.searchGeneration) || 0);
       const allowed = allowedPaths instanceof Set ? allowedPaths : null;
@@ -6338,7 +6409,7 @@ function EditorWorkspace({
    * @param {number} activeIndex - current row index in the visible result set.
    * @returns {Promise<void>} resolves after the guarded write and refresh.
    */ const replaceFindToolOccurrence = React.useCallback(
-    async (match, activeIndex) => {
+    async (match: FindToolMatch, activeIndex: number) => {
       const query = findToolContentQuery(findTool?.query);
       const requestGeneration = Math.max(0, Number(findTool?.searchGeneration) || 0);
       const line = Number(match?.line);
@@ -6354,10 +6425,11 @@ function EditorWorkspace({
         column < 1
       )
         return;
+      const rowKey = typeof match.rowKey === 'string' ? match.rowKey : '';
       const dirtyFile = openFilesRef.current.find((file) => file.path === match.path && file.dirty === true);
       const dirtyModel = dirtyFile === undefined ? undefined : modelsRef.current.get(match.path);
       let dirtyOffset = null;
-      let dirtyRewrite = null;
+      let dirtyRewrite: ReturnType<typeof editorReplaceAt> | null = null;
       if (dirtyFile !== undefined) {
         if (dirtyModel === undefined) {
           setFindTool((current) =>
@@ -6374,7 +6446,13 @@ function EditorWorkspace({
         dirtyOffset = textOffsetAtLineColumn(dirtyModel.getValue(), line, column);
         dirtyRewrite =
           dirtyOffset === null
-            ? { error: 'find result no longer matches' }
+            ? {
+                text: dirtyModel.getValue(),
+                count: 0,
+                replacementText: '',
+                length: 0,
+                error: 'find result no longer matches',
+              }
             : editorReplaceAt(dirtyModel.getValue(), query, findTool.replace, dirtyOffset, {
                 caseSensitive: findTool.caseSensitive === true,
                 wholeWords: findTool.wholeWords === true,
@@ -6491,7 +6569,7 @@ function EditorWorkspace({
                 error: null,
                 index: Math.max(0, Number(activeIndex) || 0),
                 replaceFocusRequest: (current.replaceFocusRequest ?? 0) + 1,
-                replaceAdvanceRowKey: match.rowKey,
+                replaceAdvanceRowKey: rowKey,
                 replaceAdvanceRevision: (current.replaceAdvanceRevision ?? 0) + 1,
                 searchGeneration: (current.searchGeneration ?? 0) + 1,
                 loadedGeneration: -1,
@@ -6674,7 +6752,7 @@ function EditorWorkspace({
    * Declared before `reloadActiveFromDisk` because that callback lists it as a
    * dependency: reading it later would hit the temporal dead zone.
    * @param {string} path - workspace-relative file path.
-   */ const dismissExternal = React.useCallback((path) => {
+   */ const dismissExternal = React.useCallback((path: string) => {
     setExternalChanges((current) => {
       if (current[path] === undefined) return current;
       const next = { ...current };
@@ -6687,7 +6765,10 @@ function EditorWorkspace({
     if (path === null) return;
     try {
       const file = openFilesRef.current.find((entry) => entry.path === path) ?? null;
-      const value = await callFs({ op: workspaceReloadOperation(file), path });
+      const value = await callFs<{ content?: string; mtime?: number | null }>({
+        op: workspaceReloadOperation(file),
+        path,
+      });
       if (file?.kind !== 'image') {
         const model = modelsRef.current.get(path);
         if (model !== undefined) {
@@ -6720,7 +6801,7 @@ function EditorWorkspace({
    * @param {string} path - workspace-relative path to show.
    * @returns {Promise<void>} resolves once the row is on screen.
    */ const revealInProjectTree = React.useCallback(
-    async (path) => {
+    async (path: string) => {
       if (typeof path !== 'string' || path === '') return;
       const parts = path.split('/');
       let prefix = '';
@@ -6760,7 +6841,7 @@ function EditorWorkspace({
     [foldersFirst, setSelectedPath, showExcludedFiles, showHidden, sortMode],
   );
   const revealPath = React.useCallback(
-    async (path) => {
+    async (path: string) => {
       if (typeof path !== 'string' || path === '') return;
       /* IDEA returns to the last real tree view (Project or Project Files),
            not necessarily the default Project entry, when leaving a filtered view. */ applyProjectView(
@@ -6821,7 +6902,7 @@ function EditorWorkspace({
    * @param {Function} action - command body.
    * @returns {void}
    */ const runProjectOption = React.useCallback(
-    (action) => {
+    (action: () => void) => {
       action();
       focusProjectAfterOption();
     },
@@ -6832,7 +6913,7 @@ function EditorWorkspace({
    * @param {string[]} startPaths - directories to expand recursively.
    * @returns {Promise<void>} resolves once the tree caches are updated.
    */ const expandSubtrees = React.useCallback(
-    async (startPaths) => {
+    async (startPaths: string[]) => {
       const value = await expandDirectorySubtrees(
         startPaths,
         { expanded: expandedRef.current, children: childrenRef.current },
@@ -7055,7 +7136,7 @@ function EditorWorkspace({
    * checkout can carry them into the other branch or refuse outright.
    * @param {string} name - local branch name.
    */ const checkoutBranch = React.useCallback(
-    async (name) => {
+    async (name: string) => {
       const dirty = (openFilesRef.current ?? []).some((file) => file.dirty === true);
       if (dirty && !window.confirm(t('editor.checkoutDirty'))) return;
       setCommitBusy(true);
@@ -7091,7 +7172,7 @@ function EditorWorkspace({
    * working files change under the editor.
    * @param {{x: number, y: number}} position - popup anchor in viewport coordinates.
    */ const openBranchMenu = React.useCallback(
-    async (position) => {
+    async (position: { x: number; y: number }) => {
       setCommitBusy(true);
       setCommitError(null);
       try {
@@ -7199,7 +7280,7 @@ function EditorWorkspace({
    * selection is rebuilt from the fresh status instead of being left stale.
    * @param {'save'|'pop'} operation - stash action.
    */ const runStash = React.useCallback(
-    async (operation, ref) => {
+    async (operation: 'save' | 'pop' | 'apply' | 'drop', ref?: string) => {
       if (operation === 'pop' && !window.confirm(t('editor.stashPopConfirm'))) return;
       if (operation === 'drop' && !window.confirm(t('editor.stashDropConfirm', { ref: ref ?? '' }))) return;
       setCommitBusy(true);
@@ -7239,7 +7320,7 @@ function EditorWorkspace({
    * @param {string[]} [paths] - selected paths for save.
    * @returns {Promise<void>} resolves after the panel catches up.
    */ const runShelve = React.useCallback(
-    async (operation, ref, paths) => {
+    async (operation: 'save' | 'apply' | 'drop', ref?: string, paths?: string[]) => {
       if (operation === 'drop' && !window.confirm(t('editor.shelveConfirmDrop', { ref: ref ?? '' }))) return;
       setCommitBusy(true);
       setCommitError(null);
@@ -7277,7 +7358,7 @@ function EditorWorkspace({
    * restore, and stays disabled when the stack is empty.
    * @param {{x: number, y: number}} position - popup anchor in viewport coordinates.
    */ const openStashMenu = React.useCallback(
-    async (position) => {
+    async (position: { x: number; y: number }) => {
       setCommitBusy(true);
       setCommitError(null);
       try {
@@ -7316,7 +7397,7 @@ function EditorWorkspace({
    * @param {{x: number, y: number}} position - popup anchor in viewport coordinates.
    * @returns {Promise<void>} resolves once the menu is populated.
    */ const openShelveMenu = React.useCallback(
-    async (position) => {
+    async (position: { x: number; y: number }) => {
       setCommitBusy(true);
       setCommitError(null);
       try {
@@ -7354,14 +7435,14 @@ function EditorWorkspace({
    * not tell you WHAT is being lost.
    * @param {string} path - file or directory path being deleted.
    * @returns {string[]} workspace-relative paths with unsaved edits.
-   */ const dirtyUnder = React.useCallback((path) => {
+   */ const dirtyUnder = React.useCallback((path: string) => {
     if (typeof path !== 'string') return [];
     return (openFilesRef.current ?? [])
       .filter((file) => file.dirty === true && (file.path === path || file.path.startsWith(`${path}/`)))
       .map((file) => file.path);
   }, []);
   const removeEntries = React.useCallback(
-    async (paths) => {
+    async (paths: string[]) => {
       const targets = paths.filter((path) => path !== '');
       if (targets.length === 0) return;
       if (!window.confirm(t('editor.deleteSelectedConfirm', { count: targets.length }))) return;
@@ -7401,7 +7482,7 @@ function EditorWorkspace({
   );
   /* Delete one entry after confirmation, then refresh the tree and git status. */ const removeEntry =
     React.useCallback(
-      async (row) => {
+      async (row: ProjectRow) => {
         const label = row.path === '' ? projectName : row.path;
         if (!window.confirm(t('editor.deleteConfirm', { path: label }))) return;
         const unsaved = dirtyUnder(row.path);
@@ -7479,7 +7560,7 @@ function EditorWorkspace({
     for (const path of clean) {
       try {
         const file = openFilesRef.current.find((entry) => entry.path === path) ?? null;
-        const value = await callFs({
+        const value = await callFs<{ content?: string; mtime?: number | null }>({
           op: workspaceReloadOperation(file),
           path,
         });
@@ -7521,10 +7602,12 @@ function EditorWorkspace({
     const controller = new AbortController();
     let disposed = false;
     let chain = Promise.resolve();
-    const handle = (event) => {
+    const handle = (event: { type?: string; dirs?: unknown[]; message?: unknown }) => {
       if (disposed) return;
       if (event.type === 'change') {
-        const changedDirectories = Array.isArray(event.dirs) ? event.dirs : null;
+        const changedDirectories = Array.isArray(event.dirs)
+          ? event.dirs.filter((directory): directory is string => typeof directory === 'string')
+          : null;
         /* Serialize: two overlapping refreshes would interleave their state
                writes and one could resurrect a listing the other just dropped. */ chain = chain
           .then(async () => {
@@ -7601,7 +7684,7 @@ function EditorWorkspace({
     }, 8000);
     return () => window.clearInterval(interval);
   }, [checkExternalChanges, loadGit, refreshTree]);
-  const applySortMode = React.useCallback((next) => {
+  const applySortMode = React.useCallback((next: string) => {
     setSortMode(next);
     try {
       window.localStorage.setItem('dsh-editor.project.sort', next);
@@ -7626,7 +7709,7 @@ function EditorWorkspace({
    * Cross-directory drops are intentionally ignored: manual ranks are stored
    * per parent, so accepting a foreign child would fabricate a tree edge.
    */ const reorderManualProject = React.useCallback(
-    (sources, target, edge) => {
+    (sources: string[], target: string, edge: 'before' | 'after') => {
       if (sortMode !== 'manual' || typeof target !== 'string' || target === '') return;
       const parent = dirname(target);
       const listing = parent === '' ? entries : children[parent];
@@ -7839,7 +7922,7 @@ function EditorWorkspace({
     }
   }, [createState, foldersFirst, openFile, showExcludedFiles, showHidden, sortMode, t]);
   /* IDEA's "Reveal in Finder": hand the absolute path to the platform file manager. */ const revealInFinder =
-    React.useCallback(async (path) => {
+    React.useCallback(async (path: string) => {
       try {
         await callFs({ op: 'reveal', path });
       } catch (failure) {
@@ -7852,13 +7935,13 @@ function EditorWorkspace({
    * The dock only knows the Session workspace, so a subdirectory is reached by
    * committing `cd <relative>` to the new shell — the same thing a user does.
    * @param {string} relativeDirectory - workspace-relative directory to enter.
-   */ const openInTerminal = React.useCallback((relativeDirectory) => {
+   */ const openInTerminal = React.useCallback((relativeDirectory: string) => {
     pendingTerminalPath.current = relativeDirectory;
     setTerminalStartDirectory(relativeDirectory);
     setTerminalOpen(true);
     setTerminalGeneration((generation) => generation + 1);
   }, []);
-  const restage = React.useCallback(async (paths, staged) => {
+  const restage = React.useCallback(async (paths: string[], staged: boolean) => {
     if (paths.length === 0) return false;
     setCommitBusy(true);
     setCommitError(null);
@@ -7912,7 +7995,7 @@ function EditorWorkspace({
    * @param {'flat'|'module'|'directory'} mode - chosen grouping.
    * @returns {void}
    */ const applyChangeGroupBy = React.useCallback(
-    (mode) => {
+    (mode: string) => {
       setGroupBy(mode);
       try {
         window.localStorage.setItem('dsh-editor.commit.groupBy', mode);
@@ -7937,7 +8020,7 @@ function EditorWorkspace({
    * @param {{x: number, y: number}} position - toolbar anchor.
    * @returns {void}
    */ const openChangesViewMenu = React.useCallback(
-    (position) => {
+    (position: { x: number; y: number }) => {
       setMenu(
         changesViewOptionsMenu({
           t,
@@ -7961,7 +8044,7 @@ function EditorWorkspace({
    * @param {string|string[]} [target] - one path or a batch; defaults to the selection.
    * @returns {Promise<void>} resolves once the picker is on screen.
    */ const openMoveTo = React.useCallback(
-    async (target) => {
+    async (target?: string | string[]) => {
       const raw = Array.isArray(target) ? target : target === undefined ? [...selection] : [target];
       /* The root row is a directory but moving the root into itself is meaningless. */ const sources = raw.filter(
         (path) => typeof path === 'string' && path !== '',
@@ -7991,7 +8074,7 @@ function EditorWorkspace({
     [projectName, selection],
   );
   /* IDEA's project-tree context menu: new/rename/delete/reveal/copy path. */ const buildTreeMenu = React.useCallback(
-    ({ row, x, y }) => {
+    ({ row, x, y }: { row: ProjectRow; x: number; y: number }): WorkspaceMenuModel => {
       const { isDirectory, isRoot, showDirectoryActions, showFileActions, showReveal } = projectRowMenuCapabilities(
         row,
         filteredView,
@@ -8116,12 +8199,12 @@ function EditorWorkspace({
                 {
                   id: 'compareClipboard',
                   label: t('editor.compareWithClipboard'),
-                  run: () => void compareWithClipboard(row.path),
+                  run: (): void => void compareWithClipboard(row.path),
                 },
                 {
                   id: 'compareRevision',
                   label: t('editor.compareWithRevision'),
-                  run: () => void compareWithRevision(row.path),
+                  run: (): void => void compareWithRevision(row.path),
                 },
               ]
             : []),
@@ -8241,7 +8324,7 @@ function EditorWorkspace({
   );
   /* Move one entry into a directory by drag-and-drop, reusing the rename endpoint. */ const moveEntry =
     React.useCallback(
-      async (source, targetDirectory) => {
+      async (source: string | string[], targetDirectory: string) => {
         /* A multi-row drag arrives as a list; a single row drag as one string. */ const sources = (
           Array.isArray(source) ? source : [source]
         ).filter((entry) => typeof entry === 'string' && entry !== '');
@@ -8259,7 +8342,7 @@ function EditorWorkspace({
           candidate.length === 0
             ? []
             : await callFs<Array<{ path?: string; exists?: boolean }>>({ op: 'exists', paths: candidate }).catch(
-                () => [],
+                (): Array<{ path?: string; exists?: boolean }> => [],
               );
         const taken = new Set((described ?? []).filter((entry) => entry.exists === true).map((entry) => entry.path));
         const existing = new Set([...rows.map((row) => row.path), ...taken]);
@@ -8325,7 +8408,7 @@ function EditorWorkspace({
     );
   /* Resolve one conflicted file by taking ours/theirs, then refresh the change list. */ const resolveConflict =
     React.useCallback(
-      async (paths, side) => {
+      async (paths: string[], side: 'ours' | 'theirs') => {
         if (paths.length === 0) return;
         const resolvedPaths = new Set(paths);
         setCommitBusy(true);
@@ -8380,7 +8463,7 @@ function EditorWorkspace({
    * @param {string} hash - commit to check out.
    * @returns {Promise<void>} resolves when the refresh finishes.
    */ const checkoutRevision = React.useCallback(
-    async (hash) => {
+    async (hash: string) => {
       if (typeof hash !== 'string' || hash === '') return;
       if (!window.confirm(t('editor.checkoutRevisionConfirm', { hash: hash.slice(0, 7) }))) return;
       setCommitBusy(true);
@@ -8413,7 +8496,7 @@ function EditorWorkspace({
    * @param {'soft'|'mixed'|'hard'} mode - reset mode.
    * @returns {Promise<void>} resolves after history/tree state refresh.
    */ const resetBranchHere = React.useCallback(
-    async (hash, mode) => {
+    async (hash: string, mode: 'soft' | 'mixed' | 'hard') => {
       if (typeof hash !== 'string' || hash === '') return;
       const shortHash = hash.slice(0, 7);
       const modeLabel =
@@ -8453,7 +8536,7 @@ function EditorWorkspace({
     [loadLog, reloadFile, refreshTree, t],
   );
   const runHistoryAction = React.useCallback(
-    async (operation, hash) => {
+    async (operation: 'cherryPick' | 'revert', hash: string) => {
       if (typeof hash !== 'string' || hash === '') return;
       const label = operation === 'cherryPick' ? t('editor.cherryPick') : t('editor.revertCommit');
       if (
@@ -8493,10 +8576,10 @@ function EditorWorkspace({
    * @param {string} hash - commit whose first changed file to follow.
    * @returns {Promise<void>} resolves once the history is shown.
    */ const showCommitHistory = React.useCallback(
-    async (hash) => {
+    async (hash: string) => {
       if (typeof hash !== 'string' || hash === '') return;
       try {
-        const detail = await callGit({ op: 'show', hash });
+        const detail = await callGit<CommitLogDetail>({ op: 'show', hash });
         const first = (detail?.files ?? [])[0];
         if (first === undefined) {
           setCommitNotice(t('editor.noChangedFiles'));
@@ -8510,7 +8593,7 @@ function EditorWorkspace({
     [showFileHistory, t],
   );
   const compareCommitRevisions = React.useCallback(
-    async (selectionHashes) => {
+    async (selectionHashes: string[]) => {
       setCommitError(null);
       setCommitNotice(null);
       const loadedEntries = [
@@ -8530,8 +8613,8 @@ function EditorWorkspace({
       const [rightHash, leftHash] = pair;
       try {
         const [leftDetail, rightDetail] = await Promise.all([
-          callGit({ op: 'show', hash: leftHash }),
-          callGit({ op: 'show', hash: rightHash }),
+          callGit<CommitLogDetail>({ op: 'show', hash: leftHash }),
+          callGit<CommitLogDetail>({ op: 'show', hash: rightHash }),
         ]);
         const paths = [
           ...new Set(
@@ -8565,11 +8648,11 @@ function EditorWorkspace({
     [commits, graph?.entries, t],
   );
   const compareCommitWithLocal = React.useCallback(
-    async (hash) => {
+    async (hash: string) => {
       setCommitError(null);
       setCommitNotice(null);
       try {
-        const detail = await callGit({ op: 'show', hash });
+        const detail = await callGit<CommitLogDetail>({ op: 'show', hash });
         const entries = commitLocalDiffEntries(detail, hash, t('editor.currentVersion'));
         if (entries.length === 0) {
           setCommitNotice(t('editor.noChangedFiles'));
@@ -8589,7 +8672,7 @@ function EditorWorkspace({
     [t],
   );
   const createCommitPatch = React.useCallback(
-    async (hash) => {
+    async (hash: string) => {
       setCommitError(null);
       setCommitNotice(null);
       try {
@@ -8607,7 +8690,7 @@ function EditorWorkspace({
     },
     [t],
   );
-  const openRepositoryVersion = React.useCallback(async ({ hash, path }) => {
+  const openRepositoryVersion = React.useCallback(async ({ hash, path }: { hash: string; path: string }) => {
     if (typeof hash !== 'string' || hash === '' || typeof path !== 'string' || path === '') return;
     setCommitError(null);
     setCommitNotice(null);
@@ -8785,7 +8868,7 @@ function EditorWorkspace({
   /* IDEA's "Add to .gitignore", shared by the unversioned group header and
          individual unversioned file rows. Declared before buildChangeMenu so its
          callback dependency can never enter the TDZ. */ const addToGitignore = React.useCallback(
-    async (paths) => {
+    async (paths: string[]) => {
       if (paths.length === 0) return;
       setCommitBusy(true);
       setCommitError(null);
@@ -8818,7 +8901,7 @@ function EditorWorkspace({
     return callGit<SelectedPatch>({ op: 'patch', entries });
   }, []);
   const copySelectedPatch = React.useCallback(
-    async (targets) => {
+    async (targets: DiffTarget[]) => {
       setCommitError(null);
       setCommitNotice(null);
       try {
@@ -8839,7 +8922,7 @@ function EditorWorkspace({
     [requestSelectedPatch, t],
   );
   const createSelectedPatch = React.useCallback(
-    async (targets) => {
+    async (targets: DiffTarget[]) => {
       setCommitError(null);
       setCommitNotice(null);
       try {
@@ -8863,7 +8946,7 @@ function EditorWorkspace({
    * @param {string} patchText - clipboard or chosen patch-file contents.
    * @returns {Promise<boolean>} true when the patch was applied.
    */ const applyPatchText = React.useCallback(
-    async (patchText) => {
+    async (patchText: string) => {
       if (commitBusy) return false;
       if (typeof patchText !== 'string' || patchText.trim() === '') {
         setCommitError(t('editor.applyPatchEmpty'));
@@ -8944,7 +9027,7 @@ function EditorWorkspace({
     await applyPatchText(text);
   }, [applyPatchText, t]);
   const buildChangeMenu = React.useCallback(
-    (payload: ChangeRowMenuPayload) => {
+    (payload: ChangeRowMenuPayload): WorkspaceMenuModel => {
       const change = payload.change;
       const staged = payload.staged;
       const range =
@@ -8969,8 +9052,9 @@ function EditorWorkspace({
       const allUnversioned = allPathsUnversioned(selected, changesByPathRef.current);
       const removablePaths = pathsScheduledForRemoval(selected, changesByPathRef.current);
       const removalOnly = allWorking && removablePaths.length > 0 && removablePaths.length === selected.length;
-      const batchLabel = (single, multiple) => (paths.length > 1 ? t(multiple, { count: paths.length }) : t(single));
-      const pick = (path) => changesByPathRef.current.get(path) ?? change;
+      const batchLabel = (single: string, multiple: string): string =>
+        paths.length > 1 ? t(multiple, { count: paths.length }) : t(single);
+      const pick = (path: string): DiffChange => changesByPathRef.current.get(path) ?? change;
       const allConflicts = selected.every((entry) => isConflict(pick(entry.path)));
       return {
         x: payload.x,
@@ -8988,7 +9072,7 @@ function EditorWorkspace({
                       id: 'rollbackStaged',
                       label: t('editor.rollbackStaged'),
                       danger: true,
-                      run: () => void rollback(paths, { staged: true }),
+                      run: (): void => void rollback(paths, { staged: true }),
                     },
                   ]
                 : []),
@@ -9002,7 +9086,7 @@ function EditorWorkspace({
                       shortcut: '⌥⌘Z',
                       ariaKeyShortcuts: 'Alt+Meta+Z Control+Alt+Z',
                       danger: true,
-                      run: () => void rollback(paths, allUnversioned ? { unversioned: true } : undefined),
+                      run: (): void => void rollback(paths, allUnversioned ? { unversioned: true } : undefined),
                     },
                   ]
                 : []),
@@ -9039,12 +9123,12 @@ function EditorWorkspace({
                     {
                       id: 'acceptOurs',
                       label: t('editor.acceptOurs'),
-                      run: () => void resolveConflict(paths, 'ours'),
+                      run: (): void => void resolveConflict(paths, 'ours'),
                     },
                     {
                       id: 'acceptTheirs',
                       label: t('editor.acceptTheirs'),
-                      run: () => void resolveConflict(paths, 'theirs'),
+                      run: (): void => void resolveConflict(paths, 'theirs'),
                     },
                   ],
                 },
@@ -9086,7 +9170,7 @@ function EditorWorkspace({
                 {
                   id: 'removeDeleted',
                   label: t('editor.removeFromVcs'),
-                  run: () => void restage(removablePaths, false),
+                  run: (): void => void restage(removablePaths, false),
                 },
               ]
             : []),
@@ -9095,7 +9179,7 @@ function EditorWorkspace({
                 {
                   id: 'gitignore',
                   label: t('editor.addToGitignore'),
-                  run: () => void addToGitignore(paths),
+                  run: (): void => void addToGitignore(paths),
                 },
               ]
             : []),
@@ -9182,7 +9266,7 @@ function EditorWorkspace({
    * @param {{directory: string, changes: object[], group: string, x: number, y: number}} payload - clicked node.
    * @returns {object} menu descriptor for the shared popup.
    */ const buildChangeDirMenu = React.useCallback(
-    ({ directory, changes: inside, group, x, y }: ChangeDirectoryMenuPayload) => {
+    ({ directory, changes: inside, group, x, y }: ChangeDirectoryMenuPayload): WorkspaceMenuModel => {
       const paths = (inside ?? []).map((change) => change.path);
       return {
         x,
@@ -9194,14 +9278,14 @@ function EditorWorkspace({
                 {
                   id: 'unstageDirectory',
                   label: t('editor.unstageThisDirectory'),
-                  run: () => void restage(paths, true),
+                  run: (): void => void restage(paths, true),
                 },
               ]
             : [
                 {
                   id: 'stageDirectory',
                   label: t('editor.stageThisDirectory'),
-                  run: () => void restage(paths, false),
+                  run: (): void => void restage(paths, false),
                 },
               ]),
           null,
@@ -9238,7 +9322,7 @@ function EditorWorkspace({
    * @param {Event} event - keydown from the window capture phase.
    * @returns {void}
    */ const rollbackWorkingShortcut = React.useCallback(
-    (event) => {
+    (event: KeyboardEvent) => {
       const meta = event.metaKey || event.ctrlKey;
       if (!event.altKey || !meta || event.shiftKey || event.key.toLowerCase() !== 'z') return;
       const target = event.target instanceof Element ? event.target : null;
@@ -9273,7 +9357,7 @@ function EditorWorkspace({
    * @param {KeyboardEvent} event - window keydown.
    * @returns {void}
    */ const stageShortcut = React.useCallback(
-    (event) => {
+    (event: KeyboardEvent) => {
       const meta = event.metaKey || event.ctrlKey;
       if (!meta || event.shiftKey === event.altKey || event.key.toLowerCase() !== 'a') return;
       const target = event.target instanceof Element ? event.target : null;
@@ -9317,7 +9401,7 @@ function EditorWorkspace({
    * be reviewed from the keyboard after staging it.
    * @param {KeyboardEvent} event - window keydown.
    * @returns {void}
-   */ const showDiffShortcut = React.useCallback((event) => {
+   */ const showDiffShortcut = React.useCallback((event: KeyboardEvent) => {
     if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey || event.key.toLowerCase() !== 'd') return;
     const target = event.target instanceof Element ? event.target : null;
     if (target?.closest('.monaco-editor') != null) return;
@@ -9385,7 +9469,7 @@ function EditorWorkspace({
     t,
   ]);
   const selectActivity = React.useCallback(
-    (next) => {
+    (next: 'project' | 'commit' | 'terminal') => {
       if (next === 'terminal') {
         setTerminalOpen((open) => !open);
         setFindTool(null);
@@ -9445,7 +9529,7 @@ function EditorWorkspace({
       setFindTool(null);
       setTerminalFocusGeneration((value) => value + 1);
     };
-    const onKeyDown = (event) => {
+    const onKeyDown = (event: KeyboardEvent) => {
       const chordAction = selectOpenedChordAction(
         event,
         selectOpenedChordAt.current,
@@ -9493,7 +9577,7 @@ function EditorWorkspace({
     React.useRef('');
   const typeaheadAt = React.useRef(0);
   const onTreeKeyDown = React.useCallback(
-    (event) => {
+    (event: React.KeyboardEvent<HTMLDivElement>) => {
       /* The inline rename field and the create row live inside the tree, so their
              keydown bubbles here. Without this guard every letter typed into a rename
              would also run the typeahead and swallow the keystroke. */ if (
@@ -9576,7 +9660,7 @@ function EditorWorkspace({
         );
         return;
       }
-      const focusRow = (index, extend = false) => {
+      const focusRow = (index: number, extend = false) => {
         const row = selectable[Math.max(0, Math.min(index, selectable.length - 1))];
         if (row === undefined) return;
         if (extend) {
@@ -9712,7 +9796,7 @@ function EditorWorkspace({
       toggleDirectory,
     ],
   );
-  const toggleCommitPath = React.useCallback((path) => {
+  const toggleCommitPath = React.useCallback((path: string) => {
     setCommitSelection((current) => {
       const next = new Set(current);
       if (next.has(path)) next.delete(path);
@@ -9732,25 +9816,29 @@ function EditorWorkspace({
    * @param {KeyboardEvent} event - keydown from the changes scroller.
    * @returns {void}
    */ const onChangesKeyDown = React.useCallback(
-    (event) => {
+    (event: React.KeyboardEvent<HTMLDivElement>) => {
       if (event.target instanceof Element && event.target.closest('input, textarea, select') !== null) return;
-      const focused = event.currentTarget instanceof HTMLElement ? event.currentTarget : null;
-      const node = focused?.closest('[data-dsh-changes-list]') ?? focused?.closest('[role="tree"]') ?? null;
-      if (node === null) return;
+      const focused = event.currentTarget;
+      const nodeCandidate = focused.closest('[data-dsh-changes-list]') ?? focused.closest('[role="tree"]');
+      if (!(nodeCandidate instanceof HTMLElement)) return;
+      const node = nodeCandidate;
       /* A row's keydown bubbles into the scroller. Act only for the element
            that owns the event; otherwise a row focus move re-runs the handler
            with `currentTarget=row` and walks one extra step. */ if (focused !== node && focused !== event.target)
         return;
       const rows = [
-        ...node.querySelectorAll('[data-dsh-change-group], [data-dsh-change-path], [data-dsh-change-directory]'),
+        ...node.querySelectorAll<HTMLElement>(
+          '[data-dsh-change-group], [data-dsh-change-path], [data-dsh-change-directory]',
+        ),
       ];
       if (rows.length === 0) return;
       const current = selectedChangeRef.current;
       const currentGroup = selectedGroupRef.current;
-      const focusedRow =
+      const focusedRowCandidate =
         event.target instanceof Element
           ? event.target.closest('[data-dsh-change-group], [data-dsh-change-path], [data-dsh-change-directory]')
           : null;
+      const focusedRow = focusedRowCandidate instanceof HTMLElement ? focusedRowCandidate : null;
       const focusedIndex = focusedRow === null ? -1 : rows.indexOf(focusedRow);
       const index =
         focusedIndex >= 0
@@ -9798,11 +9886,11 @@ function EditorWorkspace({
         }
         /* A dead-end prefix leaves the key to the browser instead of swallowing it. */ return;
       }
-      const choose = (next) => {
+      const choose = (next: number) => {
         const row = rows[Math.max(0, Math.min(next, rows.length - 1))];
         if (row === undefined) return;
         const group = row.getAttribute('data-dsh-change-group');
-        if (group !== null) {
+        if (group === 'staged' || group === 'unstaged' || group === 'unversioned') {
           chooseGroup(group);
           row.focus?.({ preventScroll: true });
           return;
@@ -9813,9 +9901,11 @@ function EditorWorkspace({
           row.scrollIntoView?.({ block: 'nearest' });
           return;
         }
+        const path = row.getAttribute('data-dsh-change-path');
+        if (path === null || path === '') return;
         chooseChange(
           {
-            path: row.getAttribute('data-dsh-change-path'),
+            path,
             staged: row.getAttribute('data-dsh-change-staged') === 'true',
           },
           { shift: event.shiftKey, row },
@@ -9876,7 +9966,7 @@ function EditorWorkspace({
    * @param {KeyboardEvent} event - keyup from the changes list or a row.
    * @returns {void}
    */ const onChangesKeyUp = React.useCallback(
-    (event) => {
+    (event: React.KeyboardEvent<HTMLElement>) => {
       if (event.key !== ' ' && event.key !== 'Spacebar') return;
       if (event.target instanceof Element && event.target.closest('input, textarea, select') !== null) return;
       const target = event.target instanceof Element ? event.target : null;
@@ -9893,7 +9983,7 @@ function EditorWorkspace({
   );
   /* One group's checkbox toggles every file in it, like IDEA's changelist node. */ const toggleCommitGroup =
     React.useCallback(
-      (group) => {
+      (group: ChangeGroup) => {
         const changes = git?.changes ?? [];
         const members = splitChanges(changes)[group] ?? [];
         setCommitSelection((current) => {
@@ -9915,7 +10005,7 @@ function EditorWorkspace({
    * read as one action: deciding each key from a freshly read state would
    * toggle the first level and leave the rest in place.
    * @param {string|string[]} key - one collapse key or several.
-   */ const toggleCollapsedGroup = React.useCallback((key) => {
+   */ const toggleCollapsedGroup = React.useCallback((key: string | string[]) => {
     const keys = Array.isArray(key) ? key : [key];
     if (keys.length === 0) return;
     setCollapsedGroups((current) => {
@@ -9935,7 +10025,7 @@ function EditorWorkspace({
    * IDEA prefills subject AND body, and only when the box is empty: an amend
    * with a half-written new message must not be silently overwritten.
    */ const toggleAmend = React.useCallback(
-    (next) => {
+    (next: boolean) => {
       setAmend(next);
       if (!next) {
         /* Turning amend off restores what the user had before it was turned on. */ if (
@@ -9962,7 +10052,7 @@ function EditorWorkspace({
    * than being appended twice, so ↑/↓ never cycles through the same text.
    * @param {string} message - submitted commit message.
    */ const rememberMessage = React.useCallback(
-    (message) => {
+    (message: string) => {
       const text = message.trim();
       if (text === '' || root === '') return;
       setMessageHistory((current) => {
@@ -9982,7 +10072,7 @@ function EditorWorkspace({
    * Walk the message history with ↑/↓, returning to the draft after the oldest entry.
    * @param {number} direction - +1 older, -1 newer.
    */ const recallMessage = React.useCallback(
-    (direction) => {
+    (direction: number) => {
       if (messageHistory.length === 0) return;
       /* Walking back past the newest entry must restore what the user had typed,
              not blank the box: the draft is not part of the history. */ if (
@@ -10008,7 +10098,7 @@ function EditorWorkspace({
    * @param {number} index - history entry, newest first.
    * @returns {void}
    */ const selectHistoryMessage = React.useCallback(
-    (index) => {
+    (index: number) => {
       if (!Number.isInteger(index) || index < 0 || index >= messageHistory.length) return;
       if (draftBeforeRecall.current === null && historyIndex === -1) draftBeforeRecall.current = commitMessage;
       setHistoryIndex(index);
@@ -10115,7 +10205,7 @@ function EditorWorkspace({
    * @param {{x: number, y: number}} position - toolbar popup anchor.
    * @returns {void}
    */ const openCommitOptionsMenu = React.useCallback(
-    (position) => {
+    (position: { x: number; y: number }) => {
       const stageAllPaths = stageAllTargets(git?.changes ?? [], false);
       setMenu(
         commitOptionsMenu({
@@ -10158,7 +10248,7 @@ function EditorWorkspace({
     ],
   );
   const commit = React.useCallback(
-    async (push) => {
+    async (push: boolean) => {
       const paths = [...commitSelection];
       if (commitMessage.trim() === '' || paths.length === 0) return;
       setCommitBusy(true);
@@ -10331,13 +10421,13 @@ function EditorWorkspace({
                 id: 'closeLeft',
                 label: t('editor.closeTabsLeft'),
                 disabled: tabIndex <= 0,
-                run: () => closeEditorTabs(allTabs.slice(0, tabIndex)),
+                run: () => closeEditorTabs(allTabs.slice(0, tabIndex).map(tabKey)),
               },
               {
                 id: 'closeRight',
                 label: t('editor.closeTabsRight'),
                 disabled: tabIndex < 0 || tabIndex >= allTabs.length - 1,
-                run: () => closeEditorTabs(allTabs.slice(tabIndex + 1)),
+                run: () => closeEditorTabs(allTabs.slice(tabIndex + 1).map(tabKey)),
               },
               {
                 id: 'closeAll',
@@ -10466,7 +10556,7 @@ function EditorWorkspace({
                 id: 'closeRight',
                 label: t('editor.closeTabsRight'),
                 disabled: openFiles.length === 0,
-                run: () => closeEditorTabs(allTabs.slice(diffTabIndex + 1)),
+                run: () => closeEditorTabs(allTabs.slice(diffTabIndex + 1).map(tabKey)),
               },
               {
                 id: 'closeAll',
@@ -10480,7 +10570,7 @@ function EditorWorkspace({
                     {
                       id: 'openFile',
                       label: t('editor.openInEditor'),
-                      run: () => void openFile(diffTarget.path),
+                      run: (): void => void openFile(diffTarget.path),
                     },
                   ]),
             ],
@@ -10494,7 +10584,7 @@ function EditorWorkspace({
     diffTab === null ? openFiles : [DIFF_TAB_KEY, ...openFiles];
   const tabKey = (entry: string | OpenWorkspaceFile): string => (typeof entry === 'string' ? entry : entry.path);
   const activeTabKey = diffActive ? DIFF_TAB_KEY : activePath;
-  const fileTabElement = (entry: string | OpenWorkspaceFile) =>
+  const fileTabElement = (entry: string | OpenWorkspaceFile): React.ReactElement | null =>
     typeof entry === 'string' ? diffTab : (tabs[openFiles.indexOf(entry)] ?? null);
   const fileTabLayout = overflowTabs(allTabs, visibleTabCount(tabStripWidth, allTabs.length), activeTabKey, tabKey);
   const splitTabLayout = overflowTabs(
@@ -10798,7 +10888,16 @@ function EditorWorkspace({
           }
           void openFile(result.path);
         }}
-        onOpenInRightSplit={(path, location) => void openInRightSplit(path, location)}
+        onOpenInRightSplit={(path, location) => {
+          const validLocation =
+            location !== null &&
+            location !== undefined &&
+            typeof location.line === 'number' &&
+            typeof location.column === 'number'
+              ? { path: location.path, line: location.line, column: location.column }
+              : null;
+          void openInRightSplit(path, validLocation);
+        }}
         onRevealResult={(path) => void revealPath(path)}
         onNotify={(message) => flashStatus(message)}
         onReplaceMode={() => setFindTool((current) => (current === null ? current : { ...current, mode: 'replace' }))}
@@ -10986,7 +11085,16 @@ function EditorWorkspace({
                   },
             )
           }
-          onOpenInRightSplit={(path, location) => void openInRightSplit(path, location)}
+          onOpenInRightSplit={(path, location) => {
+            const validLocation =
+              location !== null &&
+              location !== undefined &&
+              typeof location.line === 'number' &&
+              typeof location.column === 'number'
+                ? { path: location.path, line: location.line, column: location.column }
+                : null;
+            void openInRightSplit(path, validLocation);
+          }}
           onRevealResult={(path) => void revealPath(path)}
           onNotify={(message) => flashStatus(message)}
         />
@@ -11206,10 +11314,14 @@ function EditorWorkspace({
                 onCreateCommit={createEntry}
                 onCreateCancel={() => setCreateState(null)}
                 onCreateParent={(parent) =>
-                  setCreateState((current) => (current === null ? current : { ...current, parent }))
+                  setCreateState((current) =>
+                    current === null || typeof parent !== 'string' ? current : { ...current, parent },
+                  )
                 }
                 onCreateTemplate={(template) =>
-                  setCreateState((current) => (current === null ? current : { ...current, template }))
+                  setCreateState((current) =>
+                    current === null || typeof template !== 'boolean' ? current : { ...current, template },
+                  )
                 }
                 onReveal={revealActive}
                 onExpandSelected={() => void expandSelectedTree()}
@@ -11715,7 +11827,16 @@ function EditorWorkspace({
                          does not rebuild the diff. */
               }}
               onStatus={(value) => {
-                setGit((current) => (value === null || typeof value !== 'object' ? current : value));
+                if (value === null || typeof value !== 'object') return;
+                const candidate = value as Partial<WorkspaceGitStatus>;
+                if (
+                  typeof candidate.root === 'string' &&
+                  typeof candidate.branch === 'string' &&
+                  typeof candidate.prefix === 'string' &&
+                  Array.isArray(candidate.changes)
+                ) {
+                  setGit(candidate as WorkspaceGitStatus);
+                }
               }}
               onNotice={(message) => flashStatus(message)}
               onNavigate={(entry) => {
@@ -11806,7 +11927,21 @@ function EditorWorkspace({
                     else editorRef.current?.focus();
                   }, 0);
                 }}
-                onEditorTerminals={(list) => setEditorTerminals(list)}
+                onEditorTerminals={(list) =>
+                  setEditorTerminals(
+                    list.flatMap((terminal): EditorTerminalDescriptor[] => {
+                      if (typeof terminal.id !== 'string') return [];
+                      return [
+                        {
+                          id: terminal.id,
+                          title:
+                            typeof terminal.title === 'string' && terminal.title !== '' ? terminal.title : terminal.id,
+                          cwd: typeof terminal.cwd === 'string' ? terminal.cwd : '',
+                        },
+                      ];
+                    }),
+                  )
+                }
                 onSwitchFocusToEditor={focusEditorFromTerminal}
               />
             }
@@ -11830,7 +11965,7 @@ const CHAT_WIDTH_MAX = 44;
  * cannot leave a zero-width column.
  * @param {number} value - requested width in percent.
  * @returns {number} clamped width.
- */ export function clampChatPercent(value) {
+ */ export function clampChatPercent(value: number): number {
   if (!Number.isFinite(value)) return CHAT_WIDTH_DEFAULT;
   return Math.min(CHAT_WIDTH_MAX, Math.max(CHAT_WIDTH_MIN, value));
 }
@@ -11841,7 +11976,7 @@ const CHAT_WIDTH_MAX = 44;
  * @param {boolean} collapsed - whether the Harness tab is minimizing chat.
  * @param {number} value - persisted chat width percentage.
  * @returns {number} width to apply to the current layout.
- */ export function chatLayoutWidth(collapsed, value) {
+ */ export function chatLayoutWidth(collapsed: boolean, value: number): number {
   return collapsed === true ? 0 : clampChatPercent(value);
 }
 /**
@@ -11869,7 +12004,7 @@ const CHAT_WIDTH_MAX = 44;
  * Persist the chat width so the next Editor open starts where it left off.
  * @param {number} value - width in percent.
  * @returns {void}
- */ export function writeChatWidth(value) {
+ */ export function writeChatWidth(value: number): void {
   try {
     window.localStorage.setItem('dsh-editor.chatWidth.v2', String(Math.round(clampChatPercent(value) * 10) / 10));
   } catch {

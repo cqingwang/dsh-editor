@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-import { transpileTypeScriptFunction } from './ts-source.mjs';
+import { loadTypeScriptCallback, transpileTypeScriptFunction } from './ts-source.mjs';
 
 const searchEverywhereSource = await readFile(
   new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url),
@@ -48,15 +48,46 @@ test('Search Everywhere passes active or clicked result into the shared handoff'
 });
 
 test('openFindTool stores and clamps the initial active index', () => {
-  const opener = workspaceSource.slice(
-    workspaceSource.indexOf('const openFindTool = React.useCallback'),
-    workspaceSource.indexOf('const openFindToolInDock = React.useCallback'),
-  );
-  assert.match(
-    opener,
-    /const initialCount =\s*\(Array\.isArray\(initial\?\.files\) \? initial\.files\.length : 0\) \+\s*\(Array\.isArray\(initial\?\.matches\) \? initial\.matches\.length : 0\)/,
-  );
-  assert.match(opener, /index: Math\.max\(0, Math\.min\(initialCount - 1, Number\(initial\?\.index\) \|\| 0\)\)/);
+  let state = null;
+  const openFindTool = loadTypeScriptCallback(workspaceSource, 'openFindTool', {
+    findToolContentQuery: (query) => String(query ?? '').trim(),
+    completeFindFiles: (value) =>
+      Array.isArray(value) ? value.filter((item) => typeof item?.path === 'string').map((item) => ({ path: item.path })) : [],
+    completeFindMatches: (value) =>
+      Array.isArray(value)
+        ? value.filter(
+            (item) =>
+              typeof item?.path === 'string' &&
+              typeof item.line === 'number' &&
+              typeof item.column === 'number',
+          )
+        : [],
+    normalizeSearchOptions: (value) => value ?? {},
+    readSearchOptions: () => ({}),
+    readFindScope: () => ({ mode: 'project', preset: 'projectFiles', directory: '' }),
+    readFindDirectoryRecursive: () => true,
+    rootRef: { current: '' },
+    setTerminalOpen: () => {},
+    setSearchEverywhere: () => {},
+    setFindTool: (value) => {
+      state = value;
+    },
+    findToolHandoffSequenceRef: { current: 0 },
+    window: { setTimeout: (callback) => callback() },
+    document: { querySelector: () => null },
+  });
+  openFindTool('needle', 'find', {
+    files: [{ path: 'a.ts' }],
+    matches: [{ path: 'b.ts', line: 1, column: 1 }],
+    index: 99,
+  });
+  assert.equal(state.index, 1);
+  openFindTool('needle', 'find', {
+    files: [{ path: 'a.ts' }],
+    matches: [{ path: 'b.ts', line: 1, column: 1 }],
+    index: -4,
+  });
+  assert.equal(state.index, 0);
 });
 
 test('Find handoff request keeps options while adding active index', () => {

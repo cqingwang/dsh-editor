@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
+import { extractUseEffectExpressionContaining, loadTypeScriptExpression } from './ts-source.mjs';
 import { loadTypeScriptFunction } from './ts-source.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -178,15 +179,31 @@ test('the editor area is one surface: a terminal hides the empty placeholder', (
   assert.match(editorTerminalAreaSource, /if \(!active \|\| terminal === null\) return null;/);
 });
 
-test('a reloaded page re-resolves its editor terminals from the host', () => {
-  /* The dock reports what it moved, but after a reload the dock starts closed,
-     so nothing reports and the stored id rendered nowhere (measured: stored list
-     held the id, no tab appeared). The PTY is the HOST's, so asking it is enough. */
-  const block = source.slice(source.indexOf('const remembered = readEditorTerminals();'), source.indexOf('/* Directory "Open in Terminal"'));
-  assert.match(block, /callTerminal\(\{ op: 'list' \}\)/);
-  assert.match(block, /const restored = listed\.filter\(\(terminal\) =>\s+remembered\.includes\(terminal\.id\)/u);
-  assert.match(block, /setEditorTerminals\(restored\)/);
-  assert.match(block, /writeEditorTerminals\(restored\.map\(\(terminal\) => terminal\.id\)\)/);
-  /* A terminal closed while the page was away must not come back as a dead tab. */
-  assert.match(block, /const listed = Array\.isArray\(value\?\.terminals\) \? value\.terminals : \[\]/);
+test('a reloaded page re-resolves its editor terminals from the host', async () => {
+  let restored = [];
+  let persisted = [];
+  const effect = loadTypeScriptExpression(
+    workspaceSource,
+    extractUseEffectExpressionContaining(workspaceSource, 'readEditorTerminals()'),
+    {
+      readEditorTerminals: () => ['live'],
+      callTerminal: async () => ({
+        terminals: [
+          { id: 'live', title: 'Live', cwd: '/repo' },
+          { id: 'closed-while-away', title: 'Closed', cwd: '/repo' },
+        ],
+      }),
+      setEditorTerminals: (value) => {
+        restored = value;
+      },
+      writeEditorTerminals: (value) => {
+        persisted = value;
+      },
+    },
+  );
+  const cleanup = effect();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(restored, [{ id: 'live', title: 'Live', cwd: '/repo' }]);
+  assert.deepEqual(persisted, ['live']);
+  cleanup();
 });

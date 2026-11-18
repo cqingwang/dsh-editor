@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import { compactActionBarSource } from './ui-sources.mjs';
-import { loadTypeScriptFunction } from './ts-source.mjs';
+import { extractVariableInitializerExpression, loadTypeScriptExpression, loadTypeScriptFunction } from './ts-source.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const screenSource = readFileSync(
@@ -52,15 +52,39 @@ function collapseKeys(changes) {
 }
 
 test('Alt+F12 closes from the terminal and returns to the originating editor', () => {
-  const toggle = slice('const toggleTerminalDock = () => {', 'const onKeyDown = (event) => {');
-  const restore = slice('const restoreTerminalOrigin = () => {', 'const toggleTerminalDock = () => {');
-  assert.match(toggle, /terminalShortcutAction\(/);
-  assert.match(toggle, /document\.activeElement instanceof Element/);
-  assert.match(toggle, /if \(action\.open === false\) \{/);
-  assert.match(toggle, /if \(action\.restoreFocus\) restoreTerminalOrigin\(\);/);
-  assert.match(restore, /const previous = terminalReturnFocusRef\.current;/);
-  assert.match(restore, /previous instanceof HTMLElement && previous\.isConnected/);
-  assert.match(restore, /previous\.focus\(\)/);
+  class FakeElement {
+    closest() {
+      return {};
+    }
+  }
+  const activeElement = new FakeElement();
+  let restored = 0;
+  let terminalOpen = true;
+  const toggleTerminalDock = loadTypeScriptExpression(
+    workspaceSource,
+    extractVariableInitializerExpression(workspaceSource, 'toggleTerminalDock'),
+    {
+      document: {
+        activeElement,
+      },
+      Element: FakeElement,
+      terminalShortcutAction: () => ({ open: false, restoreFocus: true }),
+      terminalOpen,
+      terminalReturnFocusRef: { current: null },
+      setTerminalOpen: (value) => {
+        terminalOpen = value;
+      },
+      restoreTerminalOrigin: () => {
+        restored += 1;
+      },
+      rememberTerminalOrigin: () => {},
+      setFindTool: () => {},
+      setTerminalFocusGeneration: () => {},
+    },
+  );
+  toggleTerminalDock();
+  assert.equal(terminalOpen, false);
+  assert.equal(restored, 1);
 });
 
 test('opening the dock remembers Monaco or the focused tree/list control', () => {

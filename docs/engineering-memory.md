@@ -1,5 +1,105 @@
 # dsh-editor 工程记忆
 
+## 2026-11-18 — 共享 noImplicitAny 门禁与行为测试收口
+
+**作用域**：`tsconfig.client.json`、`editor-workspace.tsx`、`commit.ts`、
+`terminal.ts`、`editor-core.ts`、Search/Find/Commit/Terminal/Project 相关测试。
+
+**症状/证据**：
+
+- 编辑器仍提示 `Cannot find name 'Response'/'Set'`、JSX flag 和
+  `replaceAll` 等错误，但 `npm run lint:client-types` 曾通过；
+- 临时运行 `tsc --noImplicitAny` 曾暴露 382 个真实源码错误，其中
+  `editor-workspace.tsx` 377 个；
+- 多个测试以源码参数签名、`useRef(null)`/`useState(null)` 文本、Prettier
+  换行和 `lib/client.js` 格式作为断言，类型化后出现误报。
+
+**根因**：
+
+- 命令行 `tsconfig` 与编辑器语言服务虽共享文件，但共享配置未启用
+  `noImplicitAny`；
+- 编辑器大量状态从 `null`/空数组推断，造成 useCallback、Monaco action、
+  context menu payload 和 DOM event 连锁退化为隐式 any；
+- 测试把实现文本当行为契约，无法承受合法类型注解和格式化；
+- `openFindTool` 将 `...savedOptions` 展开在显式 active index 之后，
+  handoff 的原始 `index` 会覆盖已经 clamp 的索引，这是测试转行为执行后发现的
+  真实缺陷。
+
+**修复**：
+
+- 在 `tsconfig.client.json` 固定 `"noImplicitAny": true`，CLI、编辑器语言服务、
+  TS worker 与编译回归共用同一配置；
+- 为 workspace 状态、Monaco editor/model、context menu、Find/Search、
+  Project/Git、Terminal descriptor 和 DOM 事件补真实接口；
+- `commit.ts` 的 query/save transition 改为泛型保留输入状态，
+  `DirtyReplaceModel` 直接使用 Monaco `ITextModel`；
+- `openFindTool` 改为 `{ surface, ...savedOptions, query, mode, files, matches,
+  index, ... }`，显式 handoff 字段最后写入；
+- `tests/ts-source.mjs` 增加 TS callback/effect 提取和带依赖作用域执行；
+  原失败测试改为直接执行转译后的回调，断言状态、菜单项、导航参数和副作用；
+- 构建一致性仍由 `check:client-build` 验证，不再让测试依赖生成文件格式判断源码。
+
+**回归**：
+
+- `npx tsc -p tsconfig.json --noImplicitAny --pretty false`：**0 errors**；
+- `npm run lint:client-types`：通过，118 source modules verified；
+- `npm run check:format:client-components`：通过；
+- `npm test`：**2829 pass / 0 fail**；
+- `npm run check:client-build`：13 modules verified；
+- `node --check lib/client.js`、`node --check lib/index.js`、`git diff --check`：
+  通过。
+
+**适用环境**：macOS、Node 24.22.2、TypeScript 5.9.3、ESLint 9.39.5、
+React 18、Monaco Editor 0.52.2。
+后续 TypeScript 源码测试必须优先转译并执行可注入行为；源码 import/配置一致性
+由 ESLint、import checker、tsc 和 build check 负责，不得靠匹配生成文件文本来证明。
+
+## 2026-11-18 — Java / Go / C-C++ import-aware 声明跳转
+
+**作用域**：`src/client/code-navigation.ts`、`src/client/editor-workspace.tsx`
+的 Go to Declaration 调用、语言导航回归测试。
+
+**症状/证据**：
+
+- 原有 Go to Declaration 仅对 JS/TS/Python 的 import 做直接模块解析；
+- Java、Go、C/C++ 虽有声明正则和全局文本搜索，但没有利用 package/import/include
+  约束，容易选中同名但无关的声明；
+- C/C++ 头文件原型和限定名方法定义缺少稳定的声明正则覆盖。
+
+**根因**：
+
+- 导航模型只有 `definitionImportTarget()` 的单 import binding 概念，
+  Java static import、C include、Go module path 都没有进入候选/scope；
+- 全局声明搜索没有语言上下文，只能依赖同目录/同扩展名的弱排序；
+- 原有 C/C++ 正则偏向带函数体的定义，没有覆盖头文件原型和 `Type::method`。
+
+**修复**：
+
+- Java：解析 `package` 推导源码根，普通 import 生成类型文件候选，方法调用会读取
+  已导入类型；`import static Type.member` 直接定位所属类型中的 member；
+- C/C++：解析引号/尖括号 include，引号 include 同时尝试相对源码目录和 workspace
+  根，随后重读头文件并用声明正则确认；
+- Go：解析单行/分组 import path，生成 module 前缀无关的目录后缀 scope，
+  通过宿主 `scopeIncludePatterns` 做有界搜索；
+- `resolveWorkspaceDefinition()` 新增“语言候选 -> scoped 搜索 -> 全局搜索”
+  的确定性优先级，仍未成功则返回 null；
+- C/C++ 声明正则补充头文件原型和 `Class::method` 定义。
+
+**回归**：
+
+- 新增 `tests/editor-java-go-cpp-language-aware-definition-navigation.test.mjs`；
+- 覆盖 Java type/method/static import、C/C++ include、Go import scope、
+  C prototype、C++ qualified method 和 resolver 优先级；
+- 定向测试：**6 pass / 0 fail**；
+- 现有 JS/TS/Python code-navigation 测试保留；
+- DSH Web 运行态：Java `Helper.work()` 打开 `Helper.java` 4:15；Go
+  `store.Fetch()` 通过 import scope 打开 `store.go` 3:6；C++ `helper()` 通过
+  quoted include 打开 `helper.h` 2:5。
+
+**适用环境**：macOS、Node 24.22.2、TypeScript 5.9.3、Monaco Editor 0.52.2。
+后续语言导航不得把候选读取或 scoped 搜索当成无限索引；无法证明的 import/include
+必须回退，不得伪造语言服务器能力。
+
 ## 2026-11-18 — Find Scope 用可执行 File 搜索替代禁用 Module
 
 **作用域**：`components/search/FindToolWindow.tsx`、`editor-workspace.tsx`、

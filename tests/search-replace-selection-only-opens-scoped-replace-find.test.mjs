@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
+import { loadTypeScriptCallback } from './ts-source.mjs';
 
+const workspaceSource = await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8');
 const source =
-  (await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8')) +
+  workspaceSource +
   '\n' +
   (await readFile(new URL('../src/client/locales.ts', import.meta.url), 'utf8'));
 const actionsStart = source.indexOf('const searchEverywhereActions =');
@@ -19,12 +21,29 @@ test('Replace in Selection Only opens a scoped replace find', () => {
 });
 
 test('scoped Find preserves or explicitly enables the replace row', () => {
-  const open = source.slice(
-    source.indexOf('const openEditorFindInSelection = React.useCallback'),
-    source.indexOf('/* IDEA\'s editor search family'),
-  );
-  assert.match(open, /\(scope, withReplace = null, initialQuery = null, focusTarget = null\)/u);
-  assert.match(open, /withReplace === null \? base\.withReplace === true : withReplace === true/u);
+  let state = {
+    find: 'a',
+    replace: '',
+    index: 0,
+    total: 1,
+    error: null,
+    scope: null,
+    withReplace: false,
+  };
+  const openEditorFindInSelection = loadTypeScriptCallback(workspaceSource, 'openEditorFindInSelection', {
+    currentCodeEditor: () => ({ getModel: () => ({ getValue: () => 'a' }) }),
+    readSearchOptions: () => ({}),
+    editorFindResult: () => ({ matches: [{ offset: 0, length: 1, text: 'a' }], error: null }),
+    setReplaceState: (updater) => {
+      state = updater(state);
+    },
+    window: { setTimeout: (callback) => callback() },
+    document: { querySelector: () => null },
+  });
+  openEditorFindInSelection({ start: 0, end: 1 }, true, null, null);
+  assert.equal(state.withReplace, true);
+  openEditorFindInSelection({ start: 0, end: 1 }, null, null, null);
+  assert.equal(state.withReplace, true);
 });
 
 test('Replace in Selection Only is localized in both dictionaries', () => {

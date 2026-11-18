@@ -3,6 +3,10 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
+import {
+  extractVariableInitializerExpression,
+  loadTypeScriptExpression,
+} from './ts-source.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const screenSource = readFileSync(join(root, 'src/client/components/terminal/TerminalScreen.tsx'), 'utf8');
@@ -29,28 +33,64 @@ test('the terminal screen reclaims focus whenever it becomes visible', () => {
 });
 
 test('Alt+F12 records the originating surface and restores it on close', () => {
-  const toggle = slice('const toggleTerminalDock = () => {', 'const onKeyDown = (event) => {');
-  const origin = source.slice(source.lastIndexOf('const rememberTerminalOrigin = () => {'), source.indexOf('const toggleTerminalDock = () => {'));
-  assert.match(toggle, /terminalShortcutAction\(/);
-  assert.match(toggle, /document\.activeElement instanceof Element/);
-  assert.match(toggle, /if \(action\.open === false\) \{/);
-  assert.match(toggle, /restoreTerminalOrigin\(\)/);
-  assert.match(origin, /const previous = terminalReturnFocusRef\.current;/);
-  assert.match(origin, /previous instanceof HTMLElement && previous\.isConnected/);
-  assert.match(origin, /previous\.focus\(\)/);
-  assert.match(origin, /else editorRef\.current\?\.focus\(\);/);
-  assert.match(origin, /terminalReturnFocusRef\.current =\s+current !== null/);
-  assert.match(origin, /current\.closest\('\[data-dsh-editor-terminal\]'\) === null/);
-  assert.match(toggle, /rememberTerminalOrigin\(\);[\s\S]*?setTerminalOpen\(true\);/);
-  assert.match(toggle, /setTerminalFocusGeneration\(\(value\) => value \+ 1\);/);
-  assert.match(source, /terminalReturnFocusRef =\s+React\.useRef\(null\);/);
-  assert.match(source, /const \[\s*terminalFocusGeneration,\s*setTerminalFocusGeneration,\s*\] = React\.useState\(0\);/);
-  assert.match(source, /focusGeneration=\{terminalFocusGeneration\}/);
-  const keys = slice(
-    "if (event.altKey && !event.metaKey && !event.ctrlKey && event.key === 'F12')",
-    'if (event.ctrlKey && event.shiftKey',
+  class ToggleElement {
+    closest() {
+      return null;
+    }
+  }
+  const activeElement = new ToggleElement();
+  const events = [];
+  let terminalOpen = false;
+  let focusGeneration = 0;
+  const toggleTerminalDock = loadTypeScriptExpression(
+    workspaceSource,
+    extractVariableInitializerExpression(workspaceSource, 'toggleTerminalDock'),
+    {
+      document: { activeElement },
+      Element: ToggleElement,
+      terminalShortcutAction: () => ({ open: true, restoreFocus: false }),
+      terminalOpen,
+      terminalReturnFocusRef: { current: null },
+      rememberTerminalOrigin: () => events.push('remember'),
+      restoreTerminalOrigin: () => events.push('restore'),
+      setTerminalOpen: (value) => {
+        terminalOpen = value;
+      },
+      setFindTool: () => events.push('clear-find'),
+      setTerminalFocusGeneration: (updater) => {
+        focusGeneration = updater(focusGeneration);
+      },
+    },
   );
-  assert.match(keys, /toggleTerminalDock\(\);/);
+  toggleTerminalDock();
+  assert.equal(terminalOpen, true);
+  assert.equal(focusGeneration, 1);
+  assert.deepEqual(events, ['remember', 'clear-find']);
+
+  class FakeElement {
+    constructor() {
+      this.isConnected = true;
+      this.focused = false;
+    }
+    focus() {
+      this.focused = true;
+    }
+  }
+  const previous = new FakeElement();
+  const terminalReturnFocusRef = { current: previous };
+  const restoreTerminalOrigin = loadTypeScriptExpression(
+    workspaceSource,
+    extractVariableInitializerExpression(workspaceSource, 'restoreTerminalOrigin'),
+    {
+      terminalReturnFocusRef,
+      window: { setTimeout: (callback) => callback() },
+      HTMLElement: FakeElement,
+      editorRef: { current: { focus: () => {} } },
+    },
+  );
+  restoreTerminalOrigin();
+  assert.equal(previous.focused, true);
+  assert.equal(terminalReturnFocusRef.current, null);
 });
 
 test('closing the dock through its own toolbar restores focus too', () => {

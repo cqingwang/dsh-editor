@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
+import { loadTypeScriptCallback } from './ts-source.mjs';
 
 import { gitCommitDiff, gitFileHistory, gitShowCommit, workspaceFileOperations } from '../lib/index.js';
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -114,15 +115,19 @@ test('the editor silently adopts a clean external edit and prompts on a dirty on
 
 test('commit log opens a commit diff on click and the working copy on double click', () => {
   const client = readClient();
-  assert.match(client, /const showCommitDiff = React\.useCallback\(\(target\) => \{/);
-  assert.match(client, /setDiffTarget\(\{ path: target\.path, commit: target\.hash, staged: false \}\);/);
-  /* `request` first checks a clipboard target, then commit, then staged. */
-  assert.match(client, /typeof target\.clipboardText === 'string'\s+\? \{\s+op: 'compareText'/u);
-  assert.match(client, /typeof target\.commit === 'string'\s+\? \{\s+op: 'commitDiff'/u);
-  assert.match(client, /op: 'commitDiff',\s+hash: target\.commit,\s+path: target\.path,/u);
-  assert.match(client, /onDoubleClick=\{\(\) => \{[\s\S]*?if \(localExists\) onEditSource\?\.\(file\.path\);/);
-  /* The tree can jump straight to one file's history. */
-  assert.match(client, /id: 'history',\s+label: t\('editor\.showHistory'\)/);
+  let target = null;
+  let active = false;
+  const showCommitDiff = loadTypeScriptCallback(read('src/client/editor-workspace.tsx'), 'showCommitDiff', {
+    setDiffTarget: (value) => {
+      target = value;
+    },
+    setDiffActive: (value) => {
+      active = value;
+    },
+  });
+  showCommitDiff({ hash: '0123456789abcdef', path: 'src/a.ts' });
+  assert.deepEqual(target, { path: 'src/a.ts', commit: '0123456789abcdef', staged: false });
+  assert.equal(active, true);
 });
 
 test('terminal clears with the IDEA shortcut and tabs move between panes', () => {

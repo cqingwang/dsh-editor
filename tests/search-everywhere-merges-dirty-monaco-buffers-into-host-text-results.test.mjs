@@ -1,12 +1,14 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
+import { extractFunctionSource, loadTypeScriptExpression } from './ts-source.mjs';
 
 const searchEverywhereSource = await readFile(
   new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url),
   'utf8',
 );
 const workspaceSource = await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8');
+const terminalSource = await readFile(new URL('../src/client/terminal.ts', import.meta.url), 'utf8');
 const source = [
   searchEverywhereSource,
   workspaceSource,
@@ -18,11 +20,42 @@ function searchEverywhereComponent() {
 }
 
 test('Search Everywhere merges dirty Monaco buffers into host text results', () => {
-  assert.match(workspaceSource, /<SearchEverywhere[\s\S]*?openFiles=\{openFiles\}/u);
-  assert.match(source, /const dirtyFiles = \(Array\.isArray\(openFiles\) \? openFiles : \[\]\)\.filter/u);
-  assert.match(source, /const merged = mergeFindToolDirtyMatches\(/u);
-  assert.match(source, /textMatches: merged\.matches/u);
-  assert.match(source, /textTruncated: value\?\.truncated === true \|\| merged\.truncated/u);
+  const merge = loadTypeScriptExpression(terminalSource, extractFunctionSource(terminalSource, 'mergeFindToolDirtyMatches'), {
+    findToolPathMatchesScope: () => true,
+    fileExtensionFilterMatches: () => true,
+    textSearchFileMatches: (path, _content, query, _options, mtime) => ({
+      matches: [
+        {
+          path,
+          line: 1,
+          column: 5,
+          preview: 'new needle',
+          dirty: true,
+          mtime,
+        },
+      ],
+      truncated: false,
+    }),
+  });
+  const result = merge(
+    [{ path: 'a.ts', line: 1, column: 1, preview: 'old needle' }],
+    [{ path: 'a.ts', content: 'new needle\n', mtime: 1 }],
+    'needle',
+    {},
+    {},
+    200,
+  );
+  assert.deepEqual(result.matches, [
+    {
+      path: 'a.ts',
+      line: 1,
+      column: 5,
+      preview: 'new needle',
+      dirty: true,
+      mtime: 1,
+    },
+  ]);
+  assert.equal(result.truncated, false);
 });
 
 test('Dirty Search Everywhere text results preview the live Monaco content', () => {

@@ -39,8 +39,12 @@ test('cleaned client modules stay free of implicit any compiler errors', () => {
     'src/client/components/commit/CommitPanel.tsx',
     'src/client/components/commit/CommitLog.tsx',
     'src/client/components/editor/EditorErrorBoundary.tsx',
+    'src/client/components/editor/EditorDiffArea.tsx',
+    'src/client/components/editor/EditorFindBar.tsx',
+    'src/client/components/editor/EditorGotoLinePopup.tsx',
     'src/client/components/ui/CompactActionBar.tsx',
     'src/client/components/ui/DiffViewModeControl.tsx',
+    'src/client/editor-workspace.tsx',
   ];
   const result = spawnSync(
     process.execPath,

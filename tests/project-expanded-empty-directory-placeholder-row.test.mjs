@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
-import { transpileTypeScriptFunction } from './ts-source.mjs';
+import { loadTypeScriptCallback, loadTypeScriptFunction, transpileTypeScriptFunction } from './ts-source.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const terminalSource = readFileSync(join(root, 'src/client/terminal.ts'), 'utf8');
@@ -97,10 +97,40 @@ test('a multi-row move refuses to drop a directory into itself', () => {
 });
 
 test('open tabs follow a moved directory, not just a moved file', () => {
-  const client = source;
-  assert.match(client, /function remapPathAfterMove\(path: string, entries: Array<\[string, string\]>\): string/);
-  assert.match(client, /path\.startsWith\(`\$\{from\}\/`\)/);
-  assert.match(client, /const remapEditorPaths = React\.useCallback\(\(entries\) => \{/);
+  const remapPathAfterMove = loadTypeScriptFunction(
+    readFileSync(join(root, 'src/client/editor-core.ts'), 'utf8'),
+    'remapPathAfterMove',
+  );
+  const nextOpenFiles = [];
+  let previewPath = null;
+  let activePath = null;
+  const remapEditorPaths = loadTypeScriptCallback(workspaceSource, 'remapEditorPaths', {
+    remapPathAfterMove,
+    modelsRef: { current: new Map([['src/a.ts', { id: 'model' }]]) },
+    previewPathRef: { current: 'src/preview.ts' },
+    setPreviewPath: (value) => {
+      previewPath = value;
+    },
+    setOpenFiles: (updater) => {
+      nextOpenFiles.push(...updater([{ path: 'src/a.ts', content: '', dirty: false, mtime: null }]));
+    },
+    setActivePath: (updater) => {
+      activePath = updater('src/a.ts');
+    },
+    setSplitTabs: (updater) => updater(['src/b.ts']),
+    splitTabsRef: { current: ['src/b.ts'] },
+    splitPathRef: { current: 'src/b.ts' },
+    setSplitPath: () => {},
+    setDiffTarget: (updater) => updater({ path: 'src/a.ts', staged: false }),
+    setAnnotateTarget: (updater) => updater({ path: 'src/a.ts' }),
+    setRecentFiles: (updater) => updater(['src/a.ts']),
+    rootRef: { current: '/repo' },
+    writeRecentFiles: () => {},
+  });
+  remapEditorPaths([['src', 'lib']]);
+  assert.equal(nextOpenFiles[0].path, 'lib/a.ts');
+  assert.equal(previewPath, 'lib/preview.ts');
+  assert.equal(activePath, 'lib/a.ts');
 });
 
 test('a commit switches to the log and marks the new row', () => {

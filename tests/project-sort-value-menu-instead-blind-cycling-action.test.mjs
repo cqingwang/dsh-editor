@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
+import { loadTypeScriptCallback } from './ts-source.mjs';
 import { menuSource } from './ui-sources.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -18,8 +19,19 @@ test('Project Sort By is a value menu instead of a blind cycling action', () => 
   assert.match(projectOptions, /id: `sort:\$\{mode\}`/);
   assert.match(projectOptions, /shortcut: \(sortMode \?\? 'name'\) === mode \? '✓' : ''/);
   assert.match(projectOptions, /run: \(\) => onApplySortMode\(mode\)/);
-  assert.match(workspace, /onApplySortMode: \(mode\) => runProjectOption\(\(\) => applySortMode\(mode\)\)/);
-  assert.match(workspace, /const applySortMode = React\.useCallback\(\(next\) => \{/);
+  let persisted = null;
+  const applySortMode = loadTypeScriptCallback(workspace, 'applySortMode', {
+    setSortMode: () => {},
+    window: {
+      localStorage: {
+        setItem: (key, value) => {
+          persisted = [key, value];
+        },
+      },
+    },
+  });
+  applySortMode('modified-asc');
+  assert.deepEqual(persisted, ['dsh-editor.project.sort', 'modified-asc']);
 });
 
 test('Show Hidden Files carries its current state in the same Options menu', () => {

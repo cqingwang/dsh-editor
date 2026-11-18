@@ -3,10 +3,12 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
+import { loadTypeScriptCallback } from './ts-source.mjs';
 
 const host = await import('../lib/index.js');
+const workspaceSource = await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8');
 const source =
-  (await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8')) +
+  workspaceSource +
   '\n' +
   (await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8')) +
   '\n' +
@@ -59,10 +61,26 @@ test('Find UI persists recursive state and invalidates requests when toggled', (
     source,
     /searchScopeRecursive: readFindDirectoryRecursive\(rootRef\.current\)/u,
   );
-  assert.match(
-    source,
-    /const changeFindDirectoryRecursive = React\.useCallback\(\s+\(recursive\) => \{[\s\S]*?searchScopeRecursive: next,[\s\S]*?searchGeneration: \(current\.searchGeneration \?\? 0\) \+ 1,[\s\S]*?loadedGeneration: -1,/u,
-  );
+  let state = {
+    query: 'needle',
+    replace: '',
+    searchScopeMode: 'directory',
+    searchScopeRecursive: true,
+    searchGeneration: 3,
+  };
+  const changeFindDirectoryRecursive = loadTypeScriptCallback(workspaceSource, 'changeFindDirectoryRecursive', {
+    rootRef: { current: '/repo' },
+    writeFindDirectoryRecursive: (_root, recursive) => recursive,
+    hasFindToolContentQuery: () => true,
+    setFindTool: (updater) => {
+      state = updater(state);
+    },
+  });
+  changeFindDirectoryRecursive(false);
+  assert.equal(state.searchScopeRecursive, false);
+  assert.equal(state.loading, true);
+  assert.equal(state.searchGeneration, 4);
+  assert.equal(state.loadedGeneration, -1);
 });
 
 test('Find requests, dirty merging and host route forward recursive', () => {

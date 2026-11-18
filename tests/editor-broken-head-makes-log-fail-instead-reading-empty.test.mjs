@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
+import { loadTypeScriptCallback } from './ts-source.mjs';
 
 import { describeGitError, gitLog } from '../lib/index.js';
 
@@ -53,11 +54,24 @@ test('the log failure banner offers a retry and suppresses the empty state', () 
   assert.match(client, /logFailure=\{logError\}/);
 });
 
-test('the graph clears the previous failure on success', () => {
+test('the graph clears the previous failure on success', async () => {
   const client = read('src/client/editor-workspace.tsx');
-  const start = client.indexOf('const loadGraph = React.useCallback(async (branch, at) => {');
-  assert.notEqual(start, -1);
-  const block = client.slice(start, start + 1600);
-  assert.match(block, /setLogError\(null\);/);
-  assert.match(block, /setLogError\(message\);/);
+  const errors = [];
+  const loadGraph = loadTypeScriptCallback(client, 'loadGraph', {
+    callGit: async () => ({
+      entries: [],
+      branches: [],
+      tags: [],
+      branchList: [],
+      tagList: [],
+      head: null,
+      branch: null,
+      at: null,
+    }),
+    setLogLoading: () => {},
+    setGraph: () => {},
+    setLogError: (value) => errors.push(value),
+  });
+  await loadGraph('', '');
+  assert.deepEqual(errors, [null]);
 });

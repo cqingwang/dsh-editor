@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
+import { loadTypeScriptCallback } from './ts-source.mjs';
 
 const terminalSource = await readFile(new URL('../src/client/terminal.ts', import.meta.url), 'utf8');
-const source = (await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8')) + '\n' + (await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8')) + '\n' + terminalSource;
+const workspaceSource = await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8');
+const source = workspaceSource + '\n' + (await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8')) + '\n' + terminalSource;
 const findToolDockSource = await readFile(
   new URL('../src/client/components/search/FindToolDock.tsx', import.meta.url),
   'utf8',
@@ -65,9 +67,48 @@ test('Opening Find from the shortcut returns an existing docked result to the po
 });
 
 test('Explicit Find tool-window actions open the dock instead of the popup', () => {
-  assert.match(source, /const openFindTool = React\.useCallback\(\s*\(query = '', mode = 'find', initial = null, focusTarget = 'query', surface = 'popup'\)/);
-  assert.match(source, /surface: surface === 'dock' \? 'dock' : 'popup'/);
-  assert.match(source, /pinShowUsages[\s\S]*?'query', 'dock'/);
-  assert.match(source, /id: 'findToolWindow'[\s\S]*?openFindTool\('', 'find', null, 'query', 'dock'\)/);
-  assert.match(source, /onOpenInFindToolWindow=\{\(initial\) =>\s*openFindTool\([\s\S]*?'query',\s*'dock'/);
+  let state = null;
+  const openFindTool = loadTypeScriptCallback(workspaceSource, 'openFindTool', {
+    findToolContentQuery: (query) => String(query ?? '').trim(),
+    completeFindFiles: (value) =>
+      Array.isArray(value) ? value.filter((item) => typeof item?.path === 'string').map((item) => ({ path: item.path })) : [],
+    completeFindMatches: (value) =>
+      Array.isArray(value)
+        ? value.filter(
+            (item) =>
+              typeof item?.path === 'string' &&
+              typeof item.line === 'number' &&
+              typeof item.column === 'number',
+          )
+        : [],
+    normalizeSearchOptions: (value) => value ?? {},
+    readSearchOptions: () => ({}),
+    readFindScope: () => ({ mode: 'project', preset: 'projectFiles', directory: '' }),
+    readFindDirectoryRecursive: () => true,
+    rootRef: { current: '' },
+    setTerminalOpen: () => {},
+    setSearchEverywhere: () => {},
+    setFindTool: (value) => {
+      state = value;
+    },
+    findToolHandoffSequenceRef: { current: 0 },
+    window: { setTimeout: (callback) => callback() },
+    document: { querySelector: () => null },
+  });
+  openFindTool('', 'find', null, 'query', 'dock');
+  assert.equal(state.surface, 'dock');
+
+  const forwarded = [];
+  const pinShowUsages = loadTypeScriptCallback(workspaceSource, 'pinShowUsages', {
+    showUsages: {
+      query: 'needle',
+      matches: [{ path: 'a.ts', line: 1, column: 1 }],
+      truncated: false,
+    },
+    setShowUsages: () => {},
+    openFindTool: (...args) => forwarded.push(args),
+  });
+  pinShowUsages();
+  assert.deepEqual(forwarded[0].slice(0, 2), ['needle', 'find']);
+  assert.equal(forwarded[0].at(-1), 'dock');
 });

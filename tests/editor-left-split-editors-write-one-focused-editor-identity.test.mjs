@@ -3,21 +3,38 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
+import { loadTypeScriptCallback } from './ts-source.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
+const workspaceSource = readFileSync(join(root, 'src/client/editor-workspace.tsx'), 'utf8');
 const source = [
-  readFileSync(join(root, 'src/client/editor-workspace.tsx'), 'utf8'),
+  workspaceSource,
   readFileSync(join(root, 'src/client/terminal.ts'), 'utf8'),
   readFileSync(join(root, 'src/client/injected-css.ts'), 'utf8'),
 ].join('\n');
 
 test('left and split editors write one focused editor identity', () => {
-  assert.match(source, /const focusedEditorRef = React\.useRef\(null\)/);
-  assert.match(source, /const focusedPathRef = React\.useRef\(null\)/);
-  assert.match(source, /focusedEditorRef\.current = \{ path: activePathRef\.current, editor \}/);
-  assert.match(source, /const path = splitPathRef\.current;[\s\S]*?focusedEditorRef\.current = \{ path, editor \}/);
-  assert.match(source, /const currentCodeEditor = React\.useCallback\(/);
-  assert.match(source, /const currentCodePath = React\.useCallback\(/);
+  const leftEditor = { focus: () => {}, getModel: () => ({ path: 'left.ts' }) };
+  const rightEditor = { focus: () => {}, getModel: () => ({ path: 'right.ts' }) };
+  const focusedEditorRef = { current: { path: 'right.ts', editor: rightEditor } };
+  const focusedPathRef = { current: 'right.ts' };
+  const activePathRef = { current: 'left.ts' };
+  const editorRef = { current: leftEditor };
+  const currentCodeEditor = loadTypeScriptCallback(workspaceSource, 'currentCodeEditor', {
+    focusedEditorRef,
+    editorRef,
+  });
+  const currentCodePath = loadTypeScriptCallback(workspaceSource, 'currentCodePath', {
+    focusedEditorRef,
+    focusedPathRef,
+    activePathRef,
+  });
+  assert.equal(currentCodeEditor(), rightEditor);
+  assert.equal(currentCodePath(), 'right.ts');
+  focusedEditorRef.current = null;
+  focusedPathRef.current = null;
+  assert.equal(currentCodeEditor(), leftEditor);
+  assert.equal(currentCodePath(), 'left.ts');
 });
 
 test('Find, Replace and Go to Line use the focused editor path and model', () => {

@@ -7,6 +7,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import { panelToolbarSource } from './ui-sources.mjs';
+import { loadTypeScriptCallback } from './ts-source.mjs';
 
 import { gitBranches, gitCheckout } from '../lib/index.js';
 
@@ -51,17 +52,64 @@ test('checkout only accepts a name the repository actually has', async (t) => {
   await assert.rejects(() => gitCheckout(dir, '   '), /a branch name is required/);
 });
 
-test('the branch popup reads the list on open and confirms before a dirty checkout', () => {
+test('the branch popup reads the list on open and confirms before a dirty checkout', async () => {
   const client = read('src/client/editor-workspace.tsx');
-  assert.match(client, /const openBranchMenu = React\.useCallback\(\s+async \(position\) => \{/u);
-  assert.match(client, /op: 'branches'/);
-  /* A checkout under unsaved edits must ask first, like IDEA. */
-  assert.match(client, /if \(dirty && !window\.confirm\(t\('editor\.checkoutDirty'\)\)\) return;/);
-  assert.match(client, /op: 'checkout',\s*branch: name/);
-  assert.match(client, /setCommitNotice\(t\('editor\.checkoutDone', \{ name \}\)\)/);
-  /* Handlers are declared after the callbacks they depend on (see static-order test). */
-  assert.ok(client.indexOf('const openBranchMenu = React.useCallback(') > client.indexOf('const refreshTree = React.useCallback('));
-  assert.ok(client.indexOf('const checkoutBranch = React.useCallback(') < client.indexOf('const openBranchMenu = React.useCallback('));
+  const calls = [];
+  const menus = [];
+  let prompt = null;
+  let confirmResult = false;
+  let gitCalls = 0;
+  const t = (key) => key;
+  const checkoutBranch = loadTypeScriptCallback(client, 'checkoutBranch', {
+    t,
+    openFilesRef: { current: [{ path: 'a.txt', dirty: true }] },
+    window: {
+      confirm: () => confirmResult,
+      setTimeout: (callback) => callback(),
+    },
+    callGit: async (request) => {
+      gitCalls += 1;
+      calls.push(request);
+      return { root: '/repo', branch: request.branch, prefix: '', changes: [] };
+    },
+    setCommitBusy: () => {},
+    setCommitError: () => {},
+    setGit: () => {},
+    setCommitSelection: () => {},
+    setDiffTarget: () => {},
+    setExternalChanges: () => {},
+    refreshTree: async () => {},
+    setHistoryPath: () => {},
+    loadLog: async () => {},
+    setCommitNotice: (message) => calls.push(message),
+    reloadFile: async () => {},
+  });
+  await checkoutBranch('feature');
+  assert.equal(gitCalls, 0);
+  confirmResult = true;
+  await checkoutBranch('feature');
+  assert.deepEqual(calls.at(-2), { op: 'checkout', branch: 'feature' });
+  assert.equal(calls.at(-1), 'editor.checkoutDone');
+
+  const openBranchMenu = loadTypeScriptCallback(client, 'openBranchMenu', {
+    t,
+    callGit: async () => ({ branches: ['main', 'feature'], branch: 'main' }),
+    setCommitBusy: () => {},
+    setCommitError: () => {},
+    setMenu: (menu) => menus.push(menu),
+    setNamePrompt: (value) => {
+      prompt = value;
+    },
+    checkoutBranch,
+  });
+  await openBranchMenu({ x: 12, y: 24 });
+  assert.equal(menus.length, 1);
+  assert.equal(menus[0].x, 12);
+  assert.equal(menus[0].y, 24);
+  const newBranch = menus[0].items.find((item) => item?.id === 'newBranch');
+  newBranch.run();
+  assert.equal(prompt.kind, 'branch');
+  assert.equal(prompt.title, 'editor.newBranchAction');
 });
 
 test('the commit toolbar shows the branch and uses it as the popup trigger', () => {

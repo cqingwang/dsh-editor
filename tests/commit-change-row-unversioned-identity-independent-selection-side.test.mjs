@@ -3,7 +3,12 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
-import { loadTypeScriptFunction } from './ts-source.mjs';
+import {
+  extractUseEffectExpressionAfter,
+  loadTypeScriptCallback,
+  loadTypeScriptExpression,
+  loadTypeScriptFunction,
+} from './ts-source.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const source = readFileSync(join(root, 'src/client/editor-workspace.tsx'), 'utf8');
@@ -24,22 +29,38 @@ test('a change row keeps its unversioned identity independent of selection side'
 });
 
 test('changing Group by reveals and focuses the current Change row', () => {
-  const workspace = source;
-  const block = workspace.slice(
-    workspace.indexOf('const applyChangeGroupBy = React.useCallback('),
-    workspace.indexOf('const changeGroupMenu = React.useCallback(', workspace.indexOf('const applyChangeGroupBy = React.useCallback(')),
-  );
-  assert.notEqual(block.length, 0);
-  assert.match(block, /selectedChangeRef\.current/);
-  assert.match(block, /groupByFocusRef\.current = \{\s+path: selected\.path,\s+staged: selected\.staged === true,\s+\}/u);
-  assert.match(block, /revealChangeRow\(selected\);/);
-  const focusEffect = workspace.slice(
-    workspace.indexOf('const groupByFocusRef = React.useRef(null);'),
-    workspace.indexOf('/* The change-list filter;', workspace.indexOf('const groupByFocusRef = React.useRef(null);')),
-  );
-  assert.match(focusEffect, /changeRowRefs\.current\.get\(key\)/);
-  assert.match(focusEffect, /row\.focus\?\.\(\)/);
-  assert.match(focusEffect, /scrollIntoView\?\.\(\{ block: 'nearest' \}\)/);
+  const revealed = [];
+  const groupByFocusRef = { current: null };
+  const applyChangeGroupBy = loadTypeScriptCallback(source, 'applyChangeGroupBy', {
+    setGroupBy: () => {},
+    window: { localStorage: { setItem: () => {} } },
+    selectedChangeRef: { current: { path: 'src/a.ts', staged: false } },
+    groupByFocusRef,
+    revealChangeRow: (target) => revealed.push(target),
+  });
+  applyChangeGroupBy('directory');
+  assert.deepEqual(groupByFocusRef.current, { path: 'src/a.ts', staged: false });
+  assert.deepEqual(revealed, [{ path: 'src/a.ts', staged: false }]);
+
+  let focused = false;
+  let scrolled = false;
+  const row = {
+    focus: () => {
+      focused = true;
+    },
+    scrollIntoView: () => {
+      scrolled = true;
+    },
+  };
+  const effect = loadTypeScriptExpression(source, extractUseEffectExpressionAfter(source, 'const groupByFocusRef ='), {
+    groupByFocusRef,
+    changeRowRefs: { current: new Map([['unstaged:src/a.ts', row]]) },
+    document: { querySelectorAll: () => [] },
+  });
+  effect();
+  assert.equal(focused, true);
+  assert.equal(scrolled, true);
+  assert.equal(groupByFocusRef.current, null);
 });
 
 test('Group by items call the reveal-aware apply path', () => {

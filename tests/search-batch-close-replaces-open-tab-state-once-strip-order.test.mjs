@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
+import { loadTypeScriptCallback } from './ts-source.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const source = readFileSync(join(root, 'src/client/editor-workspace.tsx'), 'utf8');
@@ -27,23 +28,31 @@ test('batch close replaces the open-tab state once and keeps the strip order', (
 });
 
 test('close to left/right uses the combined diff + file tab order', () => {
-  const close = slice('const closeEditorTabs = React.useCallback(', '/* Cmd/Ctrl+Shift+O opens');
-  assert.match(close, /const includesDiff = wanted\.has\(DIFF_TAB_KEY\);/);
-  assert.match(close, /const fileKeys = \[\.\.\.wanted\]\.filter\(\(key\) => key !== DIFF_TAB_KEY\);/);
-  assert.match(close, /if \(includesDiff\) \{[\s\S]*?setDiffTarget\(null\);/);
-  assert.doesNotMatch(close, /else if \(activePathRef\.current !== null\) setDiffActive\(false\)/);
-
-  const fileMenu = slice('onContextMenu={(event) => {', 'onClose={() => closeFile(file.path)}');
-  assert.match(fileMenu, /const tabIndex = allTabs\.indexOf\(file\);/);
-  assert.match(fileMenu, /closeEditorTabs\(allTabs\.slice\(0, tabIndex\)\)/);
-  assert.match(fileMenu, /closeEditorTabs\(allTabs\.slice\(tabIndex \+ 1\)\)/);
-  assert.match(fileMenu, /id: 'closeLeft',\s+label: t\('editor\.closeTabsLeft'\)/u);
-  assert.match(fileMenu, /id: 'closeRight',\s+label: t\('editor\.closeTabsRight'\)/u);
-
-  const diffMenu = slice("key='dsh-editor-difftab'", '/* One layout for this render');
-  assert.match(diffMenu, /id: 'closeOthers',\s+label: t\('editor\.closeOtherTabs'\)/u);
-  assert.match(diffMenu, /id: 'closeRight',\s+label: t\('editor\.closeTabsRight'\)/u);
-  assert.match(diffMenu, /id: 'closeAll',\s+label: t\('editor\.closeAllTabs'\)/u);
+  const closed = [];
+  let diffTarget = { path: 'a.ts' };
+  let diffActive = true;
+  const closeEditorTabs = loadTypeScriptCallback(source, 'closeEditorTabs', {
+    DIFF_TAB_KEY: '__diff__',
+    closePaths: (paths) => {
+      closed.push(paths);
+      return true;
+    },
+    setDiffTarget: (value) => {
+      diffTarget = value;
+    },
+    setDiffActive: (value) => {
+      diffActive = value;
+    },
+    openFilesRef: { current: [{ path: 'a.ts' }, { path: 'b.ts' }] },
+    diffReturnFocusRef: { current: null },
+    window: { setTimeout: (callback) => callback() },
+  });
+  closeEditorTabs(['a.ts', '__diff__']);
+  assert.deepEqual(closed, [['a.ts']]);
+  assert.equal(diffTarget, null);
+  assert.equal(diffActive, true);
+  closeEditorTabs(['a.ts', 'b.ts', '__diff__']);
+  assert.equal(diffActive, false);
 });
 
 test('closeDiff clears the diff tab active flag and activates a neighbouring file tab', () => {

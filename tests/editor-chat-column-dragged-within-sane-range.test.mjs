@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
+import { transpileTypeScriptFunction } from './ts-source.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const workspaceSource = readFileSync(join(root, 'src/client/editor-workspace.tsx'), 'utf8');
@@ -12,26 +13,13 @@ const source = [workspaceSource, controllerSource, injectedCssSource].join('\n')
 
 /** Evaluate one shipping helper by brace balance, with the width constants. */
 function load(name) {
-  const marker = `function ${name}(`;
-  const start = workspaceSource.indexOf(marker);
-  assert.notEqual(start, -1, `${name} is missing from editor-workspace.tsx`);
-  let index = source.indexOf('{', start);
-  let depth = 0;
-  for (; index < workspaceSource.length; index += 1) {
-    if (workspaceSource[index] === '{') depth += 1;
-    else if (workspaceSource[index] === '}') {
-      depth -= 1;
-      if (depth === 0) {
-        const constants = [
-          'const CHAT_WIDTH_MIN = 28;',
-          'const CHAT_WIDTH_MAX = 44;',
-          'const CHAT_WIDTH_DEFAULT = 35;',
-        ].join('\n');
-        return new Function(`${constants}\n${workspaceSource.slice(start, index + 1)}; return ${name};`)();
-      }
-    }
-  }
-  throw new Error(`unbalanced braces in ${name}`);
+  const constants = [
+    'const CHAT_WIDTH_MIN = 28;',
+    'const CHAT_WIDTH_MAX = 44;',
+    'const CHAT_WIDTH_DEFAULT = 35;',
+  ].join('\n');
+  const functionSource = transpileTypeScriptFunction(workspaceSource, name);
+  return new Function(`${constants}\n${functionSource}; return ${name};`)();
 }
 
 const clampChatPercent = load('clampChatPercent');

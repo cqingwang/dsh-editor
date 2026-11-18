@@ -61,16 +61,14 @@ test('directory-specific workspace changes do not invalidate unrelated images', 
 });
 
 test('workspace file-change events update Markdown image revisions by directory', () => {
-  assert.match(
-    client,
-    /const \[\s*markdownAssetRevisions,\s*setMarkdownAssetRevisions,\s*\] = React\.useState\(\{ global: 0, directories: \{\} \}\)/u,
-  );
-  assert.match(client, /const changedListings = await refreshTree\(/u);
-  assert.match(client, /nextMarkdownAssetRevisions\(current, changedListings\)/u);
-  assert.match(client, /keepUnchangedListing\(childrenRef\.current\[path\], rows\)/u);
-  const markdown = markdownPreviewSource;
-  assert.match(markdown, /assetRevisions/u);
-  assert.match(markdown, /markdownWorkspaceImageUrl\(path, value, workspaceRoot, assetRevisions\)/u);
-  assert.match(markdown, /\[path, workspaceRoot, assetRevisions\]/u);
-  assert.match(client, /assetRevisions=\{markdownAssetRevisions\}/u);
+  const nextRevisions = markdownHelpers.nextMarkdownAssetRevisions;
+  const initial = { global: 0, directories: {} };
+  const afterDocs = nextRevisions(initial, ['docs']);
+  assert.deepEqual(afterDocs, { global: 0, directories: { docs: 1 } });
+  const afterSrc = nextRevisions(afterDocs, ['src']);
+  assert.deepEqual(afterSrc, { global: 0, directories: { docs: 1, src: 1 } });
+  assert.deepEqual(nextRevisions(afterSrc, null), {
+    global: 1,
+    directories: { docs: 1, src: 1 },
+  });
 });

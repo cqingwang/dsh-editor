@@ -3,10 +3,12 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
+import { loadTypeScriptCallback } from './ts-source.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
+const workspaceSource = readFileSync(join(root, 'src/client/editor-workspace.tsx'), 'utf8');
 const source = [
-  readFileSync(join(root, 'src/client/editor-workspace.tsx'), 'utf8'),
+  workspaceSource,
   readFileSync(join(root, 'src/client/components/project/ProjectPanel.tsx'), 'utf8'),
   readFileSync(join(root, 'src/client/components/commit/CommitPanel.tsx'), 'utf8'),
   readFileSync(join(root, 'src/client/components/terminal/TerminalPanel.tsx'), 'utf8'),
@@ -105,15 +107,42 @@ test('⌘D toggles the diff of the change the panel is showing', () => {
 });
 
 test('the last change survives closing the diff, so ⌘D can reopen it', () => {
-  /* Without the remembered path the second ⌘D closed the diff and the third did
-     nothing: the only source was `diffTarget`, which had just been nulled. */
-  assert.match(source, /const lastChangePathRef = React\.useRef\(null\);/);
-  assert.match(
-    source,
-    /if \(diffTarget !== null\)\s+lastChangePathRef\.current = \{\s+path: diffTarget\.path,\s+staged: diffTarget\.staged === true,\s+\};/s,
-  );
-  const reopen = slice('const showDiffShortcut = React.useCallback(', 'window.addEventListener(\'keydown\', showDiffShortcut, true);');
-  assert.match(reopen, /selectedChangeRef\.current\?\.path \?\?\s+selectedDiffPathRef\.current \?\?\s+selectedCommitPathRef\.current \?\?\s+remembered\?\.path/s);
+  class FakeElement {
+    closest() {
+      return null;
+    }
+  }
+  let nextDiff = null;
+  const showDiffShortcut = loadTypeScriptCallback(workspaceSource, 'showDiffShortcut', {
+    selectedGroupRef: { current: null },
+    lastChangePathRef: { current: { path: 'a.ts', staged: false } },
+    selectedChangeRef: { current: null },
+    selectedDiffPathRef: { current: null },
+    selectedCommitPathRef: { current: null },
+    activePathRef: { current: null },
+    gitRef: { current: { changes: [{ path: 'a.ts', status: ' M' }] } },
+    panelVisibleRef: { current: true },
+    activityRef: { current: 'commit' },
+    setDiffTarget: (updater) => {
+      nextDiff = updater(nextDiff);
+    },
+    setDiffActive: () => {},
+    Element: FakeElement,
+  });
+  const event = {
+    metaKey: true,
+    ctrlKey: false,
+    altKey: false,
+    shiftKey: false,
+    key: 'd',
+    target: null,
+    preventDefault: () => {},
+    stopPropagation: () => {},
+  };
+  showDiffShortcut(event);
+  assert.deepEqual(nextDiff, { path: 'a.ts', staged: false });
+  showDiffShortcut(event);
+  assert.equal(nextDiff, null);
 });
 
 /* ── Terminal keys its own menu advertises ──────────────────────────────── */

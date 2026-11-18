@@ -3,17 +3,24 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
+import { loadTypeScriptFunction } from './ts-source.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const source = readFileSync(join(root, 'src/client/editor-workspace.tsx'), 'utf8');
 const splitHeaderSource = readFileSync(join(root, 'src/client/components/editor/EditorSplitHeader.tsx'), 'utf8');
+const findToolSource = readFileSync(join(root, 'src/client/find-tool.ts'), 'utf8');
 
 test('split tab strip measures its own width and reuses the shared overflow helper', () => {
-  assert.match(source, /const \[splitTabStripWidth, setSplitTabStripWidth\] = React\.useState\(0\)/);
-  assert.match(source, /const splitTabStripRef = React\.useRef\(null\)/);
-  assert.match(source, /splitTabStripRef\.current/);
-  assert.match(source, /setSplitTabStripWidth\(node\.clientWidth\)/);
-  assert.match(source, /const splitTabLayout = overflowTabs\(\s+splitTabs,\s+visibleTabCount\(splitTabStripWidth, splitTabs\.length\),\s+splitPath,\s+\(path\) => path,\s+\)/);
+  const visibleTabCount = loadTypeScriptFunction(findToolSource, 'visibleTabCount');
+  const overflowTabs = loadTypeScriptFunction(findToolSource, 'overflowTabs');
+  assert.equal(visibleTabCount(130, 8), 1);
+  assert.ok(visibleTabCount(600, 8) > visibleTabCount(130, 8));
+  assert.ok(visibleTabCount(600, 8) <= 8);
+  assert.ok(visibleTabCount(0, 8) >= 1);
+  const layout = overflowTabs(['a.ts', 'b.ts', 'c.ts'], 2, 'b.ts', (path) => path);
+  assert.deepEqual(layout.visible, ['a.ts', 'b.ts']);
+  assert.ok(layout.visible.includes('b.ts'));
+  assert.deepEqual(layout.hidden, ['c.ts']);
 });
 
 test('only fitting split tabs render and the active tab stays visible', () => {

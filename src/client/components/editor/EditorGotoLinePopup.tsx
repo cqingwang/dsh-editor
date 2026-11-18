@@ -7,7 +7,7 @@ export interface EditorGotoLineState {
   value: string;
   error: string | null;
   path?: string | null;
-  pane?: string | null;
+  pane?: 'left' | 'right' | null;
 }
 
 export interface EditorGotoLinePopupProps {

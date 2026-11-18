@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
+import { loadTypeScriptCallback } from './ts-source.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const source = [
@@ -11,15 +12,32 @@ const source = [
 ].join('\n');
 
 test('walking the history back past the newest entry restores the draft', () => {
-  assert.match(source, /const draftBeforeRecall =\s+React\.useRef\(null\);/);
-  /* The draft is captured the moment the walk starts, before any history text replaces it. */
-  assert.match(
-    source,
-    /historyIndex === -1 &&\s+draftBeforeRecall\.current === null\s*\)\s*draftBeforeRecall\.current = commitMessage;/,
-  );
-  /* Landing on index -1 restores the draft instead of blanking the box. */
-  assert.match(source, /if \(next < 0\) setCommitMessage\(draftBeforeRecall\.current \?\? ''\);/);
-  assert.match(source, /else setCommitMessage\(messageHistory\[next\]\);/);
+  const workspaceSource = readFileSync(join(root, 'src/client/editor-workspace.tsx'), 'utf8');
+  let message = 'my draft';
+  let historyIndex = -1;
+  const draftBeforeRecall = { current: null };
+  const recallMessage = loadTypeScriptCallback(workspaceSource, 'recallMessage', {
+    messageHistory: ['newest', 'older'],
+    get commitMessage() {
+      return message;
+    },
+    get historyIndex() {
+      return historyIndex;
+    },
+    draftBeforeRecall,
+    setCommitMessage: (value) => {
+      message = value;
+    },
+    setHistoryIndex: (updater) => {
+      historyIndex = updater(historyIndex);
+    },
+  });
+  recallMessage(1);
+  assert.equal(draftBeforeRecall.current, 'my draft');
+  assert.equal(message, 'newest');
+  recallMessage(-1);
+  assert.equal(historyIndex, -1);
+  assert.equal(message, 'my draft');
 });
 
 test('typing again ends the recall walk and forgets the saved draft', () => {

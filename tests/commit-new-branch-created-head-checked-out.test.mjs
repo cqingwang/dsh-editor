@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
+import { loadTypeScriptCallback } from './ts-source.mjs';
 
 import { gitCreateBranch } from '../lib/index.js';
 
@@ -55,14 +56,28 @@ test('bad names are refused before git runs, with the reason spelled out', async
   assert.equal(git(dir, 'rev-parse', '--abbrev-ref', 'HEAD'), 'main');
 });
 
-test('the branch popup offers new-branch and prompts for a name', () => {
-  const client = read('lib/client.js');
-  const start = client.indexOf('const openBranchMenu = React.useCallback(');
-  assert.notEqual(start, -1);
-  const block = client.slice(start, start + 2600);
-  assert.match(block, /t\('editor\.newBranchAction'\)/);
-  assert.match(block, /setNamePrompt\(\{[\s\S]{0,40}kind: 'branch'/);
-  assert.match(client, /const \[namePrompt, setNamePrompt\] = React\.useState(?:<[^>]+>)?\(null\);/);
+test('the branch popup offers new-branch and prompts for a name', async () => {
+  const client = read('src/client/editor-workspace.tsx');
+  let menu = null;
+  let prompt = null;
+  const openBranchMenu = loadTypeScriptCallback(client, 'openBranchMenu', {
+    t: (key) => key,
+    callGit: async () => ({ branches: ['main'], branch: 'main' }),
+    setCommitBusy: () => {},
+    setCommitError: () => {},
+    setMenu: (value) => {
+      menu = value;
+    },
+    setNamePrompt: (value) => {
+      prompt = value;
+    },
+    checkoutBranch: async () => {},
+  });
+  await openBranchMenu({ x: 10, y: 20 });
+  const item = menu.items.find((entry) => entry?.id === 'newBranch');
+  item.run();
+  assert.equal(prompt.kind, 'branch');
+  assert.equal(prompt.title, 'editor.newBranchAction');
 });
 
 test('the host routes the new operation and exports it', () => {

@@ -1,18 +1,41 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
+import { loadTypeScriptCallback } from './ts-source.mjs';
 
+const workspaceSource = await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8');
 const source =
   (await readFile(new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url), 'utf8')) +
   '\n' +
-  (await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8')) +
+  workspaceSource +
   '\n' +
   (await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8'));
 
-test('right split opening accepts an optional text location', () => {
-  assert.match(source, /const openInRightSplit = React\.useCallback\(\s*async \(target, location = null\) =>/);
-  assert.match(source, /if \(location !== null && lastOpened === location\.path\)/);
-  assert.match(source, /revealSplitLocation\(lastOpened, location\.line, location\.column\)/);
+test('right split opening accepts an optional text location', async () => {
+  const opened = [];
+  const revealed = [];
+  const splitTabsRef = { current: [] };
+  const splitPathRef = { current: null };
+  const openInRightSplit = loadTypeScriptCallback(workspaceSource, 'openInRightSplit', {
+    openFile: async (path) => {
+      opened.push(path);
+      return true;
+    },
+    revealSplitLocation: (path, line, column) => revealed.push({ path, line, column }),
+    splitTabsRef,
+    setSplitTabs: () => {},
+    setSplitPath: () => {},
+    splitPathRef,
+    activePathRef: { current: 'left.ts' },
+    setAnnotateTarget: () => {},
+    setActivePath: () => {},
+    splitEditorRef: { current: { focus: () => {} } },
+    window: { setTimeout: (callback) => callback() },
+  });
+  await openInRightSplit('a.ts', { path: 'a.ts', line: 7, column: 3 });
+  assert.deepEqual(opened, ['a.ts']);
+  assert.deepEqual(revealed, [{ path: 'a.ts', line: 7, column: 3 }]);
+  assert.equal(splitPathRef.current, 'a.ts');
 });
 
 test('split location reveal waits for the split model and clamps to it', () => {
@@ -41,8 +64,30 @@ test('Search Everywhere and Find pass location only for text results', () => {
   );
 });
 
-test('Editor forwards the split location without changing file-result behavior', () => {
-  assert.match(source, /onOpenInRightSplit=\{\(path, location\) => void openInRightSplit\(path, location\)\}/g);
+test('Editor forwards the split location without changing file-result behavior', async () => {
+  const opened = [];
+  const revealed = [];
+  const splitPathRef = { current: null };
+  const openInRightSplit = loadTypeScriptCallback(workspaceSource, 'openInRightSplit', {
+    openFile: async (path) => {
+      opened.push(path);
+      return true;
+    },
+    revealSplitLocation: (path, line, column) => revealed.push({ path, line, column }),
+    splitTabsRef: { current: [] },
+    setSplitTabs: () => {},
+    setSplitPath: () => {},
+    splitPathRef,
+    activePathRef: { current: 'left.ts' },
+    setAnnotateTarget: () => {},
+    setActivePath: () => {},
+    splitEditorRef: { current: { focus: () => {} } },
+    window: { setTimeout: (callback) => callback() },
+  });
+  await openInRightSplit(['a.ts', 'b.ts'], null);
+  assert.deepEqual(opened, ['a.ts', 'b.ts']);
+  assert.deepEqual(revealed, []);
+  assert.equal(splitPathRef.current, 'b.ts');
 });
 
 test('right-clicking a Search Everywhere result does not activate and close the dialog', () => {

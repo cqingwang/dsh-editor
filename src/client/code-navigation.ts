@@ -24,6 +24,15 @@ export interface DefinitionLocation extends NavigationLocation {
   endColumn: number;
 }
 
+export interface DefinitionLanguageCandidate {
+  path: string;
+  symbol?: string;
+}
+
+export interface DefinitionSearchOptions {
+  scopeIncludePatterns?: string[];
+}
+
 export interface DefinitionSearchMatch {
   path?: string;
   [key: string]: unknown;
@@ -34,7 +43,7 @@ export interface DefinitionSearchInput {
   content: unknown;
   symbol: unknown;
   readFile: (path: string) => Promise<string | null | undefined>;
-  searchText?: (query: string) => Promise<DefinitionSearchMatch[]>;
+  searchText?: (query: string, options?: DefinitionSearchOptions) => Promise<DefinitionSearchMatch[]>;
 }
 
 /** Escape one literal for use inside the host text-search regex. */
@@ -323,6 +332,193 @@ export function definitionModuleCandidates(sourcePath: unknown, specifier: unkno
   ];
 }
 
+function uniqueDefinitionCandidates(candidates: DefinitionLanguageCandidate[]): DefinitionLanguageCandidate[] {
+  const seen = new Set<string>();
+  const result: DefinitionLanguageCandidate[] = [];
+  for (const candidate of candidates) {
+    const path = normalizeNavigationPath(candidate.path);
+    if (path === '') continue;
+    const symbol = typeof candidate.symbol === 'string' && candidate.symbol !== '' ? candidate.symbol : '';
+    const key = `${path}\u0000${symbol}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(symbol === '' ? { path } : { path, symbol });
+  }
+  return result;
+}
+
+function javaSourceRoot(sourcePath: string, packageName: string): string {
+  const sourceDirectory = navigationDirname(sourcePath);
+  const packageDirectory = packageName.replaceAll('.', '/');
+  if (packageDirectory === '') return sourceDirectory;
+  if (sourceDirectory === packageDirectory) return '';
+  if (!sourceDirectory.endsWith(`/${packageDirectory}`)) return sourceDirectory;
+  return sourceDirectory.slice(0, -(packageDirectory.length + 1));
+}
+
+function javaImportPaths(content: string): Array<{ importedPath: string; staticImport: boolean; wildcard: boolean }> {
+  const imports: Array<{ importedPath: string; staticImport: boolean; wildcard: boolean }> = [];
+  const expression = /(?:^|\n)[ \t]*import\s+(static\s+)?([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*(?:\.\*)?)\s*;/gu;
+  for (const match of content.matchAll(expression)) {
+    const importedPath = match[2].replace(/\.\*$/u, '');
+    if (importedPath === '') continue;
+    imports.push({
+      importedPath,
+      staticImport: match[1] !== undefined,
+      wildcard: match[2].endsWith('.*'),
+    });
+  }
+  return imports;
+}
+
+function goImportPaths(content: string): string[] {
+  const paths: string[] = [];
+  const addPath = (value: unknown): void => {
+    const path = String(value ?? '').trim();
+    if (path !== '') paths.push(path);
+  };
+  const grouped = /(?:^|\n)[ \t]*import\s*\(([\s\S]*?)\)/gu;
+  for (const block of content.matchAll(grouped)) {
+    const entries = /(?:^|\n)[ \t]*(?:[._A-Za-z][\w.]*\s+)?(["`])([^"`\n]+)\1/gu;
+    for (const entry of block[1].matchAll(entries)) addPath(entry[2]);
+  }
+  const single = /(?:^|\n)[ \t]*import\s+(?:[._A-Za-z][\w.]*\s+)?(["`])([^"`\n]+)\1/gu;
+  for (const entry of content.matchAll(single)) addPath(entry[2]);
+  return [...new Set(paths)];
+}
+
+function cIncludePaths(content: string): Array<{ path: string; quoted: boolean }> {
+  const paths: Array<{ path: string; quoted: boolean }> = [];
+  const expression = /(?:^|\n)[ \t]*#\s*include\s*([<"])([^>"\n]+)[>"]/gu;
+  for (const match of content.matchAll(expression)) {
+    const path = match[2].trim().replaceAll('\\', '/');
+    if (path !== '') paths.push({ path, quoted: match[1] === '"' });
+  }
+  return paths;
+}
+
+/**
+ * Resolve language-specific import/include candidates before global search.
+ *
+ * JavaScript and Python imports carry their binding directly. Java imports
+ * identify a class that may contain the requested type or method; quoted C/C++
+ * includes identify a header that may declare the requested symbol. Go modules
+ * and standard-library imports do not expose a file name, so they are handled
+ * as bounded search scopes instead.
+ * @param {unknown} content - source text containing imports/includes.
+ * @param {unknown} path - workspace-relative source path.
+ * @param {unknown} symbol - identifier requested by the editor.
+ * @returns {DefinitionLanguageCandidate[]} candidate files in priority order.
+ */
+export function definitionLanguageCandidates(
+  content: unknown,
+  path: unknown,
+  symbol: unknown,
+): DefinitionLanguageCandidate[] {
+  const source = String(content ?? '');
+  const sourcePath = normalizeNavigationPath(path);
+  const name = String(symbol ?? '').trim();
+  if (source === '' || sourcePath === '' || name === '') return [];
+  const extension = navigationExtension(sourcePath);
+  const candidates: DefinitionLanguageCandidate[] = [];
+
+  if (extension === 'java') {
+    const packageMatch = /(?:^|\n)[ \t]*package\s+([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)\s*;/u.exec(source);
+    const sourceRoot = javaSourceRoot(sourcePath, packageMatch?.[1] ?? '');
+    const javaTypePath = (dottedName: string): string => {
+      const relative = `${dottedName.replaceAll('.', '/')}.java`;
+      return normalizeNavigationPath(sourceRoot === '' ? relative : `${sourceRoot}/${relative}`);
+    };
+    if (/^[A-Z_$]/u.test(name)) {
+      const packageRelative = packageMatch === null ? '' : packageMatch[1].replaceAll('.', '/');
+      const samePackage = normalizeNavigationPath(
+        sourceRoot === '' ? `${packageRelative}/${name}.java` : `${sourceRoot}/${packageRelative}/${name}.java`,
+      );
+      candidates.push({ path: samePackage });
+    }
+    for (const imported of javaImportPaths(source)) {
+      if (!imported.staticImport && imported.wildcard) continue;
+      if (imported.staticImport) {
+        const segments = imported.importedPath.split('.');
+        let classPath = imported.importedPath;
+        if (!imported.wildcard && segments.at(-1) === name) classPath = segments.slice(0, -1).join('.');
+        if (classPath !== '') candidates.push({ path: javaTypePath(classPath), symbol: name });
+        continue;
+      }
+      const importedSimpleName = imported.importedPath.split('.').at(-1) ?? '';
+      candidates.push({
+        path: javaTypePath(imported.importedPath),
+        ...(importedSimpleName === name ? {} : { symbol: name }),
+      });
+    }
+  } else if (['c', 'h', 'cc', 'cpp', 'cxx', 'hpp'].includes(extension)) {
+    const sourceDirectory = navigationDirname(sourcePath);
+    for (const include of cIncludePaths(source)) {
+      if (include.quoted) {
+        candidates.push({
+          path: normalizeNavigationPath(`${sourceDirectory}/${include.path}`),
+          symbol: name,
+        });
+      }
+      candidates.push({ path: include.path, symbol: name });
+    }
+  }
+
+  return uniqueDefinitionCandidates(candidates)
+    .filter((candidate) => candidate.path !== sourcePath)
+    .slice(0, 160);
+}
+
+function goImportScopePatterns(importPath: string): string[] {
+  const segments = normalizeNavigationPath(importPath).split('/').filter(Boolean);
+  const patterns: string[] = [];
+  for (let index = 0; index <= segments.length - 2; index += 1) {
+    const suffix = segments.slice(index).join('/');
+    patterns.push(`${suffix}/**`, `**/${suffix}/**`);
+  }
+  return patterns;
+}
+
+/**
+ * Build host search scopes from language imports/includes.
+ *
+ * Go import paths may contain a module prefix that is absent from workspace
+ * paths, so each path suffix is accepted. Java wildcard imports and C/C++
+ * headers become exact or recursive path scopes. The unscoped declaration
+ * search remains a fallback when these patterns are absent or miss.
+ * @param {unknown} content - source text containing imports/includes.
+ * @param {unknown} path - workspace-relative source path.
+ * @returns {string[]} bounded include globs for the host text search.
+ */
+export function definitionSearchScopePatterns(content: unknown, path: unknown): string[] {
+  const source = String(content ?? '');
+  const sourcePath = normalizeNavigationPath(path);
+  if (source === '' || sourcePath === '') return [];
+  const extension = navigationExtension(sourcePath);
+  const patterns: string[] = [];
+  if (extension === 'go') {
+    for (const imported of goImportPaths(source)) patterns.push(...goImportScopePatterns(imported));
+  } else if (extension === 'java') {
+    const packageMatch = /(?:^|\n)[ \t]*package\s+([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)\s*;/u.exec(source);
+    const sourceRoot = javaSourceRoot(sourcePath, packageMatch?.[1] ?? '');
+    for (const imported of javaImportPaths(source)) {
+      const relative = `${imported.importedPath.replaceAll('.', '/')}${imported.wildcard ? '/**' : '.java'}`;
+      const target = normalizeNavigationPath(sourceRoot === '' ? relative : `${sourceRoot}/${relative}`);
+      if (target === '') continue;
+      patterns.push(target);
+      if (imported.wildcard) patterns.push(`**/${imported.importedPath.replaceAll('.', '/')}/**`);
+      else patterns.push(`**/${imported.importedPath.replaceAll('.', '/')}.java`);
+    }
+  } else if (['c', 'h', 'cc', 'cpp', 'cxx', 'hpp'].includes(extension)) {
+    for (const include of cIncludePaths(source)) {
+      const target = normalizeNavigationPath(include.path);
+      if (target === '') continue;
+      patterns.push(target, `**/${target}`);
+    }
+  }
+  return [...new Set(patterns.filter((pattern) => pattern !== ''))].slice(0, 48);
+}
+
 /** One-based editor position for a zero-based string offset. */
 export function definitionPositionAtOffset(content: unknown, offset: unknown): { line: number; column: number } {
   const safeOffset = Math.max(0, Math.min(String(content ?? '').length, Number(offset) || 0));
@@ -366,6 +562,9 @@ export function definitionRegexes(path: unknown, symbol: unknown): RegExp[] {
     add(`\\b(?:struct|class|enum|union|typedef)\\s+(${escaped})\\b`);
     add(
       `\\b(?:(?:static|inline|extern|const|volatile|unsigned|signed|long|short|virtual|explicit)\\s+)*[\\w:<>~*&]+(?:\\s+[*&]+)?\\s+(${escaped})\\s*\\([^;{}]*\\)\\s*(?:const\\s*)?(?:noexcept\\s*)?\\{`,
+    );
+    add(
+      `(?:^|\\n)[ \\t]*(?!(?:return|if|while|for|switch|case|delete|new|throw|else|goto|sizeof)\\b)(?:[\\w:<>~*&]+[ \\t]+)+(?:[\\w$]+::)*(${escaped})\\s*\\([^;{}]*\\)\\s*(?:const\\s*)?(?:noexcept\\s*)?(?:\\{|;)`,
     );
   } else if (extension === 'php') {
     add(`\\b(?:function|class|interface|trait|enum)\\s+(${escaped})\\b`);
@@ -412,46 +611,22 @@ export function findDefinitionInText(content: unknown, symbol: unknown, path: st
 export function definitionSearchQuery(symbol: unknown, path: unknown): string {
   const escaped = escapeDefinitionRegex(symbol);
   const extension = navigationExtension(path);
-  const keywords = [
-    'function',
-    'class',
-    'interface',
-    'type',
-    'enum',
-    'struct',
-    'trait',
-    'record',
-    'protocol',
-    'actor',
-    'mixin',
-    'delegate',
-    'typedef',
-    'public',
-    'private',
-    'protected',
-    'internal',
-    'static',
-    'final',
-    'abstract',
-    'async',
-    'virtual',
-    'override',
-    'sealed',
-    'partial',
-    'extern',
-    'unsafe',
-    'open',
-    'suspend',
-    'inline',
-    'operator',
-  ];
-  if (extension === 'py') keywords.push('def');
-  if (extension === 'go') keywords.push('func');
-  if (extension === 'rs') keywords.push('fn');
-  if (['kt', 'kts', 'scala'].includes(extension)) keywords.push('fun');
-  if (extension === 'swift') keywords.push('func');
-  keywords.push('const', 'let', 'var', 'module');
-  return `(?:\\b(?:${keywords.join('|')})\\b[^\\n]{0,120}\\b${escaped}\\b|\\b${escaped}\\s*(?:<[^\\n(){}]*>)?\\s*\\()`;
+  let keywords = ['function', 'class', 'interface', 'type', 'enum', 'struct', 'trait', 'def', 'fn', 'fun', 'func'];
+  if (extension === 'py') keywords = ['def', 'class'];
+  else if (extension === 'go') keywords = ['func', 'type', 'var', 'const'];
+  else if (extension === 'rs') keywords = ['fn', 'struct', 'enum', 'trait', 'type', 'const', 'static', 'mod'];
+  else if (['java', 'kt', 'kts', 'scala', 'cs', 'dart'].includes(extension)) {
+    keywords = ['class', 'interface', 'enum', 'record', 'struct', 'fun', 'object', 'trait'];
+  } else if (['c', 'h', 'cc', 'cpp', 'cxx', 'hpp'].includes(extension)) {
+    keywords = ['class', 'struct', 'enum', 'union', 'typedef'];
+  } else if (extension === 'swift') {
+    keywords = ['func', 'class', 'struct', 'enum', 'protocol', 'actor', 'typealias'];
+  }
+  const query = `(?:\\b(?:${keywords.join('|')})\\b[^\\n]{0,120}\\b${escaped}\\b|\\b${escaped}\\s*(?:<[^\\n(){}]*>)?\\s*\\()`;
+  /* The host rejects regex patterns over 256 characters. A long identifier
+     still gets a bounded literal search, then the resolver re-reads and
+     confirms the declaration. */
+  return query.length <= 240 ? query : `\\b${escaped}\\b`;
 }
 
 /** Prefer declarations in nearby files while preserving deterministic order. */
@@ -512,15 +687,33 @@ export async function resolveWorkspaceDefinition({
     }
   }
 
-  if (typeof searchText !== 'function') return null;
-  const matches = await searchText(definitionSearchQuery(name, sourcePath)).catch((): DefinitionSearchMatch[] => []);
-  for (const match of rankDefinitionSearchMatches(matches, sourcePath)) {
-    const candidate = normalizeNavigationPath(match?.path);
-    if (candidate === '' || candidate === sourcePath) continue;
-    const targetContent = await readFile(candidate).catch((): null => null);
+  const languageCandidates = definitionLanguageCandidates(content, sourcePath, name);
+  for (const candidate of languageCandidates) {
+    const targetContent = await readFile(candidate.path).catch((): null => null);
     if (typeof targetContent !== 'string') continue;
-    const found = findDefinitionInText(targetContent, name, candidate);
+    const found = findDefinitionInText(targetContent, candidate.symbol ?? name, candidate.path);
     if (found !== null) return found;
+  }
+
+  if (typeof searchText !== 'function') return null;
+  const query = definitionSearchQuery(name, sourcePath);
+  const scopePatterns = definitionSearchScopePatterns(content, sourcePath);
+  const searchedPaths = new Set<string>();
+  const searchOptions: Array<DefinitionSearchOptions | undefined> = [
+    ...(scopePatterns.length === 0 ? [] : [{ scopeIncludePatterns: scopePatterns }]),
+    undefined,
+  ];
+  for (const options of searchOptions) {
+    const matches = await searchText(query, options).catch((): DefinitionSearchMatch[] => []);
+    for (const match of rankDefinitionSearchMatches(matches, sourcePath)) {
+      const candidate = normalizeNavigationPath(match?.path);
+      if (candidate === '' || candidate === sourcePath || searchedPaths.has(candidate)) continue;
+      searchedPaths.add(candidate);
+      const targetContent = await readFile(candidate).catch((): null => null);
+      if (typeof targetContent !== 'string') continue;
+      const found = findDefinitionInText(targetContent, name, candidate);
+      if (found !== null) return found;
+    }
   }
   return null;
 }

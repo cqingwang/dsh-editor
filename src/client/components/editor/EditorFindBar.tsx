@@ -19,6 +19,7 @@ export interface EditorFindState {
   preserveCase?: boolean;
   withReplace?: boolean;
   scope?: { start: number; end: number } | null;
+  [key: string]: unknown;
 }
 
 export interface EditorFindHistoryMenu {

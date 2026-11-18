@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
+import { loadTypeScriptCallback } from './ts-source.mjs';
 import { loadTypeScriptFunction } from './ts-source.mjs';
 
 import { gitGraph } from '../lib/index.js';
@@ -114,13 +115,26 @@ test('the graph shows a scope chip and clickable badges', () => {
   assert.match(toolbar, /onClick=\{\(\) => onGraphBranch\(''\)\}/);
 });
 
-test('annotate rows jump into the commit log', () => {
-  const client = source;
-  assert.match(client, /onClick=\{\(\) => onOpenCommit\?\.\(row\.hash\)\}/);
-  assert.match(client, /const openCommitFromAnnotate = React\.useCallback\(\s+\(hash\) => \{/);
-  assert.match(client, /setCommitMode\('log'\);[\s\S]*?setHistoryPath\(null\);[\s\S]*?void loadLog\(\);[\s\S]*?void showCommit\(hash\);/);
-  /* The annotate pane must survive the jump: the user is reading it, not leaving it. */
-  assert.match(client, /onOpenCommit=\{openCommitFromAnnotate\}/);
+test('annotate rows jump into the commit log', async () => {
+  const client = read('src/client/editor-workspace.tsx');
+  const calls = [];
+  const openCommitFromAnnotate = loadTypeScriptCallback(client, 'openCommitFromAnnotate', {
+    setActivity: (value) => calls.push(['activity', value]),
+    setPanelVisible: (value) => calls.push(['panel', value]),
+    setCommitMode: (value) => calls.push(['mode', value]),
+    setHistoryPath: (value) => calls.push(['history', value]),
+    loadLog: async () => calls.push(['loadLog']),
+    showCommit: async (hash) => calls.push(['showCommit', hash]),
+  });
+  openCommitFromAnnotate('abcdef0123456789');
+  assert.deepEqual(calls, [
+    ['activity', 'commit'],
+    ['panel', true],
+    ['mode', 'log'],
+    ['history', null],
+    ['loadLog'],
+    ['showCommit', 'abcdef0123456789'],
+  ]);
 });
 
 test('both log views mark the commit the detail pane shows', () => {

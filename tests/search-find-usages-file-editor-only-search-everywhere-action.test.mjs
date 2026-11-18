@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
+import { loadTypeScriptCallback } from './ts-source.mjs';
 
+const workspaceSource = await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8');
 const source =
-  (await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8')) +
+  workspaceSource +
   '\n' +
   (await readFile(new URL('../src/client/locales.ts', import.meta.url), 'utf8'));
 const actionsStart = source.indexOf('const searchEverywhereActions =');
@@ -28,13 +30,29 @@ test('Find Usages in File keeps editor/symbol disabled reasons', () => {
 });
 
 test('the editor Find opener accepts a preselected usage query without dropping options', () => {
-  const open = source.slice(source.indexOf('const openEditorFind = React.useCallback'), source.indexOf('/* IDEA\'s editor search family'));
-  assert.match(open, /const openEditorFind = React\.useCallback\(\s*\(withReplace = false, initialQuery = null, focusTarget = 'query', scopeOverride = undefined\) => \{/);
-  assert.match(open, /const requestedFind = typeof initialQuery === 'string' \? initialQuery\.trim\(\) : ''/);
-  assert.match(open, /const hasExplicitQuery = typeof initialQuery === 'string'/);
-  assert.match(open, /const find = hasExplicitQuery \? requestedFind : base\.find/);
-  assert.match(open, /hasExplicitQuery \? null : \(base\.scope \?\? null\)/);
-  assert.match(open, /editorFindResult\(model\.getValue\(\), find, \{ \.\.\.base, scope \}\)/);
+  let state = null;
+  let focused = null;
+  const openEditorFind = loadTypeScriptCallback(workspaceSource, 'openEditorFind', {
+    readSearchOptions: () => ({ caseSensitive: true }),
+    currentCodeEditor: () => ({ getModel: () => ({ getValue: () => 'needle needle' }) }),
+    editorFindResult: () => ({ matches: [{ offset: 0, length: 6, text: 'needle' }], error: null }),
+    setReplaceState: (updater) => {
+      state = updater(state);
+    },
+    window: { setTimeout: (callback) => callback() },
+    document: {
+      querySelector: (selector) => ({
+        focus: () => {
+          focused = selector;
+        },
+      }),
+    },
+  });
+  openEditorFind(false, '  needle  ', 'replace');
+  assert.equal(state.find, 'needle');
+  assert.equal(state.caseSensitive, true);
+  assert.equal(state.total, 1);
+  assert.equal(focused, '[data-dsh-editor-find-replace-input]');
 });
 
 test('Find Usages in File is localized in both dictionaries', () => {

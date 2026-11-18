@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
+import { loadTypeScriptCallback } from './ts-source.mjs';
 
+const workspaceSource = await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8');
 const source =
-  (await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8')) +
+  workspaceSource +
   '\n' +
   (await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8')) +
   '\n' +
@@ -21,14 +23,45 @@ test('Replace Selection in Files opens workspace replace with the selected query
 });
 
 test('workspace Find can focus the replacement input after mounting', () => {
-  const open = source.slice(
-    source.indexOf('const openFindTool = React.useCallback'),
-    source.indexOf('const openFindUsages = React.useCallback'),
-  );
-  assert.match(open, /focusTarget = 'query'/u);
-  assert.match(open, /focusTarget === 'replace'/u);
-  assert.match(open, /'\[data-dsh-find-replace-input\]'/u);
-  assert.match(source, /data-dsh-find-replace-input=''/u);
+  let state = null;
+  let focused = null;
+  const openFindTool = loadTypeScriptCallback(workspaceSource, 'openFindTool', {
+    findToolContentQuery: (query) => String(query ?? '').trim(),
+    completeFindFiles: (value) =>
+      Array.isArray(value) ? value.filter((item) => typeof item?.path === 'string').map((item) => ({ path: item.path })) : [],
+    completeFindMatches: (value) =>
+      Array.isArray(value)
+        ? value.filter(
+            (item) =>
+              typeof item?.path === 'string' &&
+              typeof item.line === 'number' &&
+              typeof item.column === 'number',
+          )
+        : [],
+    normalizeSearchOptions: (value) => value ?? {},
+    readSearchOptions: () => ({}),
+    readFindScope: () => ({ mode: 'project', preset: 'projectFiles', directory: '' }),
+    readFindDirectoryRecursive: () => true,
+    rootRef: { current: '' },
+    setTerminalOpen: () => {},
+    setSearchEverywhere: () => {},
+    setFindTool: (value) => {
+      state = value;
+    },
+    findToolHandoffSequenceRef: { current: 0 },
+    window: { setTimeout: (callback) => callback() },
+    document: {
+      querySelector: (selector) => ({
+        focus: () => {
+          focused = selector;
+        },
+      }),
+    },
+  });
+  openFindTool('needle', 'replace', null, 'replace', 'popup');
+  assert.equal(state.mode, 'replace');
+  assert.equal(state.surface, 'popup');
+  assert.equal(focused, '[data-dsh-find-replace-input]');
 });
 
 test('Replace Selection in Files is localized in both dictionaries', () => {

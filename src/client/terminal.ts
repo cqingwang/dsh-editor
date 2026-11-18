@@ -195,7 +195,7 @@ export function terminalTheme(node: HTMLElement): {
  * @returns {{start: number, end: number}|null} non-empty selection scope.
  */
 export function editorFindSelectionScope(
-  editor: Monaco.editor.IStandaloneCodeEditor | null | undefined,
+  editor: Monaco.editor.ICodeEditor | null | undefined,
 ): EditorSelectionScope | null {
   const model = editor?.getModel?.() ?? null;
   const selection = editor?.getSelection?.() ?? null;
@@ -213,7 +213,7 @@ export function editorFindSelectionScope(
  * @param {object|null} editor - active Monaco editor.
  * @returns {{scope: {start: number, end: number}|null, query: string|null}} request.
  */
-export function editorFindKeyboardRequest(editor: Monaco.editor.IStandaloneCodeEditor | null | undefined): {
+export function editorFindKeyboardRequest(editor: Monaco.editor.ICodeEditor | null | undefined): {
   scope: EditorSelectionScope | null;
   query: string | null;
 } {

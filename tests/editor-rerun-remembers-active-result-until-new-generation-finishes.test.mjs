@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
+import {
+  extractVariableInitializerExpression,
+  loadTypeScriptExpression,
+} from './ts-source.mjs';
 
 const source = [
   await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8'),
@@ -42,16 +46,26 @@ test('Preview Source is a direct dock action', () => {
 });
 
 test('Open results in new tab keeps text location and leaves the dock alive', () => {
-  const openResult = findTool.slice(
-    findTool.indexOf('const openFindResult = (result'),
-    findTool.indexOf('React.useEffect(() => {', findTool.indexOf('const openFindResult = (result')),
+  const opened = [];
+  let closed = 0;
+  const openFindResult = loadTypeScriptExpression(
+    findTool,
+    extractVariableInitializerExpression(findTool, 'openFindResult'),
+    {
+      onOpen: (result, newTab) => opened.push({ result, newTab }),
+      openResultsInNewTab: true,
+      floating: false,
+      onClose: () => {
+        closed += 1;
+      },
+    },
   );
-  assert.match(openResult, /onOpen\(result, openResultsInNewTab === true\)/);
-  assert.doesNotMatch(openResult, /onClose\(\)/);
-  assert.match(
-    source,
-    /if \(openInNewTab\)[\s\S]*?void openInRightSplit\(\s*result\.path,\s*result\.kind === 'text'[\s\S]*?line: result\.line,\s*column: result\.column,/,
-  );
-  assert.match(findTool, /readStoredText\('dsh-editor\.find\.openInNewTab', '0'\) === '1'/);
-  assert.match(findTool, /localStorage\.setItem\('dsh-editor\.find\.openInNewTab', next \? '1' : '0'\)/);
+  openFindResult({ kind: 'text', path: 'a.ts', line: 4, column: 2 });
+  assert.deepEqual(opened, [
+    {
+      result: { kind: 'text', path: 'a.ts', line: 4, column: 2 },
+      newTab: true,
+    },
+  ]);
+  assert.equal(closed, 0);
 });

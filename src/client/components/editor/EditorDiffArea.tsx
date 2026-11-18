@@ -12,9 +12,9 @@ export interface EditorDiffAreaProps {
   monacoReady: boolean;
   includedInCommit: boolean;
   onClose: () => void;
-  onRestored?: (...args: unknown[]) => void;
-  onStatus?: (...args: unknown[]) => void;
-  onNotice?: (...args: unknown[]) => void;
+  onRestored?: (value: unknown) => void;
+  onStatus?: (value: unknown) => void;
+  onNotice?: (message: string) => void;
   onNavigate?: (target: DiffTarget) => void;
   filePosition?: DiffTextPosition | null;
   onPreviousFile?: () => void;

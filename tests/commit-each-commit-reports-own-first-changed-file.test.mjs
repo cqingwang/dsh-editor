@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 import { gitShowCommit } from '../lib/index.js';
+import { loadTypeScriptCallback, loadTypeScriptModule } from './ts-source.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const read = (path) => readFileSync(join(root, path), 'utf8');
@@ -37,18 +38,51 @@ test('each commit reports its own first changed file', async (t) => {
   assert.deepEqual((await gitShowCommit(dir, second)).files.map((file) => file.path), ['beta.txt']);
 });
 
-test('the log menu resolves history from the right-clicked commit', () => {
+test('the log menu resolves history from the right-clicked commit', async () => {
   const client = read('src/client/editor-workspace.tsx');
   const menu = read('src/client/components/commit/log-menu.ts');
-  assert.match(client, /const showCommitHistory = React\.useCallback\(\s+async \(hash\) => \{/);
-  /* It must fetch the commit it was given instead of reading the selected detail. */
-  assert.match(client, /const detail = await callGit(?:<[^>]+>)?\(\{ op: 'show', hash \}\);/);
-  assert.match(client, /void showFileHistory\(first\.path\);/);
-  /* A commit that changed nothing says so rather than opening a random file. */
-  assert.match(client, /t\('editor\.noChangedFiles'\)/);
-  /* The menu no longer closes over `logDetail`. */
-  assert.equal(menu.includes('logDetail'), false);
-  assert.match(menu, /run: \(\) => onShowCommitHistory\(commit\.hash\)/);
+  const requests = [];
+  const histories = [];
+  const notices = [];
+  const showCommitHistory = loadTypeScriptCallback(client, 'showCommitHistory', {
+    callGit: async (request) => {
+      requests.push(request);
+      return { files: [{ path: 'beta.txt' }] };
+    },
+    showFileHistory: async (path) => histories.push(path),
+    t: (key) => key,
+    setCommitNotice: (message) => notices.push(message),
+    setCommitError: () => {},
+  });
+  await showCommitHistory('fedcba9876543210');
+  assert.deepEqual(requests, [{ op: 'show', hash: 'fedcba9876543210' }]);
+  assert.deepEqual(histories, ['beta.txt']);
+  assert.deepEqual(notices, []);
+
+  const { commitLogMenu } = loadTypeScriptModule(menu, ['commitLogMenu']);
+  const selectedHashes = [];
+  const value = commitLogMenu({
+    t: (key) => key,
+    position: { x: 1, y: 2 },
+    commit: { hash: 'fedcba9876543210', subject: 'subject' },
+    selectionHashes: [],
+    parentTargets: [],
+    childTargets: [],
+    detached: false,
+    onShowCommit: () => {},
+    onShowCommitHistory: (hash) => selectedHashes.push(hash),
+    onCompareRevisions: () => {},
+    onCompareWithLocal: () => {},
+    onRunHistoryAction: () => {},
+    onCreateTag: () => {},
+    onCreateCommitPatch: () => {},
+    onCheckoutRevision: () => {},
+    onCreateBranch: () => {},
+    onResetBranchHere: () => {},
+    onCopyText: () => {},
+  });
+  value.items.find((item) => item?.id === 'history').run();
+  assert.deepEqual(selectedHashes, ['fedcba9876543210']);
 });
 
 test('the log row tooltip advertises the right-click actions', () => {

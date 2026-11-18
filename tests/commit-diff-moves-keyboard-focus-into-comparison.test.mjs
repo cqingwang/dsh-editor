@@ -3,44 +3,62 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
+import { loadTypeScriptCallback } from './ts-source.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = (readFileSync(join(root, 'src/client/components/diff/DiffPreview.tsx'), 'utf8') + '\n' + readFileSync(join(root, 'src/client/editor-workspace.tsx'), 'utf8'));
+const workspaceSource = readFileSync(join(root, 'src/client/editor-workspace.tsx'), 'utf8');
 
-function diffPreview() {
-  return source.slice(source.indexOf('function DiffPreview('), source.indexOf('export { DiffPreview };'));
+function closeDiffHarness({ activePath, selectedChange = null, rememberedRow = null, focusRow = null }) {
+  const focused = [];
+  const closeDiff = loadTypeScriptCallback(workspaceSource, 'closeDiff', {
+    setDiffTarget: () => {},
+    setDiffActive: () => {},
+    activePathRef: { current: activePath },
+    editorRef: { current: { focus: () => focused.push('editor') } },
+    selectedChangeRef: { current: selectedChange },
+    diffReturnFocusRef: { current: rememberedRow },
+    changeRowRefs: {
+      current: new Map([['unstaged:a.ts', focusRow]]),
+    },
+    window: { setTimeout: (callback) => callback() },
+  });
+  closeDiff();
+  return focused;
 }
 
-test('Show Diff moves keyboard focus into the comparison', () => {
-  const diff = diffPreview();
-  assert.match(diff, /const focusDiffRef = React\.useRef\(null\)/);
-  const focusStart = diff.indexOf('focusDiffRef.current = () => {');
-  const focus = diff.slice(focusStart, diff.indexOf('React.useEffect', focusStart));
-  assert.match(focus, /getModifiedEditor\?\.\(\)/);
-  assert.match(focus, /\.focus\(\)/);
-  assert.match(diff, /void diff\.waitForDiff\(\)\.then\(\(\) => \{[\s\S]*?focusFirstHunkRef\.current\?\.\(\);[\s\S]*?focusDiffRef\.current\?\.\(\);/);
+test('closing a diff over an editor returns keyboard focus to that editor', () => {
+  assert.deepEqual(closeDiffHarness({ activePath: 'a.ts' }), ['editor']);
 });
 
-test('the active diff owns IDEA Close Tab and returns focus to its origin', () => {
-  const diff = diffPreview();
-  assert.match(diff, /event\.key\.toLowerCase\(\) === 'w'/);
-  assert.match(diff, /event\.preventDefault\(\);[\s\S]*?event\.stopPropagation\(\);[\s\S]*?onClose\(\);/);
-  assert.match(
-    diff,
-    /\},\s+\[\s+actionableSelection,\s+applyLeftSide,\s+editLocked,\s+focusOppositeDiffPane,\s+localPathAvailable,\s+navigationPosition,\s+nextFileAction,\s+onClose,\s+onOpenLocal,\s+previousFileAction,\s+redoRestore,\s+restoreSelection,\s+searchInChanges,\s+target,\s+toggleCombinedFileCollapse,\s+undoRestore,\s+walkHunk,\s+\]\);/u,
-  );
-
-  const workspace = source.slice(source.indexOf('function EditorWorkspace('), source.indexOf('function clampChatPercent('));
-  assert.match(workspace, /const diffReturnFocusRef = React\.useRef\(null\)/);
-  assert.match(workspace, /const closeDiff = React\.useCallback\(\(\) => \{[\s\S]*?setDiffTarget\(null\);[\s\S]*?editorRef\.current\?\.focus\(\)/);
-  assert.match(workspace, /if \(row\.isConnected\) row\.focus\(\);/);
-  assert.match(workspace, /onShowDiff=\{\(target\) => \{[\s\S]*?diffReturnFocusRef\.current =\s+changeRowRefs\.current\.get/);
-  assert.match(workspace, /onClose=\{closeDiff\}/);
+test('closing a diff without an editor returns focus to the selected Change row', () => {
+  const focused = [];
+  const row = {
+    isConnected: true,
+    focus: () => focused.push('selected-row'),
+  };
+  closeDiffHarness({
+    activePath: null,
+    selectedChange: { path: 'a.ts', staged: false },
+    focusRow: row,
+  });
+  assert.deepEqual(focused, ['selected-row']);
 });
 
-test('Enter in the Changes tree also remembers the row that opened the diff', () => {
-  const workspace = source.slice(source.indexOf('function EditorWorkspace('), source.indexOf('function clampChatPercent('));
-  const enter = workspace.slice(workspace.indexOf("if (event.key === 'Enter') {"), workspace.indexOf("if (event.key === ' ')"));
-  assert.match(enter, /closest\('\[data-dsh-change-path\]'\)/);
-  assert.match(enter, /diffReturnFocusRef\.current = focusedRow instanceof HTMLElement \? focusedRow : node/);
+test('closing a diff prefers the row that originally opened it', () => {
+  const focused = [];
+  const rememberedRow = {
+    isConnected: true,
+    focus: () => focused.push('remembered-row'),
+  };
+  const selectedRow = {
+    isConnected: true,
+    focus: () => focused.push('selected-row'),
+  };
+  closeDiffHarness({
+    activePath: null,
+    selectedChange: { path: 'a.ts', staged: false },
+    rememberedRow,
+    focusRow: selectedRow,
+  });
+  assert.deepEqual(focused, ['remembered-row']);
 });

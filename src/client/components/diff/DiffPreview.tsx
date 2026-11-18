@@ -25,7 +25,8 @@ import { callFs, callGit, ensureDiffTheme, nextDiffLoadSerial, safeLanguage } fr
 import { hunkAt, lineChangeRangeMappings, readStoredText, restoreUndoStack, selectedCharChanges } from '../../terminal';
 
 type Translate = (key: string, params?: Record<string, unknown>) => string;
-type DiffCallback = (...args: unknown[]) => void;
+type DiffCallback = (value: unknown) => void;
+type DiffNoticeCallback = (message: string) => void;
 
 interface DiffCombinedFile {
   path: string;
@@ -99,7 +100,7 @@ export interface DiffPreviewProps {
   onClose: () => void;
   onRestored?: DiffCallback;
   onStatus?: DiffCallback;
-  onNotice?: DiffCallback;
+  onNotice?: DiffNoticeCallback;
   onNavigate?: (target: DiffTarget) => void;
   undoRef?: React.MutableRefObject<unknown[]>;
   redoRef?: React.MutableRefObject<unknown[]>;

@@ -167,7 +167,7 @@ export function currentEditorWorkspaceId(): string {
  * @param {object|null} editor - Monaco editor instance.
  * @returns {string} selected text, or an empty string.
  */
-export function selectedEditorFindQuery(editor: MonacoEditor | null | undefined): string {
+export function selectedEditorFindQuery(editor: Monaco.editor.ICodeEditor | null | undefined): string {
   const model = editor?.getModel?.() ?? null;
   const selection = editor?.getSelection?.() ?? null;
   if (model === null || selection === null || typeof selection.isEmpty !== 'function' || selection.isEmpty()) return '';
@@ -179,7 +179,9 @@ export function selectedEditorFindQuery(editor: MonacoEditor | null | undefined)
  * @param {object|null} editor - Monaco editor instance.
  * @returns {{path: string, line: number, column: number, endLine: number|null, endColumn: number|null}|null} reference location.
  */
-export function harnessEditorLocation(editor: MonacoEditor | null | undefined): HarnessEditorLocation | null {
+export function harnessEditorLocation(
+  editor: Monaco.editor.ICodeEditor | null | undefined,
+): HarnessEditorLocation | null {
   const model = editor?.getModel?.() ?? null;
   const path = navigationPathForModel(model);
   if (path === '') return null;

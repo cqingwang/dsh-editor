@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
+import { loadTypeScriptCallback } from './ts-source.mjs';
 
 import { gitStatus, parseNumstat } from '../lib/index.js';
 
@@ -75,17 +76,36 @@ test('both sides of an MM path keep their own reading', async (t) => {
 });
 
 test('closing a dirty tab asks first and batch close asks once', () => {
-  const client = workspaceSource;
-  assert.match(client, /const closeFile = React\.useCallback\(\s+\(path, skipConfirm = false\) => \{/);
-  assert.match(client, /file\?\.dirty === true && !window\.confirm\(t\('editor\.unsavedTabsConfirm', \{ count: 1 \}\)\)/);
-  assert.match(client, /const closeOtherTabs =\s+React\.useCallback\(/);
-  assert.match(client, /const closeAllTabs = React\.useCallback\(/);
-  assert.match(client, /const closePaths = React\.useCallback\(\s+\(paths\) => \{/);
-  assert.match(client, /setOpenFiles\(remaining\);/);
-  assert.match(client, /if \(dirty > 0 && !window\.confirm\(t\('editor\.unsavedTabsConfirm', \{ count: dirty \}\)\)\) return false;/);
-  /* Middle-click and the tab context menu both reach the same lifecycle. */
-  assert.match(client, /onAuxClick=\{\(event\) => \{/);
-  assert.match(client, /id: 'closeOthers',\s+label: t\('editor\.closeOtherTabs'\),/s);
+  let confirmations = 0;
+  let confirmResult = false;
+  let openFiles = [
+    { path: 'a.ts', content: '', dirty: true, mtime: null },
+    { path: 'b.ts', content: '', dirty: true, mtime: null },
+  ];
+  const closeFile = loadTypeScriptCallback(workspaceSource, 'closeFile', {
+    openFilesRef: { current: openFiles },
+    window: { confirm: () => {
+      confirmations += 1;
+      return confirmResult;
+    } },
+    t: (key) => key,
+    closeSplitTab: () => {},
+    modelsRef: { current: new Map() },
+    previewPathRef: { current: null },
+    setPreviewPath: () => {},
+    setOpenFiles: (value) => {
+      openFiles = value;
+    },
+    activePathRef: { current: 'a.ts' },
+    setActivePath: () => {},
+  });
+  closeFile('a.ts');
+  assert.equal(confirmations, 1);
+  assert.equal(openFiles.length, 2);
+  confirmResult = true;
+  closeFile('a.ts');
+  assert.equal(confirmations, 2);
+  assert.deepEqual(openFiles.map((file) => file.path), ['b.ts']);
 });
 
 test('the editor exposes the file path in its status bar, go to line and live facts', () => {

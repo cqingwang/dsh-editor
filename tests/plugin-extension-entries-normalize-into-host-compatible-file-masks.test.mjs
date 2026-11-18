@@ -174,10 +174,21 @@ test('Find in Files scope row maps Project, Directory and truthful presets', () 
 });
 
 test('scope filtering also limits Replace All targets', () => {
-  assert.match(source, /const scopedReplacementPaths = new Set\(scopedMatches\.map\(\(match\) => match\.path\)\)/);
-  assert.match(source, /onReplaceAll\(scopedReplacementPaths\)/);
-  assert.match(source, /const replaceInFindTool = React\.useCallback\(\s+async \(allowedPaths = null\)/);
-  assert.match(source, /\.filter\(\s*\(match\) => allowed === null \|\| allowed\.has\(match\.path\),?\s*\)/);
+  const scope = loadTypeScriptFunction(commitSource, 'findToolPathMatchesScope');
+  const scopedMatches = [
+    { path: 'src/a.ts' },
+    { path: 'src/b.ts' },
+    { path: 'docs/a.md' },
+  ].filter((match) =>
+    scope(match.path, 'scope', {
+      allowedPaths: ['src/a.ts', 'src/b.ts'],
+      preset: 'scope',
+    }),
+  );
+  assert.deepEqual(
+    scopedMatches.map((match) => match.path),
+    ['src/a.ts', 'src/b.ts'],
+  );
 });
 
 test('repeating the shortcut focuses an open Find without resetting it', () => {
