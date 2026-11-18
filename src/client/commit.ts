@@ -313,7 +313,7 @@ export function markCodePreviewMatches(root: HTMLElement, ranges: CodePreviewRan
     let offset = 0;
     for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
       const length = node.nodeValue?.length ?? 0;
-      nodes.push({ node, start: offset, end: offset + length });
+      nodes.push({ node: node as Text, start: offset, end: offset + length });
       offset += length;
     }
     for (let index = nodes.length - 1; index >= 0; index -= 1) {
@@ -387,14 +387,18 @@ function orderFindToolGroups(groups: FindToolFileGroup[], groupBy: string): Find
  * not enter the keyboard occurrence sequence; file rows keep ownership of
  * every occurrence and replacement target.
  */
-export function findToolDisplayGroups(groups, groupBy) {
+export type FindToolDisplayGroup =
+  | { kind: 'directory'; path: string; count: number }
+  | ({ kind: 'file' } & FindToolFileGroup);
+
+export function findToolDisplayGroups(groups: FindToolFileGroup[], groupBy: string): FindToolDisplayGroup[] {
   const ordered = orderFindToolGroups(groups, groupBy);
   if (normalizeFindGroupBy(groupBy) !== 'directory') {
     return ordered.map((group) => ({ ...group, kind: 'file' }));
   }
-  const display = [];
-  let currentDirectory = null;
-  let currentDirectoryEntry = null;
+  const display: FindToolDisplayGroup[] = [];
+  let currentDirectory: string | null = null;
+  let currentDirectoryEntry: Extract<FindToolDisplayGroup, { kind: 'directory' }> | null = null;
   for (const group of ordered) {
     const directory = dirname(group.path);
     if (directory !== currentDirectory) {
@@ -406,7 +410,9 @@ export function findToolDisplayGroups(groups, groupBy) {
       };
       display.push(currentDirectoryEntry);
     }
-    currentDirectoryEntry.count += Array.isArray(group.matches) ? group.matches.length : 0;
+    if (currentDirectoryEntry !== null) {
+      currentDirectoryEntry.count += Array.isArray(group.matches) ? group.matches.length : 0;
+    }
     display.push({ ...group, kind: 'file' });
   }
   return display;

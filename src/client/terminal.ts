@@ -788,9 +788,10 @@ export function mergeFindToolDirtyMatches(
   } = {},
   limit = 200,
 ): { matches: Array<{ path?: string; line?: number; column?: number }>; truncated: boolean } {
+  type FindToolMergedMatch = { path?: string; line?: number; column?: number };
   const maximum = Math.max(1, Math.min(500, Number(limit) || 200));
-  const dirtyPaths = new Set();
-  const dirtyMatches = [];
+  const dirtyPaths = new Set<string>();
+  const dirtyMatches: FindToolMergedMatch[] = [];
   let truncated = false;
   const fileMask =
     typeof options?.fileMask === 'string' && options.fileMask.trim() !== ''
@@ -819,11 +820,13 @@ export function mergeFindToolDirtyMatches(
     dirtyMatches.push(...searched.matches);
     if (searched.truncated) truncated = true;
   }
-  const hostClean = (Array.isArray(hostMatches) ? hostMatches : []).filter((match) => !dirtyPaths.has(match?.path));
-  const selectedDirty = dirtyMatches.slice(0, maximum);
-  const selectedHost = hostClean.slice(0, Math.max(0, maximum - selectedDirty.length));
+  const hostClean: FindToolMergedMatch[] = (Array.isArray(hostMatches) ? hostMatches : []).filter(
+    (match) => !dirtyPaths.has(match?.path ?? ''),
+  );
+  const selectedDirty: FindToolMergedMatch[] = dirtyMatches.slice(0, maximum);
+  const selectedHost: FindToolMergedMatch[] = hostClean.slice(0, Math.max(0, maximum - selectedDirty.length));
   if (dirtyMatches.length + hostClean.length > maximum) truncated = true;
-  const matches = [...selectedDirty, ...selectedHost].sort(
+  const matches: FindToolMergedMatch[] = [...selectedDirty, ...selectedHost].sort(
     (left, right) =>
       String(left.path ?? '').localeCompare(String(right.path ?? ''), undefined, { sensitivity: 'base' }) ||
       (Number(left.line) || 0) - (Number(right.line) || 0) ||

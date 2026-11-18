@@ -20,10 +20,7 @@ const source = [
 ].join('\n');
 
 function extractFunction(name) {
-  return transpileTypeScriptFunction(
-    name === 'searchEverywherePreviewWindow' ? commitSource : terminalSource,
-    name,
-  );
+  return transpileTypeScriptFunction(name === 'searchEverywherePreviewWindow' ? commitSource : terminalSource, name);
 }
 
 function lines(count) {
@@ -31,10 +28,7 @@ function lines(count) {
 }
 
 test('saving a dirty model writes live content and clears dirty with the new mtime', () => {
-  const savePath = source.slice(
-    source.indexOf('const savePath ='),
-    source.indexOf('/* Save the active model. */'),
-  );
+  const savePath = source.slice(source.indexOf('const savePath ='), source.indexOf('/* Save the active model. */'));
   assert.match(savePath, /content: model\.getValue\(\)/u);
   assert.match(savePath, /mtime: file\?\.mtime \?\? undefined,\s+force,/u);
   assert.match(
@@ -44,10 +38,7 @@ test('saving a dirty model writes live content and clears dirty with the new mti
 });
 
 test('Search Everywhere text requests invalidate stale responses after open-file changes', () => {
-  const effect = source.slice(
-    source.indexOf('const searchEverywhereRawQuery'),
-    source.indexOf('const openFindTool ='),
-  );
+  const effect = source.slice(source.indexOf('const searchEverywhereRawQuery'), source.indexOf('const openFindTool ='));
   assert.match(effect, /const requestId = \+\+searchTextRequestRef\.current/u);
   assert.match(effect, /if \(searchTextRequestRef\.current !== requestId\) return;/gu);
   assert.match(effect, /searchEverywhere\?\.fileMask,\s+openFiles,\s+t,/u);
@@ -55,9 +46,9 @@ test('Search Everywhere text requests invalidate stale responses after open-file
 
 test('Dirty buffers replace host rows instead of duplicating the same path', () => {
   const merge = extractFunction('mergeFindToolDirtyMatches');
-  assert.match(merge, /const dirtyPaths = new Set\(\)/u);
+  assert.match(merge, /const dirtyPaths = new Set(?:<string>)?\(\)/u);
   assert.match(merge, /dirtyPaths\.add\(file\.path\)/u);
-  assert.match(merge, /\.filter\(\(?match\)? => !dirtyPaths\.has\(match\?\.path\)\)/u);
+  assert.match(merge, /\.filter\(\s*\(?match\)? => !dirtyPaths\.has\(match\?\.path \?\? ''\),?\s*\)/u);
   assert.match(merge, /const matches = \[\.\.\.selectedDirty, \.\.\.selectedHost\]/u);
 });
 
@@ -95,12 +86,6 @@ test('all text-result open paths retain line-centered navigation', () => {
   assert.match(source, /pendingReveal\.current = \{ path, line, column \}/u);
   assert.match(source, /revealLines\(path, line, column\)/u);
   assert.match(source, /editor\.revealLineInCenter\(safeLine\)/u);
-  assert.match(
-    source,
-    /openFileAtLocation\(result\.path, result\.line, result\.column\)/u,
-  );
-  assert.match(
-    source,
-    /openFileAtLocation\(match\.path, match\.line, match\.column\)/u,
-  );
+  assert.match(source, /openFileAtLocation\(result\.path, result\.line, result\.column\)/u);
+  assert.match(source, /openFileAtLocation\(match\.path, match\.line, match\.column\)/u);
 });

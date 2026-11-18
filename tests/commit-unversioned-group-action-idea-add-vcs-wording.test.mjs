@@ -29,7 +29,7 @@ test('unversioned group action uses IDEA Add to VCS wording', () => {
 test('untracked file row menu offers Add to VCS instead of generic stage wording', () => {
   const menu = changeMenu();
   assert.match(menu, /allUnversioned\s*\?\s*batchLabel\('editor\.addToVcs', 'editor\.addToVcsCount'\)/);
-  assert.match(menu, /run: \(\) => void restage\(removalOnly \? removablePaths : paths, allStaged\)/);
+  assert.match(menu, /run: \(\)(?:: void)? => void restage\(removalOnly \? removablePaths : paths, allStaged\)/);
   assert.ok(source.includes("addToVcsCount: '添加 {count} 个文件到 VCS'"));
   assert.ok(source.includes("addToVcsCount: 'Add {count} Files to VCS'"));
 });

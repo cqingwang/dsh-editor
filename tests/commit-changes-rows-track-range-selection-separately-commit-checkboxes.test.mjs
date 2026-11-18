@@ -47,7 +47,7 @@ test('the context menu acts on all selected rows, not just the clicked one', () 
     /const range =\s+payload\.selectedChanges instanceof Set && payload\.selectedChanges\.size > 0/u,
   );
   assert.match(menu, /const paths = \[\.\.\.new Set\(selected\.map\(\(entry\) => entry\.path\)\)\]/);
-  assert.match(menu, /run: \(\) => void restage\(removalOnly \? removablePaths : paths, allStaged\)/);
+  assert.match(menu, /run: \(\)(?:: void)? => void restage\(removalOnly \? removablePaths : paths, allStaged\)/);
   assert.match(menu, /run: \(\) => void rollback\(paths, allUnversioned \? \{ unversioned: true \} : undefined\)/);
   assert.match(menu, /disabled: allStaged === false && allWorking === false/);
 });

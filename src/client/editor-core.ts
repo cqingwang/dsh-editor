@@ -363,7 +363,7 @@ function filterMonacoContextMenuActions(editor: MonacoEditor, hiddenActionIds: s
     | undefined;
   const original = controller?._getMenuActions;
   if (typeof original !== 'function') return () => {};
-  const filtered = function (...args) {
+  const filtered = function (this: unknown, ...args: unknown[]): Array<{ id?: string }> {
     return original.apply(this, args).filter((action) => {
       const id = String(action?.id ?? '');
       for (const hiddenId of hidden) {
@@ -995,6 +995,16 @@ interface MonacoTypeScriptRuntimeConfig {
   resolveJsonModule?: boolean;
 }
 
+function editorTypeScriptConfig(): MonacoTypeScriptRuntimeConfig {
+  return (
+    (
+      globalThis as typeof globalThis & {
+        __dshEditorTypeScriptConfig?: MonacoTypeScriptRuntimeConfig;
+      }
+    ).__dshEditorTypeScriptConfig ?? {}
+  );
+}
+
 /** Allocate a new Monaco model URI generation for one diff load. */
 export function nextDiffLoadSerial(): number {
   diffLoadSerial += 1;
@@ -1013,7 +1023,7 @@ export function nextDiffLoadSerial(): number {
  */
 function configureMonacoLanguageDiagnostics(
   monaco: MonacoApi,
-  config: MonacoTypeScriptRuntimeConfig = globalThis.__dshEditorTypeScriptConfig ?? {},
+  config: MonacoTypeScriptRuntimeConfig = editorTypeScriptConfig(),
 ): boolean {
   const typescript = monaco?.languages?.typescript;
   if (typescript === undefined || typescript === null) return false;
@@ -1084,7 +1094,7 @@ function configureMonacoLanguageDiagnostics(
  */
 function configureMonacoLanguageWhenReady(
   monaco: MonacoApi,
-  config: MonacoTypeScriptRuntimeConfig = globalThis.__dshEditorTypeScriptConfig ?? {},
+  config: MonacoTypeScriptRuntimeConfig = editorTypeScriptConfig(),
   attempts = 40,
   delay = 25,
 ): Promise<boolean> {

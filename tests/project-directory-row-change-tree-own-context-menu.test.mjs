@@ -30,7 +30,7 @@ test('the directory menu stages, unstages and rolls back the subtree', () => {
   /* The actions receive the collected paths, not the directory path itself. */
   assert.match(block, /run: \(\) => void restage\(paths, false\)/);
   assert.match(block, /run: \(\) => void restage\(paths, true\)/);
-  assert.match(block, /run: \(\) => void rollback\(paths\)/);
+  assert.match(block, /run: \(\)(?:: void)? => void rollback\(paths\)/);
 });
 
 test('the directory menu is wired into the panel', () => {

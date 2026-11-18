@@ -771,7 +771,7 @@ function EditorWorkspace({
    * @param {object[]} changes - the post-operation git change list.
    * @param {Set<string>} removedKeys - `<staged|unstaged>:<path>` identities gone.
    * @returns {void}
-   */ const reconcileChangeSelection = React.useCallback((changes, removedKeys) => {
+   */ const reconcileChangeSelection = React.useCallback((changes: DiffChange[], removedKeys: Set<string>) => {
     if (!(removedKeys instanceof Set) || removedKeys.size === 0) return;
     const rows = [...document.querySelectorAll('[data-dsh-changes-list] [data-dsh-change-path]')];
     const keyOf = (row) =>
@@ -2793,7 +2793,7 @@ function EditorWorkspace({
         label: `${t('editor.harness')}->`,
         disabled: selected.length === 0,
         restoreFocus: false,
-        run: () => void sendHarnessReference(selected),
+        run: (): void => void sendHarnessReference(selected),
       };
     },
     [sendHarnessReference, t],
@@ -7157,7 +7157,7 @@ function EditorWorkspace({
    */ const checkExternalChanges = React.useCallback(async () => {
     const open = openFilesRef.current.filter((file) => file.mtime !== null && file.mtime !== undefined);
     if (open.length === 0) return;
-    let described;
+    let described: Array<{ path?: string; exists?: boolean; mtime?: number | null }> | undefined;
     try {
       described = await callFs({
         op: 'exists',
@@ -7166,7 +7166,7 @@ function EditorWorkspace({
     } catch {
       return;
     }
-    const findings = {};
+    const findings: Record<string, { missing: boolean; diskMtime: number | null }> = {};
     for (const entry of described ?? []) {
       const current = open.find((file) => file.path === entry.path);
       if (current === undefined) continue;
@@ -7779,7 +7779,8 @@ function EditorWorkspace({
             ariaKeyShortcuts: 'Backspace',
             danger: true,
             disabled: isRoot,
-            run: () => void (batch.length > 1 ? removeEntries(batch.map((entry) => entry.path)) : removeEntry(row)),
+            run: (): void =>
+              void (batch.length > 1 ? removeEntries(batch.map((entry) => entry.path)) : removeEntry(row)),
           },
           null,
           {
@@ -7813,7 +7814,7 @@ function EditorWorkspace({
             label: t('editor.refresh'),
             shortcut: '⌘R',
             ariaKeyShortcuts: 'Meta+R Control+R',
-            run: () => void refreshTree(),
+            run: (): void => void refreshTree(),
           },
           {
             id: 'revealFinder',
@@ -8729,7 +8730,7 @@ function EditorWorkspace({
             label: t('editor.showDiff'),
             shortcut: '⌘D',
             ariaKeyShortcuts: 'Meta+D Control+D',
-            run: () => {
+            run: (): void => {
               setDiffTarget({ path: change.path, staged });
               setDiffActive(true);
             },
@@ -8794,7 +8795,7 @@ function EditorWorkspace({
               : allStaged
                 ? 'Alt+Meta+A Control+Alt+A'
                 : 'Meta+Shift+A Control+Shift+A',
-            run: () => void restage(removalOnly ? removablePaths : paths, allStaged),
+            run: (): void => void restage(removalOnly ? removablePaths : paths, allStaged),
           },
           ...(removablePaths.length > 0 && !removalOnly
             ? [
@@ -8925,7 +8926,7 @@ function EditorWorkspace({
             label: t('editor.rollbackDirectory'),
             danger: true,
             disabled: paths.length === 0,
-            run: () => void rollback(paths),
+            run: (): void => void rollback(paths),
           },
           null,
           {

@@ -52,6 +52,10 @@
 - 清除所有 `declare function/const` 跨模块伪装，改为真实 import/export；
   `foundation` 的 React/primitives、Commit preview helpers、Markdown image
   helpers、Project/Commit menu builders 等均恢复显式依赖；
+- 使用 `tsc --noImplicitAny` 作为额外源码审计，修复了 DOM `Text`、Find
+  分组联合类型、外部变更返回类型、窗口全局变量、Monaco 回调和 action
+  返回函数等确定性语义错误；剩余为 1175 条隐式 `any` 注解债，未通过忽略规则
+  掩盖；
 - 构建器改用 Babel AST 删除语句级 import/export，保留字符串、注释和换行；
 - `tests/ts-source.mjs` 同样用 AST 剥离模块语法；类型/import 回归直接读取
   TS/TSX，生成产物只保留给构建顺序与打包契约检查。

@@ -54,7 +54,7 @@ function MarkdownPreviewPane({
     }),
     [path, workspaceRoot, assetRevisions],
   );
-  const getTriggerProps = React.useCallback(() => undefined, []);
+  const getTriggerProps = React.useCallback((): undefined => undefined, []);
   const openLocal = React.useCallback(
     (target: string) => {
       const resolved = resolveMarkdownLink(path, target);
