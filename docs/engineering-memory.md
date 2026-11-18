@@ -1,5 +1,49 @@
 # dsh-editor 工程记忆
 
+## 2026-11-18 — Rust import-aware 跳转与修饰键悬浮链接
+
+**作用域**：`src/client/code-navigation.ts`、`src/client/editor-core.ts`、
+`src/client/injected-css.ts`、code-navigation 与 hover 回归测试。
+
+**症状/证据**：
+
+- Rust 已有 `fn/struct/enum/trait/type/mod` 声明正则和全局搜索，但未利用
+  `mod`、`use`、alias 与 crate-relative module path；
+- Java/Go/C/C++ 已支持语言候选和 scoped 搜索，Rust 仍容易落到无关同名结果；
+- JS/TS 在 `⌘/Ctrl` 悬浮时由语言服务显示链接反馈，其他语言没有一致的
+  underline/pointer affordance。
+
+**根因**：
+
+- 语言候选层缺少 Rust module/use 解析；
+- Monaco 编辑器组只处理 modifier+click，没有 modifier+hover decoration；
+- 新语言没有统一的可导航标识符视觉反馈。
+
+**修复**：
+
+- Rust 解析 `mod foo;`、`crate::`、`self::`、`super::`、use group 与 `as` alias：
+  - 点击模块名直达 `foo.rs` / `foo/mod.rs`；
+  - alias 命中时定位目标模块文件并搜索真实 symbol；
+  - module path 同步成为 scoped search include globs；
+  - 补充 `macro_rules!` 声明识别；
+- `createCodeEditorGroup()` 新增 modifier hover decoration：
+  - `onMouseMove` 记录 word；
+  - Meta/Control keydown 设置 `dsh-editor-definition-link` decoration；
+  - keyup、mouseleave、window blur、scroll、model change、dispose 清理；
+- injected CSS 添加 accent underline、2px offset 和 pointer cursor。
+
+**回归**：
+
+- 新增 `tests/editor-rust-language-aware-definition-navigation.test.mjs`：5 pass；
+- 新增 `tests/editor-definition-hover-link-modifier.test.mjs`：3 pass；
+- Java/Go/C/C++、JS/TS/Python 既有导航回归保持通过；
+- DSH Web 运行态：Rust `service::Helper` 打开 `service.rs` 的 `Helper` 1:12；
+  Command 悬浮计算样式为 `cursor: pointer`、`text-decoration: underline`、
+  `text-underline-offset: 2px`。
+
+**适用环境**：macOS、Node 24.22.2、TypeScript 5.9.3、Monaco Editor 0.52.2。
+后续新增语言应复用同一 word-level decoration，不得给普通 hover 永久加下划线。
+
 ## 2026-11-18 — 共享 noImplicitAny 门禁与行为测试收口
 
 **作用域**：`tsconfig.client.json`、`editor-workspace.tsx`、`commit.ts`、

@@ -27,6 +27,8 @@ export interface DefinitionLocation extends NavigationLocation {
 export interface DefinitionLanguageCandidate {
   path: string;
   symbol?: string;
+  line?: number;
+  column?: number;
 }
 
 export interface DefinitionSearchOptions {
@@ -339,10 +341,17 @@ function uniqueDefinitionCandidates(candidates: DefinitionLanguageCandidate[]): 
     const path = normalizeNavigationPath(candidate.path);
     if (path === '') continue;
     const symbol = typeof candidate.symbol === 'string' && candidate.symbol !== '' ? candidate.symbol : '';
-    const key = `${path}\u0000${symbol}`;
+    const line = Math.max(0, Math.floor(Number(candidate.line) || 0));
+    const column = Math.max(0, Math.floor(Number(candidate.column) || 0));
+    const key = `${path}\u0000${symbol}\u0000${line}\u0000${column}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    result.push(symbol === '' ? { path } : { path, symbol });
+    result.push({
+      path,
+      ...(symbol === '' ? {} : { symbol }),
+      ...(line === 0 ? {} : { line }),
+      ...(column === 0 ? {} : { column }),
+    });
   }
   return result;
 }
@@ -395,6 +404,94 @@ function cIncludePaths(content: string): Array<{ path: string; quoted: boolean }
     if (path !== '') paths.push({ path, quoted: match[1] === '"' });
   }
   return paths;
+}
+
+function rustSourceRoot(sourcePath: string): string {
+  const segments = normalizeNavigationPath(sourcePath).split('/').filter(Boolean);
+  const sourceIndex = segments.lastIndexOf('src');
+  return sourceIndex < 0 ? '' : segments.slice(0, sourceIndex + 1).join('/');
+}
+
+function splitRustUseItems(value: string): string[] {
+  const items: string[] = [];
+  let depth = 0;
+  let start = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value[index];
+    if (character === '{') depth += 1;
+    else if (character === '}') depth -= 1;
+    else if (character === ',' && depth === 0) {
+      items.push(value.slice(start, index).trim());
+      start = index + 1;
+    }
+  }
+  const tail = value.slice(start).trim();
+  if (tail !== '') items.push(tail);
+  return items;
+}
+
+function expandRustUseItem(value: string, prefix = ''): Array<{ importedPath: string; localName: string }> {
+  let text = value.trim().replace(/^::/u, '');
+  if (text === '') return [];
+  const aliasMatch = /\s+as\s+([A-Za-z_]\w*)$/u.exec(text);
+  const alias = aliasMatch?.[1] ?? '';
+  if (aliasMatch !== null) text = text.slice(0, aliasMatch.index).trim();
+  const braceStart = text.indexOf('{');
+  if (braceStart >= 0) {
+    const braceEnd = text.lastIndexOf('}');
+    if (braceEnd <= braceStart) return [];
+    const groupPrefix = text.slice(0, braceStart).trim().replace(/::$/u, '');
+    const nextPrefix = [prefix, groupPrefix].filter((part) => part !== '').join('::');
+    return splitRustUseItems(text.slice(braceStart + 1, braceEnd)).flatMap((item) =>
+      expandRustUseItem(item, nextPrefix),
+    );
+  }
+  const importedPath = [prefix, text.replace(/\*$/u, '').replace(/:+$/u, '')].filter((part) => part !== '').join('::');
+  if (importedPath === '') return [];
+  const localName = alias !== '' ? alias : (importedPath.split('::').at(-1) ?? '');
+  return [{ importedPath, localName }];
+}
+
+function rustUseImports(content: string): Array<{ importedPath: string; localName: string }> {
+  const imports: Array<{ importedPath: string; localName: string }> = [];
+  const expression = /(?:^|\n)[ \t]*(?:pub(?:\([^)]*\))?\s+)?use\s+([^;]+);/gu;
+  for (const match of content.matchAll(expression)) {
+    imports.push(...expandRustUseItem(match[1]));
+  }
+  return imports;
+}
+
+function rustModulePath(sourcePath: string, importedPath: string): { base: string; parts: string[] } | null {
+  const parts = importedPath.split('::').filter(Boolean);
+  if (parts.length === 0) return null;
+  const sourceDirectory = navigationDirname(sourcePath);
+  let base = '';
+  let index = 0;
+  if (parts[0] === 'crate') {
+    base = rustSourceRoot(sourcePath);
+    index = 1;
+  } else if (parts[0] === 'self') {
+    base = sourceDirectory;
+    index = 1;
+  } else if (parts[0] === 'super') {
+    base = sourceDirectory;
+    while (parts[index] === 'super') {
+      base = navigationDirname(base);
+      index += 1;
+    }
+  } else {
+    base = rustSourceRoot(sourcePath);
+  }
+  return { base, parts: parts.slice(index) };
+}
+
+function rustModuleFileCandidates(base: string, parts: string[]): string[] {
+  if (parts.length === 0) return [];
+  const modulePath = parts.join('/');
+  return uniqueDefinitionCandidates([
+    { path: normalizeNavigationPath(base === '' ? `${modulePath}.rs` : `${base}/${modulePath}.rs`) },
+    { path: normalizeNavigationPath(base === '' ? `${modulePath}/mod.rs` : `${base}/${modulePath}/mod.rs`) },
+  ]).map((candidate) => candidate.path);
 }
 
 /**
@@ -451,6 +548,33 @@ export function definitionLanguageCandidates(
         ...(importedSimpleName === name ? {} : { symbol: name }),
       });
     }
+  } else if (extension === 'rs') {
+    const sourceDirectory = navigationDirname(sourcePath);
+    const moduleDeclarations = /(?:^|\n)[ \t]*(?:pub(?:\([^)]*\))?\s+)?mod\s+([A-Za-z_]\w*)\s*;/gu;
+    for (const match of source.matchAll(moduleDeclarations)) {
+      const moduleName = match[1];
+      if (moduleName !== name) continue;
+      candidates.push(
+        { path: normalizeNavigationPath(`${sourceDirectory}/${moduleName}.rs`), line: 1, column: 1 },
+        { path: normalizeNavigationPath(`${sourceDirectory}/${moduleName}/mod.rs`), line: 1, column: 1 },
+      );
+    }
+    for (const imported of rustUseImports(source)) {
+      if (imported.localName !== name) continue;
+      const resolved = rustModulePath(sourcePath, imported.importedPath);
+      if (resolved === null || resolved.parts.length === 0) continue;
+      const targetSymbol = resolved.parts.at(-1) ?? name;
+      const moduleParts = resolved.parts.slice(0, -1);
+      if (moduleParts.length === 0) {
+        for (const path of rustModuleFileCandidates(resolved.base, resolved.parts)) {
+          candidates.push({ path, line: 1, column: 1 });
+        }
+      } else {
+        for (const path of rustModuleFileCandidates(resolved.base, moduleParts)) {
+          candidates.push({ path, symbol: targetSymbol });
+        }
+      }
+    }
   } else if (['c', 'h', 'cc', 'cpp', 'cxx', 'hpp'].includes(extension)) {
     const sourceDirectory = navigationDirname(sourcePath);
     for (const include of cIncludePaths(source)) {
@@ -498,6 +622,24 @@ export function definitionSearchScopePatterns(content: unknown, path: unknown): 
   const patterns: string[] = [];
   if (extension === 'go') {
     for (const imported of goImportPaths(source)) patterns.push(...goImportScopePatterns(imported));
+  } else if (extension === 'rs') {
+    const sourceDirectory = navigationDirname(sourcePath);
+    const moduleDeclarations = /(?:^|\n)[ \t]*(?:pub(?:\([^)]*\))?\s+)?mod\s+([A-Za-z_]\w*)\s*;/gu;
+    for (const match of source.matchAll(moduleDeclarations)) {
+      const target = normalizeNavigationPath(`${sourceDirectory}/${match[1]}`);
+      patterns.push(`${target}.rs`, `${target}/mod.rs`, `${target}/**`);
+    }
+    for (const imported of rustUseImports(source)) {
+      const resolved = rustModulePath(sourcePath, imported.importedPath);
+      if (resolved === null || resolved.parts.length === 0) continue;
+      const moduleParts = resolved.parts.length === 1 ? resolved.parts : resolved.parts.slice(0, -1);
+      const moduleFiles = rustModuleFileCandidates(resolved.base, moduleParts);
+      const moduleDirectory = normalizeNavigationPath(
+        [resolved.base, moduleParts.join('/')].filter((part) => part !== '').join('/'),
+      );
+      patterns.push(...moduleFiles);
+      if (moduleDirectory !== '') patterns.push(`${moduleDirectory}/**`, `**/${moduleParts.join('/')}/**`);
+    }
   } else if (extension === 'java') {
     const packageMatch = /(?:^|\n)[ \t]*package\s+([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)\s*;/u.exec(source);
     const sourceRoot = javaSourceRoot(sourcePath, packageMatch?.[1] ?? '');
@@ -549,6 +691,7 @@ export function definitionRegexes(path: unknown, symbol: unknown): RegExp[] {
     add(
       `\\b(?:pub(?:\\([^)]*\\))?\\s+)?(?:async\\s+)?(?:fn|struct|enum|trait|type|const|static|mod)\\s+(${escaped})\\b`,
     );
+    add(`\\bmacro_rules!\\s+(${escaped})\\b`);
   } else if (['java', 'kt', 'kts', 'scala', 'cs', 'dart'].includes(extension)) {
     add(`\\b(?:class|interface|enum|record|object|trait|typealias|struct|delegate|mixin|extension)\\s+(${escaped})\\b`);
     add(
@@ -691,6 +834,11 @@ export async function resolveWorkspaceDefinition({
   for (const candidate of languageCandidates) {
     const targetContent = await readFile(candidate.path).catch((): null => null);
     if (typeof targetContent !== 'string') continue;
+    if (candidate.line !== undefined) {
+      const line = Math.max(1, Math.floor(Number(candidate.line) || 1));
+      const column = Math.max(1, Math.floor(Number(candidate.column) || 1));
+      return { path: candidate.path, line, column, endColumn: column };
+    }
     const found = findDefinitionInText(targetContent, candidate.symbol ?? name, candidate.path);
     if (found !== null) return found;
   }

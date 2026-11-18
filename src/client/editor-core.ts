@@ -431,6 +431,57 @@ export function createCodeEditorGroup(
   const findUsagesContextKey = editor.createContextKey<boolean>(findUsagesPrecondition, false);
   const findSelectionContextKey = editor.createContextKey<boolean>(findSelectionPrecondition, false);
   const restoreContextMenuActions = filterMonacoContextMenuActions(editor, ['editor.action.quickCommand']);
+  const definitionHoverDecorations = editor.createDecorationsCollection?.([]) ?? null;
+  let definitionHoverPosition: Monaco.Position | null = null;
+  let definitionHoverKey = '';
+  const clearDefinitionHover = (): void => {
+    definitionHoverKey = '';
+    definitionHoverDecorations?.clear?.();
+  };
+  const paintDefinitionHover = (position: Monaco.Position | null, modifier: boolean): void => {
+    if (modifier !== true || position === null) {
+      clearDefinitionHover();
+      return;
+    }
+    const model = editor.getModel();
+    const word = model?.getWordAtPosition?.(position) ?? null;
+    if (word === null || word.word.trim() === '' || /^\d+$/u.test(word.word)) {
+      clearDefinitionHover();
+      return;
+    }
+    const key = `${position.lineNumber}:${word.startColumn}:${word.endColumn}:${word.word}`;
+    if (key === definitionHoverKey) return;
+    definitionHoverKey = key;
+    definitionHoverDecorations?.set?.([
+      {
+        range: new monaco.Range(position.lineNumber, word.startColumn, position.lineNumber, word.endColumn + 1),
+        options: {
+          inlineClassName: 'dsh-editor-definition-link',
+        },
+      },
+    ]);
+  };
+  const refreshDefinitionHover = (modifier: boolean): void => {
+    paintDefinitionHover(definitionHoverPosition, modifier);
+  };
+  const definitionHoverSubscription = editor.onMouseMove?.((event) => {
+    const browserEvent = event?.event?.browserEvent ?? null;
+    definitionHoverPosition = event?.target?.position ?? null;
+    paintDefinitionHover(definitionHoverPosition, browserEvent?.metaKey === true || browserEvent?.ctrlKey === true);
+  });
+  const onDefinitionModifierKeyDown = (event: KeyboardEvent): void => {
+    if (event.key === 'Meta' || event.key === 'Control') refreshDefinitionHover(true);
+  };
+  const onDefinitionModifierKeyUp = (event: KeyboardEvent): void => {
+    if (event.key === 'Meta' || event.key === 'Control') refreshDefinitionHover(false);
+  };
+  const onDefinitionHoverWindowBlur = (): void => clearDefinitionHover();
+  const definitionHoverWindow = typeof window === 'undefined' ? null : window;
+  definitionHoverWindow?.addEventListener('keydown', onDefinitionModifierKeyDown, true);
+  definitionHoverWindow?.addEventListener('keyup', onDefinitionModifierKeyUp, true);
+  definitionHoverWindow?.addEventListener('blur', onDefinitionHoverWindowBlur);
+  const definitionHoverContainer = typeof container.addEventListener === 'function' ? container : null;
+  definitionHoverContainer?.addEventListener('mouseleave', clearDefinitionHover);
   const updateFindUsagesAvailability = () => {
     const queryAvailable = findUsagesSearchTarget(editor).query !== '';
     findUsagesContextKey?.set(queryAvailable);
@@ -628,7 +679,11 @@ export function createCodeEditorGroup(
   ];
   const availabilitySubscriptions = [
     editor.onDidChangeCursorSelection?.(updateFindUsagesAvailability),
-    editor.onDidChangeModel?.(updateFindUsagesAvailability),
+    editor.onDidChangeModel?.(() => {
+      clearDefinitionHover();
+      updateFindUsagesAvailability();
+    }),
+    editor.onDidScrollChange?.(clearDefinitionHover),
   ];
   const definitionClickSubscription = editor.onMouseDown?.((event) => {
     const browserEvent = event?.event?.browserEvent ?? null;
@@ -646,6 +701,12 @@ export function createCodeEditorGroup(
       if (disposed) return;
       disposed = true;
       restoreContextMenuActions();
+      clearDefinitionHover();
+      definitionHoverSubscription?.dispose?.();
+      definitionHoverWindow?.removeEventListener('keydown', onDefinitionModifierKeyDown, true);
+      definitionHoverWindow?.removeEventListener('keyup', onDefinitionModifierKeyUp, true);
+      definitionHoverWindow?.removeEventListener('blur', onDefinitionHoverWindowBlur);
+      definitionHoverContainer?.removeEventListener('mouseleave', clearDefinitionHover);
       for (const subscription of availabilitySubscriptions) subscription?.dispose?.();
       definitionClickSubscription?.dispose?.();
       for (const action of actions) action.dispose?.();

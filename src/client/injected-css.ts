@@ -507,6 +507,16 @@ export function installStyles(): void {
     '  border-right: none !important;',
     '  box-sizing: border-box !important;',
     '}',
+    /* ⌘/Ctrl hover over a navigable identifier mirrors the language-service
+           link affordance: pointer cursor plus an accent underline. The class is
+           applied by a Monaco decoration only while the modifier is held. */
+    '.monaco-editor .view-lines .dsh-editor-definition-link {',
+    '  cursor: pointer !important;',
+    '  text-decoration: underline !important;',
+    '  text-decoration-color: var(--dsw-alias-state-business-primary) !important;',
+    '  text-decoration-thickness: 1px;',
+    '  text-underline-offset: 2px;',
+    '}',
     /* Search Everywhere and Find use lightweight custom previews instead
            of another Monaco instance. These classes give them the same gutter
            rail, divider, 2px content gap and editor background as Monaco. */
