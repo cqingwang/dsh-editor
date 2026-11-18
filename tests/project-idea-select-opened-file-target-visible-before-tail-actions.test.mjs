@@ -37,7 +37,9 @@ test('Project target action is pinned and retains IDEA reveal semantics', () => 
 });
 
 test('One-level Project loading remains prefetch-only and anchored on directory clicks', () => {
-  const prefetchSource = coreSource.slice(coreSource.indexOf('async function prefetchDirectorySubtrees('));
+  const prefetchStart = coreSource.search(/async function prefetchDirectorySubtrees(?:<[^>]*>)?\(/u);
+  assert.notEqual(prefetchStart, -1, 'prefetchDirectorySubtrees implementation is missing');
+  const prefetchSource = coreSource.slice(prefetchStart);
   assert.match(prefetchSource, /maxDepth = 1/);
   assert.doesNotMatch(prefetchSource, /setExpanded/);
   assert.match(prefetchSource, /while \(queue\.length > 0 && visited < limit\)/);

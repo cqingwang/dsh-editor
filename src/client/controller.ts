@@ -310,12 +310,12 @@ async function insertHarnessReferencesIntoComposer(
 function createController(ctx: ControllerContext): void {
   const t = translate(ctx.locale.bind(NS), { zh, en });
   let active = false;
-  let host = null;
-  let root = null;
+  let host: HTMLDivElement | null = null;
+  let root: ReturnType<typeof createRoot> | null = null;
   /* The Editor host lives under a stable layout ancestor. This observer only
          follows the live Chat body's rectangle; it never owns the React root. */
-  let hostPositionObserver = null;
-  let hostPositionBody = null;
+  let hostPositionObserver: ResizeObserver | null = null;
+  let hostPositionBody: HTMLElement | null = null;
   /* The workspace chosen by the sidebar `... → Editor` entry. Empty means
          "follow the current conversation session" (hero/chat toggle entry). */
   let editorWorkspaceId = '';
@@ -331,21 +331,23 @@ function createController(ctx: ControllerContext): void {
   let maintenanceTimer = 0;
   let lastMaintenanceAt = 0;
   /* The chat column's drag handle and the width it currently applies. */
-  let chatHandle = null;
+  let chatHandle: HTMLDivElement | null = null;
   let chatWidth = CHAT_WIDTH_DEFAULT;
   /* Harness minimize is a temporary layout state, not a persisted width. */
   let harnessCollapsed = false;
   /* The View-row button that opens/closes the Editor workbench. */
-  let chatToggle = null;
+  let chatToggle: HTMLButtonElement | null = null;
   /* A blank conversation has no `[data-conversation-tabs]` yet. Its hero still
          exposes a stable host slot, so the Editor gets a real entry point before the
          first message instead of being reachable only from the workspace menu. */
-  let heroLaunch = null;
+  let heroLaunch: HTMLButtonElement | null = null;
 
-  const findBody = () => document.querySelector('[data-conversation-region="chat"]');
-  const findTablist = () => document.querySelector('[data-conversation-tabs]');
-  const findHeroOptions = () => document.querySelector('[data-slot="conversation.hero.options"]');
-  const findConversationSlot = () => document.querySelector('[data-slot="main.conversation"]');
+  const findBody = (): HTMLElement | null => document.querySelector<HTMLElement>('[data-conversation-region="chat"]');
+  const findTablist = (): HTMLElement | null => document.querySelector<HTMLElement>('[data-conversation-tabs]');
+  const findHeroOptions = (): HTMLElement | null =>
+    document.querySelector<HTMLElement>('[data-slot="conversation.hero.options"]');
+  const findConversationSlot = (): HTMLElement | null =>
+    document.querySelector<HTMLElement>('[data-slot="main.conversation"]');
   /**
    * Stable layout parent for the injected Editor.
    *
@@ -355,7 +357,7 @@ function createController(ctx: ControllerContext): void {
    * positioned child. Climb to the first ancestor with a real layout box.
    * @returns {HTMLElement|null} stable host parent, or the current body as fallback.
    */
-  const findHostParent = () => {
+  const findHostParent = (): HTMLElement | null => {
     const slot = findConversationSlot();
     let candidate = slot?.parentElement ?? null;
     while (candidate !== null && candidate !== document.body) {
@@ -376,7 +378,7 @@ function createController(ctx: ControllerContext): void {
    * the collapse state; reuse its toggle instead of mutating grid styles.
    * @returns {boolean} true when this call collapsed the sidebar.
    */
-  function collapseConversationSidebar() {
+  function collapseConversationSidebar(): boolean {
     const toggle = document.querySelector('[data-sidebar-toggle]');
     if (!(toggle instanceof HTMLElement)) return false;
     const slot = toggle.closest('[data-slot="sidebar"]');
@@ -395,7 +397,7 @@ function createController(ctx: ControllerContext): void {
    * Chat view.
    * @returns {void}
    */
-  function openEditorSplit(workspaceId = '') {
+  function openEditorSplit(workspaceId: string = ''): void {
     const nextWorkspaceId = typeof workspaceId === 'string' ? workspaceId : '';
     if (nextWorkspaceId !== editorWorkspaceId) {
       editorWorkspaceId = nextWorkspaceId;
@@ -416,7 +418,7 @@ function createController(ctx: ControllerContext): void {
    * so there is only one layout path.
    * @returns {void}
    */
-  function ensureHeroLaunch() {
+  function ensureHeroLaunch(): void {
     const slot = findHeroOptions();
     if (slot === null) {
       heroLaunch?.remove();
@@ -463,7 +465,7 @@ function createController(ctx: ControllerContext): void {
    * Reflect the Editor's open state on the blank-session hero button.
    * @returns {void}
    */
-  function applyHeroLaunchState() {
+  function applyHeroLaunchState(): void {
     if (heroLaunch === null || !heroLaunch.isConnected) return;
     const available = new Set([...document.querySelectorAll('symbol[id]')].map((symbol) => symbol.id));
     const chosen = pickMenuIcon(
@@ -488,7 +490,7 @@ function createController(ctx: ControllerContext): void {
    * @param {number} value - width in percent.
    * @returns {void}
    */
-  function applyChatWidth(value) {
+  function applyChatWidth(value: number): void {
     chatWidth = clampChatPercent(value);
     applyChatLayout();
   }
@@ -497,7 +499,7 @@ function createController(ctx: ControllerContext): void {
    * Push the chat width and Editor-toggle state into the layout.
    * @returns {void}
    */
-  function applyChatLayout() {
+  function applyChatLayout(): void {
     const body = document.body;
     const layoutWidth = chatLayoutWidth(harnessCollapsed, chatWidth);
     body.style.setProperty('--dsh-editor-chat-width', `${layoutWidth}%`);
@@ -541,7 +543,7 @@ function createController(ctx: ControllerContext): void {
    * @param {HTMLElement|null} body - current conversation body.
    * @returns {void}
    */
-  function positionEditorHost(body) {
+  function positionEditorHost(body: HTMLElement | null): void {
     if (host === null || body === null || !body.isConnected) return;
     const rect = body.getBoundingClientRect();
     const width = Math.max(0, rect.width * (1 - chatLayoutWidth(harnessCollapsed, chatWidth) / 100));
@@ -559,7 +561,7 @@ function createController(ctx: ControllerContext): void {
    * @param {HTMLElement|null} body - current conversation body.
    * @returns {void}
    */
-  function observeHostPosition(body) {
+  function observeHostPosition(body: HTMLElement | null): void {
     positionEditorHost(body);
     if (body === hostPositionBody && hostPositionObserver !== null) return;
     hostPositionObserver?.disconnect();
@@ -577,7 +579,7 @@ function createController(ctx: ControllerContext): void {
    * Toggle the Harness chat column without changing the Editor workbench.
    * @returns {boolean} whether the chat is now collapsed.
    */
-  function toggleHarnessLayout() {
+  function toggleHarnessLayout(): boolean {
     harnessCollapsed = !harnessCollapsed;
     applyChatLayout();
     return harnessCollapsed;
@@ -595,7 +597,7 @@ function createController(ctx: ControllerContext): void {
    * @param {HTMLElement} tablist - the strip that holds the real tabs.
    * @returns {void}
    */
-  function matchTabMetrics(button, tablist) {
+  function matchTabMetrics(button: HTMLElement, tablist: HTMLElement | null): void {
     if (tablist === null || tablist === undefined) return;
     const tab = tablist.querySelector('button[role="tab"]');
     if (tab === null) return;
@@ -623,7 +625,7 @@ function createController(ctx: ControllerContext): void {
    * @param {HTMLElement} tablist - the conversation tab strip.
    * @returns {void}
    */
-  function ensureChatToggle(tablist) {
+  function ensureChatToggle(tablist: HTMLElement): void {
     const row = tablist.parentElement ?? tablist;
     if (chatToggle !== null && chatToggle.isConnected && chatToggle.parentElement === row) {
       applyChatLayout();
@@ -670,7 +672,7 @@ function createController(ctx: ControllerContext): void {
    * @param {HTMLElement} container - the conversation body.
    * @returns {void}
    */
-  function placeChatHandle(container) {
+  function placeChatHandle(container: HTMLElement): void {
     if (chatHandle === null) return;
     const rect = container.getBoundingClientRect();
     const left = rect.width * (1 - chatLayoutWidth(harnessCollapsed, chatWidth) / 100);
@@ -684,7 +686,7 @@ function createController(ctx: ControllerContext): void {
    * @param {HTMLElement} container - the conversation body.
    * @returns {void}
    */
-  function ensureChatHandle(container) {
+  function ensureChatHandle(container: HTMLElement): void {
     if (chatHandle !== null && chatHandle.isConnected && chatHandle.parentElement === container) {
       placeChatHandle(container);
       return;
@@ -709,7 +711,7 @@ function createController(ctx: ControllerContext): void {
         badge.style.left = `${Math.max(0, rect.width * (1 - chatWidth / 100) - 22)}px`;
       };
       moveBadge();
-      const onMove = (moveEvent) => {
+      const onMove = (moveEvent: MouseEvent): void => {
         /* Dragging left widens the chat: the delta is measured from the right edge. */
         const delta = ((startX - moveEvent.clientX) / Math.max(1, rect.width)) * 100;
         applyChatWidth(startWidth + delta);
@@ -718,7 +720,7 @@ function createController(ctx: ControllerContext): void {
         /* Read the CLAMPED width back: `applyChatWidth` caps at 15%–45%. */
         badge.textContent = `${Math.round(chatWidth)}%`;
       };
-      const onUp = () => {
+      const onUp = (): void => {
         chatHandle?.removeAttribute('data-dragging');
         writeChatWidth(chatWidth);
         badge.remove();
@@ -742,7 +744,7 @@ function createController(ctx: ControllerContext): void {
    * @param {HTMLElement} container - the conversation body.
    * @returns {void}
    */
-  function ensureChatWheel(container) {
+  function ensureChatWheel(container: HTMLElement): void {
     /* Mark the CURRENT container so the handler can find it, but register the
            window listener only once (it is re-created with the controller). */
     container.setAttribute('data-dsh-chat-wheel', '');
@@ -799,7 +801,7 @@ function createController(ctx: ControllerContext): void {
    * @param {HTMLElement} container - the conversation body.
    * @returns {void}
    */
-  function pinChatToBottom(container) {
+  function pinChatToBottom(container: HTMLElement): void {
     const area = container.querySelector('.kiGsTW_viewArea');
     if (area === null) return;
     const max = area.scrollHeight - area.clientHeight;
@@ -822,7 +824,7 @@ function createController(ctx: ControllerContext): void {
    * @param {HTMLElement} container - the conversation body.
    * @returns {void}
    */
-  function ensureChatJump(container) {
+  function ensureChatJump(container: HTMLElement): void {
     const area = container.querySelector('.kiGsTW_viewArea');
     if (area === null) return;
     if (container.__dshEditorJump === true) {
@@ -884,9 +886,9 @@ function createController(ctx: ControllerContext): void {
    * @param {HTMLElement} container - the conversation body.
    * @returns {void}
    */
-  function updateChatJump(container) {
-    const badge = container.querySelector('[data-dsh-chat-jump]');
-    const area = container.querySelector('.kiGsTW_viewArea');
+  function updateChatJump(container: HTMLElement): void {
+    const badge = container.querySelector<HTMLElement>('[data-dsh-chat-jump]');
+    const area = container.querySelector<HTMLElement>('.kiGsTW_viewArea');
     if (badge === null || area === null) return;
     const max = area.scrollHeight - area.clientHeight;
     /* `hasNew` is the scroll position itself here: any scrolled-away state means
@@ -901,7 +903,7 @@ function createController(ctx: ControllerContext): void {
     if (badge.textContent !== label) badge.textContent = label;
   }
 
-  function ensureHost(body) {
+  function ensureHost(body: HTMLElement | null): HTMLDivElement | null {
     const hostParent = findHostParent();
     /* The host parent is React-owned and may be replaced while the session,
            view or conversation layout updates. Move the SAME host node back under
@@ -950,7 +952,7 @@ function createController(ctx: ControllerContext): void {
    * the rows that were already there; the watcher keeps them current meanwhile.
    * @returns {void}
    */
-  function idleHost() {
+  function idleHost(): void {
     if (host !== null) host.setAttribute('data-dsh-editor-host-idle', '');
   }
 
@@ -964,7 +966,7 @@ function createController(ctx: ControllerContext): void {
    * @param {HTMLElement} body - the conversation body.
    * @returns {void}
    */
-  function detachChatChrome(body) {
+  function detachChatChrome(body: HTMLElement): void {
     chatHandle?.remove();
     chatHandle = null;
     body.removeAttribute('data-dsh-chat-wheel');
@@ -976,7 +978,7 @@ function createController(ctx: ControllerContext): void {
     body.__dshEditorJumpCount = 0;
   }
 
-  function destroyHost() {
+  function destroyHost(): void {
     chatHandle?.remove();
     chatHandle = null;
     hostPositionObserver?.disconnect();
@@ -996,7 +998,7 @@ function createController(ctx: ControllerContext): void {
     }
   }
 
-  function setActive(next) {
+  function setActive(next: boolean): void {
     if (next) {
       /* The right column must always be the original Chat view, not Trajectory or another View. */
       const tablist = findTablist();
@@ -1059,7 +1061,7 @@ function createController(ctx: ControllerContext): void {
    * pass from scheduling itself.
    * @returns {void}
    */
-  function sync() {
+  function sync(): void {
     if (syncing) return;
     syncing = true;
     try {
@@ -1069,7 +1071,7 @@ function createController(ctx: ControllerContext): void {
     }
   }
 
-  function syncInner() {
+  function syncInner(): void {
     const tablist = findTablist();
     if (tablist !== null) {
       ensureChatToggle(tablist);
@@ -1100,8 +1102,8 @@ function createController(ctx: ControllerContext): void {
    * @param {HTMLElement} menu - the open `[role=menu]` element.
    * @returns {void}
    */
-  function ensureWorkspaceEditorItem(menu) {
-    const items = [...menu.querySelectorAll('button[role="menuitem"]')];
+  function ensureWorkspaceEditorItem(menu: HTMLElement): void {
+    const items = [...menu.querySelectorAll<HTMLButtonElement>('button[role="menuitem"]')];
     if (items.length === 0) return;
     /* `textContent` of the whole item, not a `span:last-child` selector: the icon
            wrapper contains a nested span that also qualifies, and it is empty — the
@@ -1138,11 +1140,13 @@ function createController(ctx: ControllerContext): void {
     const workspaceId = lastWorkspaceId;
     /* Clone the first item so the injected row carries the host's own styling
            (surface colour, hover state, icon gutter) instead of looking foreign. */
-    const clone = first.cloneNode(true);
+    const clone = first.cloneNode(true) as HTMLButtonElement;
     clone.setAttribute('data-dsh-editor-menu-item', '');
     clone.removeAttribute('data-dsh-automatic-focus');
     /* Replace the deepest text-bearing span (the label), leaving the icon alone. */
-    const label = [...clone.querySelectorAll('span')].reverse().find((node) => node.children.length === 0);
+    const label = [...clone.querySelectorAll<HTMLSpanElement>('span')]
+      .reverse()
+      .find((node) => node.children.length === 0);
     if (label !== undefined) label.textContent = VIEW_LABEL;
     const icon = clone.querySelector('svg');
     if (icon !== null) {
@@ -1182,7 +1186,7 @@ function createController(ctx: ControllerContext): void {
         'keydown',
         (event) => {
           if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp' && event.key !== 'Enter') return;
-          const rows = [...menu.querySelectorAll('button[role="menuitem"]')];
+          const rows = [...menu.querySelectorAll<HTMLButtonElement>('button[role="menuitem"]')];
           if (rows.length === 0) return;
           const selfIndex = rows.findIndex((row) => row.hasAttribute('data-dsh-editor-menu-item'));
           if (selfIndex < 0) return;
@@ -1247,7 +1251,7 @@ function createController(ctx: ControllerContext): void {
    * Apply the workspace-menu enhancement to any menu the host just opened.
    * @returns {void}
    */
-  function enhanceMenus() {
+  function enhanceMenus(): void {
     for (const menu of document.querySelectorAll('[role="menu"]')) {
       if (menu instanceof HTMLElement) ensureWorkspaceEditorItem(menu);
     }
@@ -1258,7 +1262,7 @@ function createController(ctx: ControllerContext): void {
          enough: keep rescanning for a short while after any mutation while a menu
          is on screen. Bounded, so an idle page costs nothing. */
   let menuRescan = 0;
-  function scheduleMenuRescan() {
+  function scheduleMenuRescan(): void {
     if (menuRescan !== 0) return;
     let frames = 0;
     const tick = () => {
@@ -1285,7 +1289,7 @@ function createController(ctx: ControllerContext): void {
       if (document.querySelector('[role="menu"]') !== null) scheduleMenuRescan();
     }, wait);
   });
-  const onWindowError = (event) => {
+  const onWindowError = (event: ErrorEvent): void => {
     if (event.message === 'ResizeObserver loop completed with undelivered notifications.') return;
     if (!active && host === null) return;
     reportEditorDiagnostic(
@@ -1303,7 +1307,7 @@ function createController(ctx: ControllerContext): void {
       'error',
     );
   };
-  const onUnhandledRejection = (event) => {
+  const onUnhandledRejection = (event: PromiseRejectionEvent): void => {
     if (!active && host === null) return;
     const reason = String(event.reason);
     const stack = event.reason?.stack ?? '';

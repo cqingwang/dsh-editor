@@ -30,6 +30,12 @@ declare global {
 
   interface HTMLElement {
     __dshTerminalVisibilityObserver?: ResizeObserver;
+    __dshEditorBusy?: boolean;
+    __dshEditorJump?: boolean;
+    __dshEditorJumpCount?: number;
+    __dshEditorJumpObserver?: MutationObserver;
+    __dshEditorKeys?: boolean;
+    __dshEditorWatch?: boolean;
   }
 }
 

@@ -717,7 +717,7 @@ export function formatCommitDate(value: unknown): string {
   const candidate = typeof value === 'string' || typeof value === 'number' ? value : '';
   const date = new Date(candidate);
   if (Number.isNaN(date.getTime())) return String(value ?? '');
-  const pad = (number) => String(number).padStart(2, '0');
+  const pad = (number: number): string => String(number).padStart(2, '0');
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
@@ -813,7 +813,7 @@ function loadLinkParser(): Promise<TerminalLinkParser | null> {
   if (linkParserPromise === null) {
     linkParserPromise = importRuntimeModule('/api/dsh-editor/shared/link-parser.mjs')
       .then((module) => module as TerminalLinkParser)
-      .catch(() => null);
+      .catch((): null => null);
   }
   return linkParserPromise;
 }
@@ -828,9 +828,15 @@ function loadLinkParser(): Promise<TerminalLinkParser | null> {
  * @returns {{provideLinks: Function, dispose: Function}} provider handle.
  */
 export function createTerminalLinkProvider(emulator: TerminalEmulator, getCwd: () => string): TerminalLinkProvider {
+  interface TerminalExistenceVerdict {
+    requested: string;
+    exists?: boolean;
+    kind?: string;
+    path?: string;
+  }
   /* Existence cache: terminal lines are re-scanned while scrolling. */
-  const cache = new Map();
-  const pending = new Set();
+  const cache = new Map<string, TerminalExistenceVerdict>();
+  const pending = new Set<string>();
   let disposed = false;
 
   /**
@@ -838,12 +844,12 @@ export function createTerminalLinkProvider(emulator: TerminalEmulator, getCwd: (
    * @param {string[]} candidates - workspace-relative or absolute paths.
    * @returns {Promise<Map<string, object>>} verdicts keyed by candidate.
    */
-  const resolveExistence = async (candidates) => {
+  const resolveExistence = async (candidates: string[]): Promise<Map<string, TerminalExistenceVerdict>> => {
     const unknown = candidates.filter((candidate) => !cache.has(candidate) && !pending.has(candidate));
     if (unknown.length > 0) {
       for (const candidate of unknown) pending.add(candidate);
       try {
-        const value = await callFs<Array<{ requested: string; exists?: boolean; kind?: string; path?: string }>>({
+        const value = await callFs<TerminalExistenceVerdict[]>({
           op: 'exists',
           paths: unknown,
         });
@@ -854,7 +860,7 @@ export function createTerminalLinkProvider(emulator: TerminalEmulator, getCwd: (
         for (const candidate of unknown) pending.delete(candidate);
       }
     }
-    const verdicts = new Map();
+    const verdicts = new Map<string, TerminalExistenceVerdict>();
     for (const candidate of candidates) {
       const entry = cache.get(candidate);
       if (entry !== undefined) verdicts.set(candidate, entry);
@@ -1075,7 +1081,7 @@ export function terminalLastBlockSelection(
   cursorY = buffer?.cursorY,
 ): TerminalBlockRange | null {
   if (buffer === null || buffer === undefined || !Number.isInteger(cursorY)) return null;
-  const rowText = (row) => {
+  const rowText = (row: number): string | null => {
     const line = buffer.getLine?.(row);
     return typeof line?.translateToString === 'function' ? line.translateToString(true) : null;
   };
@@ -1105,7 +1111,7 @@ export function terminalLastBlockSelection(
  */
 function terminalBlockRangeAt(buffer: TerminalBuffer | null, row: number): TerminalBlockRange | null {
   if (buffer === null || buffer === undefined || !Number.isInteger(row) || row < 0) return null;
-  const textAt = (candidate) => {
+  const textAt = (candidate: number): string | null => {
     const line = buffer.getLine?.(candidate);
     return typeof line?.translateToString === 'function' ? line.translateToString(true) : null;
   };
@@ -1168,7 +1174,7 @@ export function terminalAdjacentBlockRange(
   if (!Number.isInteger(range.start) || !Number.isInteger(range.end) || !Number.isInteger(maxRow)) return null;
   const step = Number(direction) < 0 ? -1 : 1;
   let row = step < 0 ? range.start - 1 : range.end + 1;
-  const textAt = (candidate) => {
+  const textAt = (candidate: number): string | null => {
     const line = buffer.getLine?.(candidate);
     return typeof line?.translateToString === 'function' ? line.translateToString(true) : null;
   };
@@ -1260,14 +1266,15 @@ export function terminalMenuModel(input: TerminalMenuInput): { items: TerminalMe
   /* Some existing contract tests extract this function without its helper
          closure. Safe aliases keep production behavior while allowing those
          narrow fixtures to instantiate unrelated menu items. */
-  const promptStartRowOf = typeof terminalPromptStartRow === 'function' ? terminalPromptStartRow : () => null;
+  const promptStartRowOf = typeof terminalPromptStartRow === 'function' ? terminalPromptStartRow : (): null => null;
   const lastBlockSelectionOf =
-    typeof terminalLastBlockSelection === 'function' ? terminalLastBlockSelection : () => null;
+    typeof terminalLastBlockSelection === 'function' ? terminalLastBlockSelection : (): null => null;
   const selectionBlockRangeOf =
-    typeof terminalSelectionBlockRange === 'function' ? terminalSelectionBlockRange : () => null;
+    typeof terminalSelectionBlockRange === 'function' ? terminalSelectionBlockRange : (): null => null;
   const adjacentBlockRangeOf =
-    typeof terminalAdjacentBlockRange === 'function' ? terminalAdjacentBlockRange : () => null;
-  const expandBlockRangeOf = typeof terminalExpandBlockRange === 'function' ? terminalExpandBlockRange : () => null;
+    typeof terminalAdjacentBlockRange === 'function' ? terminalAdjacentBlockRange : (): null => null;
+  const expandBlockRangeOf =
+    typeof terminalExpandBlockRange === 'function' ? terminalExpandBlockRange : (): null => null;
   const selectionPosition =
     initialSelectionPosition ??
     (typeof emulator.getSelectionPosition === 'function' ? emulator.getSelectionPosition() : null);
@@ -1279,7 +1286,7 @@ export function terminalMenuModel(input: TerminalMenuInput): { items: TerminalMe
   const blockBelow = selectedBlock === null ? null : adjacentBlockRangeOf(buffer, selectedBlock, 1, maxBlockRow);
   const expandedAbove = selectedBlock === null ? null : expandBlockRangeOf(buffer, selectedBlock, -1, maxBlockRow);
   const expandedBelow = selectedBlock === null ? null : expandBlockRangeOf(buffer, selectedBlock, 1, maxBlockRow);
-  const selectBlockRange = (range) => {
+  const selectBlockRange = (range: TerminalBlockRange | null): void => {
     if (range === null || typeof emulator.selectLines !== 'function') return;
     emulator.selectLines(range.start, range.end);
     emulator.focus?.();
@@ -1580,7 +1587,7 @@ export function terminalTabMenu(
     {
       id: 'copyPath',
       label: t('editor.copyDirectoryPath'),
-      run: () => void navigator.clipboard?.writeText(actions.cwd ?? terminal.cwd).catch(() => {}),
+      run: (): void => void navigator.clipboard?.writeText(actions.cwd ?? terminal.cwd).catch((): void => {}),
     },
     /* IDEA's terminal menu opens the directory's README, so a shell `cd`-ed into
            another package does not force a trip back to the tree. Disabled (not

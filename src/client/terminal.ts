@@ -9,12 +9,20 @@ import { TYPEAHEAD_RESET_MS } from './diff';
 import { basename, currentTerminalScope, remapPathAfterMove } from './editor-core';
 import { fileExtensionFilterMatches, normalizeFileExtensionFilter } from './find-tool';
 
-interface TerminalDescription {
+export interface TerminalDescription {
   id: string;
   state?: string;
   title?: string;
+  shell?: string;
   cwd?: string;
+  exitCode?: number | null;
+  order?: number;
   [key: string]: unknown;
+}
+
+export interface TerminalShell {
+  path: string;
+  name: string;
 }
 
 interface EditorSelectionScope {
@@ -45,12 +53,55 @@ interface TextContextRules {
   nestedBlockComments?: boolean;
 }
 
+interface EditorSession {
+  openPaths: string[];
+  activePath: string | null;
+  splitPaths: string[];
+  splitPath: string | null;
+  splitPercent: number | null;
+}
+
 interface ProjectTreeRow {
   path: string;
   name?: string;
   kind?: string;
   depth?: number;
   [key: string]: unknown;
+}
+
+interface ProjectExpansionPruneRequest {
+  expanded?: Set<string> | null;
+  rootEntries?: ProjectTreeRow[] | null;
+  children?: Record<string, ProjectTreeRow[]> | null;
+  authoritative?: boolean;
+}
+
+interface ProjectManualOrderPruneRequest {
+  order?: Record<string, string[]> | null;
+  rootEntries?: ProjectTreeRow[] | null;
+  children?: Record<string, ProjectTreeRow[]> | null;
+  authoritative?: boolean;
+}
+
+interface FlattenProjectFrame {
+  list: ProjectTreeRow[];
+  depth: number;
+  ancestors: boolean[];
+  pathTrace: string[];
+  parentPath: string;
+  index: number;
+  ordered: ProjectTreeRow[];
+}
+
+interface ProjectSelectionTransition {
+  selectedPath: string | null;
+  previousPaths?: string[] | null;
+  rowPaths?: string[] | null;
+  expanded?: Set<string> | null;
+}
+
+interface ProjectSelectionSetTransition extends ProjectSelectionTransition {
+  selection?: Set<string> | null;
 }
 
 /**
@@ -210,7 +261,7 @@ export function normalizeTextSearchContextFilter(value: unknown): string {
   return typeof value === 'string' && TEXT_SEARCH_CONTEXT_FILTERS.has(value) ? value : 'anywhere';
 }
 
-const C_LIKE_TEXT_CONTEXT_RULES = {
+const C_LIKE_TEXT_CONTEXT_RULES: TextContextRules = {
   lineComments: ['//'],
   blockComments: [['/*', '*/']],
   strings: [
@@ -219,7 +270,7 @@ const C_LIKE_TEXT_CONTEXT_RULES = {
     { open: "'", close: "'", multiline: false },
   ],
 };
-const HASH_TEXT_CONTEXT_RULES = {
+const HASH_TEXT_CONTEXT_RULES: TextContextRules = {
   lineComments: ['#'],
   blockComments: [],
   strings: [
@@ -227,7 +278,7 @@ const HASH_TEXT_CONTEXT_RULES = {
     { open: "'", close: "'", multiline: false },
   ],
 };
-const PYTHON_TEXT_CONTEXT_RULES = {
+const PYTHON_TEXT_CONTEXT_RULES: TextContextRules = {
   lineComments: ['#'],
   blockComments: [],
   strings: [
@@ -237,7 +288,7 @@ const PYTHON_TEXT_CONTEXT_RULES = {
     { open: "'", close: "'", multiline: false },
   ],
 };
-const CSS_TEXT_CONTEXT_RULES = {
+const CSS_TEXT_CONTEXT_RULES: TextContextRules = {
   lineComments: [],
   blockComments: [['/*', '*/']],
   strings: [
@@ -245,7 +296,7 @@ const CSS_TEXT_CONTEXT_RULES = {
     { open: "'", close: "'", multiline: false },
   ],
 };
-const HTML_TEXT_CONTEXT_RULES = {
+const HTML_TEXT_CONTEXT_RULES: TextContextRules = {
   lineComments: [],
   blockComments: [['<!--', '-->']],
   strings: [
@@ -254,7 +305,7 @@ const HTML_TEXT_CONTEXT_RULES = {
     { open: '`', close: '`', multiline: true },
   ],
 };
-const SQL_TEXT_CONTEXT_RULES = {
+const SQL_TEXT_CONTEXT_RULES: TextContextRules = {
   lineComments: ['--'],
   blockComments: [['/*', '*/']],
   strings: [
@@ -262,16 +313,16 @@ const SQL_TEXT_CONTEXT_RULES = {
     { open: "'", close: "'", multiline: true, doubledClose: true },
   ],
 };
-const PHP_TEXT_CONTEXT_RULES = {
+const PHP_TEXT_CONTEXT_RULES: TextContextRules = {
   lineComments: ['//', '#'],
   blockComments: [['/*', '*/']],
   strings: C_LIKE_TEXT_CONTEXT_RULES.strings,
 };
-const RUST_TEXT_CONTEXT_RULES = {
+const RUST_TEXT_CONTEXT_RULES: TextContextRules = {
   ...C_LIKE_TEXT_CONTEXT_RULES,
   nestedBlockComments: true,
 };
-const MARKDOWN_TEXT_CONTEXT_RULES = {
+const MARKDOWN_TEXT_CONTEXT_RULES: TextContextRules = {
   lineComments: [],
   blockComments: [['<!--', '-->']],
   strings: [],
@@ -844,15 +895,15 @@ export function mergeFindToolDirtyMatches(
  * @param {{expanded: Set<string>|null, rootEntries: object[]|null, children: object|null}} request - current tree cache.
  * @returns {Set<string>} the same set when valid, or a pruned copy.
  */
-export function pruneProjectExpandedPaths(request) {
-  const expanded = request?.expanded instanceof Set ? request.expanded : new Set();
+export function pruneProjectExpandedPaths(request: ProjectExpansionPruneRequest): Set<string> {
+  const expanded: Set<string> = request?.expanded instanceof Set ? request.expanded : new Set<string>();
   if (expanded.size === 0 || request?.authoritative === false) return expanded;
-  const knownListings = new Map();
+  const knownListings = new Map<string, ProjectTreeRow[]>();
   knownListings.set('', Array.isArray(request?.rootEntries) ? request.rootEntries : []);
   for (const [path, entries] of Object.entries(request?.children ?? {})) {
     if (Array.isArray(entries)) knownListings.set(path, entries);
   }
-  const removed = new Set();
+  const removed = new Set<string>();
   const ordered = [...expanded]
     .filter((path) => typeof path === 'string')
     .sort((left, right) => left.split('/').length - right.split('/').length);
@@ -867,7 +918,7 @@ export function pruneProjectExpandedPaths(request) {
     if (Array.isArray(listing) && !listing.some((entry) => entry?.path === path)) removed.add(path);
   }
   if (removed.size === 0) return expanded;
-  return new Set([...expanded].filter((path) => !removed.has(path)));
+  return new Set<string>([...expanded].filter((path) => !removed.has(path)));
 }
 
 /**
@@ -879,17 +930,17 @@ export function pruneProjectExpandedPaths(request) {
  * @param {{order: object|null, rootEntries: object[]|null, children: object|null}} request - current order and tree cache.
  * @returns {object} the same order when valid, or a pruned copy.
  */
-export function pruneProjectManualOrder(request) {
-  const order =
+export function pruneProjectManualOrder(request: ProjectManualOrderPruneRequest): Record<string, string[]> {
+  const order: Record<string, string[]> =
     request?.order !== null && typeof request?.order === 'object' && !Array.isArray(request.order) ? request.order : {};
   if (Object.keys(order).length === 0 || request?.authoritative === false) return order;
-  const knownListings = new Map();
+  const knownListings = new Map<string, ProjectTreeRow[]>();
   knownListings.set('', Array.isArray(request?.rootEntries) ? request.rootEntries : []);
   for (const [path, entries] of Object.entries(request?.children ?? {})) {
     if (Array.isArray(entries)) knownListings.set(path, entries);
   }
-  const removedParents = new Set();
-  const removedAncestor = (path) => {
+  const removedParents = new Set<string>();
+  const removedAncestor = (path: string): boolean => {
     let parent = dirname(path);
     while (parent !== '' && parent !== '.') {
       if (removedParents.has(parent)) return true;
@@ -897,7 +948,7 @@ export function pruneProjectManualOrder(request) {
     }
     return false;
   };
-  const next = {};
+  const next: Record<string, string[]> = {};
   let changed = false;
   const parents = Object.keys(order).sort((left, right) => left.split('/').length - right.split('/').length);
   for (const parent of parents) {
@@ -916,7 +967,7 @@ export function pruneProjectManualOrder(request) {
       }
     }
     const listing = knownListings.get(parent);
-    const paths = [];
+    const paths: string[] = [];
     for (const path of order[parent]) {
       if (typeof path !== 'string' || path === '' || paths.includes(path)) {
         changed = true;
@@ -948,9 +999,9 @@ export function pruneProjectManualOrder(request) {
  * @param {Array<[string, string]>} entries - old/new path pairs.
  * @returns {Set<string>} the same set when no expanded path moved.
  */
-export function remapProjectExpandedPaths(expanded, entries) {
-  const source = expanded instanceof Set ? expanded : new Set();
-  const moves = (Array.isArray(entries) ? entries : []).filter(
+export function remapProjectExpandedPaths(expanded: Set<string> | null, entries: Array<[string, string]>): Set<string> {
+  const source: Set<string> = expanded instanceof Set ? expanded : new Set<string>();
+  const moves: Array<[string, string]> = (Array.isArray(entries) ? entries : []).filter(
     (entry) =>
       Array.isArray(entry) &&
       typeof entry[0] === 'string' &&
@@ -960,7 +1011,7 @@ export function remapProjectExpandedPaths(expanded, entries) {
   );
   if (moves.length === 0) return source;
   let changed = false;
-  const next = new Set();
+  const next = new Set<string>();
   for (const path of source) {
     const mapped = path === '' ? path : remapPathAfterMove(path, moves);
     if (mapped !== path) changed = true;
@@ -978,7 +1029,7 @@ export function remapProjectExpandedPaths(expanded, entries) {
  * @param {string} root - absolute workspace root.
  * @returns {string} browser-local storage key.
  */
-function expandedStorageKey(root) {
+function expandedStorageKey(root: string): string {
   return `dsh-editor.expanded.v2:${root}`;
 }
 
@@ -1003,7 +1054,7 @@ export function readExpanded(root: string): string[] {
  * @param {string} root - absolute workspace root.
  * @param {Set<string>} expanded - workspace-relative directory paths.
  */
-export function writeExpanded(root, expanded) {
+export function writeExpanded(root: string, expanded: Set<string>): void {
   if (root === '') return;
   try {
     window.localStorage.setItem(
@@ -1041,7 +1092,7 @@ export function readCollapsedGroups(root: string): Set<string> {
  * @param {Set<string>} collapsed - collapse keys currently folded.
  * @returns {void}
  */
-export function writeCollapsedGroups(root, collapsed) {
+export function writeCollapsedGroups(root: string, collapsed: Set<string>): void {
   if (root === '') return;
   try {
     window.localStorage.setItem(`dsh-editor.collapsedGroups:${root}`, JSON.stringify([...collapsed]));
@@ -1051,7 +1102,7 @@ export function writeCollapsedGroups(root, collapsed) {
 }
 
 /** Read a persisted number with a safe fallback. */
-export function readStoredNumber(key, fallback) {
+export function readStoredNumber(key: string, fallback: number): number {
   try {
     const raw = window.localStorage.getItem(key);
     const value = raw === null ? NaN : Number(raw);
@@ -1062,7 +1113,7 @@ export function readStoredNumber(key, fallback) {
 }
 
 /** Persist one numeric preference; a storage-less browser keeps the memory value. */
-export function writeStoredNumber(key, value) {
+export function writeStoredNumber(key: string, value: number): void {
   try {
     window.localStorage.setItem(key, String(Math.round(value)));
   } catch {
@@ -1071,13 +1122,13 @@ export function writeStoredNumber(key, value) {
 }
 
 /** Keep the terminal dock within a readable range. */
-export const clampTerminalHeight = (value) => {
+export const clampTerminalHeight = (value: unknown): number => {
   const next = Number(value);
   return Number.isFinite(next) ? Math.max(96, Math.min(640, next)) : 220;
 };
 
 /** 将 IDEA 持久 Find 工具窗高度限制在可读范围内。 */
-export function clampFindDockHeight(value) {
+export function clampFindDockHeight(value: unknown): number {
   const next = Number(value);
   return Number.isFinite(next) ? Math.max(180, Math.min(720, next)) : 280;
 }
@@ -1094,7 +1145,7 @@ const TOOL_PANEL_MIN_PX = 200;
  * @param {number} value - remembered percentage.
  * @returns {string} a CSS flex declaration.
  */
-export function toolPanelFlex(activity, value) {
+export function toolPanelFlex(activity: 'project' | 'commit', value: number): string {
   const percent = Number.isFinite(value) ? Math.max(14, Math.min(72, value)) : activity === 'project' ? 28 : 25;
   const max = activity === 'project' ? 420 : 480;
   return `0 0 clamp(${TOOL_PANEL_MIN_PX}px, ${percent}%, ${max}px)`;
@@ -1105,7 +1156,7 @@ export function toolPanelFlex(activity, value) {
  * @param {number|string} value - requested left-pane percentage.
  * @returns {number} percentage in the IDEA editor-split safe range.
  */
-export function clampEditorSplitPercent(value, width = null) {
+export function clampEditorSplitPercent(value: number | string, width: number | string | null = null): number {
   const next = Number(value);
   if (!Number.isFinite(next)) return 50;
   const rowWidth = Number(width);
@@ -1126,15 +1177,17 @@ export function clampEditorSplitPercent(value, width = null) {
  * @param {object|null} value - parsed session.
  * @returns {{openPaths: string[], activePath: string|null, splitPaths: string[], splitPath: string|null, splitPercent: number|null}} safe session.
  */
-function normalizeEditorSession(value) {
-  const safePath = (path) => {
+function normalizeEditorSession(value: unknown): EditorSession {
+  const record =
+    value !== null && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+  const safePath = (path: unknown): path is string => {
     if (typeof path !== 'string' || path === '' || path.startsWith('/')) return false;
     const parts = path.split('/');
     return parts.every((part) => part !== '' && part !== '.' && part !== '..');
   };
-  const uniquePaths = (raw, limit) => {
-    const seen = new Set();
-    const paths = [];
+  const uniquePaths = (raw: unknown, limit: number): string[] => {
+    const seen = new Set<string>();
+    const paths: string[] = [];
     for (const path of Array.isArray(raw) ? raw : []) {
       if (!safePath(path) || seen.has(path)) continue;
       seen.add(path);
@@ -1143,15 +1196,17 @@ function normalizeEditorSession(value) {
     }
     return paths;
   };
-  const openPaths = uniquePaths(value?.openPaths, 50);
+  const openPaths = uniquePaths(record.openPaths, 50);
   const openSet = new Set(openPaths);
-  const splitPaths = uniquePaths(value?.splitPaths, 50).filter((path) => openSet.has(path));
+  const splitPaths = uniquePaths(record.splitPaths, 50).filter((path) => openSet.has(path));
   const activePath =
-    typeof value?.activePath === 'string' && openSet.has(value.activePath) ? value.activePath : (openPaths[0] ?? null);
+    typeof record.activePath === 'string' && openSet.has(record.activePath)
+      ? record.activePath
+      : (openPaths[0] ?? null);
   const splitSet = new Set(splitPaths);
   const splitPath =
-    typeof value?.splitPath === 'string' && splitSet.has(value.splitPath) ? value.splitPath : (splitPaths[0] ?? null);
-  const percent = Number(value?.splitPercent);
+    typeof record.splitPath === 'string' && splitSet.has(record.splitPath) ? record.splitPath : (splitPaths[0] ?? null);
+  const percent = Number(record.splitPercent);
   return {
     openPaths,
     activePath,
@@ -1166,7 +1221,7 @@ function normalizeEditorSession(value) {
  * @param {string} root - absolute workspace root.
  * @returns {ReturnType<typeof normalizeEditorSession>} safe session, empty when absent.
  */
-export function readEditorSession(root) {
+export function readEditorSession(root: string): EditorSession {
   if (typeof root !== 'string' || root === '') return normalizeEditorSession(null);
   try {
     const raw = window.localStorage.getItem(`dsh-editor.editor.session:${root}`);
@@ -1182,7 +1237,7 @@ export function readEditorSession(root) {
  * @param {object} value - open/split state.
  * @returns {void}
  */
-export function writeEditorSession(root, value) {
+export function writeEditorSession(root: string, value: unknown): void {
   if (typeof root !== 'string' || root === '') return;
   try {
     window.localStorage.setItem(`dsh-editor.editor.session:${root}`, JSON.stringify(normalizeEditorSession(value)));
@@ -1197,7 +1252,7 @@ export function writeEditorSession(root, value) {
  * @param {string} fallback - value used when nothing usable is stored.
  * @returns {string} stored value or the fallback.
  */
-export function readStoredText(key, fallback) {
+export function readStoredText(key: string, fallback: string): string {
   try {
     const raw = window.localStorage.getItem(key);
     return raw === null || raw === '' ? fallback : raw;
@@ -1218,7 +1273,7 @@ export function readStoredText(key, fallback) {
  * @param {number} fallback - default percentage.
  * @returns {number} clamped width percentage.
  */
-export function readToolWidth(root, activity, fallback) {
+export function readToolWidth(root: string, activity: 'project' | 'commit', fallback: number): number {
   if (typeof root !== 'string' || root === '') return fallback;
   try {
     const raw = window.localStorage.getItem(`dsh-editor.toolWidth.${activity}:${root}`);
@@ -1236,7 +1291,7 @@ export function readToolWidth(root, activity, fallback) {
  * @param {number} value - width percentage.
  * @returns {void}
  */
-export function writeToolWidth(root, activity, value) {
+export function writeToolWidth(root: string, activity: 'project' | 'commit', value: number): void {
   if (typeof root !== 'string' || root === '' || !Number.isFinite(value)) return;
   try {
     window.localStorage.setItem(
@@ -1258,7 +1313,7 @@ export function writeToolWidth(root, activity, value) {
  * @param {string} root - absolute workspace root.
  * @returns {string[]} workspace-relative paths, newest first.
  */
-export function readRecentFiles(root) {
+export function readRecentFiles(root: string): string[] {
   if (root === '') return [];
   try {
     const raw = window.localStorage.getItem(`dsh-editor.recent:${root}`);
@@ -1277,7 +1332,7 @@ export function readRecentFiles(root) {
  * @param {string[]} list - workspace-relative paths, newest first.
  * @returns {void}
  */
-export function writeRecentFiles(root, list) {
+export function writeRecentFiles(root: string, list: string[]): void {
   if (root === '') return;
   try {
     window.localStorage.setItem(`dsh-editor.recent:${root}`, JSON.stringify(list.slice(0, 30)));
@@ -1297,7 +1352,7 @@ export function writeRecentFiles(root, list) {
  * @param {number} limit - maximum entries retained.
  * @returns {string[]} the new list, or the same array when nothing changed.
  */
-export function pushRecent(list, path, limit = 30) {
+export function pushRecent(list: string[], path: string, limit = 30): string[] {
   if (typeof path !== 'string' || path === '') return Array.isArray(list) ? list : [];
   const current = Array.isArray(list) ? list : [];
   if (current[0] === path) return current;
@@ -1312,7 +1367,7 @@ export function pushRecent(list, path, limit = 30) {
  * not how to rebuild a shell. Stored per Session, like the tab profile.
  * @returns {string[]} terminal ids currently moved into the editor.
  */
-export function readEditorTerminals() {
+export function readEditorTerminals(): string[] {
   try {
     const raw = window.localStorage.getItem(`dsh-editor.terminal.editor:${currentTerminalScope()}`);
     const parsed = raw === null ? null : JSON.parse(raw);
@@ -1327,7 +1382,7 @@ export function readEditorTerminals() {
  * @param {string[]} ids - terminal ids.
  * @returns {void}
  */
-export function writeEditorTerminals(ids) {
+export function writeEditorTerminals(ids: string[]): void {
   try {
     window.localStorage.setItem(
       `dsh-editor.terminal.editor:${currentTerminalScope()}`,
@@ -1339,7 +1394,7 @@ export function writeEditorTerminals(ids) {
 }
 
 /** IDEA terminal font-size actions, clamped to a usable range. */
-export function terminalFontSize(current, action) {
+export function terminalFontSize(current: number, action: string): number {
   const value = Number.isFinite(Number(current)) ? Math.round(Number(current)) : 12;
   if (action === 'increase') return Math.min(24, Math.max(8, value) + 1);
   if (action === 'decrease') return Math.max(8, Math.max(8, value) - 1);
@@ -1347,7 +1402,7 @@ export function terminalFontSize(current, action) {
 }
 
 /** Persist one explicit terminal font size. */
-export function storeFontSize(next) {
+export function storeFontSize(next: number): number {
   try {
     window.localStorage.setItem('dsh-editor.terminal.fontSize', String(next));
   } catch {
@@ -1357,7 +1412,87 @@ export function storeFontSize(next) {
 }
 
 /** Call the host terminal API. */
-export async function callTerminal(payload) {
+interface TerminalOperationRequest {
+  op: string;
+  [key: string]: unknown;
+}
+
+interface TerminalListRequest extends TerminalOperationRequest {
+  op: 'list';
+}
+
+interface TerminalShellsRequest extends TerminalOperationRequest {
+  op: 'shells';
+}
+
+interface TerminalCreateRequest extends TerminalOperationRequest {
+  op: 'create';
+}
+
+interface TerminalWriteRequest extends TerminalOperationRequest {
+  op: 'write';
+}
+
+interface TerminalResizeRequest extends TerminalOperationRequest {
+  op: 'resize';
+}
+
+interface TerminalRenameRequest extends TerminalOperationRequest {
+  op: 'rename';
+}
+
+interface TerminalReorderRequest extends TerminalOperationRequest {
+  op: 'reorder';
+}
+
+interface TerminalCloseRequest extends TerminalOperationRequest {
+  op: 'close';
+}
+
+export interface TerminalListResponse {
+  available?: boolean;
+  terminals: TerminalDescription[];
+}
+
+export interface TerminalShellsResponse {
+  shells: TerminalShell[];
+}
+
+export interface TerminalCreateResponse {
+  available?: boolean;
+  terminal: TerminalDescription;
+}
+
+export interface TerminalWriteResponse {
+  written: true;
+}
+
+export interface TerminalResizeResponse {
+  resized: true;
+}
+
+export interface TerminalRenameResponse {
+  terminal: TerminalDescription;
+}
+
+export interface TerminalReorderResponse {
+  terminals: TerminalDescription[];
+}
+
+export interface TerminalCloseResponse {
+  id: string;
+  closed: true;
+}
+
+export function callTerminal(payload: TerminalListRequest): Promise<TerminalListResponse>;
+export function callTerminal(payload: TerminalShellsRequest): Promise<TerminalShellsResponse>;
+export function callTerminal(payload: TerminalCreateRequest): Promise<TerminalCreateResponse>;
+export function callTerminal(payload: TerminalWriteRequest): Promise<TerminalWriteResponse>;
+export function callTerminal(payload: TerminalResizeRequest): Promise<TerminalResizeResponse>;
+export function callTerminal(payload: TerminalRenameRequest): Promise<TerminalRenameResponse>;
+export function callTerminal(payload: TerminalReorderRequest): Promise<TerminalReorderResponse>;
+export function callTerminal(payload: TerminalCloseRequest): Promise<TerminalCloseResponse>;
+export async function callTerminal(payload: TerminalOperationRequest): Promise<unknown> {
   const sessionId = currentSessionId();
   const workspaceId = currentEditorWorkspaceId();
   if (sessionId === '' && workspaceId === '') throw new Error('no active Session or workspace');
@@ -1381,7 +1516,7 @@ export async function callTerminal(payload) {
  * @param {string} root - workspace root used as the storage key.
  * @returns {string} stored draft, or '' when none.
  */
-export function readCommitDraft(root) {
+export function readCommitDraft(root: string): string {
   if (typeof root !== 'string' || root === '') return '';
   try {
     return window.localStorage.getItem(`dsh-editor.commitDraft:${root}`) ?? '';
@@ -1396,7 +1531,7 @@ export function readCommitDraft(root) {
  * @param {string} text - current message text.
  * @returns {void}
  */
-export function writeCommitDraft(root, text) {
+export function writeCommitDraft(root: string, text: string): void {
   if (typeof root !== 'string' || root === '') return;
   try {
     if (typeof text === 'string' && text !== '') window.localStorage.setItem(`dsh-editor.commitDraft:${root}`, text);
@@ -1417,12 +1552,13 @@ export function writeCommitDraft(root, text) {
  * @param {object[]} entries - directory listing.
  * @returns {string} length-differentiated fingerprint.
  */
-function directorySignature(entries) {
+function directorySignature(entries: unknown[]): string {
   const list = Array.isArray(entries) ? entries : [];
   return list
-    .map(
-      (entry) => `${entry?.path ?? ''}\u0001${entry?.kind ?? ''}\u0001${entry?.mtime ?? ''}\u0001${entry?.size ?? ''}`,
-    )
+    .map((entry) => {
+      const record = entry !== null && typeof entry === 'object' ? (entry as Record<string, unknown>) : {};
+      return `${record.path ?? ''}\u0001${record.kind ?? ''}\u0001${record.mtime ?? ''}\u0001${record.size ?? ''}`;
+    })
     .join('\u0002');
 }
 
@@ -1437,7 +1573,7 @@ function directorySignature(entries) {
  * @param {object[]} next - freshly read listing.
  * @returns {object[]} previous when nothing changed, else `next`.
  */
-export function keepUnchangedListing(previous, next) {
+export function keepUnchangedListing<T>(previous: T[] | undefined, next: T[]): T[] {
   if (Array.isArray(previous) && directorySignature(previous) === directorySignature(next)) return previous;
   return next;
 }
@@ -1451,7 +1587,7 @@ export function keepUnchangedListing(previous, next) {
  * @param {object[]} entries - root listing.
  * @returns {string[]} file paths.
  */
-export function collectFilePaths(entries) {
+export function collectFilePaths(entries: unknown): string[] {
   return (Array.isArray(entries) ? entries : [])
     .filter((entry) => entry?.kind === 'file' && typeof entry.path === 'string')
     .map((entry) => entry.path);
@@ -1475,12 +1611,12 @@ export const TERMINAL_COLORS = ['#cf222e', '#bf8700', '#1a7f37', '#2f65ca', '#82
  * the host: the host's terminal list stays a pure process description.
  * @returns {Record<string, string>} terminal id → CSS colour.
  */
-export function readTerminalColors() {
+export function readTerminalColors(): Record<string, string> {
   try {
     const raw = window.localStorage.getItem(`dsh-editor.terminal.colors:${currentTerminalScope()}`);
     const parsed = raw === null ? null : JSON.parse(raw);
     if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
-    const colours = {};
+    const colours: Record<string, string> = {};
     for (const [id, colour] of Object.entries(parsed)) {
       if (typeof id === 'string' && typeof colour === 'string' && TERMINAL_COLORS.includes(colour))
         colours[id] = colour;
@@ -1496,7 +1632,7 @@ export function readTerminalColors() {
  * @param {Record<string, string>} colours - terminal id → CSS colour.
  * @returns {void}
  */
-export function writeTerminalColors(colours) {
+export function writeTerminalColors(colours: Record<string, string>): void {
   try {
     window.localStorage.setItem(`dsh-editor.terminal.colors:${currentTerminalScope()}`, JSON.stringify(colours));
   } catch {
@@ -1558,23 +1694,23 @@ const TERMINAL_RESTORE_TAB_LIMIT = 4;
 /** Maximum retained output per restored tab; sessionStorage-only and bounded. */
 const TERMINAL_RESTORE_BUFFER_CHARS = 64 * 1024;
 /** Current raw output per live terminal id. */
-const terminalLiveBuffers = new Map();
+const terminalLiveBuffers = new Map<string, string>();
 /** One-shot scrollback seeded for terminals recreated after a host restart. */
-const terminalPendingRestoreBuffers = new Map();
+const terminalPendingRestoreBuffers = new Map<string, string>();
 
 /** Stable sessionStorage key for this Editor terminal scope. */
-function terminalRestoreStorageKey() {
+function terminalRestoreStorageKey(): string {
   return `dsh-editor.terminal.scrollback:${currentTerminalScope()}`;
 }
 
 /** Keep only the newest bounded tail of terminal output. */
-function boundTerminalRestoreBuffer(value) {
+function boundTerminalRestoreBuffer(value: unknown): string {
   const text = typeof value === 'string' ? value : '';
   return text.length > TERMINAL_RESTORE_BUFFER_CHARS ? text.slice(text.length - TERMINAL_RESTORE_BUFFER_CHARS) : text;
 }
 
 /** Read bounded scrollback snapshots for the current browser tab. */
-export function readTerminalRestoreSnapshots() {
+export function readTerminalRestoreSnapshots(): string[] {
   try {
     const raw = window.sessionStorage.getItem(terminalRestoreStorageKey());
     const parsed = raw === null ? null : JSON.parse(raw);
@@ -1586,7 +1722,7 @@ export function readTerminalRestoreSnapshots() {
 }
 
 /** Persist bounded scrollback snapshots for the current browser tab. */
-export function writeTerminalRestoreSnapshots(snapshots) {
+export function writeTerminalRestoreSnapshots(snapshots: unknown): void {
   try {
     window.sessionStorage.setItem(
       terminalRestoreStorageKey(),
@@ -1602,7 +1738,7 @@ export function writeTerminalRestoreSnapshots(snapshots) {
 }
 
 /** Seed one recreated terminal with its previous scrollback tail. */
-export function seedTerminalRestoreBuffer(id, snapshot) {
+export function seedTerminalRestoreBuffer(id: unknown, snapshot: unknown): void {
   if (typeof id !== 'string' || id === '') return;
   const text = boundTerminalRestoreBuffer(snapshot);
   if (text === '') return;
@@ -1611,21 +1747,21 @@ export function seedTerminalRestoreBuffer(id, snapshot) {
 }
 
 /** Consume the one-shot scrollback seed for a terminal stream. */
-export function takeTerminalRestoreBuffer(id) {
+export function takeTerminalRestoreBuffer(id: string): string {
   const text = terminalPendingRestoreBuffers.get(id) ?? '';
   terminalPendingRestoreBuffers.delete(id);
   return text;
 }
 
 /** Replace the live buffer with an authoritative host snapshot. */
-export function resetTerminalLiveBuffer(id, data, restored = '') {
+export function resetTerminalLiveBuffer(id: string, data: unknown, restored = ''): string {
   const next = boundTerminalRestoreBuffer(`${restored}${typeof data === 'string' ? data : ''}`);
   terminalLiveBuffers.set(id, next);
   return next;
 }
 
 /** Append incremental output to the live buffer. */
-export function appendTerminalLiveBuffer(id, data) {
+export function appendTerminalLiveBuffer(id: string, data: unknown): string {
   const next = boundTerminalRestoreBuffer(
     `${terminalLiveBuffers.get(id) ?? ''}${typeof data === 'string' ? data : ''}`,
   );
@@ -1634,19 +1770,19 @@ export function appendTerminalLiveBuffer(id, data) {
 }
 
 /** Explicitly clear one terminal's visible and session-restorable history. */
-export function clearTerminalLiveBuffer(id) {
+export function clearTerminalLiveBuffer(id: string): void {
   terminalPendingRestoreBuffers.delete(id);
   terminalLiveBuffers.set(id, '');
 }
 
 /** Drop all retained state for a closed terminal. */
-export function forgetTerminalLiveBuffer(id) {
+export function forgetTerminalLiveBuffer(id: string): void {
   terminalPendingRestoreBuffers.delete(id);
   terminalLiveBuffers.delete(id);
 }
 
 /** Write current terminal order and bounded buffers into sessionStorage. */
-export function persistTerminalRestoreSnapshots(list) {
+export function persistTerminalRestoreSnapshots(list: unknown): void {
   const terminals = Array.isArray(list) ? list : [];
   /* Initial mount has no list yet; keep the previous browser-tab snapshots
          until restoreTerminals has recreated the tabs. */
@@ -1670,8 +1806,11 @@ export function persistTerminalRestoreSnapshots(list) {
  * @param {Record<string, object[]>} children - loaded directory listings by path.
  * @returns {object} row-shaped descriptor with the compacted path and listing.
  */
-function compactDirectoryChain(entry, children) {
-  const names = [entry.name];
+function compactDirectoryChain(
+  entry: ProjectTreeRow,
+  children: Record<string, ProjectTreeRow[] | undefined>,
+): ProjectTreeRow & { kids?: ProjectTreeRow[]; compacted: boolean } {
+  const names: Array<string | undefined> = [entry.name];
   let path = entry.path;
   let kids = children?.[path];
   let compacted = false;
@@ -1695,7 +1834,10 @@ function compactDirectoryChain(entry, children) {
  * @param {string[]} order - saved workspace-relative child paths.
  * @returns {object[]} view-ordered entries.
  */
-export function orderProjectEntriesByManual(entries, order) {
+export function orderProjectEntriesByManual(
+  entries: ProjectTreeRow[] | null | undefined,
+  order: string[] | null | undefined,
+): ProjectTreeRow[] {
   const list = Array.isArray(entries) ? [...entries] : [];
   const saved = Array.isArray(order) ? order.filter((path) => typeof path === 'string' && path !== '') : [];
   const rank = new Map(saved.map((path, index) => [path, index]));
@@ -1717,7 +1859,12 @@ export function orderProjectEntriesByManual(entries, order) {
  * @param {'before'|'after'} edge - insertion side.
  * @returns {string[]} reordered sibling paths.
  */
-export function reorderProjectManualPaths(current, sources, target, edge) {
+export function reorderProjectManualPaths(
+  current: string[] | null | undefined,
+  sources: string[] | null | undefined,
+  target: string,
+  edge: 'before' | 'after',
+): string[] {
   const list = Array.isArray(current) ? current.filter((path) => typeof path === 'string' && path !== '') : [];
   const moving = new Set(
     (Array.isArray(sources) ? sources : []).filter((path) => list.includes(path) && path !== target),
@@ -1742,9 +1889,13 @@ export function reorderProjectManualPaths(current, sources, target, edge) {
  * @param {Array<[string, string]>} entries - old/new workspace paths.
  * @returns {object} the same map when no saved rank moved.
  */
-export function remapProjectManualOrder(order, entries) {
-  const current = order !== null && typeof order === 'object' && !Array.isArray(order) ? order : {};
-  const moves = (Array.isArray(entries) ? entries : []).filter(
+export function remapProjectManualOrder(
+  order: Record<string, string[]> | null | undefined,
+  entries: Array<[string, string]> | null | undefined,
+): Record<string, string[]> {
+  const current: Record<string, string[]> =
+    order !== null && order !== undefined && typeof order === 'object' && !Array.isArray(order) ? order : {};
+  const moves: Array<[string, string]> = (Array.isArray(entries) ? entries : []).filter(
     (entry) =>
       Array.isArray(entry) &&
       typeof entry[0] === 'string' &&
@@ -1753,8 +1904,8 @@ export function remapProjectManualOrder(order, entries) {
       entry[1] !== '',
   );
   if (moves.length === 0 || Object.keys(current).length === 0) return current;
-  const remap = (path) => remapPathAfterMove(path, moves);
-  const next = {};
+  const remap = (path: string): string => remapPathAfterMove(path, moves);
+  const next: Record<string, string[]> = {};
   let changed = false;
   for (const [parent, paths] of Object.entries(current)) {
     if (!Array.isArray(paths)) continue;
@@ -1794,7 +1945,11 @@ export function remapProjectManualOrder(order, entries) {
  * @param {'up'|'down'} direction - requested movement.
  * @returns {{target: string, edge: 'before'|'after'}|null} insertion target.
  */
-export function manualReorderBoundary(current, sources, direction) {
+export function manualReorderBoundary(
+  current: string[] | null | undefined,
+  sources: string[] | null | undefined,
+  direction: 'up' | 'down',
+): { target: string; edge: 'before' | 'after' } | null {
   const list = Array.isArray(current) ? current : [];
   const moving = new Set((Array.isArray(sources) ? sources : []).filter((path) => list.includes(path)));
   if (moving.size === 0) return null;
@@ -1814,7 +1969,7 @@ export function readProjectManualOrder(root: string): Record<string, string[]> {
   try {
     const parsed = JSON.parse(window.localStorage.getItem(`dsh-editor.project.manualOrder:${root}`) ?? '{}');
     if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
-    const normalized = {};
+    const normalized: Record<string, string[]> = {};
     for (const [parent, paths] of Object.entries(parsed)) {
       if (typeof parent !== 'string' || !Array.isArray(paths)) continue;
       normalized[parent] = [...new Set(paths.filter((path) => typeof path === 'string' && path !== ''))];
@@ -1826,7 +1981,7 @@ export function readProjectManualOrder(root: string): Record<string, string[]> {
 }
 
 /** Persist the per-workspace manual Project order map. */
-export function writeProjectManualOrder(root, order) {
+export function writeProjectManualOrder(root: string, order: Record<string, string[]> | null): void {
   if (typeof root !== 'string' || root === '') return;
   try {
     window.localStorage.setItem(`dsh-editor.project.manualOrder:${root}`, JSON.stringify(order ?? {}));
@@ -1844,24 +1999,24 @@ export function writeProjectManualOrder(root, order) {
  * root row duplicated that information and consumed a full row of height.
  */
 export function flattenRows(
-  entries,
-  children,
-  expanded,
-  projectName,
-  root,
+  entries: ProjectTreeRow[] | null | undefined,
+  children: Record<string, ProjectTreeRow[] | undefined>,
+  expanded: Set<string>,
+  projectName: string,
+  root: string,
   compactDirectories = false,
   sortMode = 'name',
-  manualOrder = null,
-) {
-  const orderMap = manualOrder ?? {};
-  const rows = [];
+  manualOrder: Record<string, string[]> | null = null,
+): ProjectTreeRow[] {
+  const orderMap: Record<string, string[]> = manualOrder ?? {};
+  const rows: ProjectTreeRow[] = [];
   const MAX_TREE_DEPTH = 128;
   const MAX_TREE_ROWS = 20000;
   /**
    * 显式 DFS 栈替代函数递归：损坏的 children/expanded 关系即使形成环，
    * 也只能消耗有限栈帧，不会把 React 渲染线程的调用栈打满。
    */
-  const stack = [
+  const stack: FlattenProjectFrame[] = [
     {
       list: Array.isArray(entries) ? entries : [],
       depth: 0,
@@ -1943,8 +2098,11 @@ export function flattenRows(
  * @param {number} index - target row index.
  * @returns {{level: number, posinset: number, setsize: number}} position.
  */
-export function projectTreePosition(rows, index) {
-  const list = Array.isArray(rows) ? rows : [];
+export function projectTreePosition(
+  rows: ProjectTreeRow[] | null | undefined,
+  index: number,
+): { level: number; posinset: number; setsize: number } {
+  const list: ProjectTreeRow[] = Array.isArray(rows) ? rows : [];
   const row = list[index];
   const depth = Math.max(0, Math.floor(Number(row?.depth) || 0));
   if (row === undefined || row.kind === 'placeholder') {
@@ -1958,7 +2116,7 @@ export function projectTreePosition(rows, index) {
       break;
     }
   }
-  const siblings = [];
+  const siblings: number[] = [];
   for (let cursor = parentIndex + 1; cursor < list.length; cursor += 1) {
     const candidate = list[cursor];
     const candidateDepth = Math.max(0, Math.floor(Number(candidate?.depth) || 0));
@@ -1974,12 +2132,12 @@ export function projectTreePosition(rows, index) {
 }
 
 /** Normalize the Project views that have a real data source in this plugin. */
-export function normalizeProjectView(view) {
-  return ['projectFiles', 'openFiles', 'changedFiles'].includes(view) ? view : 'projectFiles';
+export function normalizeProjectView(view: unknown): 'projectFiles' | 'openFiles' | 'changedFiles' {
+  return view === 'openFiles' || view === 'changedFiles' || view === 'projectFiles' ? view : 'projectFiles';
 }
 
 /** Project Files is the only view backed by the real disk tree. */
-export function projectViewIsTree(view) {
+export function projectViewIsTree(view: unknown): boolean {
   return normalizeProjectView(view) === 'projectFiles';
 }
 
@@ -1996,18 +2154,23 @@ export function projectViewIsTree(view) {
  * @param {{changes?: object[]}|null} git - current Git snapshot.
  * @returns {object[]} rows for the selected view.
  */
-export function projectViewRows(view, projectRows, openFiles, git) {
+export function projectViewRows(
+  view: unknown,
+  projectRows: ProjectTreeRow[],
+  openFiles: Array<{ path?: unknown }> | null | undefined,
+  git: { changes?: Array<{ path?: unknown }> } | null | undefined,
+): ProjectTreeRow[] {
   const normalized = normalizeProjectView(view);
   if (projectViewIsTree(normalized)) return projectRows;
   if (normalized !== 'openFiles' && normalized !== 'changedFiles') return projectRows;
-  const paths =
+  const paths: unknown[] =
     normalized === 'openFiles'
       ? (Array.isArray(openFiles) ? openFiles : []).map((file) => file?.path)
       : (Array.isArray(git?.changes) ? git.changes : [])
           .map((change) => change?.path)
           .sort((left, right) => String(left).localeCompare(String(right)));
-  const seen = new Set();
-  const rows = [];
+  const seen = new Set<string>();
+  const rows: ProjectTreeRow[] = [];
   for (const path of paths) {
     if (typeof path !== 'string' || path === '' || seen.has(path)) continue;
     seen.add(path);
@@ -2031,12 +2194,16 @@ export function projectViewRows(view, projectRows, openFiles, git) {
  * @param {string|null} selectedPath - current primary row.
  * @returns {{selection: Set<string>, primary: string|null}} sanitized state.
  */
-export function filteredViewSelection(rowPaths, selection, selectedPath) {
-  const visible = new Set(
+export function filteredViewSelection(
+  rowPaths: string[] | null | undefined,
+  selection: Set<string> | null | undefined,
+  selectedPath: string | null | undefined,
+): { selection: Set<string>; primary: string | null } {
+  const visible = new Set<string>(
     (Array.isArray(rowPaths) ? rowPaths : []).filter((path) => typeof path === 'string' && path !== ''),
   );
-  const source = selection instanceof Set ? selection : new Set();
-  const next = new Set();
+  const source: Set<string> = selection instanceof Set ? selection : new Set<string>();
+  const next = new Set<string>();
   let changed = false;
   for (const path of source) {
     if (visible.has(path)) next.add(path);
@@ -2062,11 +2229,11 @@ export function filteredViewSelection(rowPaths, selection, selectedPath) {
  * @param {{selectedPath: string|null, previousPaths: string[], rowPaths: string[], expanded: Set<string>|null}} request - row transition.
  * @returns {string|null} the current or replacement selection.
  */
-function projectSelectionAfterRowsChange(request) {
+function projectSelectionAfterRowsChange(request: ProjectSelectionTransition): string | null {
   const selectedPath =
     typeof request?.selectedPath === 'string' && request.selectedPath !== '' ? request.selectedPath : null;
   if (selectedPath === null) return request?.selectedPath ?? null;
-  const currentPaths = new Set(
+  const currentPaths = new Set<string>(
     (Array.isArray(request?.rowPaths) ? request.rowPaths : []).filter(
       (path) => typeof path === 'string' && path !== '',
     ),
@@ -2076,7 +2243,7 @@ function projectSelectionAfterRowsChange(request) {
     (path) => typeof path === 'string' && path !== '',
   );
   if (previousPaths.length === 0) return selectedPath;
-  const expanded = request?.expanded instanceof Set ? request.expanded : new Set();
+  const expanded: Set<string> = request?.expanded instanceof Set ? request.expanded : new Set<string>();
   let ancestor = dirname(selectedPath);
   while (ancestor !== '') {
     if (!expanded.has(ancestor)) return selectedPath;
@@ -2104,12 +2271,17 @@ function projectSelectionAfterRowsChange(request) {
  * @param {{selection?: Set<string>|null, selectedPath: string|null, previousPaths: string[], rowPaths: string[], expanded: Set<string>|null}} request - row transition.
  * @returns {{selection: Set<string>, primary: string|null}} reconciled selection.
  */
-export function projectSelectionSetAfterRowsChange(request) {
-  const source =
+export function projectSelectionSetAfterRowsChange(request: ProjectSelectionSetTransition): {
+  selection: Set<string>;
+  primary: string | null;
+} {
+  const source: Set<string> =
     request?.selection instanceof Set
       ? request.selection
-      : new Set(typeof request?.selectedPath === 'string' && request.selectedPath !== '' ? [request.selectedPath] : []);
-  const next = new Set();
+      : new Set<string>(
+          typeof request?.selectedPath === 'string' && request.selectedPath !== '' ? [request.selectedPath] : [],
+        );
+  const next = new Set<string>();
   let changed = false;
   for (const path of source) {
     const resolved = projectSelectionAfterRowsChange({ ...request, selectedPath: path });
@@ -2135,7 +2307,9 @@ export function projectSelectionSetAfterRowsChange(request) {
  * @param {(key: string) => string} t - translator.
  * @returns {Array<{id: string, label: string, available: boolean}>} menu entries.
  */
-export function projectViewDefinitions(t) {
+export function projectViewDefinitions(
+  t: (key: string) => string,
+): Array<{ id: string; label: string; available: boolean }> {
   return [
     { id: 'projectFiles', label: t('editor.projectViewProjectFiles'), available: true },
     { id: 'openFiles', label: t('editor.projectViewOpenFiles'), available: true },
@@ -2156,7 +2330,11 @@ export function projectViewDefinitions(t) {
  * @param {(key: string, params?: object) => string} t - plugin translator.
  * @returns {string} the notice text.
  */
-export function describeMoved(moved, conflict, t) {
+export function describeMoved(
+  moved: unknown,
+  conflict: unknown,
+  t: (key: string, params?: Record<string, unknown>) => string,
+): string {
   const done = Array.isArray(moved) ? moved.filter((path) => typeof path === 'string' && path !== '') : [];
   const blocked = typeof conflict === 'string' ? conflict : '';
   if (done.length === 0) return t('editor.moveConflict', { path: blocked });
@@ -2175,7 +2353,11 @@ export function describeMoved(moved, conflict, t) {
  * @param {string} path - the path the action was about.
  * @returns {string} the text to show.
  */
-export function hostErrorText(message, translate, path) {
+export function hostErrorText(
+  message: unknown,
+  translate: (key: string, params?: Record<string, unknown>) => string,
+  path: unknown,
+): string {
   if (typeof message !== 'string' || message === '') return typeof message === 'string' ? message : '';
   if (message === 'path does not exist') return translate('editor.pathMissing', { path: String(path) });
   if (message === 'path escapes the workspace') return translate('editor.pathOutsideWorkspace');
@@ -2194,7 +2376,10 @@ export function hostErrorText(message, translate, path) {
  * @param {number} line - 1-based line in the modified model.
  * @returns {{index: number, total: number}} 1-based hunk index, together with the total.
  */
-export function hunkAt(changes, line) {
+export function hunkAt(
+  changes: Array<{ modifiedStartLineNumber?: number; modifiedEndLineNumber?: number }> | null | undefined,
+  line: number,
+): { index: number; total: number } {
   const list = Array.isArray(changes) ? changes : [];
   const total = list.length;
   const target = Number(line);
@@ -2226,8 +2411,8 @@ export function hunkAt(changes, line) {
  * @param {object[]} history - existing newest-last undo stack.
  * @returns {object[]} the same stack while a restore is active, else sorted history.
  */
-export function restoreUndoStack(active, history) {
-  const list = Array.isArray(history) ? history : [];
+export function restoreUndoStack<T>(active: T | null | undefined, history: T[] | null | undefined): T[] {
+  const list: T[] = Array.isArray(history) ? history : [];
   return active === null || active === undefined ? list : list;
 }
 
@@ -2243,14 +2428,42 @@ export function restoreUndoStack(active, history) {
  * @param {{startLineNumber: number, startColumn: number, endLineNumber: number, endColumn: number}} selection - modified selection.
  * @returns {object[]} char changes to revert, in document order.
  */
-export function selectedCharChanges(changes, selection) {
+interface MonacoCharChange {
+  originalStartLineNumber?: number;
+  originalStartColumn?: number;
+  originalEndLineNumber?: number;
+  originalEndColumn?: number;
+  modifiedStartLineNumber?: number;
+  modifiedStartColumn?: number;
+  modifiedEndLineNumber?: number;
+  modifiedEndColumn?: number;
+}
+
+interface MonacoLineChange {
+  modifiedStartLineNumber?: number;
+  modifiedEndLineNumber?: number;
+  charChanges?: MonacoCharChange[];
+}
+
+interface MonacoSelectionRange {
+  startLineNumber: number;
+  startColumn: number;
+  endLineNumber: number;
+  endColumn: number;
+}
+
+export function selectedCharChanges(
+  changes: MonacoLineChange[] | null | undefined,
+  selection: MonacoSelectionRange,
+): Array<Record<string, unknown>> {
   const list = Array.isArray(changes) ? changes : [];
   const startLine = Number(selection?.startLineNumber);
   const endLine = Number(selection?.endLineNumber);
   if (!Number.isFinite(startLine) || !Number.isFinite(endLine)) return [];
   const endColumn = Number(selection?.endColumn);
-  const before = (aLine, aColumn, bLine, bColumn) => aLine < bLine || (aLine === bLine && aColumn < bColumn);
-  const result = [];
+  const before = (aLine: number, aColumn: number, bLine: number, bColumn: number): boolean =>
+    aLine < bLine || (aLine === bLine && aColumn < bColumn);
+  const result: Array<Record<string, unknown>> = [];
   for (const lineChange of list) {
     for (const range of Array.isArray(lineChange?.charChanges) ? lineChange.charChanges : []) {
       const rangeStart = { line: Number(range.modifiedStartLineNumber), column: Number(range.modifiedStartColumn) };
@@ -2318,7 +2531,7 @@ export function selectedCharChanges(changes, selection) {
  * @param {object|null|undefined} change - one Monaco line change.
  * @returns {object[]} mappings accepted by revertRangeMappings().
  */
-export function lineChangeRangeMappings(change) {
+export function lineChangeRangeMappings(change: MonacoLineChange | null | undefined): Array<Record<string, unknown>> {
   if (change === null || change === undefined) return [];
   const startLineNumber = Math.max(1, Math.floor(Number(change.modifiedStartLineNumber) || 1));
   const endLineNumber = Math.max(startLineNumber, Math.floor(Number(change.modifiedEndLineNumber) || startLineNumber));
@@ -2339,7 +2552,9 @@ export function lineChangeRangeMappings(change) {
  * @param {{kind?: string, open?: boolean}|null} hit - the matched row.
  * @returns {'open'|'expand'|'keep'|'none'} the action to take.
  */
-export function revealInTree(hit) {
+export function revealInTree(
+  hit: { kind?: string; open?: boolean } | null | undefined,
+): 'open' | 'expand' | 'keep' | 'none' {
   if (hit === null || hit === undefined) return 'none';
   if (hit.kind === 'file') return 'open';
   if (hit.kind === 'directory') {
@@ -2360,7 +2575,9 @@ export function revealInTree(hit) {
  * @param {{continues: boolean[], index: number, depth: number}} state - per-depth flags, the column, the row's depth.
  * @returns {'line'|'none'} what to draw in that column.
  */
-export function guideKind(state) {
+export function guideKind(
+  state: { continues?: unknown; index?: unknown; depth?: unknown } | null | undefined,
+): 'line' | 'none' {
   if (state === null || state === undefined) return 'none';
   const continues = Array.isArray(state.continues) ? state.continues : [];
   const index = Number(state.index);
@@ -2377,9 +2594,9 @@ export function guideKind(state) {
  * @param {boolean[]} isLast - per depth, whether that ancestor has no sibling below.
  * @returns {boolean[]} per depth, whether the column's line continues.
  */
-function continuationFlags(isLast) {
+function continuationFlags(isLast: unknown): boolean[] {
   if (!Array.isArray(isLast)) return [];
-  return isLast.map((last) => last !== true);
+  return isLast.map((last: unknown) => last !== true);
 }
 
 /**
@@ -2391,7 +2608,7 @@ function continuationFlags(isLast) {
  * @param {{status?: string, selected?: boolean}|null} state - the row's porcelain status and selection.
  * @returns {string|null} a CSS colour, or null for "keep the default".
  */
-export function treeNameColor(state) {
+export function treeNameColor(state: { status?: string; selected?: boolean } | null | undefined): string | null {
   if (state === null || state === undefined) return null;
   if (state.selected === true) return '#fff';
   const status = typeof state.status === 'string' ? state.status : '';
@@ -2410,27 +2627,29 @@ export function treeNameColor(state) {
  * @param {{path: string, status: string}[]|null} changes - changes inside the folder.
  * @returns {{color: string}|null} the tint, or null when the folder is clean.
  */
-export function directoryTint(changes) {
-  const inside = Array.isArray(changes) ? changes : [];
+export function directoryTint(changes: Array<{ status?: unknown }> | null | undefined): { color: string } | null {
+  const inside = (Array.isArray(changes) ? changes : [])
+    .map((change) => (typeof change.status === 'string' ? change.status : ''))
+    .filter((status) => status !== '');
   if (inside.length === 0) return null;
   if (
     inside.some(
-      (change) =>
-        change.status === 'UU' ||
-        change.status === 'AA' ||
-        change.status === 'DD' ||
-        change.status === 'AU' ||
-        change.status === 'UA' ||
-        change.status === 'DU' ||
-        change.status === 'UD',
+      (status) =>
+        status === 'UU' ||
+        status === 'AA' ||
+        status === 'DD' ||
+        status === 'AU' ||
+        status === 'UA' ||
+        status === 'DU' ||
+        status === 'UD',
     )
   ) {
     return { color: '#cf222e' };
   }
-  if (inside.every((change) => change.status === '??')) return { color: '#6e7781' };
-  if (inside.some((change) => change.status.includes('D'))) return { color: '#cf222e' };
-  if (inside.some((change) => change.status[0] === 'A')) return { color: '#1a7f37' };
-  if (inside.some((change) => change.status.includes('R'))) return { color: '#8250df' };
+  if (inside.every((status) => status === '??')) return { color: '#6e7781' };
+  if (inside.some((status) => status.includes('D'))) return { color: '#cf222e' };
+  if (inside.some((status) => status[0] === 'A')) return { color: '#1a7f37' };
+  if (inside.some((status) => status.includes('R'))) return { color: '#8250df' };
   return { color: '#2f65ca' };
 }
 
@@ -2443,11 +2662,12 @@ export function directoryTint(changes) {
  * @param {{branch?: string, detached?: boolean, hash?: string}|null} git - status payload.
  * @returns {string} the chip text, or '' when there is nothing to show.
  */
-export function branchLabel(git) {
-  if (git === null || git === undefined) return '';
-  const branch = typeof git.branch === 'string' ? git.branch.trim() : '';
-  if (git.detached === true) {
-    const hash = typeof git.hash === 'string' ? git.hash.trim() : '';
+export function branchLabel(git: unknown): string {
+  if (git === null || typeof git !== 'object' || Array.isArray(git)) return '';
+  const record = git as Record<string, unknown>;
+  const branch = typeof record.branch === 'string' ? record.branch.trim() : '';
+  if (record.detached === true) {
+    const hash = typeof record.hash === 'string' ? record.hash.trim() : '';
     const short = hash === '' ? '' : hash.slice(0, 7);
     return short === '' ? 'detached HEAD' : `detached at ${short}`;
   }
@@ -2466,7 +2686,7 @@ export function branchLabel(git) {
  * @param {string} payload - the OSC 7 payload.
  * @returns {string|null} the absolute path, or null when it is not a file URL.
  */
-export function cwdFromOsc7(payload) {
+export function cwdFromOsc7(payload: unknown): string | null {
   if (typeof payload !== 'string') return null;
   const match = /^file:\/\/[^/]*(\/.*)$/.exec(payload.trim());
   if (match === null) return null;
@@ -2490,9 +2710,11 @@ export function cwdFromOsc7(payload) {
  * @param {string} directory - workspace-relative directory the shell is in.
  * @returns {string|null} the workspace-relative README path, or null.
  */
-export function readmeInDirectory(names, directory) {
+export function readmeInDirectory(names: unknown, directory: unknown): string | null {
   if (!Array.isArray(names)) return null;
-  const match = names.find((name) => typeof name === 'string' && /^readme(\.(md|markdown|txt|rst))?$/i.test(name));
+  const match = names.find(
+    (name): name is string => typeof name === 'string' && /^readme(\.(md|markdown|txt|rst))?$/i.test(name),
+  );
   if (match === undefined) return null;
   const base = typeof directory === 'string' ? directory.replace(/^\/+|\/+$/g, '') : '';
   return base === '' ? match : `${base}/${match}`;
@@ -2511,7 +2733,12 @@ export function readmeInDirectory(names, directory) {
  * @param {boolean} advance - true to start AFTER `fromPath` (cycling repeats).
  * @returns {string|null} the path to select, or null when nothing matches.
  */
-function typeaheadMatch(rows, buffer, fromPath, advance) {
+function typeaheadMatch(
+  rows: ProjectTreeRow[] | null | undefined,
+  buffer: unknown,
+  fromPath: string | null,
+  advance: boolean,
+): string | null {
   const needle = typeof buffer === 'string' ? buffer.trim().toLowerCase() : '';
   if (needle === '') return null;
   const list = Array.isArray(rows)
@@ -2535,19 +2762,21 @@ function typeaheadMatch(rows, buffer, fromPath, advance) {
  * @param {Array<{path?: string, staged?: boolean, order?: number}|null>} changes - visible changes.
  * @returns {Array<{name: string, path: string, workspacePath: string, staged: boolean, order: number}>} candidates.
  */
-export function changeTypeaheadRows(changes) {
-  return (Array.isArray(changes) ? changes : [])
-    .map((change, index) => ({ change, index }))
-    .filter(
-      ({ change }) => change !== null && change !== undefined && typeof change.path === 'string' && change.path !== '',
-    )
-    .map(({ change, index }) => ({
+export function changeTypeaheadRows(
+  changes: Array<{ path?: unknown; staged?: unknown; order?: unknown } | null | undefined> | null | undefined,
+): Array<{ name: string; path: string; workspacePath: string; staged: boolean; order: number }> {
+  const rows: Array<{ name: string; path: string; workspacePath: string; staged: boolean; order: number }> = [];
+  for (const [index, change] of (Array.isArray(changes) ? changes : []).entries()) {
+    if (change === null || change === undefined || typeof change.path !== 'string' || change.path === '') continue;
+    rows.push({
       name: basename(change.path),
       path: `${change.staged === true ? 'staged' : 'unstaged'}:${change.path}`,
       workspacePath: change.path,
       staged: change.staged === true,
-      order: Number.isInteger(change.order) ? change.order : index,
-    }));
+      order: typeof change.order === 'number' && Number.isInteger(change.order) ? change.order : index,
+    });
+  }
+  return rows;
 }
 
 /**
@@ -2567,7 +2796,14 @@ export function changeTypeaheadRows(changes) {
  * @param {{rows: object[], buffer: string, path: string|null, key: string, now: number, lastAt: number}} input - one keystroke's context.
  * @returns {{buffer: string, at: number, hit: string|null}} the next typeahead state.
  */
-export function typeaheadStep(input) {
+export function typeaheadStep(input: {
+  rows?: ProjectTreeRow[] | null;
+  buffer?: unknown;
+  path?: string | null;
+  key?: unknown;
+  now?: unknown;
+  lastAt?: unknown;
+}): { buffer: string; at: number; hit: string | null } {
   const key = typeof input?.key === 'string' ? input.key : '';
   const rows = Array.isArray(input?.rows) ? input.rows : [];
   const previous = typeof input?.buffer === 'string' ? input.buffer : '';
@@ -2599,7 +2835,7 @@ export function typeaheadStep(input) {
  * @param {string} query - speed-search text.
  * @returns {object[]} hit rows in display order.
  */
-export function speedSearchHitRows(rows, query) {
+export function speedSearchHitRows(rows: ProjectTreeRow[] | null | undefined, query: unknown): ProjectTreeRow[] {
   const needle = typeof query === 'string' ? query.trim().toLowerCase() : '';
   if (needle === '') return [];
   return (Array.isArray(rows) ? rows : []).filter(
@@ -2625,7 +2861,12 @@ export function speedSearchHitRows(rows, query) {
  * @param {'first'|'next'|'previous'} direction - navigation intent.
  * @returns {string|null} target row path, or null when nothing matches.
  */
-export function speedSearchTarget(rows, query, currentPath, direction) {
+export function speedSearchTarget(
+  rows: ProjectTreeRow[] | null | undefined,
+  query: unknown,
+  currentPath: string | null,
+  direction: 'first' | 'next' | 'previous',
+): string | null {
   const hits = speedSearchHitRows(rows, query);
   if (hits.length === 0) return null;
   const currentIndex = hits.findIndex((row) => row.path === currentPath);
@@ -2646,12 +2887,16 @@ export function speedSearchTarget(rows, query, currentPath, direction) {
  * @param {string} clickedPath - row that received the context-menu gesture.
  * @returns {string[]} workspace-relative files in stable display order.
  */
-export function projectRightSplitPaths(rows, selection, clickedPath) {
+export function projectRightSplitPaths(
+  rows: ProjectTreeRow[] | null | undefined,
+  selection: Set<string> | null | undefined,
+  clickedPath: string,
+): string[] {
   if (typeof clickedPath !== 'string' || clickedPath === '') return [];
-  const selected = selection instanceof Set ? selection : new Set();
+  const selected: Set<string> = selection instanceof Set ? selection : new Set<string>();
   const wanted = selected.size > 1 && selected.has(clickedPath) ? selected : new Set([clickedPath]);
-  const seen = new Set();
-  const paths = [];
+  const seen = new Set<string>();
+  const paths: string[] = [];
   for (const row of Array.isArray(rows) ? rows : []) {
     const path = row?.path;
     if (row?.kind !== 'file' || typeof path !== 'string' || path === '' || !wanted.has(path) || seen.has(path))
@@ -2673,7 +2918,7 @@ export function projectRightSplitPaths(rows, selection, clickedPath) {
  * @param {string} legacy - stored round-358 `autoscrollToSource` value.
  * @returns {boolean} whether the unified preference is enabled.
  */
-function projectSingleClickPreference(current, legacy) {
+function projectSingleClickPreference(current: unknown, legacy: unknown): boolean {
   return current === '1' || legacy === '1';
 }
 
@@ -2706,8 +2951,11 @@ export function readProjectSingleClickOpen() {
  * @param {Set<string>|null} selection - selected paths.
  * @returns {boolean} true when at least one selected row is an expandable directory.
  */
-export function projectCanExpandSelection(rows, selection) {
-  const selected = selection instanceof Set ? selection : new Set();
+export function projectCanExpandSelection(
+  rows: ProjectTreeRow[] | null | undefined,
+  selection: Set<string> | null | undefined,
+): boolean {
+  const selected: Set<string> = selection instanceof Set ? selection : new Set<string>();
   if (selected.size === 0) return false;
   return (Array.isArray(rows) ? rows : []).some(
     (row) => row?.kind === 'directory' && selected.has(row.path) && (row.root === true || row.path !== ''),
@@ -2725,12 +2973,16 @@ export function projectCanExpandSelection(rows, selection) {
  * @param {Set<string>|null} expanded - expanded directory paths.
  * @returns {boolean} true when at least one directory still needs expansion.
  */
-export function projectCanExpandAll(entries, children, expanded) {
-  const expandedSet = expanded instanceof Set ? expanded : new Set();
-  const queue = (Array.isArray(entries) ? entries : [])
+export function projectCanExpandAll(
+  entries: ProjectTreeRow[] | null | undefined,
+  children: Record<string, ProjectTreeRow[]> | null | undefined,
+  expanded: Set<string> | null | undefined,
+): boolean {
+  const expandedSet: Set<string> = expanded instanceof Set ? expanded : new Set<string>();
+  const queue: string[] = (Array.isArray(entries) ? entries : [])
     .filter((entry) => entry?.kind === 'directory' && typeof entry.path === 'string')
     .map((entry) => entry.path);
-  const seen = new Set();
+  const seen = new Set<string>();
   while (queue.length > 0) {
     const path = queue.shift();
     if (seen.has(path)) continue;
@@ -2750,7 +3002,7 @@ export function projectCanExpandAll(entries, children, expanded) {
  * @param {Set<string>|null} expanded - expanded directory paths.
  * @returns {boolean} true when the tree contains an expanded directory.
  */
-export function projectCanCollapseAll(expanded) {
+export function projectCanCollapseAll(expanded: unknown): boolean {
   return expanded instanceof Set && expanded.size > 0;
 }
 
@@ -2764,7 +3016,9 @@ export function projectCanCollapseAll(expanded) {
  * @param {{query: string, rows: {path: string}[]}|null} state - the query and the filtered rows.
  * @returns {boolean} true when the query is non-empty and nothing but the root matched.
  */
-export function treeSearchMiss(state) {
+export function treeSearchMiss(
+  state: { loading?: boolean; query?: unknown; rows?: ProjectTreeRow[] | null } | null | undefined,
+): boolean {
   if (state === null || state === undefined) return false;
   if (state.loading === true) return false;
   const query = typeof state.query === 'string' ? state.query.trim() : '';
@@ -2811,12 +3065,26 @@ export function describeMoveResult(
  * @param {Set<string>} existing - every path that currently exists, including directories.
  * @returns {{moves: object[], conflicts: object[], intoSelf: string[], unchanged: string[]}} the plan.
  */
-export function planMoves(sources, targetDirectory, existing) {
-  const taken = existing instanceof Set ? existing : new Set();
+export function planMoves(
+  sources: unknown,
+  targetDirectory: unknown,
+  existing: Set<string> | null | undefined,
+): {
+  moves: Array<{ from: string; to: string }>;
+  conflicts: Array<{ from: string; to: string; reason: 'duplicate' | 'exists' }>;
+  intoSelf: string[];
+  unchanged: string[];
+} {
+  const taken: Set<string> = existing instanceof Set ? existing : new Set<string>();
   const target = typeof targetDirectory === 'string' ? targetDirectory : '';
-  const plan = { moves: [], conflicts: [], intoSelf: [], unchanged: [] };
-  const seen = new Set();
-  const unique = [];
+  const plan: {
+    moves: Array<{ from: string; to: string }>;
+    conflicts: Array<{ from: string; to: string; reason: 'duplicate' | 'exists' }>;
+    intoSelf: string[];
+    unchanged: string[];
+  } = { moves: [], conflicts: [], intoSelf: [], unchanged: [] };
+  const seen = new Set<string>();
+  const unique: string[] = [];
   for (const source of Array.isArray(sources) ? sources : []) {
     if (typeof source !== 'string' || source === '' || seen.has(source)) continue;
     seen.add(source);
@@ -2824,7 +3092,7 @@ export function planMoves(sources, targetDirectory, existing) {
   }
   /* Moves land in one directory, so a duplicate basename inside the batch
          collides with itself before the filesystem is ever touched. */
-  const destinations = new Set();
+  const destinations = new Set<string>();
   for (const source of unique) {
     if (target === source || target.startsWith(`${source}/`)) {
       plan.intoSelf.push(source);
@@ -2861,14 +3129,14 @@ export function planMoves(sources, targetDirectory, existing) {
  * @param {string} query - typed search text.
  * @returns {Array<{text: string, match: boolean}>} runs to render in order.
  */
-export function highlightParts(name, query) {
+export function highlightParts(name: unknown, query: unknown): Array<{ text: string; match: boolean }> {
   const text = typeof name === 'string' ? name : '';
   const needle = typeof query === 'string' ? query.trim() : '';
   if (text === '') return [];
   if (needle === '') return [{ text, match: false }];
   const lower = text.toLowerCase();
   const target = needle.toLowerCase();
-  const parts = [];
+  const parts: Array<{ text: string; match: boolean }> = [];
   let cursor = 0;
   for (;;) {
     const at = lower.indexOf(target, cursor);
@@ -2928,16 +3196,16 @@ export function filterTreeRows(rows: ProjectTreeRow[], query: string): ProjectTr
  * @returns {object[]} flattened tree rows, including the root.
  */
 export function searchEntryRows(
-  matches,
-  projectName,
+  matches: Array<{ path?: unknown; name?: unknown; kind?: unknown }> | null | undefined,
+  projectName: string,
   compactDirectories = false,
   sortMode = 'name',
-  manualOrder = null,
-) {
-  const nodes = new Map();
+  manualOrder: Record<string, string[]> | null = null,
+): ProjectTreeRow[] {
+  const nodes = new Map<string, ProjectTreeRow>();
   for (const match of Array.isArray(matches) ? matches : []) {
     if (match === null || typeof match !== 'object' || typeof match.path !== 'string' || match.path === '') continue;
-    const parts = match.path.split('/').filter((part) => part !== '');
+    const parts = match.path.split('/').filter((part: string) => part !== '');
     let current = '';
     for (let index = 0; index < parts.length; index += 1) {
       current = current === '' ? parts[index] : `${current}/${parts[index]}`;
@@ -2954,19 +3222,19 @@ export function searchEntryRows(
       }
     }
   }
-  const children = new Map();
+  const children = new Map<string, ProjectTreeRow[]>();
   for (const node of nodes.values()) {
     const parent = dirname(node.path);
     const siblings = children.get(parent) ?? [];
     siblings.push(node);
     children.set(parent, siblings);
   }
-  const listings = {};
-  const expanded = new Set(['']);
+  const listings: Record<string, ProjectTreeRow[]> = {};
+  const expanded = new Set<string>(['']);
   /* The host applies its normal sort while walking search results. Manual
          Order is client-owned, so search ancestry must apply the same sibling
          ranking as the visible tree instead of exposing host traversal order. */
-  const serialize = (parent) => {
+  const serialize = (parent: string): ProjectTreeRow[] => {
     const siblings = children.get(parent) ?? [];
     const ordered = sortMode === 'manual' ? orderProjectEntriesByManual(siblings, manualOrder?.[parent]) : siblings;
     return ordered.map((node) => {

@@ -500,7 +500,7 @@ export async function resolveWorkspaceDefinition({
   const imported = definitionImportTarget(content, name);
   if (imported !== null) {
     for (const candidate of definitionModuleCandidates(sourcePath, imported.specifier, imported.language)) {
-      const targetContent = await readFile(candidate).catch(() => null);
+      const targetContent = await readFile(candidate).catch((): null => null);
       if (typeof targetContent !== 'string') continue;
       const importedName = imported.importedName === '*' ? '' : imported.importedName;
       const found =
@@ -513,11 +513,11 @@ export async function resolveWorkspaceDefinition({
   }
 
   if (typeof searchText !== 'function') return null;
-  const matches = await searchText(definitionSearchQuery(name, sourcePath)).catch(() => []);
+  const matches = await searchText(definitionSearchQuery(name, sourcePath)).catch((): DefinitionSearchMatch[] => []);
   for (const match of rankDefinitionSearchMatches(matches, sourcePath)) {
     const candidate = normalizeNavigationPath(match?.path);
     if (candidate === '' || candidate === sourcePath) continue;
-    const targetContent = await readFile(candidate).catch(() => null);
+    const targetContent = await readFile(candidate).catch((): null => null);
     if (typeof targetContent !== 'string') continue;
     const found = findDefinitionInText(targetContent, name, candidate);
     if (found !== null) return found;

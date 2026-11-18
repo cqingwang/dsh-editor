@@ -39,7 +39,7 @@ test('editor session persists only per workspace and restores after root is know
   assert.match(source, /const sessionRestoredFor = React\.useRef\(''\)/);
   assert.match(source, /const sessionRestoringRef = React\.useRef\(false\)/);
   assert.match(source, /sessionRestoredFor\.current === root/);
-  assert.match(source, /readEditorSession\(root\)/);
+  assert.match(source, /readEditorSession\(root(?::\s*[^)]+)?\)/);
   assert.match(source, /writeEditorSession\(root, \{/);
 });
 

@@ -4,6 +4,8 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
+import { transpileTypeScriptFunction } from './ts-source.mjs';
+
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const terminalSource = readFileSync(join(root, 'src/client/terminal.ts'), 'utf8');
 const workspaceSource = readFileSync(join(root, 'src/client/editor-workspace.tsx'), 'utf8');
@@ -16,30 +18,9 @@ const source = [terminalSource, workspaceSource, optionsSource].join('\n');
  * @returns {Function} the evaluated function.
  */
 function extractFunction(name) {
-  const start = source.indexOf(`function ${name}(`);
-  assert.notEqual(start, -1, `missing function ${name}`);
-  let depth = 0;
-  let quote = '';
-  let escaped = false;
-  for (let index = start; index < source.length; index += 1) {
-    const char = source[index];
-    if (quote !== '') {
-      if (escaped) escaped = false;
-      else if (char === '\\') escaped = true;
-      else if (char === quote) quote = '';
-      continue;
-    }
-    if (char === "'" || char === '"' || char === '`') {
-      quote = char;
-      continue;
-    }
-    if (char === '{') depth += 1;
-    if (char === '}') {
-      depth -= 1;
-      if (depth === 0) return new Function(`${source.slice(start, index + 1)}; return ${name};`)();
-    }
-  }
-  assert.fail(`unterminated function ${name}`);
+  return new Function(
+    `${transpileTypeScriptFunction(terminalSource, name)}; return ${name};`,
+  )();
 }
 
 test('Compact Directories follows only a continuous single-directory chain', () => {
@@ -97,7 +78,7 @@ test('flattenRows compacts loaded chains while preserving the deepest real path'
   assert.match(terminalSource, /function flattenRows\(/u);
   assert.match(terminalSource, /compactDirectories = false,/u);
   assert.match(terminalSource, /sortMode = 'name'/u);
-  assert.match(terminalSource, /manualOrder = null/u);
+  assert.match(terminalSource, /manualOrder(?::\s*Record<string, string\[\]> \| null)? = null/u);
   assert.match(
     terminalSource,
     /const compacted =\s*compactDirectories === true && entry\.kind === 'directory'\s+\? compactDirectoryChain\(entry, children\) : null;/u,

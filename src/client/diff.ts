@@ -271,7 +271,8 @@ export function diffEditingEnabled(
  */
 export function listedInChangeBand(bands: DiffChangeBands | null | undefined, group: string, path: string): boolean {
   if (bands === null || typeof bands !== 'object' || typeof path !== 'string') return false;
-  const listed = Array.isArray(bands[group]) && bands[group].some((change) => change.path === path);
+  const band = group === 'staged' || group === 'unstaged' || group === 'unversioned' ? group : null;
+  const listed = band !== null && bands[band].some((change) => change.path === path);
   if (listed) return true;
   return (
     group === 'unstaged' && Array.isArray(bands.unversioned) && bands.unversioned.some((change) => change.path === path)
@@ -429,8 +430,8 @@ export function selectOpenedChordAction(
  */
 export function changeSequenceOf(changes: DiffChange[], groupBy = 'directory'): DiffTarget[] {
   const bands = splitChanges(Array.isArray(changes) ? changes : []);
-  const sequence = [];
-  for (const group of ['staged', 'unstaged', 'unversioned']) {
+  const sequence: DiffTarget[] = [];
+  for (const group of ['staged', 'unstaged', 'unversioned'] as const) {
     const tree = changeTreeOf(bands[group], groupingDepth(groupBy));
     const rows = flattenChangeTree(tree, new Set(), group);
     for (const row of rows) {
@@ -572,7 +573,7 @@ export function changeTreeOf(changes: DiffChange[], depthLimit = Infinity): Diff
     let node = root;
     for (let index = 0; index < segments.length - 1 && index < limit; index += 1) {
       const segment = segments[index];
-      const child = node.directories.get(segment) ?? {
+      const child: DiffTreeNode = node.directories.get(segment) ?? {
         name: segment,
         path: segments.slice(0, index + 1).join('/'),
         directories: new Map(),
@@ -682,10 +683,10 @@ export function flattenChangeTree(
 export function collapseKeysOf(tree: DiffTreeNode | null, group: string, path: string): string[] {
   const keys: string[] = [];
   if (tree === null || typeof tree !== 'object') return keys;
-  const walk = (node) => {
+  const walk = (node: DiffTreeNode): boolean => {
     for (const directory of node.directories?.values?.() ?? []) {
       if (directory.path === path) {
-        const collect = (current) => {
+        const collect = (current: DiffTreeNode): void => {
           keys.push(`${group}:${current.path}`);
           for (const child of current.directories?.values?.() ?? []) collect(child);
         };

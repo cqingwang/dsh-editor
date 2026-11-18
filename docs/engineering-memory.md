@@ -1,5 +1,51 @@
 # dsh-editor 工程记忆
 
+## 2026-11-18 — lint 完整门禁清除真实 TypeScript 源码错误
+
+**作用域**：`src/client/terminal.ts`、`editor-core.ts`、`editor-workspace.tsx`、
+`components/terminal/TerminalPanel.tsx` 及相关源码测试。
+
+**症状/证据**：
+
+- `npm run lint:client-types` 先在 `terminal.ts` 报
+  `ProjectTreeState`、`ProjectSelectionSetRequest`、`MovePlan` 未使用；
+- ESLint 短路解除后，`tsc` 继续定位 31 个真实错误：
+  `callTerminal` 返回值按 `unknown` 使用、`prefetchDirectorySubtrees` 条目类型不兼容、
+  editor session 的 `unknown` 未收窄、`storeFontSize` 的 void 返回被用于 state updater；
+- `terminal-font-size-actions...` 把源码中的 TS 函数直接交给 `new Function`，
+  一旦函数带参数/返回类型注解就产生 JavaScript 语法错误；
+- 三个旧文本断言只接受无类型签名，因而在源码类型修正后误报。
+
+**根因**：
+
+- 前一轮 `noImplicitAny` 清理留下了未使用的中间接口；
+- 终端 API 使用宽泛 `Record<string, unknown>` 作为所有操作的返回值，没有表达
+  `list/shells/create/write/rename/reorder/close` 的真实契约；
+- 目录预取函数把 `WorkspaceTreeEntry` 固定为 `path?`，而调用方的树状态要求
+  `WorkspaceEntry.path` 必填；
+- 部分测试仍从源码抽函数后直接执行未经类型擦除的文本。
+
+**修复**：
+
+- 删除未使用接口，保留 `ProjectTreeRow` 等实际使用类型；
+- 为 `callTerminal` 增加按 `op` 区分的精确请求/响应重载，调用点不增加类型断言；
+- 将 `prefetchDirectorySubtrees` 和目录缓存结果改为条目类型泛型；
+- 对 persisted JSON 先收窄为 `Record<string, unknown>`，再逐字段校验；
+- `storeFontSize` 返回实际字号，React state updater 保持无副作用外溢；
+- 终端字号测试改用 `transpileTypeScriptFunction`，源码签名断言接受显式 TS 类型。
+
+**回归**：
+
+- `npm run lint:client-types`：ESLint + import AST + `tsc` 全部通过；
+- 定向终端/Project/lint 回归：32 pass；签名相关回归：11 pass；
+- `npm test`：**2819 pass / 0 fail**；
+- `npm run check:client-build`：13 modules verified；
+- `node --check lib/client.js`、`node --check lib/index.js`、`git diff --check`：通过。
+
+**适用环境**：macOS、Node 24.22.2、TypeScript 5.9.3、ESLint 9.39.5。
+后续源码行为测试必须先擦除 TS 类型，不得以降级源码类型或读取
+`lib/client.js` 绕过诊断。
+
 ## 2026-11-18 — 编辑器类型诊断、ESLint 对齐与源码优先回归
 
 **作用域**：`tsconfig.json`、`eslint.config.mjs`、`src/client/**/*.{ts,tsx}`、
@@ -54,8 +100,10 @@
   helpers、Project/Commit menu builders 等均恢复显式依赖；
 - 使用 `tsc --noImplicitAny` 作为额外源码审计，修复了 DOM `Text`、Find
   分组联合类型、外部变更返回类型、窗口全局变量、Monaco 回调和 action
-  返回函数等确定性语义错误；剩余为 1175 条隐式 `any` 注解债，未通过忽略规则
-  掩盖；
+  返回函数等确定性语义错误；`controller.ts` 的 99 条隐式 `any`/DOM 属性
+  问题已全部清零；`code-navigation.ts`、`diff.ts`、`editor-core.ts`、
+  `project.ts`、`find-tool.ts` 也已完成清零，整体审计债务从 1175 降至
+  1045，未通过忽略规则掩盖；
 - 构建器改用 Babel AST 删除语句级 import/export，保留字符串、注释和换行；
 - `tests/ts-source.mjs` 同样用 AST 剥离模块语法；类型/import 回归直接读取
   TS/TSX，生成产物只保留给构建顺序与打包契约检查。
@@ -74,6 +122,9 @@
 **适用环境**：macOS、Node 24.22.2、TypeScript 5.9.3、ESLint 9.39.5。
 后续新增客户端逻辑必须保留真实 import；测试类型/行为时读取或执行 TS/TSX，
 不得以 `lib/client.js` 能运行作为源码正确的依据。
+
+**下一轮**：进入 `terminal.ts`、`commit.ts` 和大组件，继续按模块清理
+`noImplicitAny`；每轮保持 `lint:client-types + npm test` 全绿。
 
 ## 2026-11-18 — 跨模块导出符号缺失 import 与源码 AST 门禁
 

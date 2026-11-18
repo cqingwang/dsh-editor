@@ -60,7 +60,7 @@ test('a drag handle is injected and the width is remembered', () => {
   assert.match(source, /function readChatWidth\(\)/);
   assert.match(source, /function writeChatWidth\(/);
   /* The handle must be removed together with the host. */
-  const start = source.indexOf('function destroyHost() {');
+  const start = source.search(/function destroyHost\(\)(?::\s*void)? \{/u);
   assert.notEqual(start, -1);
   const block = source.slice(start, start + 900);
   assert.match(block, /chatHandle\?\.remove\(\)|chatHandle\.remove\(\)/);

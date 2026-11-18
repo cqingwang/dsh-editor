@@ -1,4 +1,6 @@
 /* project.ts: dsh-editor Project upload and drop module. Generated into lib/client.js by scripts/build-client.mjs. */
+import type React from 'react';
+
 import { dirname } from './components/editor/editor-path-model';
 import { currentEditorWorkspaceId, currentSessionId } from './components/editor/editor-path-model';
 import { basename } from './editor-core';
@@ -87,7 +89,7 @@ export interface ProjectUploadBusyState {
 interface ProjectUploadInput {
   handles: ProjectDropHandles;
   targetDirectory: string;
-  callFs: (payload: Record<string, unknown>) => Promise<Record<string, unknown> | unknown[] | undefined>;
+  callFs: <T = Record<string, unknown> | unknown[] | undefined>(payload: Record<string, unknown>) => Promise<T>;
   refreshTree: () => Promise<void>;
   loadGit: () => Promise<void>;
   uploadBusyRef: ProjectUploadBusyState;
@@ -167,25 +169,25 @@ export function projectToolbarDropDirectory(rows: ProjectTreeRow[], selectedPath
 }
 
 /** Hide DSH's unrelated attachment mask while a file is over the Editor. */
-function beginEditorFileDrag(event) {
+function beginEditorFileDrag(event: React.DragEvent<HTMLElement>): void {
   if (dataTransferIncludesFiles(event.dataTransfer)) {
     document.body.classList.add('dsh-editor-file-drag');
   }
 }
 
 /** Clear the Editor drag class once the pointer leaves the whole workspace. */
-function endEditorFileDrag(event) {
-  if (event.currentTarget.contains(event.relatedTarget)) return;
+function endEditorFileDrag(event: React.DragEvent<HTMLElement>): void {
+  if (event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget)) return;
   document.body.classList.remove('dsh-editor-file-drag');
 }
 
 /** Allow an invalid non-tree Editor drop to settle without navigating the page. */
-function allowEditorFileDragOver(event) {
+function allowEditorFileDragOver(event: React.DragEvent<HTMLElement>): void {
   if (dataTransferIncludesFiles(event.dataTransfer)) event.preventDefault();
 }
 
 /** Clear transient drag state when a file is dropped anywhere in Editor. */
-function finishEditorFileDrag(event) {
+function finishEditorFileDrag(event: React.DragEvent<HTMLElement>): void {
   if (!dataTransferIncludesFiles(event.dataTransfer)) return;
   event.preventDefault();
   document.body.classList.remove('dsh-editor-file-drag');
@@ -682,9 +684,14 @@ export async function uploadWorkspaceDropToProject(input: ProjectUploadInput): P
     }
     const destinationOf = (path: string) => (targetDirectory === '' ? path : `${targetDirectory}/${path}`);
     const destinations = collected.entries.map((entry) => destinationOf(entry.path));
-    const described = await callFs({ op: 'exists', paths: destinations }).catch(() => []);
+    const described = await callFs<Array<{ path?: string; exists?: boolean }>>({
+      op: 'exists',
+      paths: destinations,
+    }).catch((): Array<{ path?: string; exists?: boolean }> => []);
     const conflicts = (Array.isArray(described) ? described : [])
-      .filter((entry) => entry?.exists === true)
+      .filter(
+        (entry): entry is { path: string; exists: true } => entry?.exists === true && typeof entry.path === 'string',
+      )
       .map((entry) => entry.path);
     if (conflicts.length > 0) {
       setTreeError(t('editor.uploadConflicts', { path: conflicts[0] }));

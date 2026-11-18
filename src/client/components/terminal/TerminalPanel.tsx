@@ -506,13 +506,13 @@ function TerminalPanel({
   /** Queue one keystroke behind the previous one so the PTY sees typing order. */
   const sendInput = React.useCallback((id, data) => {
     writeChain.current = writeChain.current
-      .then(() =>
-        callTerminal({
+      .then(async () => {
+        await callTerminal({
           op: 'write',
           id,
           data,
-        }),
-      )
+        });
+      })
       .catch(() => {});
     return writeChain.current;
   }, []);

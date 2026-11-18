@@ -1436,7 +1436,7 @@ function EditorWorkspace({
     () => flattenRows(entries, children, expanded, projectName, root, compactDirectories, sortMode, manualOrder),
     [compactDirectories, entries, children, expanded, manualOrder, projectName, root, sortMode],
   );
-  const previousProjectRowsRef = React.useRef<WorkspaceEntry[]>([]);
+  const previousProjectRowsRef = React.useRef<string[]>([]);
   const rows = React.useMemo(
     () => projectViewRows(projectView, projectRows, openFiles, git),
     [git, openFiles, projectRows, projectView],
@@ -2027,7 +2027,10 @@ function EditorWorkspace({
             return next;
           });
         }
-        /* Restored directories must also fetch their children, or they render empty. */ const hydrated = {};
+        /* Restored directories must also fetch their children, or they render empty. */ const hydrated: Record<
+          string,
+          WorkspaceEntry[]
+        > = {};
         for (const path of restored) {
           try {
             hydrated[path] = await readDirectory(path);
@@ -6611,7 +6614,7 @@ function EditorWorkspace({
       ) {
         changedDirectories.push('');
       }
-      const nextChildren = {};
+      const nextChildren: Record<string, WorkspaceEntry[]> = {};
       /* Only expanded directories render rows, so re-reading a collapsed one buys
            nothing. `narrowed` may name collapsed directories (the watcher reports
            the disk, not the view), which this filter drops. */ for (const path of narrowed ?? [
@@ -6619,7 +6622,7 @@ function EditorWorkspace({
       ]) {
         if (path === '' || !expandedRef.current.has(path)) continue;
         try {
-          const value = await callFs({
+          const value = await callFs<{ entries?: WorkspaceEntry[] }>({
             op: 'list',
             path,
             showHidden,

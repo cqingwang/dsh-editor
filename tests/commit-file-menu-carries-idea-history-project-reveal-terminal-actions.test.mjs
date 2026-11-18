@@ -47,8 +47,10 @@ test('terminal scope follows an explicit Editor workspace before the live sessio
 });
 
 test('terminal create, stream and local preferences carry the Editor workspace scope', () => {
-  const callStart = source.indexOf('async function callTerminal(payload)');
+  const callStart = source.search(/export\s+async\s+function\s+callTerminal\s*\(/u);
+  assert.notEqual(callStart, -1, 'callTerminal implementation is missing');
   const callEnd = source.indexOf('/**', callStart);
+  assert.notEqual(callEnd, -1, 'callTerminal implementation has no following declaration');
   const call = source.slice(callStart, callEnd);
   assert.match(source, /function currentTerminalScope\(\)/);
   assert.match(call, /const workspaceId = currentEditorWorkspaceId\(\)/);

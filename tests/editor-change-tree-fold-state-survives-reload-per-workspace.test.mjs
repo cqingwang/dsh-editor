@@ -16,7 +16,7 @@ test('the change-tree fold state survives a reload, per workspace', () => {
      because two workspaces do not share a changelist shape. */
   assert.match(source, /dsh-editor\.collapsedGroups:\$\{/);
   assert.match(source, /function readCollapsedGroups\(root(?::\s*[^)]+)?\)/);
-  assert.match(source, /function writeCollapsedGroups\(root, collapsed\)/);
+  assert.match(source, /function writeCollapsedGroups\(root(?::\s*[^,)]+)?,\s*collapsed(?::\s*[^)]+)?\)/);
   const start = source.indexOf('const toggleCollapsedGroup = React.useCallback(');
   assert.notEqual(start, -1);
   const block = source.slice(start, start + 900);

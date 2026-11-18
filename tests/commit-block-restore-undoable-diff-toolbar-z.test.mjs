@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 import { en, zh } from './locale-source.mjs';
+import { transpileTypeScriptFunction } from './ts-source.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const read = (path) => readFileSync(join(root, path), 'utf8');
@@ -91,7 +92,8 @@ test('redo restores the last undone block and clears on a new restore', () => {
 
 test('selection restore only targets changed character ranges', () => {
   const client = readClient();
-  assert.match(client, /function selectedCharChanges\(changes, selection\) \{/);
+  const terminalSource = read('src/client/terminal.ts');
+  assert.match(terminalSource, /function selectedCharChanges\b/u);
   assert.match(client, /diff\.revertRangeMappings\(ranges\)/);
   assert.match(client, /originalRange: \{/);
   assert.match(client, /modifiedRange: \{/);
@@ -100,19 +102,9 @@ test('selection restore only targets changed character ranges', () => {
   assert.match(client, /event\.selection/);
 
   /* Execute the pure range selector against a realistic char-change payload. */
-  const source = readClient();
-  const start = source.indexOf('    function selectedCharChanges(');
-  assert.notEqual(start, -1);
-  let index = source.indexOf('{', start);
-  let depth = 0;
-  for (; index < source.length; index += 1) {
-    if (source[index] === '{') depth += 1;
-    else if (source[index] === '}') {
-      depth -= 1;
-      if (depth === 0) break;
-    }
-  }
-  const fn = new Function(`${source.slice(start, index + 1)}; return selectedCharChanges;`)();
+  const fn = new Function(
+    `${transpileTypeScriptFunction(terminalSource, 'selectedCharChanges')}; return selectedCharChanges;`,
+  )();
   const changes = [{
     charChanges: [
       { originalStartLineNumber: 2, originalStartColumn: 1, originalEndLineNumber: 2, originalEndColumn: 5, modifiedStartLineNumber: 2, modifiedStartColumn: 1, modifiedEndLineNumber: 2, modifiedEndColumn: 5 },

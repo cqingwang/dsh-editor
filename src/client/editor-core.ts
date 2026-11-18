@@ -86,9 +86,9 @@ interface WorkspaceTreeEntry {
   [key: string]: unknown;
 }
 
-interface DirectoryTreeState {
+interface DirectoryTreeState<T extends WorkspaceTreeEntry = WorkspaceTreeEntry> {
   expanded?: Set<string>;
-  children?: Record<string, WorkspaceTreeEntry[]>;
+  children?: Record<string, T[]>;
 }
 
 interface DirectoryTreeResult {
@@ -98,8 +98,8 @@ interface DirectoryTreeResult {
   truncated: boolean;
 }
 
-interface DirectoryPrefetchResult {
-  children: Record<string, WorkspaceTreeEntry[]>;
+interface DirectoryPrefetchResult<T extends WorkspaceTreeEntry = WorkspaceTreeEntry> {
+  children: Record<string, T[]>;
   visited: number;
   truncated: boolean;
 }
@@ -364,7 +364,8 @@ function filterMonacoContextMenuActions(editor: MonacoEditor, hiddenActionIds: s
   const original = controller?._getMenuActions;
   if (typeof original !== 'function') return () => {};
   const filtered = function (this: unknown, ...args: unknown[]): Array<{ id?: string }> {
-    return original.apply(this, args).filter((action) => {
+    const menuActions = original.apply(this, args) as Array<{ id?: string }>;
+    return menuActions.filter((action): boolean => {
       const id = String(action?.id ?? '');
       for (const hiddenId of hidden) {
         if (id === hiddenId || id.endsWith(`:${hiddenId}`)) return false;
@@ -433,7 +434,7 @@ export function createCodeEditorGroup(
     findUsagesContextKey?.set(queryAvailable);
     findSelectionContextKey?.set(queryAvailable && editorFindSelectionScope(editor) !== null);
   };
-  const runSearchCommand = (command) => {
+  const runSearchCommand = (command: string): void => {
     const action = editor.getAction?.(command) ?? null;
     if (action === null) return;
     void Promise.resolve(action.run?.()).finally(() => editor.focus?.());
@@ -827,14 +828,14 @@ export async function expandDirectorySubtrees(
  * @param {number} [maxDepth=1] - 最多预取的目录层数。
  * @returns {Promise<{children: Record<string, object[]>, visited: number, truncated: boolean}>} 预取结果。
  */
-export async function prefetchDirectorySubtrees(
+export async function prefetchDirectorySubtrees<T extends WorkspaceTreeEntry = WorkspaceTreeEntry>(
   startPaths: string[],
-  current: DirectoryTreeState,
-  listDirectory: (path: string) => Promise<WorkspaceTreeEntry[]>,
+  current: DirectoryTreeState<T>,
+  listDirectory: (path: string) => Promise<T[]>,
   limit = 200,
   maxDepth = 1,
-): Promise<DirectoryPrefetchResult> {
-  const children = { ...(current?.children ?? {}) };
+): Promise<DirectoryPrefetchResult<T>> {
+  const children: Record<string, T[]> = { ...(current?.children ?? {}) };
   const depthLimit = Math.max(1, Math.floor(Number(maxDepth) || 1));
   const queue = [
     ...new Set((Array.isArray(startPaths) ? startPaths : []).filter((path) => typeof path === 'string')),
@@ -925,7 +926,7 @@ export function safeLanguage(monaco: MonacoApi, path: string): string {
  */
 export function patchDownloadName(date = new Date()): string {
   const value = date instanceof Date ? date : new Date();
-  const pad = (part) => String(part).padStart(2, '0');
+  const pad = (part: number): string => String(part).padStart(2, '0');
   return `dsh-editor-changes-${value.getFullYear()}${pad(value.getMonth() + 1)}${pad(value.getDate())}-${pad(value.getHours())}${pad(value.getMinutes())}${pad(value.getSeconds())}.patch`;
 }
 
