@@ -6,8 +6,11 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 import test from 'node:test';
 
+import { transpileTypeScriptFunction } from './ts-source.mjs';
+
 const execFileAsync = promisify(execFile);
 const host = await import('../lib/index.js');
+const commitSource = await readFile(new URL('../src/client/commit.ts', import.meta.url), 'utf8');
 const source =
   (await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8')) +
   '\n' +
@@ -50,7 +53,7 @@ async function createGitFixture(t) {
 
 test('Find scope accepts the newly represented IDEA presets and rejects unknown values', () => {
   const normalize = new Function(
-    `${extractFunction('normalizeFindSearchScope')}; return normalizeFindSearchScope;`,
+    `${transpileTypeScriptFunction(commitSource, 'normalizeFindSearchScope')}; return normalizeFindSearchScope;`,
   )();
   for (const preset of ['recentlyViewedFiles', 'gitTrackedFiles', 'gitNonIgnoredFiles']) {
     assert.deepEqual(normalize({ mode: 'scope', preset }), { mode: 'scope', preset, directory: '' });

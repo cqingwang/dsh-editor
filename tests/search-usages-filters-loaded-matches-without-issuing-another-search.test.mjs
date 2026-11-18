@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
+import { transpileTypeScriptFunction } from './ts-source.mjs';
+
 const searchEverywhereSource = await readFile(
   new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url),
   'utf8',
@@ -20,22 +22,10 @@ const source = [
   showUsagesSource,
 ].join('\n');
 
-function extractFunction(name) {
-  const start = commitSource.indexOf(`function ${name}(`);
-  assert.notEqual(start, -1, `${name} is missing`);
-  const bodyStart = commitSource.indexOf(') {', start) + 2;
-  assert.ok(bodyStart > 1, `${name} has no function body`);
-  let depth = 0;
-  for (let index = bodyStart; index < commitSource.length; index += 1) {
-    if (commitSource[index] === '{') depth += 1;
-    if (commitSource[index] === '}') depth -= 1;
-    if (depth === 0) return commitSource.slice(start, index + 1);
-  }
-  assert.fail(`${name} has no closing brace`);
-}
-
 test('Show Usages filters loaded matches without issuing another search', () => {
-  const filter = new Function(`${extractFunction('filterUsageMatches')}; return filterUsageMatches;`)();
+  const filter = new Function(
+    `${transpileTypeScriptFunction(commitSource, 'filterUsageMatches')}; return filterUsageMatches;`,
+  )();
   const matches = [
     { path: 'src/Needle.ts', line: 2, column: 1, preview: 'const needle = 1' },
     { path: 'docs/readme.md', line: 4, column: 3, preview: 'Needle appears here' },
@@ -50,8 +40,12 @@ test('Show Usages filters loaded matches without issuing another search', () => 
 });
 
 test('usage rows have stable identities and indexes clamp to the filtered list', () => {
-  const rowKey = new Function(`${extractFunction('usageMatchRowKey')}; return usageMatchRowKey;`)();
-  const normalize = new Function(`${extractFunction('normalizeUsageMatchIndex')}; return normalizeUsageMatchIndex;`)();
+  const rowKey = new Function(
+    `${transpileTypeScriptFunction(commitSource, 'usageMatchRowKey')}; return usageMatchRowKey;`,
+  )();
+  const normalize = new Function(
+    `${transpileTypeScriptFunction(commitSource, 'normalizeUsageMatchIndex')}; return normalizeUsageMatchIndex;`,
+  )();
   assert.equal(rowKey({ path: 'src/a.ts', line: 3, column: 7 }), 'usage:src/a.ts:3:7');
   assert.notEqual(rowKey({ path: 'a/b.ts', line: 1, column: 1 }), rowKey({ path: 'a-b.ts', line: 1, column: 1 }));
   assert.equal(normalize([], 9), 0);

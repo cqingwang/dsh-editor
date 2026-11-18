@@ -2,24 +2,15 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
+import { transpileTypeScriptFunction } from './ts-source.mjs';
+
+const commitSource = await readFile(new URL('../src/client/commit.ts', import.meta.url), 'utf8');
 const source = (await readFile(new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
 
-function extractFunction(name) {
-  const start = source.indexOf(`function ${name}(`);
-  assert.notEqual(start, -1, `${name} is missing`);
-  const bodyStart = source.indexOf(') {', start) + 2;
-  assert.ok(bodyStart > 1, `${name} has no function body`);
-  let depth = 0;
-  for (let index = bodyStart; index < source.length; index += 1) {
-    if (source[index] === '{') depth += 1;
-    if (source[index] === '}') depth -= 1;
-    if (depth === 0) return source.slice(start, index + 1);
-  }
-  assert.fail(`${name} has no closing brace`);
-}
-
 test('search options persist Include non-project as a normalized boolean', () => {
-  const normalize = new Function(`${extractFunction('normalizeSearchOptions')}; return normalizeSearchOptions;`)();
+  const normalize = new Function(
+    `${transpileTypeScriptFunction(commitSource, 'normalizeSearchOptions')}; return normalizeSearchOptions;`,
+  )();
   assert.equal(normalize(null).includeExcluded, false);
   assert.equal(normalize({ includeExcluded: 'yes' }).includeExcluded, false);
   assert.equal(normalize({ includeExcluded: true }).includeExcluded, true);
@@ -55,7 +46,7 @@ test('Find blank-open restores scope while explicit handoff scope wins', () => {
 
 test('Search Everywhere Find requests always carry an explicit scope', () => {
   const handoff = new Function(
-    `${extractFunction('searchEverywhereRequiresResultConfirmation')}; ${extractFunction('searchFindHandoff')}; return searchFindHandoff;`,
+    `${transpileTypeScriptFunction(commitSource, 'searchEverywhereRequiresResultConfirmation')}; ${transpileTypeScriptFunction(commitSource, 'searchFindHandoff')}; return searchFindHandoff;`,
   )();
   const normal = handoff({ query: 'needle', files: [], matches: [] });
   assert.equal(normal.request.includeExcluded, false);

@@ -2,6 +2,9 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
+import { transpileTypeScriptFunction } from './ts-source.mjs';
+
+const commitSource = await readFile(new URL('../src/client/commit.ts', import.meta.url), 'utf8');
 const source =
   (await readFile(new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url), 'utf8')) +
   '\n' +
@@ -10,20 +13,6 @@ const source =
   (await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8')) +
   '\n' +
   (await readFile(new URL('../src/client/commit.ts', import.meta.url), 'utf8'));
-
-function extractFunction(name) {
-  const start = source.indexOf(`function ${name}(`);
-  assert.notEqual(start, -1, `${name} is missing`);
-  const bodyStart = source.indexOf(') {', start) + 2;
-  assert.ok(bodyStart > 1, `${name} has no function body`);
-  let depth = 0;
-  for (let index = bodyStart; index < source.length; index += 1) {
-    if (source[index] === '{') depth += 1;
-    if (source[index] === '}') depth -= 1;
-    if (depth === 0) return source.slice(start, index + 1);
-  }
-  assert.fail(`${name} has no closing brace`);
-}
 
 function actionIds() {
   const start = source.indexOf('const searchEverywhereActions =');
@@ -58,9 +47,9 @@ test('explicit category inventory covers every exposed search Action', () => {
 });
 
 test('category is presentation metadata and never action filtering input', () => {
-  const ranking = extractFunction('rankSearchActions');
+  const ranking = transpileTypeScriptFunction(commitSource, 'rankSearchActions');
   assert.doesNotMatch(ranking, /category/i);
-  assert.match(ranking, /fuzzyScore\(action\.label, needle, \{ caseSensitive, wholeWords \}\)/);
+  assert.match(ranking, /fuzzyScore\(action\.label, needle, \{\s*caseSensitive,\s*wholeWords,?\s*\}\)/u);
   const dialog = source.slice(source.indexOf('function SearchEverywhere('), source.indexOf('function FindToolWindowView('));
   assert.match(dialog, /const effectiveTab = state\.tab;/);
   assert.match(dialog, /const effectiveQuery = query;/);
@@ -83,7 +72,7 @@ test('base tabs are the only result-scope switch', () => {
 test('disabled Action Item Info keeps both category and reason', () => {
   const itemInfo = new Function(
     'basename',
-    `${extractFunction('searchEverywhereItemInfo')}; return searchEverywhereItemInfo;`,
+    `${transpileTypeScriptFunction(commitSource, 'searchEverywhereItemInfo')}; return searchEverywhereItemInfo;`,
   )((path) => path);
   assert.deepEqual(
     itemInfo(
@@ -108,7 +97,7 @@ test('disabled Action Item Info keeps both category and reason', () => {
 
 test('literal slash queries remain replayable search text', () => {
   const normalize = new Function(
-    `${extractFunction('normalizeRecentSearchEntry')}; return normalizeRecentSearchEntry;`,
+    `${transpileTypeScriptFunction(commitSource, 'normalizeRecentSearchEntry')}; return normalizeRecentSearchEntry;`,
   )();
   assert.equal(normalize(' /actions replace '), '/actions replace');
   assert.equal(normalize('/text Scoped'), '/text Scoped');

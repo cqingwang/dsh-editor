@@ -2,25 +2,14 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+import { transpileTypeScriptFunction } from './ts-source.mjs';
 
-function extractFunction(name) {
-  const start = source.indexOf(`function ${name}(`);
-  assert.notEqual(start, -1, `${name} is missing`);
-  const bodyStart = source.indexOf(') {', start) + 2;
-  assert.ok(bodyStart > 1, `${name} has no function body`);
-  let depth = 0;
-  for (let index = bodyStart; index < source.length; index += 1) {
-    if (source[index] === '{') depth += 1;
-    if (source[index] === '}') depth -= 1;
-    if (depth === 0) return source.slice(start, index + 1);
-  }
-  assert.fail(`${name} has no closing brace`);
-}
+const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+const commitSource = await readFile(new URL('../src/client/commit.ts', import.meta.url), 'utf8');
 
 test('Search Everywhere group navigation lands on the first enabled row of adjacent groups', () => {
   const factory = new Function(
-    `${extractFunction('searchEverywhereResultGroupKey')}; ${extractFunction('searchEverywhereGroupTargetIndex')}; return searchEverywhereGroupTargetIndex;`,
+    `${transpileTypeScriptFunction(commitSource, 'searchEverywhereResultGroupKey')}; ${transpileTypeScriptFunction(commitSource, 'searchEverywhereGroupTargetIndex')}; return searchEverywhereGroupTargetIndex;`,
   )();
   const results = [
     { kind: 'action' },
@@ -37,7 +26,9 @@ test('Search Everywhere group navigation lands on the first enabled row of adjac
 });
 
 test('recent searches form a separate group from Actions', () => {
-  const fn = new Function(`${extractFunction('searchEverywhereResultGroupKey')}; return searchEverywhereResultGroupKey;`)();
+  const fn = new Function(
+    `${transpileTypeScriptFunction(commitSource, 'searchEverywhereResultGroupKey')}; return searchEverywhereResultGroupKey;`,
+  )();
   assert.equal(fn({ history: true, kind: 'action' }), 'recent');
   assert.equal(fn({ kind: 'action' }), 'action');
   assert.equal(fn({ kind: 'file' }), 'file');

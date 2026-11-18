@@ -1,5 +1,48 @@
 # dsh-editor 工程记忆
 
+## 2026-11-18 — terminal.ts 隐式 any 清零与增量类型门禁
+
+**作用域**：`src/client/terminal.ts`、`editor-workspace.tsx` 的 Project selection ref，
+`components/project/ProjectPanel.tsx` 与 `components/diff/DiffPreview.tsx` 的调用契约，
+以及 `tests/client-typescript-source-has-no-semantic-errors.test.mjs`。
+
+**症状/证据**：
+
+- 默认 `tsconfig.json` 未启用 `noImplicitAny`，额外严格审计仍报告 960 个源码错误；
+- `terminal.ts` 单独占 131 个，覆盖 scrollback 持久化、Project 行模型/选择、
+  typeahead、Monaco char range 和 move plan；
+- `previousProjectRowsRef` 声明为 `WorkspaceEntry[]`，实际持续写入 string path，
+  是类型错误暴露出的真实状态契约不一致；
+- 多个旧测试直接对 TS 源码函数使用 `new Function`，函数一旦补真实参数/返回类型就
+  出现 JavaScript 语法错误；另有正则只接受无类型签名。
+
+**根因**：
+
+- 历史业务模块以宽松 JS 形状编写，外部 JSON、Project 行和 Monaco range 都未显式
+  收窄；
+- 测试 helper 与源码类型演进不同步，部分测试仍读取 `lib/client.js` 的已擦除签名；
+- Project selection ref 的旧泛型声明与实际 string path 数组不一致。
+
+**修复**：
+
+- 为 terminal scrollback buffer Map、restore snapshots、Project tree/frame/selection、
+  typeahead、diff char ranges、move plan 补齐具体类型与 unknown 收窄；
+- Project previous-row ref 改为 `React.useRef<string[]>([])`；
+- directory tint、branch label、guide columns 接受宿主真实可选字段并先校验；
+- 测试改用 `transpileTypeScriptFunction` 执行源码 TS，签名断言允许真实类型；
+- 新增增量编译门禁：已清零模块必须在 `--noImplicitAny` 下保持无错误。
+
+**回归**：
+
+- `terminal.ts` 严格错误：**131 → 0**；全局隐式 any 债务：**960 → 820**；
+- `npm run lint:client-types`：ESLint + import AST + `tsc` 全部通过；
+- `npm test`：**2820 pass / 0 fail**；
+- `npm run build:client`、`check:client-build`：13 modules verified；
+- `node --check lib/client.js`、`node --check lib/index.js`、`git diff --check`：通过。
+
+**适用环境**：macOS、Node 24.22.2、TypeScript 5.9.3、ESLint 9.39.5。
+后续继续按模块减少全局 noImplicitAny 债务；已加入 protected list 的文件不得回退。
+
 ## 2026-11-18 — lint 完整门禁清除真实 TypeScript 源码错误
 
 **作用域**：`src/client/terminal.ts`、`editor-core.ts`、`editor-workspace.tsx`、

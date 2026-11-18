@@ -25,7 +25,10 @@ test('Mixed dirty and clean Replace All waits for clean host success before dirt
 
 test('Every dirty path is preflighted and changed file/replacement totals are merged', () => {
   assert.match(replaceAll, /const replacementPlan = planWorkspaceReplacements\(/);
-  assert.match(replacementPlanner, /const dirtyPaths = \[\.\.\.new Set\(dirtyMatches\.map/);
+  assert.match(
+    replacementPlanner,
+    /const dirtyPaths = \[\s*\.\.\.new Set\(dirtyMatches\.map\([\s\S]*?filter\(/u,
+  );
   assert.match(replacementPlanner, /dirtyPlans\.push\(\{ path, model, text: rewritten\.text, count: rewritten\.count \}\)/);
   assert.match(replaceAll, /const dirtyReplacements = dirtyCommit\.count/);
   assert.match(replaceAll, /const changed = \[\.\.\.new Set\(\[\.\.\.hostChanged, \.\.\.dirtyChanged\]\)\]/);

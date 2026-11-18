@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -15,6 +15,29 @@ test('the TypeScript client source passes semantic type checking', () => {
     encoding: 'utf8',
   });
   assert.equal(output.trim(), '');
+});
+
+test('cleaned client modules stay free of implicit any compiler errors', () => {
+  const protectedFiles = [
+    'src/client/code-navigation.ts',
+    'src/client/commit.ts',
+    'src/client/controller.ts',
+    'src/client/diff.ts',
+    'src/client/editor-core.ts',
+    'src/client/find-tool.ts',
+    'src/client/project.ts',
+    'src/client/terminal.ts',
+  ];
+  const result = spawnSync(
+    process.execPath,
+    [typescriptCompiler, '-p', 'tsconfig.json', '--noImplicitAny', '--pretty', 'false'],
+    { cwd: root, encoding: 'utf8' },
+  );
+  const output = `${result.stdout ?? ''}${result.stderr ?? ''}`;
+  const offenders = output
+    .split('\n')
+    .filter((line) => protectedFiles.some((file) => line.startsWith(`${file}(`)));
+  assert.deepEqual(offenders, []);
 });
 
 test('the shared TypeScript config declares JSX for command-line and editor services', async () => {

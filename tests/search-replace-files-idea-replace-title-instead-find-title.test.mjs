@@ -29,7 +29,7 @@ test('The popup Replace row keeps New Line beside Preserve case', () => {
 });
 
 test('Replace mode keeps the same flat popup chrome and bottom actions', () => {
-  assert.match(findTool, /const popupOccurrences = \[/);
+  assert.match(findTool, /const popupOccurrences(?::\s*[^=]+)? = \[/);
   assert.match(findTool, /actions=\{floating \? popupHeaderActions : toolbarActions\}/u);
   assert.match(findTool, /t\('editor\.searchReplaceAll'\)/);
   assert.match(findTool, /t\('editor\.replaceCurrent'\)/);

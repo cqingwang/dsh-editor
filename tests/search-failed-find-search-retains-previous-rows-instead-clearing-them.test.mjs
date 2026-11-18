@@ -44,7 +44,7 @@ test('Replace actions stay disabled while the search result is in error', () => 
   );
   assert.match(
     findTool,
-    /disabled=\{\s+state\.replaceBusy === true \|\|\s+state\.loading === true \|\|\s+state\.error !== null \|\|\s+active\?\.kind !== 'text'\s+\}/u,
+    /disabled=\{\s+state\.replaceBusy === true \|\|\s+state\.loading === true \|\|\s+state\.error !== null \|\|\s+activeTextOccurrence === null\s+\}/u,
   );
   assert.match(source, /findReplaceSearchError: '搜索失败，请重试后再替换'/u);
   assert.match(source, /findReplaceSearchError: 'Search failed; retry before replacing'/u);

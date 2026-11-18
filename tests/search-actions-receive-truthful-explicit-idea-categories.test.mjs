@@ -2,33 +2,22 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
+import { transpileTypeScriptFunction } from './ts-source.mjs';
+
+const commitSource = await readFile(new URL('../src/client/commit.ts', import.meta.url), 'utf8');
 const source =
   (await readFile(new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url), 'utf8')) +
   '\n' +
   (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
 
-function extractFunction(name) {
-  const start = source.indexOf(`function ${name}(`);
-  assert.notEqual(start, -1, `${name} is missing`);
-  const bodyStart = source.indexOf(') {', start) + 2;
-  assert.ok(bodyStart > 1, `${name} has no function body`);
-  let depth = 0;
-  for (let index = bodyStart; index < source.length; index += 1) {
-    if (source[index] === '{') depth += 1;
-    if (source[index] === '}') depth -= 1;
-    if (depth === 0) return source.slice(start, index + 1);
-  }
-  assert.fail(`${name} has no closing brace`);
-}
-
 test('search Actions receive truthful explicit IDEA categories', () => {
-  const mapStart = source.indexOf('const SEARCH_EVERYWHERE_ACTION_CATEGORY_KEYS');
-  const mapTail = source.slice(mapStart).match(/\]\s*\);/u);
+  const mapStart = commitSource.indexOf('const SEARCH_EVERYWHERE_ACTION_CATEGORY_KEYS');
+  const mapTail = commitSource.slice(mapStart).match(/\]\s*\);/u);
   const mapEnd = mapTail === null ? -1 : mapStart + mapTail.index + mapTail[0].length;
   assert.ok(mapStart >= 0 && mapEnd > mapStart);
   const category = new Function(
-    `${source.slice(mapStart, mapEnd)};` +
-      `${extractFunction('searchEverywhereActionCategory')};` +
+    `${commitSource.slice(mapStart, mapEnd)};` +
+      `${transpileTypeScriptFunction(commitSource, 'searchEverywhereActionCategory')};` +
       'return searchEverywhereActionCategory;',
   )();
   const t = (key) => key;
@@ -61,7 +50,7 @@ test('category is removed before narrow rows squeeze primary content', () => {
 
 test('tooltip and Item Info carry category metadata', () => {
   const tooltip = new Function(
-    `${extractFunction('searchEverywhereResultTooltip')}; return searchEverywhereResultTooltip;`,
+    `${transpileTypeScriptFunction(commitSource, 'searchEverywhereResultTooltip')}; return searchEverywhereResultTooltip;`,
   )();
   assert.equal(
     tooltip({ label: 'Replace…', description: 'Replace', category: 'Edit | Find', shortcut: '⌘R' }),
@@ -69,7 +58,7 @@ test('tooltip and Item Info carry category metadata', () => {
   );
   const itemInfo = new Function(
     'basename',
-    `${extractFunction('searchEverywhereItemInfo')}; return searchEverywhereItemInfo;`,
+    `${transpileTypeScriptFunction(commitSource, 'searchEverywhereItemInfo')}; return searchEverywhereItemInfo;`,
   )((path) => path.split('/').at(-1));
   assert.deepEqual(
     itemInfo(

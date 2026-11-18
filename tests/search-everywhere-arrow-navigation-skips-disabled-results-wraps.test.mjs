@@ -45,7 +45,7 @@ test('disabled actions expose a reason and cannot be activated', () => {
   assert.match(dialog, /nextEnabledSearchResultIndex\(results, activeIndex, direction\)/);
   assert.match(dialog, /moveSearchSelection\(1\)/);
   assert.match(dialog, /moveSearchSelection\(-1\)/);
-  assert.match(source, /function searchEverywhereResultTooltip\(result\)/);
+  assert.match(source, /function searchEverywhereResultTooltip\(result(?::\s*[^)]+)?\)(?::\s*[^{]+)?/);
   assert.match(source, /result\.disabledReason \?\?/);
   assert.match(dialog, /if \(result === null \|\| result\.disabled === true\) return/);
 });

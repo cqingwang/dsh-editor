@@ -14,7 +14,10 @@ function findTool() {
 
 test('Search Everywhere and Find share one result context menu model', () => {
   assert.match(source, /function searchResultContextItems\(\{/);
-  assert.match(source, /function copySearchResultText\(text, onNotify, t\)/);
+  assert.match(
+    source,
+    /function copySearchResultText\(\s*text(?::\s*[^,]+)?,\s*onNotify(?::\s*[^,]+)?,\s*t(?::\s*[^)]+)?\)(?::\s*[^{]+)?/,
+  );
   assert.match(source, /t\('editor\.openInRightSplit'\)/);
   assert.match(source, /t\('editor\.openInEditor'\)/);
   assert.match(source, /t\('editor\.copyRelativePath'\)/);

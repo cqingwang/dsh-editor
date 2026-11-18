@@ -18,8 +18,11 @@ test('Find in Files popup uses IDEA dialog dimensions instead of a wide sheet', 
 });
 
 test('Find in Files popup uses flat result rows and reserves the tree for the dock', () => {
-  assert.match(findTool, /const popupOccurrences = \[/);
-  assert.match(findTool, /const occurrences = floating \? popupOccurrences : dockVisibleRows\.rows/);
+  assert.match(findTool, /const popupOccurrences(?::\s*[^=]+)? = \[/);
+  assert.match(
+    findTool,
+    /const occurrences(?::\s*[^=]+)? = floating \? popupOccurrences : dockVisibleRows\.rows/,
+  );
   assert.match(findTool, /floating[\s\S]*?data-dsh-find-popup-result/);
   assert.match(findTool, /displayGroups\.map[\s\S]*?data-dsh-find-group/);
 });

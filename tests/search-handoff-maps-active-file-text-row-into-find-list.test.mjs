@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
+import { transpileTypeScriptFunction } from './ts-source.mjs';
+
 const searchEverywhereSource = await readFile(
   new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url),
   'utf8',
@@ -16,28 +18,7 @@ const source = [
 ].join('\n');
 
 function extractSource(name) {
-  const marker = `function ${name}(`;
-  const start = source.indexOf(marker);
-  assert.notEqual(start, -1, `${name} should exist`);
-  let index = source.indexOf('(', start);
-  let parenDepth = 0;
-  for (; index < source.length; index += 1) {
-    if (source[index] === '(') parenDepth += 1;
-    else if (source[index] === ')') {
-      parenDepth -= 1;
-      if (parenDepth === 0) break;
-    }
-  }
-  index = source.indexOf('{', index);
-  let depth = 0;
-  for (; index < source.length; index += 1) {
-    if (source[index] === '{') depth += 1;
-    else if (source[index] === '}') {
-      depth -= 1;
-      if (depth === 0) return source.slice(start, index + 1);
-    }
-  }
-  assert.fail(`unterminated ${name}`);
+  return transpileTypeScriptFunction(commitSource, name);
 }
 
 function handoffFactory() {

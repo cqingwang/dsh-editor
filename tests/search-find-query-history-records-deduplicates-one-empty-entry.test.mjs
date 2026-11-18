@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
+import { transpileTypeScriptFunction } from './ts-source.mjs';
+
 const searchEverywhereSource = await readFile(
   new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url),
   'utf8',
@@ -15,32 +17,31 @@ const source = [
   commitSource,
 ].join('\n');
 
-function extractFunction(name) {
-  const start = commitSource.indexOf(`function ${name}(`);
+function extractSourceFunction(name, text = commitSource) {
+  const start = text.indexOf(`function ${name}(`);
   assert.notEqual(start, -1, `${name} is missing`);
-  const bodyStart = commitSource.indexOf(') {', start) + 2;
-  assert.ok(bodyStart > 1, `${name} has no function body`);
+  const bodyStart = text.indexOf('{', start);
   let depth = 0;
-  for (let index = bodyStart; index < commitSource.length; index += 1) {
-    if (commitSource[index] === '{') depth += 1;
-    if (commitSource[index] === '}') depth -= 1;
-    if (depth === 0) return commitSource.slice(start, index + 1);
+  for (let index = bodyStart; index < text.length; index += 1) {
+    if (text[index] === '{') depth += 1;
+    if (text[index] === '}') depth -= 1;
+    if (depth === 0) return text.slice(start, index + 1);
   }
   assert.fail(`${name} has no closing brace`);
 }
 
 function rememberFindQueryHistory() {
   return new Function(
-    `${extractFunction('normalizeFindQueryHistoryEntry')};`
-      + `${extractFunction('rememberFindQueryHistory')};`
+    `${transpileTypeScriptFunction(commitSource, 'normalizeFindQueryHistoryEntry')};`
+      + `${transpileTypeScriptFunction(commitSource, 'rememberFindQueryHistory')};`
       + 'return rememberFindQueryHistory;',
   )();
 }
 
 function rememberReplacementHistory() {
   return new Function(
-    `${extractFunction('normalizeReplacementHistoryEntry')};`
-      + `${extractFunction('rememberReplacementHistory')};`
+    `${transpileTypeScriptFunction(commitSource, 'normalizeReplacementHistoryEntry')};`
+      + `${transpileTypeScriptFunction(commitSource, 'rememberReplacementHistory')};`
       + 'return rememberReplacementHistory;',
   )();
 }
@@ -62,8 +63,8 @@ test('Replacement history records and deduplicates one empty entry', () => {
 });
 
 test('Workspace recorders accept empty query and replacement without trimming', () => {
-  const findRecorder = extractFunction('rememberWorkspaceFindQuery');
-  const replacementRecorder = extractFunction('rememberWorkspaceReplacement');
+  const findRecorder = extractSourceFunction('rememberWorkspaceFindQuery');
+  const replacementRecorder = extractSourceFunction('rememberWorkspaceReplacement');
   assert.match(findRecorder, /typeof query !== 'string'/u);
   assert.doesNotMatch(findRecorder, /query === ''/u);
   assert.match(replacementRecorder, /typeof replacement !== 'string'/u);
@@ -71,23 +72,19 @@ test('Workspace recorders accept empty query and replacement without trimming', 
 });
 
 test('Reading and writing history does not append a synthetic blank entry', () => {
-  const findRead = source.slice(
-    source.indexOf('function readFindQueryHistory(root)'),
-    source.indexOf('function writeFindQueryHistory(root, history)'),
-  );
-  const findWrite = source.slice(
-    source.indexOf('function writeFindQueryHistory(root, history)'),
+  const findRead = extractSourceFunction('readFindQueryHistory', source);
+  const findWrite = extractSourceFunction('writeFindQueryHistory', source);
+  const replaceRead = extractSourceFunction('readReplaceHistory', source);
+  const replaceWrite = extractSourceFunction('writeReplaceHistory', source);
+  const findWriteTail = source.slice(
+    source.indexOf('function writeFindQueryHistory('),
     source.indexOf('/** Per-workspace Find Usages history key. */'),
   );
-  const replaceRead = source.slice(
-    source.indexOf('function readReplaceHistory(root)'),
-    source.indexOf('function writeReplaceHistory(root, history)'),
-  );
-  const replaceWrite = source.slice(
-    source.indexOf('function writeReplaceHistory(root, history)'),
+  const replaceWriteTail = source.slice(
+    source.indexOf('function writeReplaceHistory('),
     source.indexOf('/**\n     * Record one successful query for a workspace.'),
   );
-  for (const block of [findRead, findWrite, replaceRead, replaceWrite]) {
+  for (const block of [findRead, findWriteTail, replaceRead, replaceWriteTail]) {
     assert.match(block, /,\s+undefined,\s+20\)/u);
   }
 });

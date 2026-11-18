@@ -40,7 +40,7 @@ test('Replace All preflights dirty buffers and sends only clean targets to the h
   assert.match(replacementPlanner, /const cleanMatches/);
   assert.match(replacementPlanner, /editorReplaceAll\(/);
   assert.match(replaceAll, /commitFindToolDirtyPlans\(dirtyPlans\)/);
-  assert.match(source, /function commitFindToolDirtyPlans\(plans\)/);
+  assert.match(source, /function commitFindToolDirtyPlans\(plans(?::\s*[^)]+)?\)(?::\s*[^{]+)?/);
   assert.match(source, /model\.pushStackElement\?\.\(\)/);
   assert.match(source, /model\.pushEditOperations/);
   assert.match(replaceAll, /targets: \[\.\.\.cleanTargets\.values\(\)\]/);

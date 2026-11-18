@@ -85,6 +85,22 @@ interface SearchTextResult {
   [key: string]: unknown;
 }
 
+type FindToolOccurrenceRow =
+  | (SearchFileResult & {
+      kind: 'file';
+      rowKey: string;
+      line?: number;
+      column?: number;
+      preview?: string;
+      dirty?: boolean;
+    })
+  | (SearchTextResult & {
+      kind: 'text';
+      rowKey: string;
+      preview?: string;
+      dirty?: boolean;
+    });
+
 interface FindCustomScope {
   id: string;
   name?: string;
@@ -347,19 +363,19 @@ function FindToolWindowView({
       );
   const dockVisibleRows = findToolVisibleRows(scopedFileResults, scopedMatches, collapsedFiles, findGroupBy);
   const groups = dockVisibleRows.groups;
-  const popupOccurrences = [
+  const popupOccurrences: FindToolOccurrenceRow[] = [
     ...scopedFileResults.map((file) => ({
       ...file,
-      kind: 'file',
+      kind: 'file' as const,
       rowKey: `file:${file.path}`,
     })),
     ...scopedMatches.map((match) => ({
       ...match,
-      kind: 'text',
+      kind: 'text' as const,
       rowKey: `text:${match.path}:${match.line}:${match.column}`,
     })),
   ];
-  const occurrences = floating ? popupOccurrences : dockVisibleRows.rows;
+  const occurrences: FindToolOccurrenceRow[] = floating ? popupOccurrences : dockVisibleRows.rows;
   const displayGroups = findToolDisplayGroups(groups, findGroupBy);
   const fileMaskSuggestionPaths = [
     ...(activeFilePath === null ? [] : [activeFilePath]),
@@ -375,6 +391,7 @@ function FindToolWindowView({
     : (groups[0]?.path ?? null);
   const activeIndex = Math.max(0, Math.min(Number(state.index) || 0, Math.max(0, occurrences.length - 1)));
   const active = occurrences[activeIndex] ?? null;
+  const activeTextOccurrence = active?.kind === 'text' ? active : null;
   const replaceAllDisabledReason =
     state.replaceBusy === true
       ? t('editor.findReplaceBusy')
@@ -2045,7 +2062,9 @@ function FindToolWindowView({
                     data-dsh-find-active={position === activeIndex ? '1' : '0'}
                     data-dsh-find-popup-result={isText ? 'text' : 'file'}
                     title={
-                      isText ? `${result.path}:${result.line}:${result.column} ${result.preview ?? ''}` : result.path
+                      result.kind === 'text'
+                        ? `${result.path}:${result.line}:${result.column} ${result.preview ?? ''}`
+                        : result.path
                     }
                     style={{
                       ...styles.findToolPopupResult,
@@ -2443,19 +2462,23 @@ function FindToolWindowView({
                   ...styles.conflictAction,
                   ...styles.findToolBottomAction,
                   opacity:
-                    state.replaceBusy || state.loading || state.error !== null || active?.kind !== 'text' ? 0.45 : 1,
+                    state.replaceBusy || state.loading || state.error !== null || activeTextOccurrence === null
+                      ? 0.45
+                      : 1,
                 }}
                 data-dsh-find-bottom-action='replace'
                 disabled={
                   state.replaceBusy === true ||
                   state.loading === true ||
                   state.error !== null ||
-                  active?.kind !== 'text'
+                  activeTextOccurrence === null
                 }
                 title={replaceCurrentDisabledReason || `${t('editor.replaceCurrent')} (Enter)`}
                 aria-description={replaceCurrentDisabledReason || undefined}
                 aria-keyshortcuts='Enter'
-                onClick={() => onReplaceOccurrence(active, activeIndex)}>
+                onClick={() => {
+                  if (activeTextOccurrence !== null) onReplaceOccurrence(activeTextOccurrence, activeIndex);
+                }}>
                 {t('editor.replaceCurrent')}
               </button>
             </React.Fragment>

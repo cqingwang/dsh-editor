@@ -5,6 +5,8 @@ import { join } from 'node:path';
 import { readFile as readSource } from 'node:fs/promises';
 import test from 'node:test';
 
+import { transpileTypeScriptFunction } from './ts-source.mjs';
+
 const host = await import('../lib/index.js');
 const commitSource = await readSource(new URL('../src/client/commit.ts', import.meta.url), 'utf8');
 const source = [
@@ -16,23 +18,9 @@ const source = [
 ].join('\n');
 const hostSource = await readSource(new URL('../lib/index.js', import.meta.url), 'utf8');
 
-function extractFunction(name) {
-  const start = commitSource.indexOf(`function ${name}(`);
-  assert.notEqual(start, -1, `${name} is missing`);
-  const bodyStart = commitSource.indexOf(') {', start) + 2;
-  assert.ok(bodyStart > 1, `${name} has no function body`);
-  let depth = 0;
-  for (let index = bodyStart; index < commitSource.length; index += 1) {
-    if (commitSource[index] === '{') depth += 1;
-    if (commitSource[index] === '}') depth -= 1;
-    if (depth === 0) return commitSource.slice(start, index + 1);
-  }
-  assert.fail(`${name} has no closing brace`);
-}
-
 test('search options persist Preserve case as a single normalized boolean', () => {
   const normalize = new Function(
-    `${extractFunction('normalizeSearchOptions')}; return normalizeSearchOptions;`,
+    `${transpileTypeScriptFunction(commitSource, 'normalizeSearchOptions')}; return normalizeSearchOptions;`,
   )();
   assert.equal(normalize(null).preserveCase, false);
   assert.equal(normalize({ preserveCase: 'yes' }).preserveCase, false);
@@ -41,7 +29,7 @@ test('search options persist Preserve case as a single normalized boolean', () =
 
 test('Search Everywhere handoff and every workspace replace request carry Preserve case', () => {
   const handoff = new Function(
-    `${extractFunction('searchEverywhereRequiresResultConfirmation')}; ${extractFunction('searchFindHandoff')}; return searchFindHandoff;`,
+    `${transpileTypeScriptFunction(commitSource, 'searchEverywhereRequiresResultConfirmation')}; ${transpileTypeScriptFunction(commitSource, 'searchFindHandoff')}; return searchFindHandoff;`,
   )();
   const request = handoff({
     query: 'foo',

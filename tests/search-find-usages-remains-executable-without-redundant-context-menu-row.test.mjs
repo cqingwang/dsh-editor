@@ -5,16 +5,17 @@ import test from 'node:test';
 import { transpileTypeScriptFunction } from './ts-source.mjs';
 
 const workspaceSource = await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8');
+const commitSource = await readFile(new URL('../src/client/commit.ts', import.meta.url), 'utf8');
 const source = [
   workspaceSource,
   await readFile(new URL('../src/client/editor-core.ts', import.meta.url), 'utf8'),
   await readFile(new URL('../src/client/foundation.ts', import.meta.url), 'utf8'),
-  await readFile(new URL('../src/client/commit.ts', import.meta.url), 'utf8'),
+  commitSource,
   await readFile(new URL('../src/client/terminal.ts', import.meta.url), 'utf8'),
 ].join('\n');
 
-function extractSource(name) {
-  return transpileTypeScriptFunction(source, name);
+function extractSource(name, text = source) {
+  return transpileTypeScriptFunction(text, name);
 }
 
 function createGroupHarness() {
@@ -26,7 +27,7 @@ function createGroupHarness() {
      const EDITOR_CODE_LINE_HEIGHT = 20;
      ${extractSource('isMacPlatform')}
      ${extractSource('ideaControlKeyModifier')}
-     ${extractSource('findUsagesSearchTarget')}
+     ${extractSource('findUsagesSearchTarget', commitSource)}
      ${extractSource('editorFindSelectionScope')}
      ${extractSource('filterMonacoContextMenuActions')}
      ${extractSource('createCodeEditorGroup')};

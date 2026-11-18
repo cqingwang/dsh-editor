@@ -49,8 +49,11 @@ test('host pruning and path filtering honor recursive=false', () => {
 });
 
 test('Find UI persists recursive state and invalidates requests when toggled', () => {
-  assert.match(source, /function readFindDirectoryRecursive\(root\)/u);
-  assert.match(source, /function writeFindDirectoryRecursive\(root, recursive\)/u);
+  assert.match(source, /function readFindDirectoryRecursive\(root(?::\s*[^)]+)?\)(?::\s*[^{]+)?/u);
+  assert.match(
+    source,
+    /function writeFindDirectoryRecursive\(root(?::\s*[^,)]+)?,\s*recursive(?::\s*[^)]+)?\)(?::\s*[^{]+)?/u,
+  );
   assert.match(source, /dsh-editor\.find\.directoryRecursive:/u);
   assert.match(
     source,

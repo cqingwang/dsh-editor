@@ -11,8 +11,8 @@ const editorCoreSource = await readFile(new URL('../src/client/editor-core.ts', 
 const terminalSource = await readFile(new URL('../src/client/terminal.ts', import.meta.url), 'utf8');
 const implementationSource = [foundationSource, commitSource, editorCoreSource, terminalSource].join('\n');
 
-function extractFunction(name) {
-  return transpileTypeScriptFunction(implementationSource, name);
+function extractFunction(name, text = implementationSource) {
+  return transpileTypeScriptFunction(text, name);
 }
 
 function createGroupHarness(platform) {
@@ -66,7 +66,7 @@ function createGroupHarness(platform) {
      const EDITOR_CODE_LINE_HEIGHT = 20;
      ${extractFunction('isMacPlatform')}
      ${extractFunction('ideaControlKeyModifier')}
-     ${extractFunction('findUsagesSearchTarget')}
+     ${extractFunction('findUsagesSearchTarget', commitSource)}
      ${extractFunction('editorFindSelectionScope')}
      ${extractFunction('filterMonacoContextMenuActions')}
      ${extractFunction('createCodeEditorGroup')};

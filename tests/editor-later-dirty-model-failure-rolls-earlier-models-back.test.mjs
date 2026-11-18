@@ -2,7 +2,10 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
+import { transpileTypeScriptFunction } from './ts-source.mjs';
+
 const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+const commitSource = await readFile(new URL('../src/client/commit.ts', import.meta.url), 'utf8');
 const replaceAll = source.slice(
   source.indexOf('const replaceInFindTool = React.useCallback'),
   source.indexOf('const replaceFindToolOccurrence = React.useCallback'),
@@ -10,7 +13,7 @@ const replaceAll = source.slice(
 
 test('A later dirty-model failure rolls earlier models back', async () => {
   const commit = new Function(
-    `${extractFunction('commitFindToolDirtyPlans')}; return commitFindToolDirtyPlans;`,
+    `${transpileTypeScriptFunction(commitSource, 'commitFindToolDirtyPlans')}; return commitFindToolDirtyPlans;`,
   )();
   const a = fakeModel('original-a');
   const b = fakeModel('original-b', true);
@@ -29,7 +32,7 @@ test('A later dirty-model failure rolls earlier models back', async () => {
 
 test('Successful dirty commit returns one synchronised content set', () => {
   const commit = new Function(
-    `${extractFunction('commitFindToolDirtyPlans')}; return commitFindToolDirtyPlans;`,
+    `${transpileTypeScriptFunction(commitSource, 'commitFindToolDirtyPlans')}; return commitFindToolDirtyPlans;`,
   )();
   const a = fakeModel('R654_TOKEN');
   const b = fakeModel('R654_TOKEN');
@@ -74,16 +77,3 @@ function fakeModel(initial, fail = false) {
   };
 }
 
-function extractFunction(name) {
-  const start = source.indexOf(`function ${name}(`);
-  assert.notEqual(start, -1, `${name} is missing`);
-  const bodyStart = source.indexOf(') {', start) + 2;
-  assert.ok(bodyStart > 1, `${name} has no function body`);
-  let depth = 0;
-  for (let index = bodyStart; index < source.length; index += 1) {
-    if (source[index] === '{') depth += 1;
-    if (source[index] === '}') depth -= 1;
-    if (depth === 0) return source.slice(start, index + 1);
-  }
-  assert.fail(`${name} has no closing brace`);
-}
