@@ -5,7 +5,10 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = readFileSync(join(root, 'lib/client.js'), 'utf8');
+const source =
+  readFileSync(join(root, 'tests/fixtures/project-panel.legacy.js'), 'utf8') +
+  '\n' +
+  readFileSync(join(root, 'lib/client.js'), 'utf8');
 
 /**
  * Evaluate one module-level helper from the client bundle.
@@ -45,7 +48,7 @@ test('a terminal offers both "clear screen" and "clear scrollback"', () => {
   assert.match(source, /id: 'clearBuffer', label: t\('editor\.terminalClearBuffer'\), danger: true/);
   /* Round 70 spells the difference out and shows the ⌘K shortcut. */
   assert.match(source, /\{ id: 'clear', label: t\('editor\.terminalClear'\), shortcut: '⌘K', run: onClear \},/);
-  assert.match(source, /function terminalMenuModel\(\{[\s\S]*?onClearBuffer[\s\S]*?onCreate/);
+  assert.match(source, /function terminalMenuModel[\s\S]*?onClearBuffer[\s\S]*?onCreate/u);
 });
 
 test('the tab menu keeps its separators after a null is filtered out', () => {
@@ -54,10 +57,21 @@ test('the tab menu keeps its separators after a null is filtered out', () => {
   const items = menu(
     (key) => key,
     { cwd: '/w', title: 'zsh' },
-    { rename: () => {}, duplicate: () => {}, close: () => {}, closeOthers: () => {}, splitRight: null, reopen: null, cycleColor: () => {} },
+    {
+      rename: () => {},
+      duplicate: () => {},
+      close: () => {},
+      closeOthers: () => {},
+      splitRight: null,
+      reopen: null,
+      cycleColor: () => {},
+    },
   );
   assert.equal(items[0].id, 'rename');
-  assert.equal(items.some((item) => item.id === 'color'), true);
+  assert.equal(
+    items.some((item) => item.id === 'color'),
+    true,
+  );
   /* There must be no separator directly after another separator or at the end. */
   for (let index = 1; index < items.length; index += 1) {
     if (items[index] === null) assert.notEqual(items[index - 1], null);

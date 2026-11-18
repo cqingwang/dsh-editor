@@ -108,15 +108,16 @@ test('Commit Log exposes parent and child actions and wires IDEA arrow keys', as
   assert.match(client, /goToParentCommitAction: 'Go to Parent Commit'/);
   assert.match(client, /goToChildCommitAction: 'Go to Child Commit'/);
   const graphKeys = client.slice(
-    client.indexOf('const keys = graphRows;'),
-    client.indexOf("if (event.key === 'ArrowDown' || event.key === 'ArrowUp')", client.indexOf('const keys = graphRows;')),
+    client.indexOf('commitLogGraphListCommand('),
+    client.indexOf("if (command?.type === 'move')", client.indexOf('commitLogGraphListCommand(')),
   );
-  assert.match(graphKeys, /event\.key === 'ArrowRight'[\s\S]*?commitRelationTarget\([\s\S]*?'parents' : 'children'/);
+  assert.match(graphKeys, /command\?\.type === 'relation'[\s\S]*?commitRelationTarget\([\s\S]*?command\.direction/);
   const flatKeys = client.slice(
-    client.indexOf('const keys = visible;'),
-    client.indexOf("const action = event.key === 'ArrowDown'", client.indexOf('const keys = visible;')),
+    client.indexOf('commitLogFlatListCommand('),
+    client.indexOf("if (command?.type !== 'row')", client.indexOf('commitLogFlatListCommand(')),
   );
-  assert.match(flatKeys, /event\.key === 'ArrowRight'[\s\S]*?commitRelationTarget\([\s\S]*?'parents' : 'children'/);
+  assert.match(flatKeys, /command\?\.type === 'relation'[\s\S]*?commitRelationTarget\(visible, selected, command\.direction\)/);
+  assert.match(client, /if \(key === 'ArrowRight'\) return \{ type: 'relation', direction: 'parents' \}/);
   assert.match(host, /--pretty=format:%H%x1f%an%x1f%aI%x1f%s%x1f%P%x1e/);
   assert.match(host, /parents: parents === '' \? \[\]/);
 });

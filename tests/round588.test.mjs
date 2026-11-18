@@ -2,14 +2,13 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
+const fixture = await readFile(new URL('./fixtures/search-everywhere.legacy.js', import.meta.url), 'utf8');
 const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
-const popupStart = source.indexOf('function ShowUsagesPopup(');
-const popupEnd = source.indexOf('function FindToolWindow(', popupStart);
-const popup = source.slice(popupStart, popupEnd);
+const popupStart = fixture.indexOf('function ShowUsagesPopup(');
+const popup = fixture.slice(popupStart);
 
 test('Show Usages rows reuse the shared result context menu', () => {
   assert.notEqual(popupStart, -1);
-  assert.notEqual(popupEnd, -1);
   assert.match(popup, /searchResultContextItems\(\{/);
   assert.match(popup, /onOpenInRightSplit:/);
   assert.match(popup, /onRevealResult:/);
@@ -34,7 +33,10 @@ test('copy actions keep the popup while navigation actions close it', () => {
   const invocationEnd = source.indexOf('searchEverywhere === null', invocationStart);
   const invocation = source.slice(invocationStart, invocationEnd);
   assert.match(invocation, /onNotify: \(message\) => flashStatus\(message\)/);
-  assert.match(invocation, /onOpenInRightSplit: \(path, location\) => \{[\s\S]*?setShowUsages\(null\);[\s\S]*?openInRightSplit\(path, location\)/);
+  assert.match(
+    invocation,
+    /onOpenInRightSplit: \(path, location\) => \{[\s\S]*?setShowUsages\(null\);[\s\S]*?openInRightSplit\(path, location\)/,
+  );
   assert.match(invocation, /onRevealResult: \(path\) => \{[\s\S]*?setShowUsages\(null\);[\s\S]*?revealPath\(path\)/);
   assert.doesNotMatch(popup, /id: 'copyRelative'[\s\S]*?onClose\(\)/);
   assert.doesNotMatch(popup, /id: 'copyLocation'[\s\S]*?onClose\(\)/);

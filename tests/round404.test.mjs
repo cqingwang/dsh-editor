@@ -3,7 +3,10 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
-const preview = source.slice(source.indexOf('function MarkdownPreviewPane('), source.indexOf('/**\n     * One file tab'));
+const preview = await readFile(
+  new URL('../src/client/components/editor/MarkdownPreviewPane.tsx', import.meta.url),
+  'utf8',
+);
 
 test('a new valid Markdown link attempt clears the previous inline error', () => {
   assert.match(preview, /const resolved = resolveMarkdownLink\(path, target\);/);
@@ -12,6 +15,6 @@ test('a new valid Markdown link attempt clears the previous inline error', () =>
 });
 
 test('successful opens do not restore the previous link error', () => {
-  assert.match(preview, /if \(opened === false\) setLinkError\(/);
+  assert.match(preview, /if \(opened === false\) \{\s+setLinkError\(/s);
   assert.doesNotMatch(preview, /if \(opened === true\) setLinkError\(/);
 });

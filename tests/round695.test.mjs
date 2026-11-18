@@ -4,22 +4,16 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
+import { extractJavaScriptFunctionSource } from './ts-source.mjs';
+
 const host = await import('../lib/index.js');
-const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+const source =
+  (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) +
+  '\n' +
+  (await readFile(new URL('./fixtures/find-tool.legacy.js', import.meta.url), 'utf8'));
 
 function extractFunction(name) {
-  const plain = source.indexOf(`    function ${name}(`);
-  const asynchronous = source.indexOf(`    async function ${name}(`);
-  const start = plain >= 0 ? plain : asynchronous;
-  assert.notEqual(start, -1, `${name} is missing`);
-  const bodyStart = source.indexOf('{', start);
-  let depth = 0;
-  for (let index = bodyStart; index < source.length; index += 1) {
-    if (source[index] === '{') depth += 1;
-    if (source[index] === '}') depth -= 1;
-    if (depth === 0) return source.slice(start, index + 1);
-  }
-  assert.fail(`${name} has no closing brace`);
+  return extractJavaScriptFunctionSource(source, name);
 }
 
 function clientTextContextHelpers() {
@@ -32,7 +26,9 @@ function clientTextContextHelpers() {
     'editorRegexReplacementText',
     'editorReplaceAt',
     'editorReplaceAll',
-  ].map(extractFunction).join('\n');
+  ]
+    .map(extractFunction)
+    .join('\n');
   return new Function(
     `${source.slice(start, end)}\n${functions}\nreturn { editorFindResult, editorReplaceAt, editorReplaceAll };`,
   )();
@@ -71,13 +67,9 @@ test('host Replace All and exact replacement obey the same lexical filter', asyn
   await writeFile(path, CONTEXT_FIXTURE, 'utf8');
 
   const before = await stat(path);
-  const comments = await host.replaceWorkspaceText(
-    root,
-    'needle',
-    'omega',
-    [{ path: 'a.ts', mtime: before.mtimeMs }],
-    { contextFilter: 'comments' },
-  );
+  const comments = await host.replaceWorkspaceText(root, 'needle', 'omega', [{ path: 'a.ts', mtime: before.mtimeMs }], {
+    contextFilter: 'comments',
+  });
   assert.equal(comments.replacements, 2);
   assert.equal(
     await readFile(path, 'utf8'),
@@ -86,13 +78,11 @@ test('host Replace All and exact replacement obey the same lexical filter', asyn
 
   const current = await stat(path);
   await assert.rejects(
-    () => host.replaceWorkspaceText(
-      root,
-      'needle',
-      'bad',
-      [{ path: 'a.ts', mtime: current.mtimeMs }],
-      { contextFilter: 'comments', occurrence: { line: 1, column: 11 } },
-    ),
+    () =>
+      host.replaceWorkspaceText(root, 'needle', 'bad', [{ path: 'a.ts', mtime: current.mtimeMs }], {
+        contextFilter: 'comments',
+        occurrence: { line: 1, column: 11 },
+      }),
     /search result no longer matches/u,
   );
 });
@@ -108,7 +98,10 @@ test('lexical filtering composes with Regex search and capture replacement', asy
     regex: true,
     contextFilter: 'comments',
   });
-  assert.deepEqual(search.matches.map((match) => [match.line, match.column]), [[2, 4]]);
+  assert.deepEqual(
+    search.matches.map((match) => [match.line, match.column]),
+    [[2, 4]],
+  );
 
   const info = await stat(path);
   const replaced = await host.replaceWorkspaceText(
@@ -124,10 +117,13 @@ test('lexical filtering composes with Regex search and capture replacement', asy
 
 test('dirty Monaco buffers use the same lexical search and Replace All rules', () => {
   const helpers = clientTextContextHelpers();
-  const matches = (contextFilter) => helpers.editorFindResult(CONTEXT_FIXTURE, 'needle', {
-    path: 'a.ts',
-    contextFilter,
-  }).matches.map((match) => match.offset);
+  const matches = (contextFilter) =>
+    helpers
+      .editorFindResult(CONTEXT_FIXTURE, 'needle', {
+        path: 'a.ts',
+        contextFilter,
+      })
+      .matches.map((match) => match.offset);
   assert.deepEqual(matches('comments'), [23, 61]);
   assert.deepEqual(matches('strings'), [11, 49]);
   assert.deepEqual(matches('exceptBoth'), [87]);
@@ -150,7 +146,7 @@ test('dirty Monaco buffers use the same lexical search and Replace All rules', (
 test('Filter Search Results exposes all six IDEA modes and reruns Find on selection', () => {
   const findTool = source.slice(
     source.indexOf('function FindToolWindow('),
-    source.indexOf('function QuickOpen('),
+    source.indexOf('/* QUICK_OPEN_BOUNDARY */'),
   );
   assert.match(findTool, /onContextFilterChange/);
   for (const id of ['anywhere', 'comments', 'strings', 'exceptComments', 'exceptStrings', 'exceptBoth']) {

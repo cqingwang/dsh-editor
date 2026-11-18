@@ -5,7 +5,15 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = readFileSync(join(root, 'lib/client.js'), 'utf8');
+const panelSource = readFileSync(join(root, 'tests/fixtures/terminal-panel.legacy.js'), 'utf8');
+const source =
+  panelSource +
+  '\n' +
+  readFileSync(join(root, 'tests/fixtures/terminal-screen.legacy.js'), 'utf8') +
+  '\n' +
+  readFileSync(join(root, 'lib/client.js'), 'utf8') +
+  '\n' +
+  readFileSync(join(root, 'tests/fixtures/measuring-screen.legacy.js'), 'utf8');
 
 /**
  * Slice one callback/JSX block out of the client bundle.
@@ -53,7 +61,7 @@ test('the measurement is shared, awaited, and falls back safely', () => {
   assert.match(wait, /value \?\? \{ cols: 80, rows: 24 \}/);
 
   /* Every screen reports through the same recorder, not its own assignment. */
-  assert.equal((source.match(/onGrid: reportGrid,/g) ?? []).length, 3);
+  assert.equal((panelSource.match(/onGrid: reportGrid,/g) ?? []).length, 3);
 });
 
 test('a screen without a PTY still reports its grid', () => {

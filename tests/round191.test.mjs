@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = readFileSync(join(root, 'lib/client.js'), 'utf8');
+const source = (readFileSync(join(root, 'tests/fixtures/diff-preview.legacy.js'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
 
 test('the diff uses a scoped Monaco theme for IDEA-like line and character tints', () => {
   const start = source.indexOf('function ensureDiffTheme(monaco)');

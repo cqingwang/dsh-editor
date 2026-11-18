@@ -11,7 +11,7 @@ test('a blank conversation exposes the Editor before any View tab exists', () =>
   assert.match(source, /\[data-slot="conversation\.hero\.options"\]/);
   assert.match(source, /function ensureHeroLaunch\(\)/);
   assert.match(source, /heroLaunch\.setAttribute\('data-dsh-editor-launch', ''\)/);
-  assert.match(source, /if \(active\) setActive\(false\);\s*else openEditorSplit\(\);/);
+  assert.match(source, /if \(active\) setActive\(false\);\s*else\s+openEditorSplit\(\);/u);
   assert.match(source, /heroLaunch\.setAttribute\('aria-pressed', active \? 'true' : 'false'\)/);
 });
 

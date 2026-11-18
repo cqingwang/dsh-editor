@@ -6,24 +6,13 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
+import { loadTypeScriptFunction } from './ts-source.mjs';
 
 import { gitStage, gitStatus } from '../lib/index.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = readFileSync(join(root, 'lib/client.js'), 'utf8');
-
-function extractFunction(name) {
-  const start = source.indexOf(`function ${name}(`);
-  assert.notEqual(start, -1, `${name} is missing`);
-  const bodyStart = source.indexOf('{', start);
-  let depth = 0;
-  for (let index = bodyStart; index < source.length; index += 1) {
-    if (source[index] === '{') depth += 1;
-    if (source[index] === '}') depth -= 1;
-    if (depth === 0) return source.slice(start, index + 1);
-  }
-  assert.fail(`${name} has no closing brace`);
-}
+const source = (readFileSync(join(root, 'tests/fixtures/commit-panel.legacy.js'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
+const gitChangeModelSource = readFileSync(join(root, 'src/client/components/ui/git-change-model.ts'), 'utf8');
 
 async function deletedFixture() {
   const dir = await mkdtemp(join(tmpdir(), 'dsh-editor-r323-'));
@@ -39,7 +28,7 @@ async function deletedFixture() {
 }
 
 test('Remove from VCS targets only unstaged files missing from the working tree', () => {
-  const fn = new Function(`${extractFunction('pathsScheduledForRemoval')}; return pathsScheduledForRemoval;`)();
+  const fn = loadTypeScriptFunction(gitChangeModelSource, 'pathsScheduledForRemoval');
   const changes = new Map([
     ['deleted.txt', { status: ' D' }],
     ['partly-staged.txt', { status: 'MD' }],

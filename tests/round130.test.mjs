@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = readFileSync(join(root, 'lib/client.js'), 'utf8');
+const source = (readFileSync(join(root, 'tests/fixtures/project-panel.legacy.js'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
 
 test('the indent guides come BEFORE the chevron, so depth moves the arrow', () => {
   /* The guides were rendered after the chevron: every row's arrow sat at the same

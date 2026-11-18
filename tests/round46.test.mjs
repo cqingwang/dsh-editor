@@ -104,7 +104,7 @@ test('clicking a tag badge scopes the walk to the tagged commit', () => {
 });
 
 test('the graph shows a scope chip and clickable badges', () => {
-  const client = read('lib/client.js');
+  const client = `${read('lib/client.js')}\n${read('tests/fixtures/commit-graph.legacy.js')}\n${read('tests/fixtures/commit-log.legacy.js')}`;
   assert.match(client, /className: 'dsh-editor-graph-ref'/);
   assert.match(client, /onClick: \(event\) => \{\n\s+\/\* The row underneath opens the commit; the badge must not\. \*\/\n\s+event\.stopPropagation\(\);\n\s+onPickRef\?\.\(ref\);/);
   assert.match(client, /t\('editor\.graphAtChip', \{ hash: graph\.at\.slice\(0, 7\) \}\)/);
@@ -127,10 +127,12 @@ test('both log views mark the commit the detail pane shows', () => {
   /* One selection, two renderings: a row picked in either view is marked in both. */
   assert.match(client, /const \[selectedCommit, setSelectedCommit\] = React\.useState\(null\);/);
   assert.match(client, /setSelectedCommit\(hash\);/);
-  assert.match(client, /'aria-selected': selectedCommits\.includes\(commit\.hash\),/);
+  assert.match(client, /selectionIncluded: selectedCommits\.includes\(commit\.hash\),/);
+  assert.match(client, /'aria-selected': selectionIncluded,/);
   assert.match(client, /selected: graphHover \?\? graphCursor \?\? selected,/);
   /* Walking the graph with the keyboard loads the detail pane, like IDEA's log. */
-  assert.match(client, /onShow\?\.\(graphRows\[clamped\]\.hash\);/);
+  assert.match(client, /const next = commitLogGraphMove\(graphRows, graphCursor, graphHover, delta\);/);
+  assert.match(client, /onShow\?\.\(next\.hash\);/);
 });
 
 test('re-opening an open file keeps the Annotate reading mode', () => {

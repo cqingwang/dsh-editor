@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+const source = (await readFile(new URL('./fixtures/search-everywhere.legacy.js', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
 const comment = source.indexOf("/* IDEA's editor search family: ⌘F Find");
 const shortcut = source.slice(comment, source.indexOf("}, [openEditorFind, openFindTool, searchEverywhereOpen, currentCodeEditor]);", comment));
 

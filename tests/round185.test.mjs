@@ -3,9 +3,10 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
+import { menuSource } from './ui-sources.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = readFileSync(join(root, 'lib/client.js'), 'utf8');
+const source = (readFileSync(join(root, 'tests/fixtures/commit-panel.legacy.js'), 'utf8') + '\n' + readFileSync(join(root, 'tests/fixtures/diff-preview.legacy.js'), 'utf8') + '\n' + (readFileSync(join(root, 'lib/client.js'), 'utf8') + '\n' + readFileSync(join(root, 'tests/fixtures/find-tool.legacy.js'), 'utf8')));
 
 function projectOptions() {
   return source.slice(
@@ -32,9 +33,9 @@ test('Project Options commands return focus to the selected tree row', () => {
   assert.match(options, /id: 'openDirectoriesSingleClick'[\s\S]*?run: \(\) => runProjectOption/);
   assert.match(options, /id: 'appearance'[\s\S]*?run: \(\) => runProjectOption/);
   assert.match(options, /id: 'hidden'[\s\S]*?run: \(\) => runProjectOption/);
-  assert.match(source, /const skipReturnFocusRef = React\.useRef\(false\);/);
-  assert.match(source, /if \(item\.restoreFocus === false\) skipReturnFocusRef\.current = true;/);
-  assert.match(source, /if \(skipReturnFocusRef\.current\) return;/);
+  assert.match(menuSource, /const skipReturnFocusRef = React\.useRef\(false\);/);
+  assert.match(menuSource, /if \(item\.restoreFocus === false\) skipReturnFocusRef\.current = true;/);
+  assert.match(menuSource, /if \(skipReturnFocusRef\.current\) return;/);
 });
 
 test('palette-opening Project Options keep their own focus target', () => {

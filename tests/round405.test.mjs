@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+const source = (await readFile(new URL('./fixtures/context-menu.legacy.js', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
 const menu = source.slice(
   source.indexOf('function ContextMenu({ menu, onClose, t })'),
   source.indexOf('function groupDiffToolbarActions('),

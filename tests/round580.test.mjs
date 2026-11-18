@@ -2,12 +2,15 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+const source =
+  (await readFile(new URL('./fixtures/terminal-panel.legacy.js', import.meta.url), 'utf8')) +
+  '\n' +
+  (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
 
 function extractFunction(name) {
   const start = source.indexOf(`function ${name}(`);
   assert.notEqual(start, -1, `${name} is missing`);
-  const bodyStart = source.indexOf(') {', start) + 2;
+  const bodyStart = source.indexOf('{', start);
   assert.ok(bodyStart > 1, `${name} has no function body`);
   let depth = 0;
   for (let index = bodyStart; index < source.length; index += 1) {
@@ -23,19 +26,19 @@ function bufferWith(lines) {
     length: lines.length,
     cursorY: lines.length - 1,
     cursorX: 0,
-    getLine: (row) => lines[row] === undefined
-      ? undefined
-      : { translateToString: () => lines[row] },
+    getLine: (row) => (lines[row] === undefined ? undefined : { translateToString: () => lines[row] }),
   };
 }
 
 test('terminal block helpers find, move across, and expand contiguous non-empty ranges', () => {
-  const factory = new Function([
-    extractFunction('terminalBlockRangeAt'),
-    extractFunction('terminalAdjacentBlockRange'),
-    extractFunction('terminalExpandBlockRange'),
-    'return { terminalBlockRangeAt, terminalAdjacentBlockRange, terminalExpandBlockRange };',
-  ].join('\n'))();
+  const factory = new Function(
+    [
+      extractFunction('terminalBlockRangeAt'),
+      extractFunction('terminalAdjacentBlockRange'),
+      extractFunction('terminalExpandBlockRange'),
+      'return { terminalBlockRangeAt, terminalAdjacentBlockRange, terminalExpandBlockRange };',
+    ].join('\n'),
+  )();
   const buffer = bufferWith(['A', 'B', '', 'C', 'D', '', 'prompt']);
   assert.deepEqual(factory.terminalBlockRangeAt(buffer, 3), { start: 3, end: 4 });
   assert.deepEqual(factory.terminalAdjacentBlockRange(buffer, { start: 3, end: 4 }, -1, 5), { start: 0, end: 1 });
@@ -44,15 +47,17 @@ test('terminal block helpers find, move across, and expand contiguous non-empty 
 });
 
 test('Terminal menu wires block above/below and expansion through selectLines', () => {
-  const factory = new Function([
-    extractFunction('terminalPromptStartRow'),
-    extractFunction('terminalBlockRangeAt'),
-    extractFunction('terminalSelectionBlockRange'),
-    extractFunction('terminalAdjacentBlockRange'),
-    extractFunction('terminalExpandBlockRange'),
-    extractFunction('terminalMenuModel'),
-    'return terminalMenuModel;',
-  ].join('\n'))();
+  const factory = new Function(
+    [
+      extractFunction('terminalPromptStartRow'),
+      extractFunction('terminalBlockRangeAt'),
+      extractFunction('terminalSelectionBlockRange'),
+      extractFunction('terminalAdjacentBlockRange'),
+      extractFunction('terminalExpandBlockRange'),
+      extractFunction('terminalMenuModel'),
+      'return terminalMenuModel;',
+    ].join('\n'),
+  )();
   const calls = [];
   const buffer = bufferWith(['A', 'B', '', 'C', 'D', '', 'prompt']);
   const emulator = {
@@ -76,12 +81,7 @@ test('Terminal menu wires block above/below and expansion through selectLines', 
   const items = model.items.filter(Boolean);
   items.find((item) => item.id === 'selectBlockBelow').run();
   items.find((item) => item.id === 'expandBlockSelectionBelow').run();
-  assert.deepEqual(calls, [
-    ['selectLines', 3, 4],
-    ['focus'],
-    ['selectLines', 0, 4],
-    ['focus'],
-  ]);
+  assert.deepEqual(calls, [['selectLines', 3, 4], ['focus'], ['selectLines', 0, 4], ['focus']]);
 });
 
 test('Terminal block navigation copy is localized', () => {

@@ -2,7 +2,9 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+import { en, zh } from './locale-source.mjs';
+
+const source = (await readFile(new URL('./fixtures/search-everywhere.legacy.js', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
 const host = await readFile(new URL('../lib/index.js', import.meta.url), 'utf8');
 
 function extractFunction(name) {
@@ -117,7 +119,14 @@ test('Search Everywhere tabs and toolbar have room to breathe', () => {
 });
 
 test('search service recovery copy exists in both dictionaries', () => {
-  assert.match(source, /searchTextServiceUnavailable: '[^']+'/);
+  assert.equal(
+    zh.editor.searchTextServiceUnavailable,
+    '文件内容搜索服务暂不可用，请重新打开搜索或刷新编辑器后重试',
+  );
+  assert.equal(
+    en.editor.searchTextServiceUnavailable,
+    'File-content search is temporarily unavailable. Reopen search or refresh the editor and try again.',
+  );
   const matches = source.match(/searchTextServiceUnavailable:/g) ?? [];
   assert.equal(matches.length, 2);
 });

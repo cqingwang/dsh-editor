@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
+import { panelToolbarSource } from './ui-sources.mjs';
 
-const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+const source = (await readFile(new URL('./fixtures/commit-panel.legacy.js', import.meta.url), 'utf8') + '\n' + await readFile(new URL('./fixtures/project-panel.legacy.js', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
 
 function block(startMarker, endMarker) {
   const start = source.indexOf(startMarker);
@@ -13,9 +14,8 @@ function block(startMarker, endMarker) {
 }
 
 test('PanelToolbar forwards popup semantics from toolbar actions', () => {
-  const toolbar = block('function PanelToolbar(', '/** One 24px panel toolbar button. */');
-  assert.match(toolbar, /ariaHasPopup: action\.ariaHasPopup/);
-  assert.match(toolbar, /ariaExpanded: action\.ariaExpanded/);
+  assert.match(panelToolbarSource, /ariaHasPopup=\{action\.ariaHasPopup\}/);
+  assert.match(panelToolbarSource, /ariaExpanded=\{action\.ariaExpanded\}/);
 });
 
 test('Project Options exposes menu and live expanded state', () => {

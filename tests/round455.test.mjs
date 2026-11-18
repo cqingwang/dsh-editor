@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
+import { compactActionBarSource } from './ui-sources.mjs';
 
-const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+const source = (await readFile(new URL('./fixtures/commit-panel.legacy.js', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
 
 function block(startMarker, endMarker) {
   const start = source.indexOf(startMarker);
@@ -17,9 +18,8 @@ function commitPanel() {
 }
 
 test('CompactActionBar forwards popup semantics from visible actions', () => {
-  const strip = block('function CompactActionBar(', '/** Project tool window:');
-  assert.match(strip, /ariaHasPopup: action\.ariaHasPopup/);
-  assert.match(strip, /ariaExpanded: action\.ariaExpanded/);
+  assert.match(compactActionBarSource, /ariaHasPopup=\{action\.ariaHasPopup\}/);
+  assert.match(compactActionBarSource, /ariaExpanded=\{action\.ariaExpanded\}/);
 });
 
 test('Changes View Options exposes menu and live expanded state', () => {

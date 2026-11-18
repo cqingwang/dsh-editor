@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import test from 'node:test';
 
 const host = await import('../lib/index.js');
-const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+const source = (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) + '\n' + (await readFile(new URL('./fixtures/find-tool.legacy.js', import.meta.url), 'utf8'));
 const hostSource = await readFile(new URL('../lib/index.js', import.meta.url), 'utf8');
 
 async function fixture(t) {
@@ -67,7 +67,7 @@ test('Find requests, dirty merging and host route forward recursive', () => {
 test('Directory scope renders an aria-pressed recursive toggle', () => {
   const findTool = source.slice(
     source.indexOf('function FindToolWindow('),
-    source.indexOf('function QuickOpen('),
+    source.indexOf('/* QUICK_OPEN_BOUNDARY */'),
   );
   assert.match(findTool, /searchScopeRecursive !== false/u);
   assert.match(findTool, /'aria-pressed': scopeRecursive === true/u);

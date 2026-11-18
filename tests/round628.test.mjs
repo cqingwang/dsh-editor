@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+const source = (await readFile(new URL('./fixtures/search-everywhere.legacy.js', import.meta.url), 'utf8') + '\n' + (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) + '\n' + (await readFile(new URL('./fixtures/find-tool.legacy.js', import.meta.url), 'utf8')));
 
 function extractFunction(name) {
   const start = source.indexOf(`function ${name}(`);
@@ -125,7 +125,7 @@ test('double Shift and Cmd/Ctrl+Shift+F call one Find in Files shortcut body', (
 test('Find in Files keeps File mask top-right and query filters at the right edge', () => {
   const findTool = source.slice(
     source.indexOf('function FindToolWindow('),
-    source.indexOf('function QuickOpen('),
+    source.indexOf('/* QUICK_OPEN_BOUNDARY */'),
   );
   assert.match(findTool, /styles\.findToolFileMaskControl/);
   assert.match(findTool, /type: 'checkbox'/);
@@ -155,7 +155,7 @@ test('Find in Files scope row maps Project, Directory and truthful presets', () 
 
   const findTool = source.slice(
     source.indexOf('function FindToolWindow('),
-    source.indexOf('function QuickOpen('),
+    source.indexOf('/* QUICK_OPEN_BOUNDARY */'),
   );
   assert.match(findTool, /'data-dsh-find-scope': ''/);
   assert.match(findTool, /id: 'project'/);

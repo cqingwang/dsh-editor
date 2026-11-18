@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
+import { panelToolbarSource } from './ui-sources.mjs';
 
-const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+const source = (await readFile(new URL('./fixtures/commit-panel.legacy.js', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
 
 function extract(name) {
   const marker = `    function ${name}(`;
@@ -68,11 +69,7 @@ test('the moved tabs use the user-requested Change and Commit labels', () => {
 });
 
 test('PanelToolbar accepts a scoped title-action style without changing other callers', () => {
-  const start = source.indexOf('function PanelToolbar(');
-  const end = source.indexOf('/** One 24px panel toolbar button. */', start);
-  assert.notEqual(start, -1);
-  assert.notEqual(end, -1);
-  const toolbar = source.slice(start, end);
+  const toolbar = panelToolbarSource;
 
   assert.match(toolbar, /titleActionStyle = null/);
   assert.match(toolbar, /\.\.\.\(titleActionStyle \?\? null\)/);

@@ -5,7 +5,8 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = readFileSync(join(root, 'lib/client.js'), 'utf8');
+const source = (readFileSync(join(root, 'tests/fixtures/project-panel.legacy.js'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
+const projectPanelSource = readFileSync(join(root, 'src/client/components/project/ProjectPanel.tsx'), 'utf8');
 
 /**
  * Read one style object from the `styles` literal by brace balance.
@@ -52,10 +53,12 @@ test('both remaining indent columns occupy the same width', () => {
 });
 
 test('indent guides never draw an elbow', () => {
-  const render = source.slice(source.indexOf('row.depth > 0\n                ? Array.from'), source.indexOf('isDirectory\n                ? React.createElement('));
-  assert.match(render, /const kind = guideKind\(\{ continues: row\.continues, index, depth: row\.depth \}\)/);
-  assert.match(render, /kind === 'line' \? styles\.indentGuide : styles\.indentGuideStop/);
-  assert.doesNotMatch(render, /corner|indentGuideCorner/);
+  assert.match(
+    projectPanelSource,
+    /const kind = guideKind\(\{[\s\S]*?continues: row\.continues,[\s\S]*?index,[\s\S]*?depth: row\.depth,[\s\S]*?\}\);/,
+  );
+  assert.match(projectPanelSource, /kind === 'line' \? styles\.indentGuide : styles\.indentGuideStop/);
+  assert.doesNotMatch(projectPanelSource, /corner|indentGuideCorner/);
 });
 
 /* ── the collapse button sits on the tab labels, not on the strip ───────── */

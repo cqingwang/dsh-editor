@@ -3,9 +3,10 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
-const statusStart = source.indexOf('statusFile === null || diffOpen');
-const statusEnd = source.indexOf("findTool === null || findTool.surface === 'dock'", statusStart);
-const statusBlock = source.slice(statusStart, statusEnd);
+const statusBlock = await readFile(
+  new URL('../src/client/components/editor/EditorStatusBar.tsx', import.meta.url),
+  'utf8',
+);
 
 test('The file path moves into the compact status bar after caret position', () => {
   assert.match(source, /const statusPath = statusFile === null[\s\S]*?\$\{root\}\/\$\{statusFile\.path\}/u);
@@ -13,7 +14,7 @@ test('The file path moves into the compact status bar after caret position', () 
   assert.match(statusBlock, /data-dsh-editor-status-path/u);
   assert.match(statusBlock, /styles\.statusPath/u);
   assert.ok(
-    statusBlock.indexOf('editor.statusBarPosition') < statusBlock.indexOf('data-dsh-editor-status-path'),
+    statusBlock.indexOf('<EditorStatusFacts') < statusBlock.indexOf('data-dsh-editor-status-path'),
     'the status path must follow the line:column item',
   );
 });
@@ -22,7 +23,7 @@ test('The path row is removed while Markdown modes remain available in the tab s
   assert.doesNotMatch(source, /breadcrumbSegments/u);
   assert.doesNotMatch(source, /styles\.breadcrumbBar/u);
   assert.doesNotMatch(source, /t\('editor\.breadcrumb'\)/u);
-  assert.doesNotMatch(statusBlock, /React\.createElement\(MarkdownModeSwitch/u);
+  assert.doesNotMatch(statusBlock, /MarkdownModeSwitch/u);
   assert.match(source, /styles\.tabStripTrailing[\s\S]*?React\.createElement\(MarkdownModeSwitch/u);
   assert.match(source, /tabStripTrailing:\s*\{[\s\S]*?position: 'sticky',[\s\S]*?right: 0,/u);
 });

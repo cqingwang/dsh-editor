@@ -2,10 +2,14 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+const source = (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) + '\n' + (await readFile(new URL('./fixtures/find-tool.legacy.js', import.meta.url), 'utf8'));
+const findToolDockSource = await readFile(
+  new URL('../src/client/components/search/FindToolDock.tsx', import.meta.url),
+  'utf8',
+);
 const findTool = source.slice(
   source.indexOf('function FindToolWindow('),
-  source.indexOf('function QuickOpen('),
+  source.indexOf('/* QUICK_OPEN_BOUNDARY */'),
 );
 
 test('Find opens as a popup and can transfer the same state to a dock', () => {
@@ -27,10 +31,12 @@ test('Find opens as a popup and can transfer the same state to a dock', () => {
 test('Find renders one shared result model in a resizable bottom dock', () => {
   assert.match(source, /function clampFindDockHeight/);
   assert.match(source, /dsh-editor\.find\.height/);
-  assert.match(source, /'data-dsh-find-tool-dock': ''/);
+  assert.match(findToolDockSource, /data-dsh-find-tool-dock=''/);
   assert.match(source, /findTool\?\.surface === 'dock'/);
-  assert.match(source, /style: \{ \.\.\.styles\.dock, height: findToolDockHeight \}/);
-  assert.match(source, /findToolDockHeightRef\.current/);
+  assert.match(source, /React\.createElement\(FindToolDock, \{/);
+  assert.match(source, /onCommit: \(final\) => writeStoredNumber\('dsh-editor\.find\.height', final\)/);
+  assert.match(findToolDockSource, /style=\{\{ \.\.\.styles\.dock, height \}\}/);
+  assert.match(findToolDockSource, /onCommit\(latest\)/);
 });
 
 test('Open in Find Window follows query presence and warns above the shared limit', () => {

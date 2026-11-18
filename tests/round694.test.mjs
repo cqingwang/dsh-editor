@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
+import { panelToolbarSource, toolbarModelSource } from './ui-sources.mjs';
 
-const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+const source = (await readFile(new URL('./fixtures/project-panel.legacy.js', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
 
 function extractFunction(name) {
   const plain = source.indexOf(`    function ${name}(`);
@@ -29,14 +30,11 @@ test('Project keeps the IDEA Select Opened File target visible before tail actio
 });
 
 test('PanelToolbar renders pinned leading actions through the shared selection policy', () => {
-  const toolbar = source.slice(
-    source.indexOf('function PanelToolbar('),
-    source.indexOf('/** One 24px panel toolbar button. */'),
-  );
-  assert.match(toolbar, /left\.filter\(\(action\) => action\.pinned === true\)\.length/);
-  assert.match(toolbar, /const directLeft = selectCompactActions\(left, fits\.left\);/);
-  assert.match(toolbar, /left\.filter\(\(action\) => directLeft\.includes\(action\) === false\)/);
-  assert.match(toolbar, /directLeft\.map\(renderAction\)/);
+  assert.match(panelToolbarSource, /left\.filter\(\(action\) => action\.pinned === true\)\.length/);
+  assert.match(panelToolbarSource, /const directLeft = selectCompactActions\(left, fits\.left\);/);
+  assert.match(panelToolbarSource, /left\.filter\(\(action\) => directLeft\.includes\(action\) === false\)/);
+  assert.match(panelToolbarSource, /directLeft\.map\(renderAction\)/);
+  assert.match(toolbarModelSource, /export function selectCompactActions/);
 });
 
 test('Project target action is pinned and retains IDEA reveal semantics', () => {

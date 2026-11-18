@@ -2,15 +2,17 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
+import { extractJavaScriptFunctionSource } from './ts-source.mjs';
+
 const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
 
 test('Unsaved open-file content replaces stale disk matches', () => {
   const helpers = new Function(
-    `${extractFunction('editorFindResult')};`
-    + `${extractFunction('textSearchFileMatches')};`
-    + `${extractFunction('findToolPathMatchesScope')};`
-    + `${extractFunction('mergeFindToolDirtyMatches')};`
-    + 'return { textSearchFileMatches, mergeFindToolDirtyMatches };',
+    `${extractFunction('editorFindResult')};` +
+      `${extractFunction('textSearchFileMatches')};` +
+      `${extractFunction('findToolPathMatchesScope')};` +
+      `${extractFunction('mergeFindToolDirtyMatches')};` +
+      'return { textSearchFileMatches, mergeFindToolDirtyMatches };',
   )();
   const unsaved = helpers.textSearchFileMatches(
     'README.md',
@@ -41,14 +43,14 @@ test('Unsaved open-file content replaces stale disk matches', () => {
 
 test('Dirty-file merge respects scope, file masks and the shared match cap', () => {
   const helpers = new Function(
-    `${extractFunction('editorFindResult')};`
-    + `${extractFunction('textSearchFileMatches')};`
-    + `${extractFunction('basename')};`
-    + `${extractFunction('normalizeFileExtensionFilter')};`
-    + `${extractFunction('fileExtensionFilterMatches')};`
-    + `${extractFunction('findToolPathMatchesScope')};`
-    + `${extractFunction('mergeFindToolDirtyMatches')};`
-    + 'return mergeFindToolDirtyMatches;',
+    `${extractFunction('editorFindResult')};` +
+      `${extractFunction('textSearchFileMatches')};` +
+      `${extractFunction('basename')};` +
+      `${extractFunction('normalizeFileExtensionFilter')};` +
+      `${extractFunction('fileExtensionFilterMatches')};` +
+      `${extractFunction('findToolPathMatchesScope')};` +
+      `${extractFunction('mergeFindToolDirtyMatches')};` +
+      'return mergeFindToolDirtyMatches;',
   )();
   const merged = helpers(
     [{ path: 'src/clean.ts', line: 1, column: 1, preview: 'needle' }],
@@ -76,15 +78,5 @@ test('Find merges dirty buffers after host search and previews their live conten
 });
 
 function extractFunction(name) {
-  const start = source.indexOf(`function ${name}(`);
-  assert.notEqual(start, -1, `${name} is missing`);
-  const bodyStart = source.indexOf(') {', start) + 2;
-  assert.ok(bodyStart > 1, `${name} has no function body`);
-  let depth = 0;
-  for (let index = bodyStart; index < source.length; index += 1) {
-    if (source[index] === '{') depth += 1;
-    if (source[index] === '}') depth -= 1;
-    if (depth === 0) return source.slice(start, index + 1);
-  }
-  assert.fail(`${name} has no closing brace`);
+  return extractJavaScriptFunctionSource(source, name);
 }

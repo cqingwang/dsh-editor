@@ -5,11 +5,16 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = readFileSync(join(root, 'lib/client.js'), 'utf8');
+const source =
+  readFileSync(join(root, 'lib/client.js'), 'utf8') +
+  '\n' +
+  readFileSync(join(root, 'tests/fixtures/commit-graph.legacy.js'), 'utf8') +
+  '\n' +
+  readFileSync(join(root, 'tests/fixtures/commit-log.legacy.js'), 'utf8');
 
 test('graph rows expose the shared commit menu on right click', () => {
   const start = source.indexOf('function CommitGraph(');
-  const graph = source.slice(start, source.indexOf('function scrollGraphRowIntoView(', start));
+  const graph = source.slice(start, source.indexOf('/* COMMIT_GRAPH_BOUNDARY */', start));
   assert.match(source, /function CommitGraph\(\{[^}]*onContextMenu[^}]*\}\)/);
   assert.match(graph, /onContextMenu: \(event\) => \{/);
   assert.match(graph, /event\.preventDefault\(\)/);

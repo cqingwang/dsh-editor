@@ -5,7 +5,9 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = readFileSync(join(root, 'lib/client.js'), 'utf8');
+const source = (  readFileSync(join(root, 'lib/client.js'), 'utf8') +
+  '\n' +
+  readFileSync(join(root, 'tests/fixtures/commit-graph.legacy.js'), 'utf8')) + '\n' + readFileSync(join(root, 'tests/fixtures/commit-log.legacy.js'), 'utf8');
 
 function extractFunction(name) {
   const start = source.indexOf(`    function ${name}(`);
@@ -47,7 +49,7 @@ test('graph display entries expose only rendered row representatives', () => {
 });
 
 test('CommitLog keyboard navigation uses folded graph rows', () => {
-  const log = source.slice(source.indexOf('function CommitLog('), source.indexOf('function formatCommitDate('));
+  const log = source.slice(source.indexOf('function CommitLog('), source.indexOf('/* COMMIT_LOG_BOUNDARY */'));
   assert.match(log, /const \[graphFolded, setGraphFolded\] = React\.useState\(false\)/);
   assert.match(log, /const graphRows = graphDisplayEntries\(graphEntries, graphFolded\)/);
   assert.match(log, /graphCursor === null \? -1 : graphRows\.findIndex/);
@@ -58,7 +60,10 @@ test('CommitLog keyboard navigation uses folded graph rows', () => {
 });
 
 test('fold state is owned by CommitLog rather than CommitGraph', () => {
-  const graph = source.slice(source.indexOf('function CommitGraph('), source.indexOf('function scrollGraphRowIntoView('));
+  const graph = source.slice(
+    source.indexOf('function CommitGraph('),
+    source.indexOf('/* COMMIT_GRAPH_BOUNDARY */'),
+  );
   assert.doesNotMatch(graph, /React\.useState\(false\)/);
   assert.match(graph, /folded \? runs : entries\.map/);
   assert.match(graph, /onClick: onToggleFolded/);

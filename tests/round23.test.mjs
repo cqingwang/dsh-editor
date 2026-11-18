@@ -61,8 +61,9 @@ test('the tree offers clipboard compare and directory staging', () => {
   assert.match(client, /id: 'unstageHere',/);
   /* Directory staging must scope to the directory, not the whole repo. */
   assert.match(client, /change\.path === row\.path \|\| change\.path\.startsWith\(`\$\{row\.path\}\/`\)/);
-  /* An empty directory has nothing to stage; the action stays disabled. */
-  assert.match(client, /disabled: isRoot \|\| !isDirectory \|\| \(git\?\.changes \?\? \[\]\)\.length === 0/);
+  /* Directory actions are not rendered for files, batch rows or the root. */
+  assert.match(client, /showDirectoryActions/);
+  assert.match(client, /disabled: batch\.length > 1 \|\| \(git\?\.changes \?\? \[\]\)\.length === 0/);
 });
 
 test('clipboard reading failures are reported rather than opening an empty diff', () => {

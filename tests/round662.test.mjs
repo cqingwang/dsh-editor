@@ -2,7 +2,10 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+const source =
+  (await readFile(new URL('./fixtures/project-panel.legacy.js', import.meta.url), 'utf8')) +
+  '\n' +
+  (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
 
 function extract(name) {
   const marker = `    function ${name}(`;
@@ -29,8 +32,8 @@ function projectPanel() {
 
 test('Project View exposes only the three backed views', () => {
   const helpers = new Function(
-    `${extract('normalizeProjectView')}\n${extract('projectViewDefinitions')}\n`
-    + 'return { normalizeProjectView, projectViewDefinitions };',
+    `${extract('normalizeProjectView')}\n${extract('projectViewDefinitions')}\n` +
+      'return { normalizeProjectView, projectViewDefinitions };',
   )();
   const t = (key) => key;
   assert.deepEqual(
@@ -61,5 +64,8 @@ test('The Project view menu keeps its own disclosure target', () => {
 
 test('The project tree no longer renders a synthetic root row', () => {
   assert.doesNotMatch(source, /name: projectName, path: '', kind: 'directory', root: true, depth: 0/);
-  assert.match(source, /const stack = \[\{[\s\S]*?list: Array\.isArray\(entries\) \? entries : \[\],[\s\S]*?depth: 0,/);
+  assert.match(
+    source,
+    /const stack = \[\s*\{[\s\S]*?list: Array\.isArray\(entries\) \? entries : \[\],[\s\S]*?depth: 0,/u,
+  );
 });

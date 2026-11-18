@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+const source = (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) + '\n' + (await readFile(new URL('./fixtures/find-tool.legacy.js', import.meta.url), 'utf8'));
 
 test('Find summary uses singular file wording independently of match count', () => {
   const helper = new Function(
@@ -17,7 +17,7 @@ test('Find summary uses singular file wording independently of match count', () 
 test('Both Find status and visible count use the shared summary helper', () => {
   const findTool = source.slice(
     source.indexOf('function FindToolWindow('),
-    source.indexOf('function QuickOpen('),
+    source.indexOf('/* QUICK_OPEN_BOUNDARY */'),
   );
   assert.equal((findTool.match(/findToolResultSummary\(/g) ?? []).length, 2);
   assert.match(source, /findToolSummaryOneFile: '\{matches\} 处匹配，1 个文件'/);

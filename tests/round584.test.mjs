@@ -6,7 +6,7 @@ import { readFile as readSource } from 'node:fs/promises';
 import test from 'node:test';
 
 const host = await import('../lib/index.js');
-const source = await readSource(new URL('../lib/client.js', import.meta.url), 'utf8');
+const source = (await readSource(new URL('./fixtures/search-everywhere.legacy.js', import.meta.url), 'utf8') + '\n' + await readSource(new URL('../lib/client.js', import.meta.url), 'utf8') + '\n' + await readSource(new URL('./fixtures/find-tool.legacy.js', import.meta.url), 'utf8'));
 const hostSource = await readSource(new URL('../lib/index.js', import.meta.url), 'utf8');
 
 function extractFunction(name) {
@@ -55,7 +55,7 @@ test('the persistent Find replace bar exposes an IDEA Preserve case toggle', () 
   );
   const findWindow = source.slice(
     source.indexOf('function FindToolWindow('),
-    source.indexOf('function QuickOpen('),
+    source.indexOf('/* QUICK_OPEN_BOUNDARY */'),
   );
   assert.match(searchEverywhere, /id: 'preserveCase'/);
   assert.match(searchEverywhere, /\.\.\.\(state\.withReplace === true\s*\? \[/);

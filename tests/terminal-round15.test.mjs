@@ -6,6 +6,7 @@ import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const read = (path) => readFileSync(join(root, path), 'utf8');
+const iconSource = read('src/client/components/ui/Icon.tsx');
 
 test('terminal tabs carry an explicit order the host persists', () => {
   const hub = read('lib/terminal.js');
@@ -19,7 +20,7 @@ test('terminal tabs carry an explicit order the host persists', () => {
 });
 
 test('terminal tabs are draggable and reorder told the host', () => {
-  const client = read('lib/client.js');
+  const client = `${read('tests/fixtures/terminal-panel.legacy.js')}\n${read('lib/client.js')}`;
   assert.match(client, /const \[dragId, setDragId\] = React\.useState/);
   assert.match(client, /draggable: true/);
   assert.match(client, /void moveTab\(source, terminal\.id\)/);
@@ -29,7 +30,7 @@ test('terminal tabs are draggable and reorder told the host', () => {
 });
 
 test('a freshly created entry opens straight into inline rename', () => {
-  const client = read('lib/client.js');
+  const client = `${read('tests/fixtures/terminal-panel.legacy.js')}\n${read('lib/client.js')}`;
   /* Round 153 dropped `parent` from the rename state: `commitRename` derives the
      destination from the entry's own path, so no caller can supply one that makes
      the new name a child of the entry itself. */
@@ -42,8 +43,8 @@ test('a freshly created entry opens straight into inline rename', () => {
 });
 
 test('commit and push button is labelled and a rejected push stays visible', () => {
-  const client = read('lib/client.js');
-  assert.match(client, /case 'push':/);
+  const client = `${read('tests/fixtures/commit-panel.legacy.js')}\n${read('lib/client.js')}`;
+  assert.match(iconSource, /case 'push':/);
   /* Round 140 replaced the icon-only second button with IDEA's labelled
      "Commit and Push…": an icon does not say what the irreversible remote action
      is, and the two buttons now read as a matched pair. */

@@ -1,13 +1,14 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
+import { compactActionBarSource } from './ui-sources.mjs';
 
-const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+const source = (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) + '\n' + (await readFile(new URL('./fixtures/find-tool.legacy.js', import.meta.url), 'utf8'));
 
 test('Persistent Find reuses the responsive CompactActionBar', () => {
   const findToolWindow = source.slice(
     source.indexOf('function FindToolWindow('),
-    source.indexOf('function QuickOpen('),
+    source.indexOf('/* QUICK_OPEN_BOUNDARY */'),
   );
   assert.match(findToolWindow, /React\.createElement\(CompactActionBar/);
   assert.match(findToolWindow, /ariaLabel: t\('editor\.findInFilesAction'\)/);
@@ -16,7 +17,7 @@ test('Persistent Find reuses the responsive CompactActionBar', () => {
 test('Find toolbar keeps actions while query-row filters stay at the right', () => {
   const findToolWindow = source.slice(
     source.indexOf('function FindToolWindow('),
-    source.indexOf('function QuickOpen('),
+    source.indexOf('/* QUICK_OPEN_BOUNDARY */'),
   );
   for (const id of ['previous', 'next', 'expand', 'collapse', 'preview', 'include', 'hide']) {
     assert.match(findToolWindow, new RegExp(`id: '${id}'`));
@@ -41,7 +42,6 @@ test('Find search and replacement rows wrap their history controls', () => {
 });
 
 test('CompactActionBar accepts an inline layout override', () => {
-  const actionBar = source.slice(source.indexOf('function CompactActionBar('), source.indexOf('function ProjectPanel('));
-  assert.match(actionBar, /style = null/);
-  assert.match(actionBar, /\.\.\.\(style \?\? \{\}\)/);
+  assert.match(compactActionBarSource, /style = null/);
+  assert.match(compactActionBarSource, /\.\.\.\(style \?\? \{\}\)/);
 });

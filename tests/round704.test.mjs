@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+const source = (await readFile(new URL('./fixtures/search-everywhere.legacy.js', import.meta.url), 'utf8') + '\n' + (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) + '\n' + (await readFile(new URL('./fixtures/find-tool.legacy.js', import.meta.url), 'utf8')));
 
 function extractFunction(name) {
   const start = source.indexOf(`function ${name}(`);
@@ -49,7 +49,7 @@ test('preview scroll math centers the matched line and clamps at both ends', () 
 });
 
 test('Search Everywhere scrolls its preview body to the active text result', () => {
-  const dialog = source.slice(source.indexOf('function SearchEverywhere('), source.indexOf('function QuickOpen('));
+  const dialog = source.slice(source.indexOf('function SearchEverywhere('), source.indexOf('/* QUICK_OPEN_BOUNDARY */'));
   assert.match(dialog, /const previewBodyRef = React\.useRef\(null\)/);
   assert.match(dialog, /ref: previewBodyRef/u);
   assert.match(dialog, /'data-dsh-preview-line': previewWindow\.start \+ index/u);
@@ -58,7 +58,7 @@ test('Search Everywhere scrolls its preview body to the active text result', () 
 });
 
 test('Find in Files scrolls its preview body to the active occurrence', () => {
-  const component = source.slice(source.indexOf('function FindToolWindow('), source.indexOf('function QuickOpen('));
+  const component = source.slice(source.indexOf('function FindToolWindow('), source.indexOf('/* QUICK_OPEN_BOUNDARY */'));
   assert.match(component, /const previewBodyRef = React\.useRef\(null\)/);
   assert.match(component, /ref: previewBodyRef/u);
   assert.match(component, /'data-dsh-preview-line': previewWindow\.start \+ index/u);

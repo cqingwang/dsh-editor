@@ -2,7 +2,10 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+const source =
+  (await readFile(new URL('./fixtures/search-everywhere.legacy.js', import.meta.url), 'utf8')) +
+  '\n' +
+  (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
 
 function extractFunction(name) {
   const start = source.indexOf(`function ${name}(`);
@@ -22,17 +25,15 @@ function actionIds() {
   const start = source.indexOf('const searchEverywhereActions = React.useMemo(() => [');
   const end = source.indexOf('], [', start);
   assert.ok(start >= 0 && end > start);
-  return [...source.slice(start, end).matchAll(/^\s{10}id: '([^']+)',/gm)]
-    .map((match) => match[1]);
+  return [...source.slice(start, end).matchAll(/^\s{10}id: '([^']+)',/gm)].map((match) => match[1]);
 }
 
 function categoryInventory() {
   const start = source.indexOf('const SEARCH_EVERYWHERE_ACTION_CATEGORY_KEYS');
-  const end = source.indexOf(']);', start) + 3;
+  const tail = source.slice(start).match(/\]\s*\);/u);
+  const end = tail === null ? -1 : start + tail.index + tail[0].length;
   assert.ok(start >= 0 && end > start);
-  return new Function(
-    `${source.slice(start, end)}; return SEARCH_EVERYWHERE_ACTION_CATEGORY_KEYS;`,
-  )();
+  return new Function(`${source.slice(start, end)}; return SEARCH_EVERYWHERE_ACTION_CATEGORY_KEYS;`)();
 }
 
 test('explicit category inventory covers every exposed search Action', () => {
@@ -44,7 +45,10 @@ test('explicit category inventory covers every exposed search Action', () => {
   assert.equal([...inventory.values()].filter((value) => value === 'editor.searchCategoryEditFind').length, 18);
   assert.equal([...inventory.values()].filter((value) => value === 'editor.searchCategoryEditFindUsages').length, 6);
   assert.deepEqual(
-    [...inventory.entries()].filter(([, value]) => value === null).map(([id]) => id).sort(),
+    [...inventory.entries()]
+      .filter(([, value]) => value === null)
+      .map(([id]) => id)
+      .sort(),
     ['findToolWindow', 'incrementalSearch', 'searchWeb'],
   );
 });
@@ -53,10 +57,7 @@ test('category is presentation metadata and never action filtering input', () =>
   const ranking = extractFunction('rankSearchActions');
   assert.doesNotMatch(ranking, /category/i);
   assert.match(ranking, /fuzzyScore\(action\.label, needle, \{ caseSensitive, wholeWords \}\)/);
-  const dialog = source.slice(
-    source.indexOf('function SearchEverywhere('),
-    source.indexOf('function FindToolWindow('),
-  );
+  const dialog = source.slice(source.indexOf('function SearchEverywhere('), source.indexOf('function FindToolWindow('));
   assert.match(dialog, /const effectiveTab = state\.tab;/);
   assert.match(dialog, /const effectiveQuery = query;/);
   assert.doesNotMatch(dialog, /providerCommand/);
@@ -65,10 +66,7 @@ test('category is presentation metadata and never action filtering input', () =>
 });
 
 test('base tabs are the only result-scope switch', () => {
-  const dialog = source.slice(
-    source.indexOf('function SearchEverywhere('),
-    source.indexOf('function FindToolWindow('),
-  );
+  const dialog = source.slice(source.indexOf('function SearchEverywhere('), source.indexOf('function FindToolWindow('));
   assert.match(dialog, /if \(effectiveTab === 'files'\) results = fileMatches;/);
   assert.match(dialog, /else if \(effectiveTab === 'text'\) results = textResults;/);
   assert.match(dialog, /else if \(effectiveTab === 'actions'\) results = actionMatches;/);
@@ -83,19 +81,25 @@ test('disabled Action Item Info keeps both category and reason', () => {
     'basename',
     `${extractFunction('searchEverywhereItemInfo')}; return searchEverywhereItemInfo;`,
   )((path) => path);
-  assert.deepEqual(itemInfo({
-    kind: 'action',
-    label: 'Find Usages Settings…',
-    description: 'Choose scope',
-    category: 'Edit | Find Usages',
-    disabled: true,
-    disabledReason: 'Text search has no language scope',
-  }, (key) => key), {
-    kind: 'editor.searchItemKindAction',
-    title: 'Find Usages Settings…',
-    detail: 'Choose scope',
-    meta: 'Edit | Find Usages · Text search has no language scope',
-  });
+  assert.deepEqual(
+    itemInfo(
+      {
+        kind: 'action',
+        label: 'Find Usages Settings…',
+        description: 'Choose scope',
+        category: 'Edit | Find Usages',
+        disabled: true,
+        disabledReason: 'Text search has no language scope',
+      },
+      (key) => key,
+    ),
+    {
+      kind: 'editor.searchItemKindAction',
+      title: 'Find Usages Settings…',
+      detail: 'Choose scope',
+      meta: 'Edit | Find Usages · Text search has no language scope',
+    },
+  );
 });
 
 test('literal slash queries remain replayable search text', () => {

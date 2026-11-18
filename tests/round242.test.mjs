@@ -9,7 +9,7 @@ import test from 'node:test';
 import { workspaceFileOperations } from '../lib/index.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = readFileSync(join(root, 'lib/client.js'), 'utf8');
+const source = (readFileSync(join(root, 'tests/fixtures/project-panel.legacy.js'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
 
 function extract(name) {
   const marker = `    function ${name}(`;

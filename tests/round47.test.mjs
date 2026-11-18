@@ -40,7 +40,7 @@ test('git failures surface the sentence git actually wrote', () => {
 });
 
 test('the log failure banner offers a retry and suppresses the empty state', () => {
-  const client = read('lib/client.js');
+  const client = `${read('lib/client.js')}\n${read('tests/fixtures/commit-log.legacy.js')}`;
   assert.match(client, /const \[logError, setLogError\] = React\.useState\(null\);/);
   assert.match(client, /t\('editor\.logFailed', \{ message: logFailure \}\)/);
   assert.match(client, /t\('editor\.logRetry'\)/);

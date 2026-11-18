@@ -2,14 +2,17 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const client = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+const client =
+  (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) +
+  '\n' +
+  (await readFile(new URL('./fixtures/editor-error-boundary.legacy.js', import.meta.url), 'utf8'));
 const host = await readFile(new URL('../lib/index.js', import.meta.url), 'utf8');
 
 test('the browser keeps bounded diagnostics for real Editor runtime failures', () => {
   assert.match(client, /function reportEditorDiagnostic\(/);
   assert.match(client, /reportEditorDiagnostic\('react-render-error'/);
-  assert.match(client, /reportEditorDiagnostic\('window-error'/);
-  assert.match(client, /reportEditorDiagnostic\('unhandled-rejection'/);
+  assert.match(client, /reportEditorDiagnostic\(\s*'window-error'/u);
+  assert.match(client, /reportEditorDiagnostic\(\s*'unhandled-rejection'/u);
   assert.doesNotMatch(client, /reportEditorDiagnostic\('host-unhealthy'/);
   assert.doesNotMatch(client, /reportEditorDiagnostic\('host-rebuild'/);
   assert.match(client, /api\/dsh-editor\/diagnostics/);

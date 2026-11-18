@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
+import { menuSource } from './ui-sources.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const source = readFileSync(join(root, 'lib/client.js'), 'utf8');
@@ -34,12 +35,18 @@ test('copy-as-path:line only quotes the caret of the file actually open', () => 
   /* Quoting another file's caret would point at the wrong place (round 104 moved the
      whole decision into `pathWithLine`, which also drops the caret when it is null). */
   assert.match(source, /function pathWithLine\(path, caret, isActive\)/);
-  assert.match(source, /pathWithLine\(\s*firstPath,\s*editor\?\.getPosition\?\.\(\) \?\? null,\s*editorPath === firstPath,/);
+  assert.match(
+    source,
+    /run: \(\) => write\(\s*pathWithLine\(\s*firstPath,\s*editor\?\.getPosition\?\.\(\) \?\? null,\s*editorPath === firstPath\s*\)\s*\)/u,
+  );
 });
 
 test('a multi-row context menu reports how many rows it will touch', () => {
   assert.match(source, /title: batch\.length > 1 \? t\('editor\.selectionCount', \{ count: batch\.length \}\) : null,/);
-  assert.match(source, /menu\.title\s+\? React\.createElement\('div', \{ style: styles\.menuTitle, role: 'presentation' \}, menu\.title\)/);
+  assert.match(
+    menuSource,
+    /menu\.title \? \([\s\S]*?style=\{styles\.menuTitle\}[\s\S]*?role='presentation'[\s\S]*?\{menu\.title\}/,
+  );
   /* Single-row actions are disabled while a bulk action is what runs. */
   assert.match(source, /disabled: isRoot \|\| batch\.length > 1,/);
 });

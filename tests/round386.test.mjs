@@ -2,30 +2,16 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
+import { loadTypeScriptFunction } from './ts-source.mjs';
+
 const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+const model = await readFile(
+  new URL('../src/client/components/editor/markdown-scroll-model.ts', import.meta.url),
+  'utf8',
+);
 
-function extract(name) {
-  const marker = `    function ${name}(`;
-  const start = source.indexOf(marker);
-  assert.notEqual(start, -1, `${name} should exist`);
-  let index = source.indexOf('{', start);
-  let depth = 0;
-  for (; index < source.length; index += 1) {
-    if (source[index] === '{') depth += 1;
-    else if (source[index] === '}') {
-      depth -= 1;
-      if (depth === 0) break;
-    }
-  }
-  return source.slice(start, index + 1);
-}
-
-const scrollRatio = new Function(
-  `${extract('markdownScrollRatio')}\nreturn markdownScrollRatio;`,
-)();
-const scrollTopForRatio = new Function(
-  `${extract('markdownScrollTopForRatio')}\nreturn markdownScrollTopForRatio;`,
-)();
+const scrollRatio = loadTypeScriptFunction(model, 'markdownScrollRatio');
+const scrollTopForRatio = loadTypeScriptFunction(model, 'markdownScrollTopForRatio');
 
 test('Markdown scroll ratios clamp invalid and overscrolled values', () => {
   assert.equal(scrollRatio({ scrollTop: 0, scrollHeight: 1000, clientHeight: 500 }), 0);

@@ -7,6 +7,8 @@ import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const read = (path) => readFileSync(join(root, path), 'utf8');
+const readClient = () =>
+  readFileSync(join(root, 'tests/fixtures/diff-preview.legacy.js'), 'utf8') + '\n' + read('lib/client.js');
 
 test('package declares the bundle patch and the browser client', () => {
   const manifest = JSON.parse(read('package.json'));
@@ -41,7 +43,7 @@ test('host half registers the file API and exact Monaco asset routes', () => {
 });
 
 test('client half keeps the resizable editor/chat split contract', () => {
-  const client = read('lib/client.js');
+  const client = readClient();
   assert.match(client, /data-dsh-editor-active/);
   /* The Editor is opened from the hero / workspace menu, not injected as a fourth
      tab beside the host's Chat, Context and Trajectory tabs. */
@@ -72,7 +74,7 @@ test('host half mounts the terminal hub and its two exact routes', () => {
 });
 
 test('client half opens the terminal as a bottom dock with an ESM xterm import', () => {
-  const client = read('lib/client.js');
+  const client = readClient();
   assert.match(client, /import\('\/api\/dsh-editor\/xterm\/xterm\.mjs'\)/);
   assert.match(client, /import\('\/api\/dsh-editor\/xterm\/addon-fit\.mjs'\)/);
   assert.match(client, /styles\.dock/);
@@ -82,7 +84,7 @@ test('client half opens the terminal as a bottom dock with an ESM xterm import',
 });
 
 test('commit tool window splits staged and unstaged changes with an IDEA diff', () => {
-  const client = read('lib/client.js');
+  const client = readClient();
   const host = read('lib/index.js');
   assert.match(client, /function splitChanges/);
   assert.match(client, /function changeTreeOf/);

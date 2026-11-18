@@ -11,6 +11,8 @@ import { gitDiffWithRevision } from '../lib/index.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const read = (path) => readFileSync(join(root, path), 'utf8');
+const readClient = () =>
+  readFileSync(join(root, 'tests/fixtures/diff-preview.legacy.js'), 'utf8') + '\n' + read('lib/client.js');
 
 /** Two commits on one file, then a divergent working copy. */
 async function fixture() {
@@ -61,7 +63,7 @@ test('compare-with-revision validates both the revision and the path', async (t)
 });
 
 test('the diff editor tells revision, commit and clipboard targets apart', () => {
-  const client = read('lib/client.js');
+  const client = readClient();
   /* Order: clipboard, then revision, then commit, then staged. */
   const clipboardAt = client.indexOf("typeof target.clipboardText === 'string'");
   const revisionAt = client.indexOf("typeof target.revision === 'string'");
@@ -72,24 +74,33 @@ test('the diff editor tells revision, commit and clipboard targets apart', () =>
 });
 
 test('the tree offers compare-with-revision through the commit log, not a free-form hash', () => {
-  const client = read('lib/client.js');
+  const client = readClient();
   assert.match(client, /id: 'compareRevision',/);
   assert.match(client, /const compareWithRevision = React\.useCallback\(async \(path\) => \{/);
   /* A picker avoids turning a typo into an "invalid commit id" after two round trips.
      Round 49 replaced the 20-row submenu with a searchable dialog, so the page is
      larger — the point (choose from real commits, never type a hash) is unchanged. */
   assert.match(client, /const value = await callGit\(\{ op: 'log', limit: 100 \}\);/);
-  assert.match(client, /if \(typeof hash === 'string' && hash !== ''\) setDiffTarget\(\{ path, revision: hash, staged: false \}\)/);
+  assert.match(
+    client,
+    /if \(typeof hash === 'string' && hash !== ''\) setDiffTarget\(\{ path, revision: hash, staged: false \}\)/,
+  );
 });
 
 test('terminal tabs are remembered per session and rebuilt after a host restart', () => {
-  const client = read('lib/client.js');
+  const client = readClient();
   assert.match(client, /function readTerminalProfile\(\) \{/);
   assert.match(client, /dsh-editor\.terminal\.profile:\$\{currentTerminalScope\(\)\}/);
   /* The remembered JSON is untrusted local state: malformed entries are dropped. */
-  assert.match(client, /\.filter\(\(entry\) => entry !== null && typeof entry === 'object' && typeof entry\.shell === 'string' && entry\.shell !== ''\)/);
+  assert.match(
+    client,
+    /\.\s*filter\(\s*\(entry\) =>\s+entry !== null\s+&& typeof entry === 'object'\s+&& typeof entry\.shell === 'string'\s+&& entry\.shell !== ''\s*\)/u,
+  );
   assert.match(client, /const restoreTerminals = React\.useCallback\(/);
   /* A shell that no longer exists falls back to the default instead of aborting. */
-  assert.match(client, /const created = await createTerminal\(exists \? entry\.shell : undefined, undefined, snapshots\[index\] \?\? ''\);/);
+  assert.match(
+    client,
+    /const created = await createTerminal\(exists \? entry\.shell : undefined, undefined, snapshots\[index\] \?\? ''\);/,
+  );
   assert.match(client, /if \(remembered\.length > 0\) \{\n\s+void restoreTerminals\(remembered\);/);
 });

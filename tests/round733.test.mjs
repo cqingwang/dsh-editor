@@ -6,7 +6,7 @@ import test from 'node:test';
 
 import { workspaceFileOperations } from '../lib/index.js';
 
-const client = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+const client = (await readFile(new URL('./fixtures/project-panel.legacy.js', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
 
 /**
  * Create one throwaway workspace root.

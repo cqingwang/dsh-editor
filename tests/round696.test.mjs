@@ -5,7 +5,11 @@ import { join } from 'node:path';
 import test from 'node:test';
 
 const host = await import('../lib/index.js');
-const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+const source =
+  (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) +
+  '\n' +
+  (await readFile(new URL('./fixtures/find-tool.legacy.js', import.meta.url), 'utf8'));
+const scopeEditorSource = await readFile(new URL('./fixtures/find-scope-editor.legacy.js', import.meta.url), 'utf8');
 
 function extractFunction(name) {
   const plain = source.indexOf(`    function ${name}(`);
@@ -49,13 +53,8 @@ test('local custom Scopes normalize names, ids and bounded include/exclude patte
 });
 
 test('Find scope persistence accepts custom ids but rejects malformed presets', () => {
-  const normalize = new Function(
-    `${extractFunction('normalizeFindSearchScope')}; return normalizeFindSearchScope;`,
-  )();
-  assert.equal(
-    normalize({ mode: 'scope', preset: 'custom:sources-1' }).preset,
-    'custom:sources-1',
-  );
+  const normalize = new Function(`${extractFunction('normalizeFindSearchScope')}; return normalizeFindSearchScope;`)();
+  assert.equal(normalize({ mode: 'scope', preset: 'custom:sources-1' }).preset, 'custom:sources-1');
   assert.equal(normalize({ mode: 'scope', preset: 'custom:BAD ID' }).preset, 'projectFiles');
   assert.equal(normalize({ mode: 'scope', preset: 'custom:' }).preset, 'projectFiles');
 });
@@ -71,26 +70,30 @@ test('custom Scope storage is per workspace and restores normalized entries', ()
   };
   try {
     const helpers = new Function(
-      `${extractFunction('normalizeFindScopePatterns')};`
-        + `${extractFunction('normalizeCustomFindScopes')};`
-        + `${extractFunction('customFindScopesStorageKey')};`
-        + `${extractFunction('readCustomFindScopes')};`
-        + `${extractFunction('writeCustomFindScopes')};`
-        + 'return { readCustomFindScopes, writeCustomFindScopes };',
+      `${extractFunction('normalizeFindScopePatterns')};` +
+        `${extractFunction('normalizeCustomFindScopes')};` +
+        `${extractFunction('customFindScopesStorageKey')};` +
+        `${extractFunction('readCustomFindScopes')};` +
+        `${extractFunction('writeCustomFindScopes')};` +
+        'return { readCustomFindScopes, writeCustomFindScopes };',
     )();
-    helpers.writeCustomFindScopes('/workspace/a', [{
-      id: 'src',
-      name: 'Sources',
-      includePatterns: ['src/**'],
-      excludePatterns: ['src/generated/**'],
-    }]);
-    assert.deepEqual(helpers.readCustomFindScopes('/workspace/a'), [{
-      id: 'src',
-      name: 'Sources',
-      includePatterns: ['src/**'],
-      excludePatterns: ['src/generated/**'],
-      shared: false,
-    }]);
+    helpers.writeCustomFindScopes('/workspace/a', [
+      {
+        id: 'src',
+        name: 'Sources',
+        includePatterns: ['src/**'],
+        excludePatterns: ['src/generated/**'],
+      },
+    ]);
+    assert.deepEqual(helpers.readCustomFindScopes('/workspace/a'), [
+      {
+        id: 'src',
+        name: 'Sources',
+        includePatterns: ['src/**'],
+        excludePatterns: ['src/generated/**'],
+        shared: false,
+      },
+    ]);
     assert.deepEqual(helpers.readCustomFindScopes('/workspace/b'), []);
   } finally {
     globalThis.window = previousWindow;
@@ -99,8 +102,8 @@ test('custom Scope storage is per workspace and restores normalized entries', ()
 
 test('Scope include/exclude globs are shared by browser-side filtering', () => {
   const helper = new Function(
-    `${extractFunction('normalizeFindScopePatterns')}; ${extractFunction('findScopeGlobMatches')}; ${extractFunction('findScopePatternsMatch')};`
-      + 'return { findScopeGlobMatches, findScopePatternsMatch };',
+    `${extractFunction('normalizeFindScopePatterns')}; ${extractFunction('findScopeGlobMatches')}; ${extractFunction('findScopePatternsMatch')};` +
+      'return { findScopeGlobMatches, findScopePatternsMatch };',
   )();
   assert.equal(helper.findScopeGlobMatches('src/a.ts', 'src/**'), true);
   assert.equal(helper.findScopeGlobMatches('src/a.ts', '*.ts'), true);
@@ -113,20 +116,20 @@ test('Scope include/exclude globs are shared by browser-side filtering', () => {
 
 test('IDEA XML scope subset round-trips shared include and exclude patterns', () => {
   const helper = new Function(
-    `${extractFunction('normalizeFindScopePatterns')};`
-      + `${extractFunction('normalizeCustomFindScopes')};`
-      + `${extractFunction('sharedFindScopeId')};`
-      + `${extractFunction('decodeScopeXmlText')};`
-      + `${extractFunction('encodeScopeXmlText')};`
-      + `${extractFunction('ideaScopeTermToPattern')};`
-      + `${extractFunction('parseIdeaScopeXml')};`
-      + `${extractFunction('serializeIdeaScopeXml')};`
-      + 'return { parseIdeaScopeXml, serializeIdeaScopeXml };',
+    `${extractFunction('normalizeFindScopePatterns')};` +
+      `${extractFunction('normalizeCustomFindScopes')};` +
+      `${extractFunction('sharedFindScopeId')};` +
+      `${extractFunction('decodeScopeXmlText')};` +
+      `${extractFunction('encodeScopeXmlText')};` +
+      `${extractFunction('ideaScopeTermToPattern')};` +
+      `${extractFunction('parseIdeaScopeXml')};` +
+      `${extractFunction('serializeIdeaScopeXml')};` +
+      'return { parseIdeaScopeXml, serializeIdeaScopeXml };',
   )();
   const parsed = helper.parseIdeaScopeXml(
-    '<component name="DependencyValidationManager">'
-      + '<scope name="Sources &amp; Tests" pattern="file:src//*||file:tests//*&amp;&amp;!file:src/generated//*" />'
-      + '</component>',
+    '<component name="DependencyValidationManager">' +
+      '<scope name="Sources &amp; Tests" pattern="file:src//*||file:tests//*&amp;&amp;!file:src/generated//*" />' +
+      '</component>',
   );
   assert.equal(parsed.length, 1);
   assert.equal(parsed[0].name, 'Sources & Tests');
@@ -141,16 +144,16 @@ test('IDEA XML scope subset round-trips shared include and exclude patterns', ()
 
 test('Scope XML transfer paths stay inside the workspace and report skipped scopes', () => {
   const helper = new Function(
-    `${extractFunction('normalizeFindScopePatterns')};`
-      + `${extractFunction('normalizeCustomFindScopes')};`
-      + `${extractFunction('sharedFindScopeId')};`
-      + `${extractFunction('decodeScopeXmlText')};`
-      + `${extractFunction('encodeScopeXmlText')};`
-      + `${extractFunction('ideaScopeTermToPattern')};`
-      + `${extractFunction('parseIdeaScopeXml')};`
-      + `${extractFunction('normalizeScopeXmlTransferPath')};`
-      + `${extractFunction('inspectIdeaScopeXml')};`
-      + 'return { normalizeScopeXmlTransferPath, inspectIdeaScopeXml };',
+    `${extractFunction('normalizeFindScopePatterns')};` +
+      `${extractFunction('normalizeCustomFindScopes')};` +
+      `${extractFunction('sharedFindScopeId')};` +
+      `${extractFunction('decodeScopeXmlText')};` +
+      `${extractFunction('encodeScopeXmlText')};` +
+      `${extractFunction('ideaScopeTermToPattern')};` +
+      `${extractFunction('parseIdeaScopeXml')};` +
+      `${extractFunction('normalizeScopeXmlTransferPath')};` +
+      `${extractFunction('inspectIdeaScopeXml')};` +
+      'return { normalizeScopeXmlTransferPath, inspectIdeaScopeXml };',
   )();
   assert.equal(helper.normalizeScopeXmlTransferPath('.idea/scopes/dsh-editor.xml'), '.idea/scopes/dsh-editor.xml');
   assert.equal(helper.normalizeScopeXmlTransferPath('./.idea/scopes/a.xml'), '.idea/scopes/a.xml');
@@ -158,10 +161,10 @@ test('Scope XML transfer paths stay inside the workspace and report skipped scop
   assert.equal(helper.normalizeScopeXmlTransferPath('../a.xml'), '');
   assert.equal(helper.normalizeScopeXmlTransferPath('scope.txt'), '');
   const report = helper.inspectIdeaScopeXml(
-    '<component name="DependencyValidationManager">'
-      + '<scope name="Supported" pattern="file:src//*" />'
-      + '<scope name="Language" pattern="src:foo..*" />'
-      + '</component>',
+    '<component name="DependencyValidationManager">' +
+      '<scope name="Supported" pattern="file:src//*" />' +
+      '<scope name="Language" pattern="src:foo..*" />' +
+      '</component>',
   );
   assert.equal(report.total, 2);
   assert.equal(report.scopes.length, 1);
@@ -185,30 +188,25 @@ test('host search and replacement enforce custom Scope patterns before writing',
     scopeIncludePatterns: ['src/**'],
     scopeExcludePatterns: ['src/generated/**'],
   });
-  assert.deepEqual(found.matches.map((match) => match.path), ['src/a.ts']);
+  assert.deepEqual(
+    found.matches.map((match) => match.path),
+    ['src/a.ts'],
+  );
 
   const outsideInfo = await stat(docsPath);
   await assert.rejects(
-    () => host.replaceWorkspaceText(
-      root,
-      'needle',
-      'omega',
-      [{ path: 'docs/c.ts', mtime: outsideInfo.mtimeMs }],
-      {
+    () =>
+      host.replaceWorkspaceText(root, 'needle', 'omega', [{ path: 'docs/c.ts', mtime: outsideInfo.mtimeMs }], {
         scopeIncludePatterns: ['src/**'],
         scopeExcludePatterns: ['src/generated/**'],
-      },
-    ),
+      }),
     /outside custom scope/u,
   );
   assert.equal(await readFile(docsPath, 'utf8'), 'needle\n');
 });
 
 test('Edit Scopes dialog edits local names, include and exclude patterns', () => {
-  const editor = source.slice(
-    source.indexOf('function FindScopeEditor('),
-    source.indexOf('function FindToolWindow('),
-  );
+  const editor = scopeEditorSource;
   assert.match(editor, /data-dsh-find-scope-editor/);
   assert.match(editor, /role: 'dialog'/);
   assert.match(editor, /findAddScope/);
@@ -225,7 +223,7 @@ test('Edit Scopes dialog edits local names, include and exclude patterns', () =>
   assert.match(editor, /onSave\(normalized, selectedId\)/);
   const findTool = source.slice(
     source.indexOf('function FindToolWindow('),
-    source.indexOf('function QuickOpen('),
+    source.indexOf('/* QUICK_OPEN_BOUNDARY */'),
   );
   assert.match(findTool, /setScopeEditorOpen\(true\)/);
   assert.match(findTool, /`custom:\$\{savedId\}`/);

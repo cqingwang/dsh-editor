@@ -2,7 +2,10 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+const source =
+  (await readFile(new URL('./fixtures/search-everywhere.legacy.js', import.meta.url), 'utf8')) +
+  '\n' +
+  (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
 
 function extractFunction(name) {
   const start = source.indexOf(`function ${name}(`);
@@ -20,12 +23,13 @@ function extractFunction(name) {
 
 test('search Actions receive truthful explicit IDEA categories', () => {
   const mapStart = source.indexOf('const SEARCH_EVERYWHERE_ACTION_CATEGORY_KEYS');
-  const mapEnd = source.indexOf(']);', mapStart) + 3;
+  const mapTail = source.slice(mapStart).match(/\]\s*\);/u);
+  const mapEnd = mapTail === null ? -1 : mapStart + mapTail.index + mapTail[0].length;
   assert.ok(mapStart >= 0 && mapEnd > mapStart);
   const category = new Function(
-    `${source.slice(mapStart, mapEnd)};`
-      + `${extractFunction('searchEverywhereActionCategory')};`
-      + 'return searchEverywhereActionCategory;',
+    `${source.slice(mapStart, mapEnd)};` +
+      `${extractFunction('searchEverywhereActionCategory')};` +
+      'return searchEverywhereActionCategory;',
   )();
   const t = (key) => key;
   assert.equal(category('searchEverywhere', t), 'editor.searchCategoryNavigate');
@@ -42,10 +46,7 @@ test('search Actions receive truthful explicit IDEA categories', () => {
 });
 
 test('Action rows expose category without displacing the shortcut', () => {
-  const dialog = source.slice(
-    source.indexOf('function SearchEverywhere('),
-    source.indexOf('function FindToolWindow('),
-  );
+  const dialog = source.slice(source.indexOf('function SearchEverywhere('), source.indexOf('function FindToolWindow('));
   assert.match(dialog, /category: searchEverywhereActionCategory\(action\.id, t\)/);
   assert.match(dialog, /'data-dsh-search-category': ''/);
   assert.match(dialog, /className: 'dsh-editor-search-everywhere-category'/);
@@ -70,18 +71,24 @@ test('tooltip and Item Info carry category metadata', () => {
     'basename',
     `${extractFunction('searchEverywhereItemInfo')}; return searchEverywhereItemInfo;`,
   )((path) => path.split('/').at(-1));
-  assert.deepEqual(itemInfo({
-    kind: 'action',
-    label: 'Replace…',
-    description: 'Replace',
-    category: 'Edit | Find',
-    shortcut: '⌘R',
-  }, (key) => key), {
-    kind: 'editor.searchItemKindAction',
-    title: 'Replace…',
-    detail: 'Replace',
-    meta: 'Edit | Find · ⌘R',
-  });
+  assert.deepEqual(
+    itemInfo(
+      {
+        kind: 'action',
+        label: 'Replace…',
+        description: 'Replace',
+        category: 'Edit | Find',
+        shortcut: '⌘R',
+      },
+      (key) => key,
+    ),
+    {
+      kind: 'editor.searchItemKindAction',
+      title: 'Replace…',
+      detail: 'Replace',
+      meta: 'Edit | Find · ⌘R',
+    },
+  );
 });
 
 test('category copy exists in both dictionaries', () => {

@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
+import { menuSource } from './ui-sources.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const source = readFileSync(join(root, 'lib/client.js'), 'utf8');
@@ -74,7 +75,7 @@ test('a hovered menu row uses the selected-row fill, not the faint wash', () => 
   /* The tree's selected row uses the same token, which is what makes them match. */
   const selected = source.slice(source.indexOf('treeRowSelected: {'), source.indexOf('treeRowSelectedSoft: {'));
   assert.match(selected, /background: 'var\(--dsw-alias-state-business-primary\)',/);
-  assert.match(selected, /color: '#fff',/);
+  assert.match(selected, /color: '#fff',?/);
   /* The old wash must be gone, or the two would disagree. */
   const hoverRule = source.slice(source.indexOf("'.dsh-editor-menu-item:enabled:hover"), source.indexOf("'.dsh-editor-tree-row-selected:hover"));
   assert.doesNotMatch(hoverRule, /interactive-bg-hover\)/);
@@ -95,7 +96,7 @@ test('the separator is a hairline border, not a filled block', () => {
      margins meant the band did not even reach the edges, so it read as the menu
      breaking apart. A top border of the same colour draws the same line. */
   const separator = source.slice(source.indexOf('menuSeparator: {'), source.indexOf('workArea: {'));
-  assert.match(separator, /borderTop: '1px solid var\(--dsw-alias-border-l3\)',/);
+  assert.match(separator, /borderTop: '1px solid var\(--dsw-alias-border-l3\)',?/);
   assert.doesNotMatch(separator, /background:/);
   assert.match(separator, /height: 0,/);
 });
@@ -104,12 +105,12 @@ test('a danger row and the shortcut column stay legible on that fill', () => {
   /* Both set their colour inline, which outranks a plain class rule; hence the
      dedicated classes and `!important`. Without this a red "Delete" stayed red
      on blue, and the shortcut column stayed grey. */
-  assert.match(source, /className: item\.danger \? 'dsh-editor-menu-item dsh-editor-menu-danger' : 'dsh-editor-menu-item',/);
-  assert.match(source, /className: child\.danger \? 'dsh-editor-menu-item dsh-editor-menu-danger' : 'dsh-editor-menu-item',/);
+  assert.match(menuSource, /className=\{item\.danger \? 'dsh-editor-menu-item dsh-editor-menu-danger' : 'dsh-editor-menu-item'\}/);
+  assert.match(menuSource, /className=\{child\.danger \? 'dsh-editor-menu-item dsh-editor-menu-danger' : 'dsh-editor-menu-item'\}/);
   assert.match(source, /'\.dsh-editor-menu-item:enabled:hover \.dsh-editor-menu-shortcut \{ color: rgba\(255, 255, 255, 0\.82\) !important; \}',/);
   assert.match(source, /'\.dsh-editor-menu-item:enabled:hover \.dsh-editor-menu-danger \{ color: #fff !important; \}',/);
   /* Every shortcut span is tagged so that rule can reach it. */
-  const spans = source.split("className: 'dsh-editor-menu-shortcut'").length - 1;
+  const spans = menuSource.split("className='dsh-editor-menu-shortcut'").length - 1;
   assert.ok(spans >= 3, `expected the shortcut class on all three spans, found ${spans}`);
 });
 
@@ -140,7 +141,7 @@ test('the menu item carries no inline background that would outrank :hover', () 
 test('both the top-level menu and its submenus carry the hovered class', () => {
   /* One selector covers both because the child rows reuse the class; a submenu
      row that dropped it would look dead. Danger rows get the extra class. */
-  const count = source.split(/className: (?:item|child)\.danger \? 'dsh-editor-menu-item dsh-editor-menu-danger' : 'dsh-editor-menu-item',/).length - 1;
+  const count = menuSource.split(/className=\{(?:item|child)\.danger \? 'dsh-editor-menu-item dsh-editor-menu-danger' : 'dsh-editor-menu-item'\}/).length - 1;
   assert.equal(count, 2, `expected the class on the top-level and child rows, found ${count}`);
 });
 

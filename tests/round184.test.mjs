@@ -6,6 +6,7 @@ import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const source = readFileSync(join(root, 'lib/client.js'), 'utf8');
+const lineCountsSource = readFileSync(join(root, 'src/client/components/ui/LineCounts.tsx'), 'utf8');
 
 function toolPanelFlex() {
   const marker = '    function toolPanelFlex(';
@@ -33,9 +34,9 @@ test('Project opens with the Gufa-like fallback rather than the old 26 percent',
 });
 
 test('narrow Changes rows keep one exact line-count reading and a full tooltip', () => {
-  assert.match(source, /'dsh-editor-line-counts'/);
-  assert.match(source, /dsh-editor-line-counts-deletions-only/);
-  assert.match(source, /title: `\+\$\{counts\.additions\} −\$\{counts\.deletions\}`/);
+  assert.match(lineCountsSource, /dsh-editor-line-counts/);
+  assert.match(lineCountsSource, /dsh-editor-line-counts-deletions-only/);
+  assert.match(lineCountsSource, /title=\{`\+\$\{counts\.additions\} −\$\{counts\.deletions\}`\}/);
   assert.match(source, /@container dsh-editor-side \(max-width: 210px\)/);
   assert.match(source, /\.dsh-editor-line-count-del \{ display: none !important; \}/);
   assert.match(source, /\.dsh-editor-line-count-add \{ display: none !important; \}/);

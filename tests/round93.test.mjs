@@ -30,11 +30,11 @@ const menuArrowTarget = load('menuArrowTarget');
    indexes only its own items, so it never lands on index 0. */
 const SELF = 0;
 
-test('↓ from the injected row steps into the host\'s first item', () => {
+test("↓ from the injected row steps into the host's first item", () => {
   assert.equal(menuArrowTarget(SELF, 'ArrowDown', SELF), 1);
 });
 
-test('↑ from the host\'s first item reaches the injected row', () => {
+test("↑ from the host's first item reaches the injected row", () => {
   /* The host's first item is DOM index 1; ↑ walks into our row. */
   assert.equal(menuArrowTarget(1, 'ArrowUp', SELF), 0);
 });
@@ -52,12 +52,14 @@ test('when our row is not involved the host keeps the key', () => {
   assert.equal(menuArrowTarget(SELF, 'Enter', SELF), null);
 });
 
-test('the injected row is wired into the menu\'s key handling', () => {
+test("the injected row is wired into the menu's key handling", () => {
   const start = source.indexOf('function ensureWorkspaceEditorItem(');
   assert.notEqual(start, -1);
-  const block = source.slice(start, start + 5200);
+  const end = source.indexOf('function onTabClick(', start);
+  assert.notEqual(end, -1);
+  const block = source.slice(start, end);
   assert.match(block, /menuArrowTarget\(/);
-  assert.match(block, /addEventListener\('keydown'/);
+  assert.match(block, /addEventListener\(\s*'keydown'/u);
   /* Enter on our row must do what clicking it does. */
   assert.match(block, /clone\.click\(\)/);
 });

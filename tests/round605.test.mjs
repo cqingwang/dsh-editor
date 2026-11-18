@@ -10,8 +10,9 @@ const actions = source.slice(actionsStart, actionsEnd);
 function extractFunction(name) {
   const start = source.indexOf(`function ${name}(`);
   assert.notEqual(start, -1, `${name} is missing`);
-  const bodyStart = source.indexOf(') {', start) + 2;
-  assert.ok(bodyStart > 1, `${name} has no function body`);
+  const parametersEnd = source.indexOf(')', start);
+  const bodyStart = source.indexOf('{', parametersEnd);
+  assert.ok(parametersEnd > start && bodyStart > parametersEnd, `${name} has no function body`);
   let depth = 0;
   for (let index = bodyStart; index < source.length; index += 1) {
     if (source[index] === '{') depth += 1;

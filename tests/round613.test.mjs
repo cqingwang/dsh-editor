@@ -2,12 +2,19 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+const source =
+  (await readFile(new URL('./fixtures/search-everywhere.legacy.js', import.meta.url), 'utf8')) +
+  '\n' +
+  (await readFile(new URL('./fixtures/context-menu.legacy.js', import.meta.url), 'utf8')) +
+  '\n' +
+  (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) +
+  '\n' +
+  (await readFile(new URL('./fixtures/find-tool.legacy.js', import.meta.url), 'utf8'));
 const menuStart = source.indexOf('function ContextMenu(');
 const menuEnd = source.indexOf('\n    /**\n     * One compact action bar', menuStart);
 const menu = source.slice(menuStart, menuEnd);
 const dialogStart = source.indexOf('function SearchEverywhere(');
-const dialogEnd = source.indexOf('function FindToolWindow(', dialogStart);
+const dialogEnd = source.indexOf('function ShowUsagesPopup(', dialogStart);
 const dialog = source.slice(dialogStart, dialogEnd);
 
 test('ContextMenu restores its opener and falls back when the opener unmounts', () => {

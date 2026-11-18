@@ -3,6 +3,8 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+const stripeSource = await readFile(new URL('../src/client/components/ui/ActivityStripe.tsx', import.meta.url), 'utf8');
+const iconSource = await readFile(new URL('../src/client/components/ui/Icon.tsx', import.meta.url), 'utf8');
 
 function extract(name) {
   const marker = `    function ${name}(`;
@@ -21,14 +23,13 @@ function extract(name) {
 }
 
 test('Harness follows Project, Commit and Terminal in the activity stripe', () => {
-  const stripe = source.slice(source.indexOf('function ActivityStripe('), source.indexOf('/**\n     * IDEA-style tool-window toolbar'));
-  const ids = [...stripe.matchAll(/id: '(project|commit|terminal|harness)'/g)].map((match) => match[1]);
+  const ids = [...stripeSource.matchAll(/id='(project|commit|terminal|harness)'/g)].map((match) => match[1]);
   assert.deepEqual(ids, ['project', 'commit', 'terminal', 'harness']);
-  assert.match(stripe, /label: t\('editor\.harness'\)/);
-  assert.match(stripe, /icon: 'harness'/);
-  assert.match(stripe, /active: harnessCollapsed !== true/);
-  assert.match(stripe, /onClick: onToggleHarness/);
-  assert.match(source, /case 'harness':/);
+  assert.match(stripeSource, /label=\{t\('editor\.harness'\)\}/);
+  assert.match(stripeSource, /icon='harness'/);
+  assert.match(stripeSource, /active=\{harnessCollapsed !== true\}/);
+  assert.match(stripeSource, /onClick=\{onToggleHarness\}/);
+  assert.match(iconSource, /case 'harness':/);
 });
 
 test('Editor workspace reflects the Harness collapse state returned by the layout controller', () => {

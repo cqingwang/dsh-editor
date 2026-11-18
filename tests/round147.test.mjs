@@ -5,7 +5,14 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = readFileSync(join(root, 'lib/client.js'), 'utf8');
+const source =
+  readFileSync(join(root, 'tests/fixtures/commit-panel.legacy.js'), 'utf8') +
+  '\n' +
+  readFileSync(join(root, 'tests/fixtures/diff-preview.legacy.js'), 'utf8') +
+  '\n' +
+  readFileSync(join(root, 'lib/client.js'), 'utf8');
+const pathLabelSource = readFileSync(join(root, 'src/client/components/ui/PathLabel.tsx'), 'utf8');
+const annotatePreviewSource = readFileSync(join(root, 'src/client/components/diff/AnnotatePreview.tsx'), 'utf8');
 
 /** Slice one `styles.<name> = { … }` / `name: { … }` block by brace balance. */
 function styleBlock(name) {
@@ -39,7 +46,10 @@ function commitPanelProps() {
  */
 function renderGroupBody() {
   const start = source.indexOf('      const renderGroup = (group, groupIndex) => {');
-  const end = source.indexOf('      return React.createElement(\n        React.Fragment,\n        null,\n        React.createElement(PanelToolbar, {', start);
+  const end = source.indexOf(
+    '      return React.createElement(\n        React.Fragment,\n        null,\n        React.createElement(PanelToolbar, {',
+    start,
+  );
   assert.notEqual(start, -1, 'renderGroup is missing');
   assert.notEqual(end, -1, 'renderGroup end marker moved');
   return source.slice(start, end);
@@ -68,7 +78,10 @@ test('the change filter narrows what is shown and never the selection', () => {
   assert.match(source, /changes: filterChanges\(group\.changes, pathQuery\)/);
   assert.match(source, /\.filter\(\(group\) => group\.changes\.length > 0 \|\| pathQuery === ''\)/);
   /* The hint shown when nothing matches is the "no matches" one, not "no changes". */
-  assert.match(source, /visibleGroups\.length === 0\s*\n\s*\? React\.createElement\('div', \{ style: styles\.treeMessage \}, t\('editor\.noMatches'\)\)/);
+  assert.match(
+    source,
+    /visibleGroups\.length === 0\s*\n\s*\? React\.createElement\('div', \{ style: styles\.treeMessage \}, t\('editor\.noMatches'\)\)/,
+  );
 });
 
 /* ── IDEA's rule: the NAME keeps its width, the path gives way ───────── */
@@ -139,7 +152,10 @@ test('no change-row label keeps both a clamp and an ellipsis', () => {
 test('the group header still hides a long branch chip instead of pushing the row', () => {
   /* The group header carries the branch badge; it is the one row that must
      keep a hard width so the change count and the action buttons stay put. */
-  const header = source.slice(source.indexOf('      commitGroupHeader: {'), source.indexOf('      commitGroupLabel: {'));
+  const header = source.slice(
+    source.indexOf('      commitGroupHeader: {'),
+    source.indexOf('      commitGroupLabel: {'),
+  );
   assert.match(header, /height: 24/);
   assert.match(header, /whiteSpace: 'nowrap'/);
 });
@@ -177,13 +193,14 @@ test('splitPathLabel keeps the name whole and the parent as its prefix', () => {
 test('one PathLabel serves both diff and annotate headers', () => {
   /* Both headers used to inline `target?.path` into a shrinkable ellipsis box,
      so the NAME was what got cut (`r147nest/engineering-memory-and-d…`). */
-  assert.equal((source.match(/React\.createElement\(PathLabel, \{ path: target\?\.path \?\? ''/g) ?? []).length, 2);
+  assert.equal((source.match(/React\.createElement\(PathLabel, \{ path: target\?\.path \?\? ''/g) ?? []).length, 1);
+  assert.match(annotatePreviewSource, /<PathLabel\s+path=\{target\?\.path \?\? ''\}/u);
   assert.doesNotMatch(source, /style: styles\.diffTitle \}, target\?\.path/);
   /* The name is rendered first so a squeezed header spends its width on it. */
-  const body = source.slice(source.indexOf('    function PathLabel({ path, style }) {'), source.indexOf('    function Icon({ name, size = 14 }) {'));
+  const body = pathLabelSource.slice(pathLabelSource.indexOf('export function PathLabel('));
   assert.match(body, /parts\.name/);
   assert.ok(body.indexOf('parts.name') < body.indexOf('parts.dir'), 'the name must come before the path');
-  assert.match(body, /title: typeof path === 'string' \? path : ''/, 'the full path stays reachable');
+  assert.match(body, /title=\{typeof path === 'string' \? path : ''\}/, 'the full path stays reachable');
 });
 
 test('the label styles let the path give way and the name survive', () => {

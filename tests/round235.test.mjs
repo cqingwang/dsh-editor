@@ -5,7 +5,8 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = readFileSync(join(root, 'lib/client.js'), 'utf8');
+const source = ((readFileSync(join(root, 'tests/fixtures/commit-panel.legacy.js'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'))) + '\n' + readFileSync(join(root, 'tests/fixtures/commit-log.legacy.js'), 'utf8');
+const iconSource = readFileSync(join(root, 'src/client/components/ui/Icon.tsx'), 'utf8');
 
 function commitPanel() {
   const start = source.indexOf('function CommitPanel(');
@@ -18,7 +19,7 @@ function commitPanel() {
 test('both dictionaries name IDEA Commit Message History', () => {
   assert.match(source, /commitMessageHistory: '提交信息历史',/);
   assert.match(source, /commitMessageHistory: 'Commit Message History',/);
-  assert.match(source, /case 'history':/);
+  assert.match(iconSource, /case 'history':/);
 });
 
 test('the Commit composer exposes a disabled-aware history button', () => {

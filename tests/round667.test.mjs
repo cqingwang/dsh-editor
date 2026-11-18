@@ -3,14 +3,11 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+const stripeSource = await readFile(new URL('../src/client/components/ui/ActivityStripe.tsx', import.meta.url), 'utf8');
 
 test('Harness is active when chat is visible and inactive when chat is collapsed', () => {
-  const stripe = source.slice(
-    source.indexOf('function ActivityStripe('),
-    source.indexOf('/**\n     * IDEA-style tool-window toolbar'),
-  );
-  assert.match(stripe, /active: harnessCollapsed !== true/);
-  assert.doesNotMatch(stripe, /active: harnessCollapsed,/);
+  assert.match(stripeSource, /active=\{harnessCollapsed !== true\}/);
+  assert.doesNotMatch(stripeSource, /active=\{harnessCollapsed\}/);
 });
 
 test('The tool-window and terminal width handles paint a visible line at rest', () => {

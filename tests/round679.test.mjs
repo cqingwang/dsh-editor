@@ -3,6 +3,10 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+const editorFileTabSource = await readFile(
+  new URL('../src/client/components/editor/EditorFileTab.tsx', import.meta.url),
+  'utf8',
+);
 
 test('The tab close focus state follows host theme alias tokens', () => {
   assert.match(
@@ -18,5 +22,5 @@ test('A file tab middle click closes only that tab', () => {
     source.indexOf('/**\n       * The diff\'s own editor tab'),
   );
   assert.match(fileTabs, /onAuxClick: \(event\) => \{[\s\S]*?event\.button !== 1[\s\S]*?closeFile\(file\.path\)/u);
-  assert.match(fileTabs, /className: 'dsh-editor-tab-close'/u);
+  assert.match(editorFileTabSource, /className='dsh-editor-tab-close'/u);
 });

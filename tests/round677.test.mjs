@@ -8,5 +8,8 @@ const packageJson = JSON.parse(await readFile(new URL('package.json', root), 'ut
 test('Building the browser client automatically runs the regression suite', () => {
   assert.equal(packageJson.scripts['build:client'], 'node scripts/build-client.mjs');
   assert.equal(packageJson.scripts['postbuild:client'], 'npm test');
-  assert.equal(packageJson.scripts.test, 'node --test --test-concurrency=1 "tests/*.test.mjs"');
+  assert.equal(
+    packageJson.scripts.test,
+    'node --import ./tests/client-source-oracle.mjs --test --test-concurrency=1 "tests/*.test.mjs"',
+  );
 });

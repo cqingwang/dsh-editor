@@ -32,7 +32,7 @@ test('close to left/right uses the combined diff + file tab order', () => {
   assert.match(close, /if \(includesDiff\) \{[\s\S]*?setDiffTarget\(null\);/);
   assert.doesNotMatch(close, /else if \(activePathRef\.current !== null\) setDiffActive\(false\)/);
 
-  const fileMenu = slice('onContextMenu: (event) => {', 'React.createElement(\'span\', null, basename(file.path))');
+  const fileMenu = slice('onContextMenu: (event) => {', 'onClose: () => closeFile(file.path)');
   assert.match(fileMenu, /const tabIndex = allTabs\.indexOf\(file\);/);
   assert.match(fileMenu, /closeEditorTabs\(allTabs\.slice\(0, tabIndex\)\)/);
   assert.match(fileMenu, /closeEditorTabs\(allTabs\.slice\(tabIndex \+ 1\)\)/);

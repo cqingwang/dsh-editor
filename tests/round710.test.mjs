@@ -2,13 +2,11 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+const source = (await readFile(new URL('./fixtures/search-everywhere.legacy.js', import.meta.url), 'utf8') + '\n' + (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) + '\n' + (await readFile(new URL('./fixtures/find-tool.legacy.js', import.meta.url), 'utf8')));
 
 function previewCenteringBlock(componentStart, componentEnd) {
-  const component = source.slice(
-    source.indexOf(componentStart),
-    source.indexOf(componentEnd),
-  );
+  const componentStartIndex = source.indexOf(componentStart);
+  const component = source.slice(componentStartIndex, source.indexOf(componentEnd, componentStartIndex));
   const start = component.indexOf('React.useLayoutEffect(() => {');
   assert.notEqual(start, -1, 'preview centering layout effect is missing');
   const end = component.indexOf(']);', start);

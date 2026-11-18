@@ -2,7 +2,14 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+const source =
+  (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) +
+  '\n' +
+  (await readFile(new URL('./fixtures/find-tool.legacy.js', import.meta.url), 'utf8'));
+const findToolPopupSource = await readFile(
+  new URL('../src/client/components/search/FindToolPopup.tsx', import.meta.url),
+  'utf8',
+);
 
 function extractFunction(name) {
   const start = source.indexOf(`function ${name}(`);
@@ -85,11 +92,13 @@ test('Find popup remembers geometry in browser-local storage', () => {
 });
 
 test('The floating wrapper uses persisted geometry and exposes move/resize handles', () => {
-  assert.match(source, /'data-dsh-find-tool-popup': ''/u);
-  assert.match(source, /left: findToolPopupGeometry\.x/u);
-  assert.match(source, /top: findToolPopupGeometry\.y/u);
-  assert.match(source, /width: findToolPopupGeometry\.width/u);
-  assert.match(source, /height: findToolPopupGeometry\.height/u);
+  assert.match(findToolPopupSource, /data-dsh-find-tool-popup=''/u);
+  assert.match(findToolPopupSource, /left: geometry\.x/u);
+  assert.match(findToolPopupSource, /top: geometry\.y/u);
+  assert.match(findToolPopupSource, /width: geometry\.width/u);
+  assert.match(findToolPopupSource, /height: geometry\.height/u);
+  assert.match(source, /React\.createElement\(FindToolPopup, \{/u);
+  assert.match(source, /geometry: findToolPopupGeometry/u);
   assert.match(source, /onPopupDragStart: startFindPopupInteraction/u);
   assert.match(source, /onPopupResizeStart: \(event, direction\) => startFindPopupInteraction\(event, direction\)/u);
   assert.match(source, /'data-dsh-find-popup-resize': direction/u);

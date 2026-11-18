@@ -6,6 +6,7 @@ import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const source = readFileSync(join(root, 'lib/client.js'), 'utf8');
+const editorFileTabSource = readFileSync(join(root, 'src/client/components/editor/EditorFileTab.tsx'), 'utf8');
 
 function extractFunction(name) {
   const start = source.indexOf(`    function ${name}(`);
@@ -63,15 +64,19 @@ test('left and right tab drops reorder only their own collection', () => {
 
 test('left file tabs and right split tabs are draggable with per-target hints', () => {
   const leftTab = source.slice(source.indexOf('const tabs = openFiles.map('), source.indexOf('/**\n       * The diff\'s own editor tab'));
-  assert.match(leftTab, /draggable: true/);
+  assert.match(editorFileTabSource, /draggable=\{true\}/);
   assert.match(leftTab, /onDragStart: \(event\) => beginEditorTabDrag\(event, 'left', file\.path\)/);
   assert.match(leftTab, /onDragOver: \(event\) => dragOverEditorTab\(event, 'left', file\.path\)/);
   assert.match(leftTab, /onDrop: \(event\) => dropEditorTab\(event, 'left', file\.path\)/);
   assert.match(leftTab, /editorTabDrop\?\.group === 'left' && editorTabDrop\.path === file\.path/);
 
-  const splitTab = source.slice(source.indexOf("'data-dsh-editor-split-path': splitTab"), source.indexOf('splitTabFile?.dirty === true', source.indexOf("'data-dsh-editor-split-path': splitTab")));
-  assert.match(splitTab, /draggable: true/);
+  const attributeAt = source.indexOf("dataAttributeName: 'data-dsh-editor-split-path'");
+  const splitStart = source.lastIndexOf('return React.createElement(EditorFileTab', attributeAt);
+  const splitTab = source.slice(splitStart, source.indexOf('\n                          splitTabLayout.hidden.length === 0', splitStart));
+  assert.match(editorFileTabSource, /draggable=\{true\}/);
   assert.match(splitTab, /onDragStart: \(event\) => beginEditorTabDrag\(event, 'right', splitTab\)/);
   assert.match(splitTab, /onDragOver: \(event\) => dragOverEditorTab\(event, 'right', splitTab\)/);
   assert.match(splitTab, /onDrop: \(event\) => dropEditorTab\(event, 'right', splitTab\)/);
+  assert.match(editorFileTabSource, /onDragStart=\{onDragStart\}/);
+  assert.match(editorFileTabSource, /onDrop=\{onDrop\}/);
 });

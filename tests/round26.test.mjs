@@ -5,7 +5,8 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = readFileSync(join(root, 'lib/client.js'), 'utf8');
+const source = (readFileSync(join(root, 'tests/fixtures/terminal-panel.legacy.js'), 'utf8') + '\n' + readFileSync(join(root, 'tests/fixtures/project-panel.legacy.js'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
+const conflictBarsSource = readFileSync(join(root, 'src/client/components/editor/EditorConflictBars.tsx'), 'utf8');
 
 /**
  * Evaluate one module-level helper from the client bundle against a fake `window`.
@@ -104,7 +105,7 @@ test('a deleted open file is announced as deleted and offers recreation', () => 
   assert.match(source, /t\('editor\.externalDeleted'\)/);
   assert.match(source, /t\('editor\.recreateFile'\)/);
   /* "Reload from disk" cannot work for a file that is gone; it must not be offered. */
-  const missingBranch = source.indexOf("externalChanges[activePath].missing === true\n                      ? React.createElement(");
+  const missingBranch = conflictBarsSource.indexOf('externalChange.missing === true ? (');
   assert.ok(missingBranch > 0);
   assert.match(source, /const recreateActive = React\.useCallback\(async \(\) => \{/);
   assert.match(source, /op: 'write', path, content: model\.getValue\(\), force: true/);

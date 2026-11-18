@@ -8,7 +8,10 @@ import test from 'node:test';
 
 const execFileAsync = promisify(execFile);
 const host = await import('../lib/index.js');
-const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+const source =
+  (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) +
+  '\n' +
+  (await readFile(new URL('./fixtures/find-tool.legacy.js', import.meta.url), 'utf8'));
 const hostSource = await readFile(new URL('../lib/index.js', import.meta.url), 'utf8');
 
 function extractFunction(name, text = source) {

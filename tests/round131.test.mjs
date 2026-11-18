@@ -3,9 +3,11 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
+import { transpileTypeScriptFunction } from './ts-source.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const source = readFileSync(join(root, 'lib/client.js'), 'utf8');
+const gitStatusModelSource = readFileSync(join(root, 'src/client/components/ui/git-status-model.ts'), 'utf8');
 
 /** Evaluate one shipping helper by brace balance. */
 function load(name) {
@@ -40,7 +42,9 @@ function loadTreeNameColor() {
     }
     throw new Error(`unbalanced braces in ${name}`);
   };
-  return new Function(`${at('gitStatusInfo')}\n${at('treeNameColor')}; return treeNameColor;`)();
+  return new Function(
+    `${transpileTypeScriptFunction(gitStatusModelSource, 'gitStatusInfo')}\n${at('treeNameColor')}; return treeNameColor;`,
+  )();
 }
 
 const treeNameColor = loadTreeNameColor();

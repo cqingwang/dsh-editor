@@ -2,10 +2,14 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
+import { en, zh } from './locale-source.mjs';
+
 const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
 const actionsStart = source.indexOf('const searchEverywhereActions = React.useMemo');
 const actionsEnd = source.indexOf('/* Recompute match count', actionsStart);
 const actions = source.slice(actionsStart, actionsEnd);
+const zhKeys = new Set(Object.keys(zh.editor));
+const enKeys = new Set(Object.keys(en.editor));
 
 const expectedActionIds = [
   'searchEverywhere',
@@ -64,15 +68,11 @@ test('every disabled Search Everywhere action carries a concrete reason', () => 
 });
 
 test('all Search Everywhere action copy resolves in both dictionaries', () => {
-  const zhStart = source.indexOf('    const zh = {');
-  const enStart = source.indexOf('    const en = {', zhStart);
-  const zhEnd = source.indexOf('\n    };', zhStart);
-  const enEnd = source.indexOf('\n    };', enStart);
   const keys = new Set(
     [...actions.matchAll(/t\('editor\.([A-Za-z0-9_]+)'/g)].map((match) => match[1]),
   );
   for (const key of keys) {
-    assert.match(source.slice(zhStart, zhEnd), new RegExp(`\\b${key}: '`), `zh is missing ${key}`);
-    assert.match(source.slice(enStart, enEnd), new RegExp(`\\b${key}: '`), `en is missing ${key}`);
+    assert.ok(zhKeys.has(key), `zh is missing ${key}`);
+    assert.ok(enKeys.has(key), `en is missing ${key}`);
   }
 });

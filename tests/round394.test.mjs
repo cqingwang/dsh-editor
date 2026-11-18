@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
+import { panelToolbarSource } from './ui-sources.mjs';
 
-const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+const source = (await readFile(new URL('./fixtures/context-menu.legacy.js', import.meta.url), 'utf8') + '\n' + await readFile(new URL('./fixtures/project-panel.legacy.js', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
 
 function extract(name) {
   const marker = `    function ${name}(`;
@@ -40,9 +41,8 @@ test('Project toolbar declares IDEA create, navigation and window groups', () =>
 });
 
 test('PanelToolbar preserves semantic groups in its overflow menu', () => {
-  const toolbar = source.slice(source.indexOf('function PanelToolbar('), source.indexOf('/** One 24px panel toolbar button. */'));
-  assert.match(toolbar, /items: groupCompactActions\(hidden\)\.map\(\(action\) => action === null \? null : \(\{/);
-  assert.match(toolbar, /id: action\.id,[\s\S]*?run: \(\) => action\.onClick\(\)/);
+  assert.match(panelToolbarSource, /items: groupCompactActions\(hidden\)\.map/);
+  assert.match(panelToolbarSource, /id: action\.id,[\s\S]*?run: \(\) => action\.onClick\(\)/);
 });
 
 test('ContextMenu exposes null entries as menu separators', () => {

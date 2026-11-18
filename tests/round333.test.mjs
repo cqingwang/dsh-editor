@@ -6,6 +6,7 @@ import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const source = readFileSync(join(root, 'lib/client.js'), 'utf8');
+const editorFileTabSource = readFileSync(join(root, 'src/client/components/editor/EditorFileTab.tsx'), 'utf8');
 
 function closeSplitTab() {
   const start = source.indexOf('const closeSplitTab = React.useCallback(');
@@ -32,8 +33,10 @@ test('closing an active right tab falls back to its neighbour', () => {
 
 test('right pane renders a real tab strip with per-tab close and whole-split close', () => {
   assert.match(source, /'data-dsh-editor-split-tabs': ''/);
-  assert.match(source, /'data-dsh-editor-split-path': splitTab/);
-  assert.match(source, /onClick: \(\) => \{[\s\S]*?setSplitPath\(splitTab\)/);
+  assert.match(source, /dataAttributeName: 'data-dsh-editor-split-path'/);
+  assert.match(source, /onActivate: \(\) => \{[\s\S]*?setSplitPath\(splitTab\)/);
+  assert.match(editorFileTabSource, /role='tab'/);
+  assert.match(editorFileTabSource, /onClick=\{onActivate\}/);
   assert.match(source, /t\('editor\.closeTab', \{ name: basename\(splitTab\) \}\)/);
   assert.match(source, /t\('editor\.closeSplit'\)/);
 });

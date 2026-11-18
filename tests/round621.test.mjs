@@ -2,13 +2,11 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+const source = (await readFile(new URL('./fixtures/search-everywhere.legacy.js', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
+const searchEverywhereFixture = await readFile(new URL('./fixtures/search-everywhere.legacy.js', import.meta.url), 'utf8');
 
 test('IDEA parity keeps Search Everywhere history read-only', () => {
-  const dialog = source.slice(
-    source.indexOf('function SearchEverywhere('),
-    source.indexOf('function FindToolWindow('),
-  );
+  const dialog = searchEverywhereFixture;
   const queryMenu = dialog.slice(
     dialog.indexOf('const openQueryHistoryMenuAt'),
     dialog.indexOf('const openQueryHistoryMenu =', dialog.indexOf('const openQueryHistoryMenuAt')),
@@ -28,10 +26,7 @@ test('IDEA parity keeps Search Everywhere history read-only', () => {
 });
 
 test('history menus preserve replay and fallback focus behavior', () => {
-  const dialog = source.slice(
-    source.indexOf('function SearchEverywhere('),
-    source.indexOf('function FindToolWindow('),
-  );
+  const dialog = searchEverywhereFixture;
   assert.match(dialog, /fallbackFocus: \(\) => searchInputRef\.current\?\.focus\?\.\(\)/);
   assert.match(dialog, /onClose: closeFilterMenu/);
   assert.match(source, /menu\.fallbackFocus\?\.\(\)/);

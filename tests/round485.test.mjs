@@ -2,22 +2,16 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
+import { extractJavaScriptFunctionSource } from './ts-source.mjs';
+
 const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+const findBarSource = await readFile(
+  new URL('../src/client/components/editor/EditorFindBar.tsx', import.meta.url),
+  'utf8',
+);
 
 function extractSource(name) {
-  const marker = `    function ${name}(`;
-  const start = source.indexOf(marker);
-  assert.notEqual(start, -1, `${name} should exist`);
-  let index = source.indexOf('{', start);
-  let depth = 0;
-  for (; index < source.length; index += 1) {
-    if (source[index] === '{') depth += 1;
-    else if (source[index] === '}') {
-      depth -= 1;
-      if (depth === 0) return source.slice(start, index + 1);
-    }
-  }
-  assert.fail(`unterminated ${name}`);
+  return extractJavaScriptFunctionSource(source, name);
 }
 
 function buildFunctions(names) {
@@ -60,15 +54,11 @@ test('editor replacements reuse Regex captures for all and current match', () =>
 });
 
 test('editor Find bar exposes option toggles and an invalid-pattern alert', () => {
-  const findBar = source.slice(
-    source.indexOf("'div',\n                    { style: styles.findBar }"),
-    source.indexOf('monacoError !== null', source.indexOf("'div',\n                    { style: styles.findBar }")),
-  );
-  assert.match(findBar, /t\('editor\.searchMatchCase'\)/);
-  assert.match(findBar, /t\('editor\.searchWholeWords'\)/);
-  assert.match(findBar, /t\('editor\.searchRegex'\)/);
-  assert.match(findBar, /replaceState\.error !== null/);
-  assert.match(findBar, /role: 'alert'/);
+  assert.match(findBarSource, /t\('editor\.searchMatchCase'\)/);
+  assert.match(findBarSource, /t\('editor\.searchWholeWords'\)/);
+  assert.match(findBarSource, /t\('editor\.searchRegex'\)/);
+  assert.match(findBarSource, /state\.error !== null/);
+  assert.match(findBarSource, /role='alert'/);
   assert.match(source, /writeSearchOptions\(\{ \.\.\.readSearchOptions\(\), \.\.\.replaceState \}\)/);
 });
 

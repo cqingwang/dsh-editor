@@ -3,12 +3,15 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
-const statusStart = source.indexOf('statusFile === null || diffOpen');
-const statusEnd = source.indexOf("findTool === null || findTool.surface === 'dock'", statusStart);
-const statusBlock = source.slice(statusStart, statusEnd);
-const factsStart = source.indexOf('function EditorStatusFacts');
-const factsEnd = source.indexOf('/** Monotonic id source', factsStart);
-const factsBlock = source.slice(factsStart, factsEnd);
+const statusFactsSource = await readFile(
+  new URL('../src/client/components/editor/EditorStatusFacts.tsx', import.meta.url),
+  'utf8',
+);
+const statusBlock = await readFile(
+  new URL('../src/client/components/editor/EditorStatusBar.tsx', import.meta.url),
+  'utf8',
+);
+const factsBlock = statusFactsSource;
 
 test('The status bar orders encoding and line count before the file path', () => {
   const position = factsBlock.indexOf('editor.statusBarPosition');
@@ -22,10 +25,10 @@ test('The status bar orders encoding and line count before the file path', () =>
 });
 
 test('The status path is a keyboard-accessible copy button', () => {
-  assert.match(statusBlock, /React\.createElement\(\s*'button',/u);
-  assert.match(statusBlock, /className: 'dsh-editor-status-path'/u);
-  assert.match(statusBlock, /onClick: \(\) => void copyStatusPath\(\)/u);
-  assert.match(statusBlock, /'aria-label': t\('editor\.copyStatusPath', \{ path: statusPath \}\)/u);
+  assert.match(statusBlock, /<button/u);
+  assert.match(statusBlock, /className='dsh-editor-status-path'/u);
+  assert.match(statusBlock, /onClick=\{onCopyStatusPath\}/u);
+  assert.match(statusBlock, /aria-label=\{t\('editor\.copyStatusPath', \{ path: statusPath \}\)\}/u);
   assert.match(source, /const copyStatusPath = React\.useCallback\(/u);
   assert.match(source, /navigator\.clipboard\.writeText\(statusPath\)/u);
   assert.match(source, /flashStatus\(t\('editor\.statusPathCopied'\)\)/u);

@@ -3,9 +3,12 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
+import { transpileTypeScriptFunction } from './ts-source.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = readFileSync(join(root, 'lib/client.js'), 'utf8');
+const source = (readFileSync(join(root, 'lib/client.js'), 'utf8') + '\n' + readFileSync(join(root, 'tests/fixtures/find-tool.legacy.js'), 'utf8'));
+const gitStatusModelSource = readFileSync(join(root, 'src/client/components/ui/git-status-model.ts'), 'utf8');
+const gitChangeModelSource = readFileSync(join(root, 'src/client/components/ui/git-change-model.ts'), 'utf8');
 
 /** Evaluate one shipping function by brace balance. */
 function load(name) {
@@ -29,33 +32,9 @@ function load(name) {
  * @returns {Function} the shipping `badgeFor`.
  */
 function loadBadgeFor() {
-  const start = source.indexOf('    function gitStatusInfo(');
-  assert.notEqual(start, -1, 'gitStatusInfo is missing');
-  let index = source.indexOf('{', start);
-  let depth = 0;
-  let gitEnd = -1;
-  for (; index < source.length; index += 1) {
-    if (source[index] === '{') depth += 1;
-    else if (source[index] === '}') {
-      depth -= 1;
-      if (depth === 0) {
-        gitEnd = index + 1;
-        break;
-      }
-    }
-  }
-  const badgeStart = source.indexOf('    function badgeFor(');
-  assert.notEqual(badgeStart, -1, 'badgeFor is missing');
-  let cursor = source.indexOf('{', badgeStart);
-  depth = 0;
-  for (; cursor < source.length; cursor += 1) {
-    if (source[cursor] === '{') depth += 1;
-    else if (source[cursor] === '}') {
-      depth -= 1;
-      if (depth === 0) break;
-    }
-  }
-  return new Function(`${source.slice(start, gitEnd)}\n${source.slice(badgeStart, cursor + 1)}; return badgeFor;`)();
+  const gitStatusInfoSource = transpileTypeScriptFunction(gitStatusModelSource, 'gitStatusInfo');
+  const badgeForSource = transpileTypeScriptFunction(gitChangeModelSource, 'badgeFor');
+  return new Function(`${gitStatusInfoSource}\n${badgeForSource}; return badgeFor;`)();
 }
 
 const badgeFor = loadBadgeFor();
@@ -78,6 +57,6 @@ test('the palette receives a status map built from the loaded git status', () =>
   assert.notEqual(start, -1);
   const block = source.slice(start, start + 1200);
   assert.match(block, /changes: new Map\(\(git\?\.changes \?\? \[\]\)\.map\(\(change\) => \[change\.path, change\.status\]\)\)/);
-  const component = source.slice(source.indexOf('function QuickOpen('), source.indexOf('function fuzzyScore('));
+  const component = source.slice(source.lastIndexOf('function QuickOpen('), source.lastIndexOf('function fuzzyScore('));
   assert.match(component, /React\.createElement\(GitStatusBadge, \{ selected: false, info: badge \}\)/);
 });

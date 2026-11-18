@@ -1,16 +1,17 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
+import { compactActionBarSource, panelToolbarSource } from './ui-sources.mjs';
 
-const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+const source = (await readFile(new URL('./fixtures/context-menu.legacy.js', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
 
 test('toolbar overflow preserves active state and a visible current marker', () => {
-  const panelBar = source.slice(source.indexOf('function PanelToolbar('), source.indexOf('/** One 24px panel toolbar button. */'));
-  assert.match(panelBar, /items: groupCompactActions\(hidden\)\.map\(\(action\) => action === null \? null : \(\{[\s\S]*?shortcut: action\.active === true \? '✓' : '',[\s\S]*?active: typeof action\.active === 'boolean' \? action\.active : undefined,/);
+  assert.match(panelToolbarSource, /items: groupCompactActions\(hidden\)\.map/);
+  assert.match(panelToolbarSource, /shortcut: action\.active === true \? '✓' : ''/);
+  assert.match(panelToolbarSource, /active: typeof action\.active === 'boolean' \? action\.active : undefined/);
 
-  const compact = source.slice(source.indexOf('function CompactActionBar('), source.indexOf('/** Project tool window:'));
-  assert.match(compact, /shortcut: action\.active === true \? '✓' : '',/);
-  assert.match(compact, /active: typeof action\.active === 'boolean' \? action\.active : undefined,/);
+  assert.match(compactActionBarSource, /shortcut: action\.active === true \? '✓' : ''/);
+  assert.match(compactActionBarSource, /active: typeof action\.active === 'boolean' \? action\.active : undefined/);
 
   assert.match(source, /shortcut: action\.shortcut \?\? \(action\.active === true \? '✓' : ''\)/);
   assert.match(source, /active: typeof action\.active === 'boolean' \? action\.active : undefined,/);

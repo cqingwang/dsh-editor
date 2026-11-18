@@ -31,8 +31,18 @@ test('blame attributes each line to the commit that introduced it', async (t) =>
   const { dir, cleanup } = await fixture();
   t.after(cleanup);
   const value = await gitBlame(dir, { path: 'a.txt' });
-  assert.deepEqual(value.lines.map((row) => [row.line, row.author]), [[1, 'Alice'], [2, 'Alice'], [3, 'Bob']]);
-  assert.deepEqual(value.lines.map((row) => row.summary), ['first commit', 'first commit', 'second commit']);
+  assert.deepEqual(
+    value.lines.map((row) => [row.line, row.author]),
+    [
+      [1, 'Alice'],
+      [2, 'Alice'],
+      [3, 'Bob'],
+    ],
+  );
+  assert.deepEqual(
+    value.lines.map((row) => row.summary),
+    ['first commit', 'first commit', 'second commit'],
+  );
   assert.equal(value.truncated, false);
   /* The date is an ISO instant so the panel can format it consistently. */
   assert.match(value.lines[0].date, /^\d{4}-\d{2}-\d{2}T/u);
@@ -42,7 +52,10 @@ test('blame windows the request and reports truncation', async (t) => {
   const { dir, cleanup } = await fixture();
   t.after(cleanup);
   const single = await gitBlame(dir, { path: 'a.txt', startLine: 3, endLine: 3 });
-  assert.deepEqual(single.lines.map((row) => row.line), [3]);
+  assert.deepEqual(
+    single.lines.map((row) => row.line),
+    [3],
+  );
   assert.equal(single.truncated, false);
 
   /* Beyond one window the host clamps instead of streaming the whole file. */
@@ -75,11 +88,14 @@ test('the porcelain parser carries metadata forward for repeated commits', () =>
     '\tline three',
   ].join('\n');
   const rows = parseBlamePorcelain(output);
-  assert.deepEqual(rows.map((row) => [row.line, row.author, row.summary]), [
-    [1, 'Alice', 'first commit'],
-    [2, 'Alice', 'first commit'],
-    [3, 'Bob', 'second commit'],
-  ]);
+  assert.deepEqual(
+    rows.map((row) => [row.line, row.author, row.summary]),
+    [
+      [1, 'Alice', 'first commit'],
+      [2, 'Alice', 'first commit'],
+      [3, 'Bob', 'second commit'],
+    ],
+  );
   /* A truncated answer must not throw; unknown lines are skipped. */
   assert.deepEqual(parseBlamePorcelain(''), []);
   assert.deepEqual(parseBlamePorcelain('garbage'), []);
@@ -87,12 +103,23 @@ test('the porcelain parser carries metadata forward for repeated commits', () =>
 
 test('annotate replaces the editor area and the diff closes it', () => {
   const client = read('lib/client.js');
-  assert.match(client, /function AnnotatePreview\(\{ t, target, lines, loading, truncated, onClose, onOpenCommit, selected \}\)/);
+  const annotate = read('src/client/components/diff/AnnotatePreview.tsx');
+  const annotateArea = read('src/client/components/editor/EditorAnnotateArea.tsx');
+  assert.match(annotate, /function AnnotatePreview\(/);
+  assert.match(annotate, /className='dsh-editor-annotate-pane'/);
+  assert.match(annotate, /t\('editor\.annotateTruncated'\)/);
+  assert.match(annotateArea, /if \(!active \|\| target === null\) return null;/);
+  assert.match(client, /React\.createElement\(EditorAnnotateArea, \{/);
+  assert.match(client, /active: annotateTarget !== null/);
   assert.match(client, /const toggleAnnotate = React\.useCallback\(async \(\) => \{/);
   /* Annotate and diff both take the editor area, so only one may be open. */
   assert.match(client, /setDiffTarget\(null\);\n\s+setAnnotateTarget\(\{ path \}\);/);
   /* The shared file-surface flag hides both editor groups for diff/annotate/terminal. */
-  assert.match(client, /const fileSurfaceVisible = \(activeFile !== null \|\| splitFile !== null\)[\s\S]*?diffOpen === false[\s\S]*?annotateTarget === null[\s\S]*?editorTerminals\.length === 0/);
-  assert.match(client, /display: fileSurfaceVisible \? 'flex' : 'none'/);
-  assert.match(client, /t\('editor\.annotateTruncated'\)/);
+  assert.match(
+    client,
+    /const fileSurfaceVisible = \(activeFile !== null \|\| splitFile !== null\)[\s\S]*?diffOpen === false[\s\S]*?annotateTarget === null[\s\S]*?editorTerminals\.length === 0/,
+  );
+  const fileSurface = read('src/client/components/editor/EditorFileSurface.tsx');
+  assert.match(client, /React\.createElement\(\s*EditorFileSurface,\s*\{/);
+  assert.match(fileSurface, /display: visible \? 'flex' : 'none'/);
 });

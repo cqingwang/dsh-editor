@@ -45,12 +45,19 @@ test('repository version rejects paths absent at that revision and malformed req
     /that revision does not contain this file/,
   );
   await assert.rejects(() => gitRepositoryVersion(dir, '', { hash: '--all', path: 'kept.txt' }), /invalid commit id/);
-  await assert.rejects(() => gitRepositoryVersion(dir, '', { hash: newer, path: '../outside.txt' }), /escapes the workspace/);
+  await assert.rejects(
+    () => gitRepositoryVersion(dir, '', { hash: newer, path: '../outside.txt' }),
+    /escapes the workspace/,
+  );
 });
 
 test('Commit file menu opens a read-only repository version preview', async () => {
   const client = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
   const host = await readFile(new URL('../lib/index.js', import.meta.url), 'utf8');
+  const repositoryVersionPreview = await readFile(
+    new URL('../src/client/components/diff/RepositoryVersionPreview.tsx', import.meta.url),
+    'utf8',
+  );
   const menuStart = client.indexOf('const buildCommitFileMenu = React.useCallback');
   const menuEnd = client.indexOf('const buildLogMenu = React.useCallback', menuStart);
   const menu = client.slice(menuStart, menuEnd);
@@ -60,9 +67,12 @@ test('Commit file menu opens a read-only repository version preview', async () =
   assert.match(menu, /void openRepositoryVersion\(\{ hash, path \}\)/);
   assert.match(client, /const openRepositoryVersion = React\.useCallback/);
   assert.match(client, /callGit\(\{ op: 'repositoryVersion', hash, path \}\)/);
-  assert.match(client, /repositoryVersion: \{ hash: value\.hash, content: value\.content, binary: value\.binary === true \}/);
-  assert.match(client, /function RepositoryVersionPreview\(/);
-  assert.match(client, /readOnly: true/);
+  assert.match(
+    client,
+    /repositoryVersion: \{ hash: value\.hash, content: value\.content, binary: value\.binary === true \}/,
+  );
+  assert.match(repositoryVersionPreview, /function RepositoryVersionPreview\(/);
+  assert.match(repositoryVersionPreview, /readOnly: true/);
   assert.match(client, /repositoryVersionTab/);
   assert.match(client, /openRepositoryVersionAction: '按修订显示文件'/);
   assert.match(client, /openRepositoryVersionAction: 'Open Repository Version'/);

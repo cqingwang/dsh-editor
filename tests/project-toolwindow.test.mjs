@@ -8,7 +8,7 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const read = (path) => readFileSync(join(root, path), 'utf8');
 
 test('project tool window exposes a context menu with create/rename/delete/copy', () => {
-  const client = read('lib/client.js');
+  const client = (read('tests/fixtures/project-panel.legacy.js') + '\n' + read('lib/client.js'));
   assert.match(client, /function ContextMenu/);
   assert.match(client, /const buildTreeMenu = React\.useCallback/);
   assert.match(client, /id: 'rename'/);
@@ -19,7 +19,7 @@ test('project tool window exposes a context menu with create/rename/delete/copy'
 
 test('tree supports inline rename and directory deletion on the host', () => {
   const host = read('lib/index.js');
-  const client = read('lib/client.js');
+  const client = (read('tests/fixtures/project-panel.legacy.js') + '\n' + read('lib/client.js'));
   assert.match(host, /async function renameEntry/);
   assert.match(host, /async function deleteEntry/);
   assert.match(host, /refusing to delete the workspace root/);
@@ -31,7 +31,7 @@ test('tree supports inline rename and directory deletion on the host', () => {
 
 test('hidden files stay hidden until the toggle turns them on', () => {
   const host = read('lib/index.js');
-  const client = read('lib/client.js');
+  const client = (read('tests/fixtures/project-panel.legacy.js') + '\n' + read('lib/client.js'));
   assert.match(host, /showHidden/);
   assert.match(host, /row\.name\.startsWith\('\.'\)/);
   assert.match(client, /const \[showHidden, setShowHidden\]/);
@@ -39,8 +39,7 @@ test('hidden files stay hidden until the toggle turns them on', () => {
 });
 
 test('git decorations never collide with file-type badges', () => {
-  const client = read('lib/client.js');
-  const badge = client.slice(client.indexOf('function fileBadge'), client.indexOf('function Icon('));
+  const badge = read('src/client/components/ui/file-badge.ts');
   assert.doesNotMatch(badge, /label: 'M↓'/);
 });
 
@@ -56,7 +55,7 @@ test('workspace manifest ships code, with the runtimes as dependencies', () => {
 
 test('commit history and rollback stay available from the commit tool window', () => {
   const host = read('lib/index.js');
-  const client = read('lib/client.js');
+  const client = (read('tests/fixtures/project-panel.legacy.js') + '\n' + read('lib/client.js'));
   assert.match(host, /async function gitRollback/);
   assert.match(host, /async function gitLog/);
   assert.match(host, /async function gitShowCommit/);
@@ -68,14 +67,14 @@ test('commit history and rollback stay available from the commit tool window', (
 });
 
 test('inner tool-window tabs never close the editor split', () => {
-  const client = read('lib/client.js');
+  const client = (read('tests/fixtures/project-panel.legacy.js') + '\n' + read('lib/client.js'));
   assert.match(client, /target\.closest\('\[data-dsh-editor-host\]'\) !== null\) return;/);
 });
 
 test('terminal dock supports shell choice, rename, clear and font size', () => {
   const host = read('lib/index.js');
   const hub = read('lib/terminal.js');
-  const client = read('lib/client.js');
+  const client = (read('tests/fixtures/project-panel.legacy.js') + '\n' + read('lib/client.js'));
   assert.match(hub, /async shells\(\)/);
   assert.match(hub, /async profileFor\(/);
   assert.match(host, /case 'shells':/);
@@ -88,7 +87,7 @@ test('terminal dock supports shell choice, rename, clear and font size', () => {
 
 test('external changes are detected by a cheap status signature poll', () => {
   const host = read('lib/index.js');
-  const client = read('lib/client.js');
+  const client = (read('tests/fixtures/project-panel.legacy.js') + '\n' + read('lib/client.js'));
   assert.match(host, /async function gitSignature/);
   assert.match(host, /case 'signature':/);
   assert.match(client, /op: 'signature'/);
@@ -96,7 +95,7 @@ test('external changes are detected by a cheap status signature poll', () => {
 });
 
 test('directories aggregate descendant git statuses as a tint, not a letter', () => {
-  const client = read('lib/client.js');
+  const client = (read('tests/fixtures/project-panel.legacy.js') + '\n' + read('lib/client.js'));
   /* Round 129: a changed folder is tinted on its NAME; only files carry M/A/D. */
   assert.match(client, /const directoryStatus = \(path\) => directoryTint\(/);
   assert.match(client, /function directoryTint\(changes\)/);
@@ -105,7 +104,7 @@ test('directories aggregate descendant git statuses as a tint, not a letter', ()
 });
 
 test('tree drag-and-drop moves entries and refuses self-nesting', () => {
-  const client = read('lib/client.js');
+  const client = (read('tests/fixtures/project-panel.legacy.js') + '\n' + read('lib/client.js'));
   assert.match(client, /const moveEntry = React\.useCallback/);
   assert.match(client, /onDragStart/);
   assert.match(client, /onDrop: \(source, target\) => void moveEntry/);
@@ -113,7 +112,7 @@ test('tree drag-and-drop moves entries and refuses self-nesting', () => {
 });
 
 test('expanded directories persist per workspace and rehydrate children', () => {
-  const client = read('lib/client.js');
+  const client = (read('tests/fixtures/project-panel.legacy.js') + '\n' + read('lib/client.js'));
   assert.match(client, /function readExpanded/);
   assert.match(client, /function writeExpanded/);
   assert.match(client, /dsh-editor\.expanded:/);

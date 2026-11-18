@@ -2,22 +2,16 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
+import { extractJavaScriptFunctionSource } from './ts-source.mjs';
+
 const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+const findBarSource = await readFile(
+  new URL('../src/client/components/editor/EditorFindBar.tsx', import.meta.url),
+  'utf8',
+);
 
 function extractSource(name) {
-  const marker = `    function ${name}(`;
-  const start = source.indexOf(marker);
-  assert.notEqual(start, -1, `${name} should exist`);
-  let index = source.indexOf('{', start);
-  let depth = 0;
-  for (; index < source.length; index += 1) {
-    if (source[index] === '{') depth += 1;
-    else if (source[index] === '}') {
-      depth -= 1;
-      if (depth === 0) return source.slice(start, index + 1);
-    }
-  }
-  assert.fail(`unterminated ${name}`);
+  return extractJavaScriptFunctionSource(source, name);
 }
 
 function buildFunctions(names) {
@@ -108,11 +102,10 @@ test('selection-scoped editor replacement uses the same case adapter', () => {
 });
 
 test('editor Replace row exposes Preserve case with the shared persisted option', () => {
-  const findBar = source.slice(
-    source.indexOf("'div',\n                    { style: styles.findBar }"),
-    source.indexOf('monacoError !== null', source.indexOf("'div',\n                    { style: styles.findBar }")),
+  assert.match(
+    findBarSource,
+    /state\.withReplace === true[\s\S]*?icon='preserveCase'[\s\S]*?label=\{t\('editor\.searchPreserveCase'\)\}[\s\S]*?active=\{state\.preserveCase === true\}/s,
   );
-  assert.match(findBar, /replaceState\.withReplace === true\s*\? React\.createElement\(ToolbarButton, \{\s*icon: 'preserveCase',\s*label: t\('editor\.searchPreserveCase'\),\s*active: replaceState\.preserveCase === true/s);
   assert.match(source, /writeSearchOptions\(\{ \.\.\.readSearchOptions\(\), \.\.\.replaceState \}\)/);
   assert.match(source, /replaceState\?\.preserveCase/);
   assert.match(source, /preserveCase: savedOptions\.preserveCase/);

@@ -26,9 +26,12 @@ test('the Editor toggle lives in the tab strip and is not a tab', () => {
   assert.match(block, /data-dsh-editor-chat-toggle/);
   assert.doesNotMatch(block, /role', 'tab'/);
   assert.match(block, /if \(active\) setActive\(false\);/);
-  assert.match(block, /else openEditorSplit\(\);/);
+  assert.match(block, /else\s+openEditorSplit\(\);/u);
   /* The label is applied by `applyChatLayout`, which the toggle calls. */
-  assert.match(source, /chatToggle\.setAttribute\('aria-label', t\(active \? 'editor\.closeEditor' : 'editor\.openEditor'\)\)/);
+  assert.match(
+    source,
+    /chatToggle\.setAttribute\('aria-label', t\(active \? 'editor\.closeEditor' : 'editor\.openEditor'\)\)/,
+  );
 });
 
 test('both chat labels exist in both dictionaries', () => {

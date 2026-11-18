@@ -27,7 +27,9 @@ test('left file tab menu exposes Move Left and Move Right with boundary disablin
 });
 
 test('right split tab menu exposes the same Move Left and Move Right actions', () => {
-  const splitTab = source.slice(source.indexOf("'data-dsh-editor-split-path': splitTab"), source.indexOf("splitTabFile?.dirty === true", source.indexOf("'data-dsh-editor-split-path': splitTab")));
+  const attributeAt = source.indexOf("dataAttributeName: 'data-dsh-editor-split-path'");
+  const start = source.lastIndexOf('return React.createElement(EditorFileTab', attributeAt);
+  const splitTab = source.slice(start, source.indexOf('\n                          splitTabLayout.hidden.length === 0', start));
   assert.match(splitTab, /id: 'moveLeft'/);
   assert.match(splitTab, /disabled: splitTabIndex <= 0/);
   assert.match(splitTab, /moveEditorTabByOffset\('right', splitTab, -1\)/);

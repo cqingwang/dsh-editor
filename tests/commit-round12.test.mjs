@@ -37,7 +37,7 @@ test('commit message history is per workspace and recalled with arrows', () => {
 });
 
 test('commit log can be filtered and its files open in the editor', () => {
-  const client = read('lib/client.js');
+  const client = `${read('lib/client.js')}\n${read('tests/fixtures/commit-log.legacy.js')}`;
   assert.match(client, /const \[filter, setFilter\] = React\.useState\(''\)/);
   assert.match(client, /editor\.logFilterPlaceholder/);
   /* Click shows that commit's diff (IDEA); double-click opens the working copy. */

@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+const source = (await readFile(new URL('./fixtures/commit-panel.legacy.js', import.meta.url), 'utf8') + '\n' + await readFile(new URL('./fixtures/diff-preview.legacy.js', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
+const iconSource = await readFile(new URL('../src/client/components/ui/Icon.tsx', import.meta.url), 'utf8');
 
 function actionBlock(actionId) {
   const marker = `id: '${actionId}'`;
@@ -22,7 +23,7 @@ test('Commit diff actions use distinct IDEA-like icon semantics', () => {
 
 test('the distinct Commit action icons are declared in Icon', () => {
   for (const name of ['diff', 'combinedDiff', 'clipboard', 'patchExport']) {
-    assert.match(source, new RegExp(`case '${name}':`));
+    assert.match(iconSource, new RegExp(`case '${name}':`));
   }
 });
 
@@ -32,5 +33,5 @@ test('Select Opposite Diff Pane has its own switch-pane icon', () => {
   assert.notEqual(start, -1);
   const block = source.slice(start, start + 420);
   assert.match(block, /icon: 'switchPane'/);
-  assert.match(source, /case 'switchPane':/);
+  assert.match(iconSource, /case 'switchPane':/);
 });

@@ -2,27 +2,24 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
+import { loadTypeScriptFunction } from './ts-source.mjs';
+
 const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+const navigationModel = await readFile(
+  new URL('../src/client/components/editor/editor-navigation-model.ts', import.meta.url),
+  'utf8',
+);
+const gotoPopupSource = await readFile(
+  new URL('../src/client/components/editor/EditorGotoLinePopup.tsx', import.meta.url),
+  'utf8',
+);
+const editorFileTabSource = await readFile(
+  new URL('../src/client/components/editor/EditorFileTab.tsx', import.meta.url),
+  'utf8',
+);
 
-function extractFunction(name) {
-  const start = source.indexOf(`    function ${name}(`);
-  assert.notEqual(start, -1, `${name} is missing`);
-  const bodyStart = source.indexOf('{', start);
-  let depth = 0;
-  for (let index = bodyStart; index < source.length; index += 1) {
-    if (source[index] === '{') depth += 1;
-    if (source[index] === '}') depth -= 1;
-    if (depth === 0) return source.slice(start, index + 1);
-  }
-  assert.fail(`${name} has no closing brace`);
-}
-
-const parseGotoLinePosition = new Function(
-  `${extractFunction('parseGotoLinePosition')}; return parseGotoLinePosition;`,
-)();
-const gotoLineShortcutMatches = new Function(
-  `${extractFunction('gotoLineShortcutMatches')}; return gotoLineShortcutMatches;`,
-)();
+const parseGotoLinePosition = loadTypeScriptFunction(navigationModel, 'parseGotoLinePosition');
+const gotoLineShortcutMatches = loadTypeScriptFunction(navigationModel, 'gotoLineShortcutMatches');
 
 test('Go to Line accepts a line or line:column and rejects malformed positions', () => {
   assert.deepEqual(parseGotoLinePosition('12'), { line: 12, column: 1 });
@@ -56,30 +53,29 @@ test('Only Cmd/Ctrl+L without modifiers is the Go to Line shortcut', () => {
 test('Focused file and split tabs own Cmd/Ctrl+L and open their own target', () => {
   const leftStart = source.indexOf('const tabs = openFiles.map((file) =>');
   const leftTab = source.slice(leftStart, source.indexOf('const diffIsCompare', leftStart));
-  assert.match(leftTab, /role: 'tab'/);
-  assert.match(leftTab, /'aria-selected': fileTabActive/);
-  assert.match(leftTab, /tabIndex: fileTabActive \? 0 : -1/);
+  assert.match(editorFileTabSource, /role='tab'/);
+  assert.match(editorFileTabSource, /aria-selected=\{active\}/);
+  assert.match(editorFileTabSource, /tabIndex=\{active \? 0 : -1\}/);
   assert.match(leftTab, /gotoLineShortcutMatches\(event\)/);
   assert.match(leftTab, /gotoLine\(file\.path, 'left'\)/);
 
+  const attributeAt = source.indexOf("dataAttributeName: 'data-dsh-editor-split-path'");
+  const splitTabStart = source.lastIndexOf('return React.createElement(EditorFileTab', attributeAt);
   const splitTab = source.slice(
-    source.indexOf("'data-dsh-editor-split-path': splitTab"),
-    source.indexOf('draggable: true,', source.indexOf("'data-dsh-editor-split-path': splitTab")),
+    splitTabStart,
+    source.indexOf('\n                          splitTabLayout.hidden.length === 0', splitTabStart),
   );
   assert.match(splitTab, /gotoLineShortcutMatches\(event\)/);
   assert.match(splitTab, /gotoLine\(splitTab, 'right'\)/);
 });
 
 test('The line prompt is a floating IDEA-style popup with actionable errors', () => {
-  const popup = source.slice(
-    source.indexOf('gotoState === null'),
-    source.indexOf('replaceState === null', source.indexOf('gotoState === null')),
-  );
-  assert.match(popup, /role: 'dialog'/);
-  assert.match(popup, /'data-dsh-editor-goto-input': ''/);
-  assert.match(popup, /'aria-invalid': gotoState\.error !== null/);
-  assert.match(popup, /event\.key === 'Enter'[\s\S]*?commitGotoLine\(\)/);
-  assert.match(popup, /event\.key === 'Escape'[\s\S]*?closeGotoLine\(\)/);
+  assert.match(gotoPopupSource, /role='dialog'/);
+  assert.match(gotoPopupSource, /data-dsh-editor-goto-input=''/);
+  assert.match(gotoPopupSource, /aria-invalid=\{state\.error !== null\}/);
+  assert.match(gotoPopupSource, /event\.key === 'Enter'[\s\S]*?onSubmit\(\)/);
+  assert.match(gotoPopupSource, /event\.key === 'Escape'[\s\S]*?onClose\(\)/);
+  assert.match(source, /React\.createElement\(EditorGotoLinePopup, \{/);
   assert.match(source, /gotoLinePopup:\s*\{[\s\S]*?position: 'absolute'/);
   assert.match(source, /editorSurface:\s*\{[\s\S]*?position: 'relative'/);
 });

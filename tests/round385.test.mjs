@@ -2,23 +2,25 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+import { loadTypeScriptFunction, transpileTypeScriptFunction } from './ts-source.mjs';
 
-function extract(name) {
-  const marker = `    function ${name}(`;
-  const start = source.indexOf(marker);
-  assert.notEqual(start, -1, `${name} should exist`);
-  let index = source.indexOf('{', start);
-  let depth = 0;
-  for (; index < source.length; index += 1) {
-    if (source[index] === '{') depth += 1;
-    else if (source[index] === '}') {
-      depth -= 1;
-      if (depth === 0) break;
-    }
-  }
-  return source.slice(start, index + 1);
-}
+const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+const previewSource = await readFile(
+  new URL('../src/client/components/editor/MarkdownPreviewPane.tsx', import.meta.url),
+  'utf8',
+);
+const mainPaneSource = await readFile(
+  new URL('../src/client/components/editor/EditorMainPane.tsx', import.meta.url),
+  'utf8',
+);
+const pathModelSource = await readFile(
+  new URL('../src/client/components/editor/editor-path-model.ts', import.meta.url),
+  'utf8',
+);
+const documentModelSource = await readFile(
+  new URL('../src/client/components/editor/editor-document-model.ts', import.meta.url),
+  'utf8',
+);
 
 test('Editor UI and Monaco code areas use Trebuchet MS with CJK fallbacks', () => {
   assert.match(source, /const EDITOR_UI_FONT = '"Trebuchet MS", "PingFang SC"/);
@@ -26,14 +28,12 @@ test('Editor UI and Monaco code areas use Trebuchet MS with CJK fallbacks', () =
   assert.match(source, /\[data-dsh-editor-workspace\][\s\S]*?font-family: "Trebuchet MS"/);
 });
 
-const normalizeMarkdownMode = new Function(
-  `const MARKDOWN_MODES = new Set(['code', 'split', 'preview']);\n${extract('normalizeMarkdownMode')}\nreturn normalizeMarkdownMode;`,
-)();
-const isMarkdownPath = new Function(
-  `${extract('isMarkdownPath')}\nreturn isMarkdownPath;`,
-)();
+const normalizeMarkdownMode = loadTypeScriptFunction(documentModelSource, 'normalizeMarkdownMode');
+const isMarkdownPath = loadTypeScriptFunction(documentModelSource, 'isMarkdownPath');
 const resolveMarkdownLink = new Function(
-  `function dirname(path) { const index = path.lastIndexOf('/'); return index < 0 ? '' : path.slice(0, index); }\n${extract('resolveMarkdownLink')}\nreturn resolveMarkdownLink;`,
+  `${transpileTypeScriptFunction(pathModelSource, 'dirname')}
+${transpileTypeScriptFunction(pathModelSource, 'resolveMarkdownLink')}
+return resolveMarkdownLink;`,
 )();
 
 test('Markdown mode accepts only the three IDEA modes', () => {
@@ -69,14 +69,15 @@ test('the Markdown editor exposes the three IDEA mode buttons and persists the c
 });
 
 test('Markdown preview reuses the host MarkdownText primitive', () => {
-  assert.match(source, /function MarkdownPreviewPane\(/);
-  assert.match(source, /primitives\?\.MarkdownText/);
-  assert.match(source, /React\.createElement\(MarkdownText, \{/);
-  assert.match(source, /data-dsh-markdown-preview/);
+  assert.match(previewSource, /function MarkdownPreviewPane\(/);
+  assert.match(previewSource, /primitives\?\.MarkdownText/);
+  assert.match(previewSource, /<MarkdownText/);
+  assert.match(previewSource, /data-dsh-markdown-preview/);
 });
 
 test('the code area keeps both surfaces mounted for code, split and preview modes', () => {
-  assert.match(source, /data-dsh-markdown-editor-pane/);
+  assert.match(mainPaneSource, /data-dsh-markdown-editor-pane/);
+  assert.match(source, /editorHidden: activeImage \|\| effectiveMarkdownMode === 'preview'/);
   assert.match(source, /data-dsh-markdown-preview-pane/);
   assert.match(source, /effectiveMarkdownMode === 'preview'/);
   assert.match(source, /markdownPreviewVisible/);

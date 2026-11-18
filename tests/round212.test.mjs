@@ -49,8 +49,14 @@ test('Terminal tab menu exposes IDEA Move Tab Left/Right with boundary disable',
   assert.match(source, /terminalMoveRight: '向右移动标签',/);
   assert.match(source, /terminalMoveLeft: 'Move Tab Left',/);
   assert.match(source, /terminalMoveRight: 'Move Tab Right',/);
-  assert.match(source, /id: 'moveLeft', label: t\('editor\.terminalMoveLeft'\), disabled: actions\.canMoveLeft !== true/);
-  assert.match(source, /id: 'moveRight', label: t\('editor\.terminalMoveRight'\), disabled: actions\.canMoveRight !== true/);
+  assert.match(
+    source,
+    /id: 'moveLeft',\s+label: t\('editor\.terminalMoveLeft'\),\s+disabled: actions\.canMoveLeft !== true/u,
+  );
+  assert.match(
+    source,
+    /id: 'moveRight',\s+label: t\('editor\.terminalMoveRight'\),\s+disabled: actions\.canMoveRight !== true/u,
+  );
 });
 
 test('the tab menu computes real neighbours and reuses moveTab', () => {

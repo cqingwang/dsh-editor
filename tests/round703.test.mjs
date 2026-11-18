@@ -1,8 +1,18 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
+import { menuSource } from './ui-sources.mjs';
 
-const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+const source =
+  (await readFile(new URL('./fixtures/project-panel.legacy.js', import.meta.url), 'utf8')) +
+  '\n' +
+  (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) +
+  '\n' +
+  (await readFile(new URL('./fixtures/find-tool.legacy.js', import.meta.url), 'utf8'));
+const projectPanelSource = await readFile(
+  new URL('../src/client/components/project/ProjectPanel.tsx', import.meta.url),
+  'utf8',
+);
 
 function extractFunction(name) {
   const start = source.indexOf(`function ${name}(`);
@@ -114,13 +124,16 @@ test('Git and Recently Viewed scopes expose truthful disabled states', () => {
 });
 
 test('Project speed search never claims IDEA Shift+Cmd/Ctrl+F', () => {
-  const handler = source.slice(
-    source.indexOf('/* ⌘/Ctrl+F inside the tool window filters the tree in place'),
-    source.indexOf('React.useEffect(() => {\n        if (!searchOpen)', source.indexOf('const [searchOpen, setSearchOpen]')),
+  const marker = '/* ⌘/Ctrl+F inside the tool window filters the tree in place, like IDEA. */';
+  const start = projectPanelSource.indexOf(marker);
+  assert.notEqual(start, -1, 'Project speed search shortcut is missing');
+  const handler = projectPanelSource.slice(
+    start,
+    projectPanelSource.indexOf('React.useEffect(() => {\n    const query = search.trim();', start),
   );
   assert.match(
     handler,
-    /if \(!\(event\.metaKey \|\| event\.ctrlKey\) \|\| event\.altKey \|\| event\.shiftKey \|\| event\.key\.toLowerCase\(\) !== 'f'\) return;/u,
+    /if \(!\(event\.metaKey \|\| event\.ctrlKey\) \|\| event\.altKey \|\| event\.shiftKey \|\| event\.key\.toLowerCase\(\) !== 'f'\)[\s\S]*?return;/u,
   );
   assert.doesNotMatch(
     handler,
@@ -143,5 +156,5 @@ test('Find menus are clamped inside the dialog hit-testing surface', () => {
   assert.match(source, /x: findToolMenuLeft\(rect\.right - 220, surfaceRect\?\.left \?\? 0, surfaceRect\?\.right \?\? window\.innerWidth\)/u);
   assert.match(source, /x: findToolMenuLeft\(rect\.left, surfaceRect\?\.left \?\? 0, surfaceRect\?\.right \?\? window\.innerWidth\)/u);
   assert.match(source, /maxHeight: findToolMenuMaxHeight\(/u);
-  assert.match(source, /Number\.isFinite\(menu\.maxHeight\)[\s\S]*?overflowY: 'auto'/u);
+  assert.match(menuSource, /Number\.isFinite\(menu\.maxHeight\)[\s\S]*?overflowY: 'auto'/u);
 });

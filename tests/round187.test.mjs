@@ -5,7 +5,10 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = readFileSync(join(root, 'lib/client.js'), 'utf8');
+const source =
+  readFileSync(join(root, 'tests/fixtures/context-menu.legacy.js'), 'utf8') +
+  '\n' +
+  readFileSync(join(root, 'lib/client.js'), 'utf8');
 
 function contextMenu() {
   return source.slice(source.indexOf('function ContextMenu('), source.indexOf('/**\n     * A tool-window splitter'));
@@ -23,7 +26,10 @@ test('Right opens a submenu and focuses its first enabled item', () => {
 test('Left closes only the child menu and returns to its parent row', () => {
   const menu = contextMenu();
   assert.match(menu, /event\.key === 'ArrowLeft' && submenu !== null/);
-  assert.match(menu, /const parentId = submenu;\s+setSubmenu\(null\);\s+window\.setTimeout\(\(\) => itemButton\(parentId\)\?\.focus\(\), 0\)/);
+  assert.match(
+    menu,
+    /const parentId = submenu;\s+setSubmenu\(null\);\s+window\.setTimeout\(\(\) => itemButton\(parentId\)\?\.focus\(\), 0\)/,
+  );
 });
 
 test('Up/Down stay inside the open submenu instead of walking the parent menu', () => {
@@ -42,5 +48,5 @@ test('Editor is still a View-row toggle, never an injected tab', () => {
   const start = source.indexOf('function ensureChatToggle(');
   const block = source.slice(start, source.indexOf('function placeChatHandle(', start));
   assert.match(block, /data-dsh-editor-chat-toggle/);
-  assert.match(block, /if \(active\) setActive\(false\);\s+else openEditorSplit\(\);/);
+  assert.match(block, /if \(active\) setActive\(false\);\s*else\s+openEditorSplit\(\);/u);
 });

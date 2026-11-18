@@ -8,9 +8,8 @@ function extractFunction(name) {
   const start = source.indexOf(`function ${name}(`);
   assert.ok(start >= 0, `${name} must exist`);
   const asyncPrefix = 'async ';
-  const declarationStart = source.slice(Math.max(0, start - asyncPrefix.length), start) === asyncPrefix
-    ? start - asyncPrefix.length
-    : start;
+  const declarationStart =
+    source.slice(Math.max(0, start - asyncPrefix.length), start) === asyncPrefix ? start - asyncPrefix.length : start;
   const bodyStart = source.indexOf('{', start);
   let depth = 0;
   for (let index = bodyStart; index < source.length; index += 1) {
@@ -24,9 +23,9 @@ function extractFunction(name) {
 test('cancelling an upload interrupts its retry backoff instead of waiting for it', async () => {
   const waitForRetry = new Function(
     'window',
-    `${extractFunction('uploadCancelledFailure')};`
-    + `${extractFunction('waitForWorkspaceUploadRetry')};`
-    + 'return waitForWorkspaceUploadRetry;',
+    `${extractFunction('uploadCancelledFailure')};` +
+      `${extractFunction('waitForWorkspaceUploadRetry')};` +
+      'return waitForWorkspaceUploadRetry;',
   )(globalThis);
   const controller = new AbortController();
   const startedAt = Date.now();
@@ -40,7 +39,10 @@ test('cancelling an upload interrupts its retry backoff instead of waiting for i
 test('chunk requests receive the batch abort signal', () => {
   assert.match(source, /async function requestWorkspaceUpload\(action, options = \{\}\)/u);
   assert.match(source, /signal: options\.signal/u);
-  assert.match(source, /async function uploadWorkspaceFile\(file, path, onProgress, shouldCancel, signal\)/u);
+  assert.match(
+    source,
+    /async function uploadWorkspaceFile\(\s+file,\s+path,\s+onProgress,\s+shouldCancel,\s+signal\s*\)/u,
+  );
   assert.match(source, /waitForWorkspaceUploadRetry\(delay, shouldCancel, signal\)/u);
   assert.match(source, /cancelController\?\.abort\(\)/u);
 });

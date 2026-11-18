@@ -2,10 +2,10 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+const source = (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) + '\n' + await readFile(new URL('./fixtures/commit-log.legacy.js', import.meta.url), 'utf8');
 const commitLog = source.slice(
   source.indexOf('function CommitLog({'),
-  source.indexOf('function formatCommitDate('),
+  source.indexOf('/* COMMIT_LOG_BOUNDARY */'),
 );
 
 test('Commit Log details use the shared theme-aware scroll surface', () => {

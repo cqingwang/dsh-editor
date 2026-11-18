@@ -81,16 +81,31 @@ test('Project stores Compact Directories off by default and exposes it under App
     source,
     /const \[compactDirectories, setCompactDirectories\] = React\.useState\(\(\) => readStoredText\('dsh-editor\.project\.compactDirectories', '0'\) === '1'\);/,
   );
-  assert.match(source, /\{ id: 'compactDirectories', label: t\('editor\.compactDirectories'\), shortcut: compactDirectories \? '✓' : ''/);
+  assert.match(
+    source,
+    /\{ id: 'compactDirectories', label: t\('editor\.compactDirectories'\), shortcut: compactDirectories \? '✓' : ''/,
+  );
   assert.match(source, /window\.localStorage\.setItem\('dsh-editor\.project\.compactDirectories', next \? '1' : '0'\)/);
-  const appearance = source.slice(source.indexOf("id: 'appearance'"), source.indexOf('onCreateChange:', source.indexOf("id: 'appearance'")));
+  const appearance = source.slice(
+    source.indexOf("id: 'appearance'"),
+    source.indexOf('onCreateChange:', source.indexOf("id: 'appearance'")),
+  );
   assert.match(appearance, /id: 'compactDirectories'/);
 });
 
 test('flattenRows compacts loaded chains while preserving the deepest real path', () => {
-  assert.match(source, /function flattenRows\(entries, children, expanded, projectName, root, compactDirectories = false, sortMode = 'name', manualOrder = null\)/);
-  assert.match(source, /const compacted = compactDirectories === true && entry\.kind === 'directory' \? compactDirectoryChain\(entry, children\) : null;/);
-  assert.match(source, /const rowEntry = compacted === null[\s\S]*?path: compacted\.path,[\s\S]*?name: compacted\.name,/);
+  assert.match(
+    source,
+    /function flattenRows\(\s*entries,\s*children,\s*expanded,\s*projectName,\s*root,\s*compactDirectories = false,\s*sortMode = 'name',\s*manualOrder = null\s*\)/u,
+  );
+  assert.match(
+    source,
+    /const compacted =\s*compactDirectories === true && entry\.kind === 'directory'\s+\? compactDirectoryChain\(entry, children\) : null;/u,
+  );
+  assert.match(
+    source,
+    /const rowEntry =\s*compacted === null[\s\S]*?path: compacted\.path,[\s\S]*?name: compacted\.name/u,
+  );
   assert.match(source, /rows\.push\(\{ \.\.\.rowEntry, depth: frame\.depth, continues \}\);/);
 });
 

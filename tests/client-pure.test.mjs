@@ -3,9 +3,12 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
+import { loadTypeScriptFunction } from './ts-source.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const source = readFileSync(join(root, 'lib/client.js'), 'utf8');
+const gitStatusModelSource = readFileSync(join(root, 'src/client/components/ui/git-status-model.ts'), 'utf8');
+const commitModelSource = readFileSync(join(root, 'src/client/components/ui/commit-model.ts'), 'utf8');
 
 /**
  * Pull one `    function name(...)` block out of the client bundle by brace balance.
@@ -47,7 +50,9 @@ function load(names) {
 }
 
 /* `changeTreeOf` sorts through `sortChangeTree`, and both use `basename`. */
-const helpers = load(['basename', 'dirname', 'sortChangeTree', 'changeTreeOf', 'splitChanges', 'filterTreeRows', 'commitMetrics', 'gitStatusInfo']);
+const helpers = load(['basename', 'dirname', 'sortChangeTree', 'changeTreeOf', 'splitChanges', 'filterTreeRows']);
+const gitStatusInfo = loadTypeScriptFunction(gitStatusModelSource, 'gitStatusInfo');
+const commitMetrics = loadTypeScriptFunction(commitModelSource, 'commitMetrics');
 
 test('changeTreeOf groups by directory and sorts directories before files', () => {
   const tree = helpers.changeTreeOf([
@@ -92,24 +97,24 @@ test('filterTreeRows keeps hits and their ancestors, never orphans them', () => 
 });
 
 test('commitMetrics splits subject from body the way git log reads it', () => {
-  const single = helpers.commitMetrics('feat: add tree');
+  const single = commitMetrics('feat: add tree');
   assert.equal(single.subject, 'feat: add tree');
   assert.equal(single.subjectLength, 14);
   assert.equal(single.body, '');
   assert.equal(single.bodyLines, 0);
 
-  const multi = helpers.commitMetrics('feat: add tree\n\nwhy it exists\nand what it changes\n');
+  const multi = commitMetrics('feat: add tree\n\nwhy it exists\nand what it changes\n');
   assert.equal(multi.subjectLength, 14);
   assert.equal(multi.bodyLines, 3);
   assert.match(multi.body, /why it exists/);
 
   /* Trailing spaces must not inflate the subject counter. */
-  assert.equal(helpers.commitMetrics('abc   \nbody').subjectLength, 3);
+  assert.equal(commitMetrics('abc   \nbody').subjectLength, 3);
   /* An over-long subject is reported, not truncated. */
-  const long = helpers.commitMetrics('x'.repeat(60));
+  const long = commitMetrics('x'.repeat(60));
   assert.equal(long.subjectLength, 60);
   assert.equal(long.subject, 'x'.repeat(60));
-  assert.equal(helpers.commitMetrics(undefined).subjectLength, 0);
+  assert.equal(commitMetrics(undefined).subjectLength, 0);
 });
 
 test('basename and dirname agree with the paths the tree uses', () => {
@@ -120,7 +125,7 @@ test('basename and dirname agree with the paths the tree uses', () => {
 });
 
 test('gitStatusInfo maps every porcelain code the panel can show', () => {
-  const info = helpers.gitStatusInfo;
+  const info = gitStatusInfo;
   assert.equal(info(undefined), null);
   assert.equal(info('??').label, 'U');
   assert.equal(info('A ').label, 'A');

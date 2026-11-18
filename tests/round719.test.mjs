@@ -2,49 +2,41 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
+import { extractJavaScriptFunctionSource } from './ts-source.mjs';
+
 const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
 
 function extractFunction(name) {
-  const start = source.indexOf(`function ${name}(`);
-  assert.notEqual(start, -1, `${name} is missing`);
-  const bodyStart = source.indexOf(') {', start) + 2;
-  assert.ok(bodyStart > 1, `${name} has no function body`);
-  let depth = 0;
-  for (let index = bodyStart; index < source.length; index += 1) {
-    if (source[index] === '{') depth += 1;
-    if (source[index] === '}') depth -= 1;
-    if (depth === 0) return source.slice(start, index + 1);
-  }
-  assert.fail(`${name} has no closing brace`);
+  return extractJavaScriptFunctionSource(source, name);
 }
 
 function planHarness() {
   return new Function(
-    `${extractFunction('basename')};`
-      + `${extractFunction('harnessPathMention')};`
-      + `${extractFunction('harnessReferencePlan')};`
-      + 'return harnessReferencePlan;',
+    `${extractFunction('basename')};` +
+      `${extractFunction('harnessPathMention')};` +
+      `${extractFunction('harnessReferencePlan')};` +
+      'return harnessReferencePlan;',
   )();
 }
 
 function editorHarness() {
   return new Function(
-    `${extractFunction('normalizeNavigationPath')};`
-      + `${extractFunction('navigationPathForModel')};`
-      + `${extractFunction('harnessEditorLocation')};`
-      + 'return harnessEditorLocation;',
+    `${extractFunction('normalizeNavigationPath')};` +
+      `${extractFunction('navigationPathForModel')};` +
+      `${extractFunction('harnessEditorLocation')};` +
+      'return harnessEditorLocation;',
   )();
 }
 
 function insertionHarness() {
   return new Function(
-    `${extractFunction('basename')};`
-      + `${extractFunction('harnessPathMention')};`
-      + `${extractFunction('harnessReferencePlan')};`
-      + `${extractFunction('focusHarnessComposer')};`
-      + `${extractFunction('insertHarnessTextFallback')};`
-      + `${extractFunction('insertHarnessReferencesIntoComposer')};`
-      + 'return insertHarnessReferencesIntoComposer;',
+    `${extractFunction('basename')};` +
+      `${extractFunction('harnessPathMention')};` +
+      `${extractFunction('harnessReferencePlan')};` +
+      `${extractFunction('focusHarnessComposer')};` +
+      `${extractFunction('insertHarnessTextFallback')};` +
+      `${extractFunction('insertHarnessReferencesIntoComposer')};` +
+      'return insertHarnessReferencesIntoComposer;',
   )();
 }
 
@@ -150,7 +142,10 @@ test('Monaco body context menu registers the direct Harness action', () => {
 });
 
 test('editor requests forward the selected range to the composer bridge', () => {
-  assert.match(source, /line: position\?\.line \?\? null,[\s\S]*?column: position\?\.column \?\? null,[\s\S]*?endLine: position\?\.endLine \?\? null,[\s\S]*?endColumn: position\?\.endColumn \?\? null,/u);
+  assert.match(
+    source,
+    /line: position\?\.line \?\? null,[\s\S]*?column: position\?\.column \?\? null,[\s\S]*?endLine: position\?\.endLine \?\? null,[\s\S]*?endColumn: position\?\.endColumn \?\? null,/u,
+  );
   assert.match(source, /const sendHarnessEditorReference = React\.useCallback\(\(editor\) => \{/u);
   assert.match(source, /const location = harnessEditorLocation\(editor\);/u);
   assert.match(source, /void sendHarnessReference\(\[\{ path: location\.path, isDirectory: false \}\], location\)/u);
@@ -191,15 +186,22 @@ test('the composer bridge prefers the public addFiles verb without submitting', 
     },
     getSelection: () => null,
   };
-  const inserted = await insertHarnessReferencesIntoComposer(context, {
-    entries: [{ path: 'src/app.js', isDirectory: false }],
-    line: 3,
-    column: 1,
-    endLine: 5,
-    endColumn: 7,
-  }, { document: documentRef });
+  const inserted = await insertHarnessReferencesIntoComposer(
+    context,
+    {
+      entries: [{ path: 'src/app.js', isDirectory: false }],
+      line: 3,
+      column: 1,
+      endLine: 5,
+      endColumn: 7,
+    },
+    { document: documentRef },
+  );
   assert.equal(inserted, true);
-  assert.deepEqual(calls.map((call) => call.kind), ['addFiles']);
+  assert.deepEqual(
+    calls.map((call) => call.kind),
+    ['addFiles'],
+  );
   assert.equal(calls[0].references[0].clipboardText, '@src/app.js L3:1-L5:7');
   assert.deepEqual(calls[0].ids, []);
 });

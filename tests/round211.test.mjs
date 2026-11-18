@@ -5,7 +5,8 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = readFileSync(join(root, 'lib/client.js'), 'utf8');
+const source = (readFileSync(join(root, 'tests/fixtures/diff-preview.legacy.js'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
+const iconSource = readFileSync(join(root, 'src/client/components/ui/Icon.tsx'), 'utf8');
 
 test('Diff stores IDEA Show Whitespaces off by default', () => {
   assert.match(source, /diffShowWhitespaces: '显示空白字符',/);
@@ -30,5 +31,5 @@ test('the Diff Settings submenu exposes an independent whitespace rendering togg
     source,
     /id: 'showWhitespaces',\s+icon: 'whitespace',\s+label: t\('editor\.diffShowWhitespaces'\),\s+shortcut: showWhitespaces \? '✓' : '',/,
   );
-  assert.match(source, /case 'whitespace':/);
+  assert.match(iconSource, /case 'whitespace':/);
 });

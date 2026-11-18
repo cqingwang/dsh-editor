@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+const source = (await readFile(new URL('./fixtures/search-everywhere.legacy.js', import.meta.url), 'utf8') + '\n' + (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) + '\n' + (await readFile(new URL('./fixtures/find-tool.legacy.js', import.meta.url), 'utf8')));
 
 function extract(name) {
   const marker = `    function ${name}(`;
@@ -36,7 +36,7 @@ test('recent search history is bounded, unique and newest first', () => {
 });
 
 test('slash content stays literal under the active tab', () => {
-  const dialog = source.slice(source.indexOf('function SearchEverywhere('), source.indexOf('function QuickOpen('));
+  const dialog = source.slice(source.indexOf('function SearchEverywhere('), source.lastIndexOf('function QuickOpen('));
   assert.match(dialog, /const effectiveQuery = query;/);
   assert.match(dialog, /rankSearchActions\(actions, effectiveQuery, recentCommands, \{/);
   assert.match(source, /const searchEverywhereTextQuery = searchEverywhereRawQuery/);
@@ -44,7 +44,7 @@ test('slash content stays literal under the active tab', () => {
 });
 
 test('empty Search Everywhere exposes recent searches and records successful queries', () => {
-  const dialog = source.slice(source.indexOf('function SearchEverywhere('), source.indexOf('function QuickOpen('));
+  const dialog = source.slice(source.indexOf('function SearchEverywhere('), source.lastIndexOf('function QuickOpen('));
   assert.match(dialog, /recentSearches/);
   assert.match(dialog, /historyResults/);
   assert.match(dialog, /onRememberQuery\(effectiveQuery\)/);

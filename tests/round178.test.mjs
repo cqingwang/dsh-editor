@@ -3,9 +3,12 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
+import { compactActionBarSource } from './ui-sources.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = readFileSync(join(root, 'lib/client.js'), 'utf8');
+const source = (readFileSync(join(root, 'tests/fixtures/terminal-panel.legacy.js'), 'utf8') + '\n' + readFileSync(join(root, 'tests/fixtures/terminal-screen.legacy.js'), 'utf8') + '\n' + readFileSync(join(root, 'tests/fixtures/commit-panel.legacy.js'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
+const entryIconSource = readFileSync(join(root, 'src/client/components/ui/EntryIcon.tsx'), 'utf8');
+const fileBadgeSource = readFileSync(join(root, 'src/client/components/ui/file-badge.ts'), 'utf8');
 
 function slice(from, to) {
   const start = source.indexOf(from);
@@ -139,7 +142,7 @@ test('the action strip measures the pane width instead of shrink-wrapping its ac
   const bar = slice('commitActionBar: {', 'commitActionSpacer: {');
   assert.match(bar, /width: '100%'/);
   assert.match(bar, /boxSizing: 'border-box'/);
-  const compact = slice('function CompactActionBar(', '/** Project tool window:');
+  const compact = compactActionBarSource;
   assert.match(compact, /new ResizeObserver\(measure\)/);
   assert.match(compact, /const next = actions\.length <= slots \? actions\.length : Math\.max\(0, slots - 1\)/);
   assert.match(compact, /\}, \[actionSlotWidth, actionsKey, visibleCount\]\);/);
@@ -148,9 +151,10 @@ test('the action strip measures the pane width instead of shrink-wrapping its ac
 
 test('the tree prefers the host file artwork and keeps the badge fallback', () => {
   assert.match(source, /require\('@deepseek-ai\/dsh-client-ui-primitives'\)/);
-  assert.match(source, /typeof primitives\?\.FileTypeIcon === 'function'/);
-  assert.match(source, /primitives\.FileTypeIcon, \{ path: entry\.path, size: 16 \}/);
-  assert.match(source, /const badge = fileBadge\(entry\.path\);/);
+  assert.match(entryIconSource, /primitives\?\.FileTypeIcon/);
+  assert.match(entryIconSource, /<HostFileTypeIcon[\s\S]*?path=\{entry\.path\}[\s\S]*?size=\{16\}/);
+  assert.match(entryIconSource, /const badge = fileBadge\(entry\.path\);/);
+  assert.match(fileBadgeSource, /export function fileBadge\(/);
   const manifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
   assert.ok(manifest.dsh.client.inject.includes('@deepseek-ai/dsh-client-ui-primitives'));
   assert.match(manifest.peerDependencies['@deepseek-ai/dsh-client-ui-primitives'], /0\.2\.2-rc\.1/);

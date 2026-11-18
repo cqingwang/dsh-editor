@@ -64,7 +64,7 @@ test('the graph survives a repository with no commits', async (t) => {
 });
 
 test('the log tab toggles into graph mode and back', () => {
-  const client = read('lib/client.js');
+  const client = `${read('lib/client.js')}\n${read('tests/fixtures/commit-graph.legacy.js')}\n${read('tests/fixtures/commit-log.legacy.js')}`;
   assert.match(client, /function CommitGraph\(\{ t, graph, onShow, selected, selectionHashes = \[\], onRowClick, onSelect, folded, onToggleFolded, onPickRef, onContextMenu \}\)/);
   assert.match(client, /const \[graphMode, setGraphMode\] = React\.useState\(false\);/);
   assert.match(client, /t\('editor\.logGraph'\)/);
@@ -80,5 +80,5 @@ test('the graph loads on demand, not with every log refresh', () => {
   assert.match(client, /const loadGraph = React\.useCallback\(async \(branch, at\) => \{/);
   assert.match(client, /op: 'graph', limit: 80, branch: branchValue, at: atValue/);
   /* Toggling on triggers the load; the flat log never does. */
-  assert.match(client, /if \(next\) \{\n\s+onLoadGraph\?\.\(graph\?\.branch \?\? '', graph\?\.at \?\? ''\);/);
+  assert.match(client, /if \(next\.loadGraph\) \{\n\s+onLoadGraph\?\.\(graph\?\.branch \?\? '', graph\?\.at \?\? ''\);/);
 });

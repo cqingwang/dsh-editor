@@ -19,8 +19,10 @@ test('Project file context menu has no Open in Editor action', () => {
 
 test('Project directory menu still exposes Expand Directory', () => {
   const menu = treeMenu();
-  assert.match(menu, /isDirectory\s*\?\s*\[\s*\{[\s\S]*?label: t\('editor\.expandFolder'\)/u);
-  assert.match(menu, /toggleDirectory\(row\.path\)/u);
+  assert.match(menu, /showReveal/u);
+  assert.match(menu, /label: isDirectory \? t\('editor\.expandFolder'\)/u);
+  assert.match(menu, /setExpanded\(\(current\) => new Set\(\[\.\.\.current, row\.path\]\)\)/u);
+  assert.doesNotMatch(menu, /toggleDirectory\(row\.path\)/u);
 });
 
 test('Project split action is labelled Split Open without changing shared menus', () => {

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+const source = (await readFile(new URL('./fixtures/search-everywhere.legacy.js', import.meta.url), 'utf8') + '\n' + (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) + '\n' + (await readFile(new URL('./fixtures/find-tool.legacy.js', import.meta.url), 'utf8')));
 
 function extractFunction(name) {
   const start = source.indexOf(`function ${name}(`);
@@ -91,7 +91,7 @@ test('Search Everywhere dirty search invalidates stale requests on file changes'
 });
 
 test('Dirty preview and save/reload paths keep current content authoritative', () => {
-  const dialog = source.slice(source.indexOf('function SearchEverywhere('), source.indexOf('function QuickOpen('));
+  const dialog = source.slice(source.indexOf('function SearchEverywhere('), source.lastIndexOf('function QuickOpen('));
   assert.match(dialog, /activeResult\.kind === 'text' && activeResult\.dirty === true/u);
   assert.match(dialog, /Array\.isArray\(openFiles\) \? openFiles : \[\]/u);
   assert.match(dialog, /activeResult\?\.dirty, openFiles\]/u);

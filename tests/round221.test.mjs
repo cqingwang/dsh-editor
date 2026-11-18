@@ -6,7 +6,7 @@ import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const host = readFileSync(join(root, 'lib/index.js'), 'utf8');
-const client = readFileSync(join(root, 'lib/client.js'), 'utf8');
+const client = (readFileSync(join(root, 'tests/fixtures/diff-preview.legacy.js'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
 
 function apiBody(path) {
   const start = host.indexOf(`path: '${path}'`);

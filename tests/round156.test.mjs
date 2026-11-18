@@ -4,18 +4,24 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
+import { en, zh } from './locale-source.mjs';
+
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const read = (path) => readFileSync(join(root, path), 'utf8');
+const readClient = () =>
+  readFileSync(join(root, 'tests/fixtures/diff-preview.legacy.js'), 'utf8') + '\n' + read('lib/client.js');
+const iconSource = read('src/client/components/ui/Icon.tsx');
+const toolWindowResizerSource = read('src/client/components/editor/EditorToolWindowResizer.tsx');
 
 test('a block restore is undoable from the diff toolbar and ⌘Z', () => {
-  const client = read('lib/client.js');
+  const client = readClient();
   /* Monaco clears its model undo stack when the native revert edits the model;
      the plugin therefore keeps an explicit inverse. */
   assert.match(client, /const restoreUndoRef = undoRef \?\? React\.useRef\(\[\]\);/);
   assert.match(client, /const undoRestore = React\.useCallback\(\(\) => \{/);
   assert.match(client, /restoreUndoRef\.current\.pop\(\)/);
   assert.match(client, /label: t\('editor\.diffUndoRestore'\), group: 'history', shortcut: '⌘Z', disabled: editLocked \|\| diffUnavailable, run: undoRestore/);
-  assert.match(client, /case 'undo':/);
+  assert.match(iconSource, /case 'undo':/);
   assert.match(client, /icon: 'undo', label: t\('editor\.diffUndoRestore'\)/);
   assert.match(client, /const \[undoNotice, setUndoNotice\] = React\.useState\(null\);/);
   assert.match(client, /undoNotice \?\? t\(target\?\.staged === true \? 'editor\.diffRestoreHintStaged' : 'editor\.diffRestoreHint'\)/);
@@ -24,7 +30,7 @@ test('a block restore is undoable from the diff toolbar and ⌘Z', () => {
 });
 
 test('one user restore creates one undo entry despite duplicate model events', () => {
-  const client = read('lib/client.js');
+  const client = readClient();
   /* The restore's write chain must not drop a second event while the first is
      in flight: that left the model and the file disagreeing after ⌘Z. */
   assert.match(client, /const writeChainRef = React\.useRef\(Promise\.resolve\(\)\);/);
@@ -40,7 +46,7 @@ test('one user restore creates one undo entry despite duplicate model events', (
 });
 
 test('read-only comparisons get no restore or undo affordance', () => {
-  const client = read('lib/client.js');
+  const client = readClient();
   assert.match(client, /const writable = typeof target\.clipboardText !== 'string' && typeof target\.revision !== 'string' && typeof target\.commit !== 'string';/);
   assert.match(client, /const canEdit = diffEditingEnabled\(\{[\s\S]*?writable,[\s\S]*?swapped: swapSidesRef\.current,[\s\S]*?locked: editLockedRef\.current,/);
   assert.match(client, /diff\.updateOptions\(\{\n\s+readOnly: canEdit === false,\n\s+renderMarginRevertIcon: canEdit,/);
@@ -48,7 +54,7 @@ test('read-only comparisons get no restore or undo affordance', () => {
 });
 
 test('restore feedback and undo affordances are bilingual', () => {
-  const client = read('lib/client.js');
+  const client = readClient();
   for (const key of ['diffUndoRestore', 'diffUndoEmpty', 'diffUndoDone']) {
     const matches = [...client.matchAll(new RegExp(`${key}:`, 'g'))];
     assert.equal(matches.length, 2, `${key} must exist once in zh and once in en`);
@@ -56,12 +62,12 @@ test('restore feedback and undo affordances are bilingual', () => {
 });
 
 test('redo restores the last undone block and clears on a new restore', () => {
-  const client = read('lib/client.js');
+  const client = readClient();
   assert.match(client, /const restoreRedoRef = redoRef \?\? React\.useRef\(\[\]\);/);
   assert.match(client, /const redoRestore = React\.useCallback\(\(\) => \{/);
   assert.match(client, /restoreRedoRef\.current\.push\(entry\);/);
   assert.match(client, /restoreRedoRef\.current = \[\];/);
-  assert.match(client, /case 'redo':/);
+  assert.match(iconSource, /case 'redo':/);
   assert.match(client, /icon: 'redo', label: t\('editor\.diffRedoRestore'\)/);
   assert.match(client, /event\.key\.toLowerCase\(\) === 'y'/);
   for (const key of ['diffRedoRestore', 'diffRedoEmpty', 'diffRedoDone']) {
@@ -71,7 +77,7 @@ test('redo restores the last undone block and clears on a new restore', () => {
 });
 
 test('selection restore only targets changed character ranges', () => {
-  const client = read('lib/client.js');
+  const client = readClient();
   assert.match(client, /function selectedCharChanges\(changes, selection\) \{/);
   assert.match(client, /diff\.revertRangeMappings\(ranges\)/);
   assert.match(client, /originalRange: \{/);
@@ -81,7 +87,7 @@ test('selection restore only targets changed character ranges', () => {
   assert.match(client, /event\.selection/);
 
   /* Execute the pure range selector against a realistic char-change payload. */
-  const source = read('lib/client.js');
+  const source = readClient();
   const start = source.indexOf('    function selectedCharChanges(');
   assert.notEqual(start, -1);
   let index = source.indexOf('{', start);
@@ -122,18 +128,20 @@ test('selection restore only targets changed character ranges', () => {
 });
 
 test('Commit opens at one quarter and remembers a dragged width per workspace', () => {
-  const client = read('lib/client.js');
+  const client = readClient();
   assert.match(client, /const \[toolWidths, setToolWidths\] = React\.useState\(\{ project: 28, commit: 25 \}\);/);
   assert.match(client, /function readToolWidth\(root, activity, fallback\) \{/);
   assert.match(client, /dsh-editor\.toolWidth\.\$\{activity\}:\$\{root\}/);
   assert.match(client, /writeToolWidth\(rootRef\.current, activity, final\)/);
-  assert.match(client, /toolWidthsRef\.current\[activity\] \?\? startWidth/);
+  assert.match(client, /React\.createElement\(EditorToolWindowResizer, \{/);
+  assert.match(toolWindowResizerSource, /Math\.max\(14, Math\.min\(72, startWidth \+ delta\)\)/);
+  assert.match(toolWindowResizerSource, /onCommit\(latest\)/);
   assert.match(client, /commit: readToolWidth\(value\.root \?\? '', 'commit', 25\)/);
   assert.match(client, /project: readToolWidth\(value\.root \?\? '', 'project', 28\)/);
 });
 
 test('the quarter-width diff keeps its glyph gutter but compacts text chrome', () => {
-  const client = read('lib/client.js');
+  const client = readClient();
   assert.match(client, /lineNumbersMinChars: 2/);
   assert.match(client, /lineDecorationsWidth: 4/);
   assert.match(client, /glyphMargin: canEdit \|\|/);
@@ -144,14 +152,20 @@ test('the quarter-width diff keeps its glyph gutter but compacts text chrome', (
 });
 
 test('a staged diff says the restore only changes the index', () => {
-  const client = read('lib/client.js');
-  assert.match(client, /diffRestoreHintStaged: '点击右侧的 ▸ 只把暂存区中的这一块还原为左侧内容（不改工作区）'/);
-  assert.match(client, /diffRestoreHintStaged: 'Click the ▸ on the right to restore this block in the index only/);
+  const client = readClient();
+  assert.equal(
+    zh.editor.diffRestoreHintStaged,
+    '点击右侧的 ▸ 只把暂存区中的这一块还原为左侧内容（不改工作区）',
+  );
+  assert.equal(
+    en.editor.diffRestoreHintStaged,
+    'Click the ▸ on the right to restore this block in the index only (the working tree is untouched)',
+  );
   assert.match(client, /undoNotice \?\? t\(target\?\.staged === true \? 'editor\.diffRestoreHintStaged' : 'editor\.diffRestoreHint'\)/);
 });
 
 test('restore history survives switching between diff targets', () => {
-  const client = read('lib/client.js');
+  const client = readClient();
   /* The model effect no longer clears the stacks; the refs live in the
      workspace so IDEA's global undo/redo behaves the same across files. */
   assert.match(client, /const diffUndoRef = React\.useRef\(\[\]\);/);

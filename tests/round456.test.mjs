@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+const stripeSource = await readFile(new URL('../src/client/components/ui/ActivityStripe.tsx', import.meta.url), 'utf8');
 
 test('the Editor surface is not rebuilt for an empty asynchronous React commit', () => {
   const start = source.indexOf('function ensureHost(body) {');
@@ -22,5 +23,5 @@ test('the final host lifecycle has no periodic recovery interval', () => {
 });
 
 test('the Activity Stripe exposes a stable workspace marker', () => {
-  assert.match(source, /'data-dsh-editor-activity-stripe': '',/);
+  assert.match(stripeSource, /data-dsh-editor-activity-stripe=''/);
 });

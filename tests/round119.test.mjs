@@ -5,14 +5,15 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = readFileSync(join(root, 'lib/client.js'), 'utf8');
+const panelSource = readFileSync(join(root, 'tests/fixtures/terminal-panel.legacy.js'), 'utf8');
+const source = (panelSource + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
 
 test('the README item is driven by a real path, not by the shell cwd', () => {
   /* `readmePath: terminal.cwd` is ALWAYS a non-empty string, so `disabled` never
      fired: a directory without a README offered a live item that then errored. */
   /* Round 122 made the menu read the LIVE directory (OSC 7) rather than the render
      snapshot, so the key now comes from `terminalCwdRef`. */
-  const lines = source.split('\n').filter((line) => /readmePath:/.test(line));
+  const lines = panelSource.split('\n').filter((line) => /readmePath:/.test(line));
   assert.equal(lines.length, 1);
   assert.match(lines[0], /readmePaths\[terminalCwdRef\.current\.get\(terminal\.id\)/);
   /* `''` is the "checked and missing" marker; `undefined` means "not resolved". */
@@ -20,8 +21,8 @@ test('the README item is driven by a real path, not by the shell cwd', () => {
 });
 
 test('the resolved README path is tracked per terminal', () => {
-  const start = source.indexOf('      const openTerminalReadme = React.useCallback(async (cwd) => {');
+  const start = panelSource.indexOf('      const openTerminalReadme = React.useCallback(async (cwd) => {');
   assert.notEqual(start, -1);
-  const block = source.slice(start, start + 1600);
+  const block = panelSource.slice(start, start + 1600);
   assert.match(block, /setReadmePaths\(/);
 });

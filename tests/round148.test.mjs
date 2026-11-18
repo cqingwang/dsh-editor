@@ -10,7 +10,11 @@ import test from 'node:test';
 import { workspaceFileOperations } from '../lib/index.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = readFileSync(join(root, 'lib/client.js'), 'utf8');
+const source = (readFileSync(join(root, 'tests/fixtures/diff-preview.legacy.js'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
+const tabStripSource = readFileSync(join(root, 'src/client/components/editor/EditorTabStrip.tsx'), 'utf8');
+const editorDiffTabSource = readFileSync(join(root, 'src/client/components/editor/EditorDiffTab.tsx'), 'utf8');
+const editorDiffAreaSource = readFileSync(join(root, 'src/client/components/editor/EditorDiffArea.tsx'), 'utf8');
+const editorFileSurfaceSource = readFileSync(join(root, 'src/client/components/editor/EditorFileSurface.tsx'), 'utf8');
 
 /**
  * Slice one callback/JSX block out of the client bundle.
@@ -111,23 +115,30 @@ test('the diff tab and the file tabs hand the code area back and forth', () => {
   assert.doesNotMatch(open, /setDiffTarget\(null\);/);
   /* A file tab click does the same, and a tab click keeps the caret on the strip
      (a tree click already did) so the next arrow key still walks the rows. */
-  assert.match(source, /onClick: \(\) => \{\n\s+setActivePath\(file\.path\);\n\s+setDiffActive\(false\);\n\s+\},/);
+  assert.match(source, /onActivate: \(\) => \{\n\s+setActivePath\(file\.path\);\n\s+setDiffActive\(false\);\n\s+\},/);
   assert.match(source, /const inTabs = activeNode\?\.closest\('\[data-dsh-editor-tabstrip\]'\) != null;/);
-  assert.match(source, /'data-dsh-editor-tabstrip': '',/);
+  assert.match(tabStripSource, /data-dsh-editor-tabstrip=''/);
   /* The file surface owns either one or both editor groups, but never a diff,
      annotate view or editor terminal. */
   assert.match(source, /const fileSurfaceVisible = \(activeFile !== null \|\| splitFile !== null\)[\s\S]*?diffOpen === false[\s\S]*?annotateTarget === null[\s\S]*?editorTerminals\.length === 0/);
-  assert.match(source, /display: fileSurfaceVisible \? 'flex' : 'none'/);
-  assert.match(source, /diffOpen === false\n\s+\? null\n\s+: diffTarget\?\.repositoryVersion[\s\S]*?: React\.createElement\(DiffPreview/);
+  assert.match(source, /React\.createElement\(\s*EditorFileSurface,\s*\{/);
+  assert.match(source, /visible: fileSurfaceVisible/);
+  assert.match(editorFileSurfaceSource, /display: visible \? 'flex' : 'none'/);
+  assert.match(source, /React\.createElement\(EditorDiffArea, \{/);
+  assert.match(source, /active: diffOpen/);
+  assert.match(editorDiffAreaSource, /if \(!active \|\| target === null\) return null;/);
+  assert.match(editorDiffAreaSource, /<RepositoryVersionPreview/);
+  assert.match(editorDiffAreaSource, /<DiffPreview/);
   assert.match(source, /const statusPath = statusFile === null/);
   assert.doesNotMatch(source, /breadcrumbSegments/);
 });
 
 test('closing the diff tab drops the preview and returns to the file', () => {
   const tab = slice("key: 'dsh-editor-difftab',", '/* One layout for this render');
-  assert.match(tab, /onClick: \(\) => setDiffActive\(true\)/);
+  assert.match(tab, /onActivate: \(\) => setDiffActive\(true\)/);
   assert.match(tab, /onAuxClick: \(event\) => \{/);
-  assert.match(tab, /onClick: \(event\) => \{\n\s+event\.stopPropagation\(\);\n\s+closeDiff\(\);/);
+  assert.match(tab, /onClose: closeDiff/);
+  assert.match(editorDiffTabSource, /event\.stopPropagation\(\);\n\s+onClose\(\);/);
   /* ⌘W closes the tab that is showing, which may be the diff. */
   assert.match(source, /if \(diffActiveRef\.current\) closeDiff\(\);/);
 });

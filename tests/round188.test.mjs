@@ -27,7 +27,10 @@ test('DOM maintenance is capped to a low-frequency pass', () => {
 
 test('MutationObserver coalesces bursts instead of synchronously calling sync', () => {
   const from = source.indexOf('function enhanceMenus()');
-  const observer = source.slice(source.indexOf('const observer = new MutationObserver(', from), source.indexOf('observer.observe(document.body', from));
+  const observer = source.slice(
+    source.indexOf('const observer = new MutationObserver(', from),
+    source.indexOf('observer.observe(document.body', from),
+  );
   assert.match(observer, /if \(maintenanceTimer !== 0\) return;/);
   assert.match(observer, /maintenanceDelay\(lastMaintenanceAt, performance\.now\(\), 80\)/);
   assert.match(observer, /maintenanceTimer = window\.setTimeout\(\(\) => \{/);
@@ -36,13 +39,19 @@ test('MutationObserver coalesces bursts instead of synchronously calling sync', 
 });
 
 test('unmount cancels a queued maintenance pass', () => {
-  const cleanup = source.slice(source.indexOf('() => () => {', source.indexOf('ctx.effect(')), source.indexOf("'dsh-editor: split layout'"));
+  const cleanup = source.slice(
+    source.indexOf('() => () => {', source.indexOf('ctx.effect(')),
+    source.indexOf("'dsh-editor: split layout'"),
+  );
   assert.match(cleanup, /window\.clearTimeout\(maintenanceTimer\)/);
   assert.match(cleanup, /maintenanceTimer = 0/);
 });
 
 test('the View row still has no Editor tab and the toggle opens or closes it', () => {
   assert.doesNotMatch(source, /setAttribute\('data-dsh-editor-tab'/);
-  const toggle = source.slice(source.indexOf('function ensureChatToggle('), source.indexOf('function placeChatHandle('));
-  assert.match(toggle, /if \(active\) setActive\(false\);\s+else openEditorSplit\(\);/);
+  const toggle = source.slice(
+    source.indexOf('function ensureChatToggle('),
+    source.indexOf('function placeChatHandle('),
+  );
+  assert.match(toggle, /if \(active\) setActive\(false\);\s*else\s+openEditorSplit\(\);/u);
 });

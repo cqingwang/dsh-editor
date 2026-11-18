@@ -3,27 +3,12 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
+import { loadTypeScriptFunction } from './ts-source.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = readFileSync(join(root, 'lib/client.js'), 'utf8');
-
-function extractFunction(name) {
-  const start = source.indexOf(`    function ${name}(`);
-  assert.notEqual(start, -1, `${name} is missing`);
-  let depth = 0;
-  for (let index = source.indexOf('{', start); index < source.length; index += 1) {
-    if (source[index] === '{') depth += 1;
-    else if (source[index] === '}') {
-      depth -= 1;
-      if (depth === 0) return source.slice(start, index + 1);
-    }
-  }
-  assert.fail(`${name} has no closing brace`);
-}
-
-const diffViewStateKey = new Function(
-  `${extractFunction('diffViewStateKey')}; return diffViewStateKey;`,
-)();
+const source = (readFileSync(join(root, 'tests/fixtures/diff-preview.legacy.js'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
+const diffModelSource = readFileSync(join(root, 'src/client/components/ui/diff-model.ts'), 'utf8');
+const diffViewStateKey = loadTypeScriptFunction(diffModelSource, 'diffViewStateKey');
 
 test('diff view state identity includes target comparison and side orientation', () => {
   const working = diffViewStateKey({ path: 'a.txt', staged: false }, false);

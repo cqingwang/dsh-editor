@@ -3,37 +3,12 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
+import { loadTypeScriptFunction } from './ts-source.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = readFileSync(join(root, 'lib/client.js'), 'utf8');
-
-function extractFunction(name) {
-  const start = source.indexOf(`    function ${name}(`);
-  assert.notEqual(start, -1, `${name} is missing`);
-  let paramsIndex = source.indexOf('(', start);
-  let paramsDepth = 0;
-  for (; paramsIndex < source.length; paramsIndex += 1) {
-    if (source[paramsIndex] === '(') paramsDepth += 1;
-    else if (source[paramsIndex] === ')') {
-      paramsDepth -= 1;
-      if (paramsDepth === 0) break;
-    }
-  }
-  let index = source.indexOf('{', paramsIndex);
-  let depth = 0;
-  for (; index < source.length; index += 1) {
-    if (source[index] === '{') depth += 1;
-    else if (source[index] === '}') {
-      depth -= 1;
-      if (depth === 0) return source.slice(start, index + 1);
-    }
-  }
-  throw new Error(`unbalanced ${name}`);
-}
-
-const transferDiffLine = new Function(
-  `${extractFunction('transferDiffLine')}; return transferDiffLine;`,
-)();
+const source = (readFileSync(join(root, 'tests/fixtures/diff-preview.legacy.js'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
+const diffModelSource = readFileSync(join(root, 'src/client/components/ui/diff-model.ts'), 'utf8');
+const transferDiffLine = loadTypeScriptFunction(diffModelSource, 'transferDiffLine');
 
 const changes = [
   { originalStartLineNumber: 3, originalEndLineNumber: 4, modifiedStartLineNumber: 3, modifiedEndLineNumber: 6 },

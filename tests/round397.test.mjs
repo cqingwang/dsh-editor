@@ -3,15 +3,16 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+const stripeSource = await readFile(new URL('../src/client/components/ui/ActivityStripe.tsx', import.meta.url), 'utf8');
+const iconSource = await readFile(new URL('../src/client/components/ui/Icon.tsx', import.meta.url), 'utf8');
 
 test('Harness exposes an icon-only Editor close utility while chat is collapsed', () => {
-  const stripe = source.slice(source.indexOf('function ActivityStripe('), source.indexOf('/**\n     * IDEA-style tool-window toolbar'));
-  assert.match(stripe, /onCloseEditor/);
-  assert.match(stripe, /harnessCollapsed\s*\?\s*React\.createElement\(\s*'button'/);
-  assert.match(stripe, /className: 'dsh-editor-stripe-item dsh-editor-stripe-close'/);
-  assert.match(stripe, /title: t\('editor\.closeEditor'\)/);
-  assert.match(stripe, /'aria-label': t\('editor\.closeEditor'\)/);
-  assert.match(stripe, /React\.createElement\(Icon, \{ name: 'close', size: 16 \}\)/);
+  assert.match(stripeSource, /onCloseEditor/);
+  assert.match(stripeSource, /harnessCollapsed \? \(?\s*<button/);
+  assert.match(stripeSource, /className='dsh-editor-stripe-item dsh-editor-stripe-close'/);
+  assert.match(stripeSource, /title=\{t\('editor\.closeEditor'\)\}/);
+  assert.match(stripeSource, /aria-label=\{t\('editor\.closeEditor'\)\}/);
+  assert.match(stripeSource, /<Icon[\s\S]{0,80}?name='close'[\s\S]{0,40}?size=\{16\}/);
 });
 
 test('the close utility uses the existing controller close path', () => {
@@ -22,6 +23,6 @@ test('the close utility uses the existing controller close path', () => {
 });
 
 test('the activity stripe close glyph is a real icon and has a pinned utility style', () => {
-  assert.match(source, /case 'close':[\s\S]*?M4 4l8 8[\s\S]*?M12 4 4 12/);
+  assert.match(iconSource, /case 'close':[\s\S]*?M4 4l8 8[\s\S]*?M12 4 4 12/);
   assert.match(source, /stripeUtilityItem:\s*\{[\s\S]*?marginTop: 'auto'/);
 });

@@ -3,6 +3,10 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 const client = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+const previewSource = await readFile(
+  new URL('../src/client/components/editor/MarkdownPreviewPane.tsx', import.meta.url),
+  'utf8',
+);
 
 function extractFunction(name) {
   const start = client.indexOf(`function ${name}(`);
@@ -21,9 +25,7 @@ function extractMarkdownImageResolver() {
   const resolveMarkdownLink = new Function(
     `function dirname(path) { const index = path.lastIndexOf('/'); return index < 0 ? '' : path.slice(0, index); }\n${extractFunction('resolveMarkdownLink')}\nreturn resolveMarkdownLink;`,
   )();
-  const isImagePreviewPath = new Function(
-    `${extractFunction('isImagePreviewPath')}\nreturn isImagePreviewPath;`,
-  )();
+  const isImagePreviewPath = new Function(`${extractFunction('isImagePreviewPath')}\nreturn isImagePreviewPath;`)();
   const markdownAssetRevisionForPath = new Function(
     `function dirname(path) { const index = path.lastIndexOf('/'); return index < 0 ? '' : path.slice(0, index); }\n${extractFunction('markdownAssetRevisionForPath')}\nreturn markdownAssetRevisionForPath;`,
   )();
@@ -68,12 +70,12 @@ test('Markdown image resolution rejects external, escaping and non-image targets
 });
 
 test('Markdown preview gives the host primitive the workspace image resolver', () => {
-  const preview = client.slice(
-    client.indexOf('function MarkdownPreviewPane('),
-    client.indexOf('/**\n     * One file tab'),
-  );
+  const preview = previewSource;
   assert.match(preview, /markdownWorkspaceImageUrl\(path, value, workspaceRoot, assetRevisions\)/u);
   assert.match(preview, /const pathImages = React\.useMemo\(/u);
-  assert.match(preview, /React\.createElement\(MarkdownText, \{ text: content, labels, pathImages \}\)/u);
+  assert.match(
+    preview,
+    /<MarkdownText[\s\S]*?text=\{content\}[\s\S]*?labels=\{labels\}[\s\S]*?pathImages=\{pathImages\}/u,
+  );
   assert.match(client, /workspaceRoot: root/u);
 });

@@ -27,8 +27,8 @@ const names = [
   'navigationHistoryStep',
   'resolveWorkspaceDefinition',
 ];
-const moduleStart = source.indexOf('/* code-navigation.js:');
-const moduleEnd = source.indexOf('/* ─────────────────────── inline-styles.js', moduleStart);
+const moduleStart = source.indexOf('/* ─────────────────────── code-navigation.ts');
+const moduleEnd = source.indexOf('/* ─────────────────────── inline-styles.ts', moduleStart);
 assert.ok(moduleStart >= 0 && moduleEnd > moduleStart, 'code-navigation module should be generated');
 const navigation = new Function(
   `${source.slice(moduleStart, moduleEnd)}\nreturn { ${names.join(', ')} };`,

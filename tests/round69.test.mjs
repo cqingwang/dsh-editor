@@ -5,7 +5,10 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = readFileSync(join(root, 'lib/client.js'), 'utf8');
+const source =
+  readFileSync(join(root, 'lib/client.js'), 'utf8') +
+  '\n' +
+  readFileSync(join(root, 'tests/fixtures/commit-graph.legacy.js'), 'utf8');
 
 /** Evaluate one shipping helper by brace balance. */
 function load(name) {

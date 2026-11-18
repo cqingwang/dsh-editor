@@ -2,40 +2,32 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
+import { extractJavaScriptFunctionSource } from './ts-source.mjs';
+
 const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
 
 function extractFunction(name) {
-  const start = source.indexOf(`function ${name}(`);
-  assert.notEqual(start, -1, `${name} is missing`);
-  const bodyStart = source.indexOf(') {', start) + 2;
-  assert.ok(bodyStart > 1, `${name} has no function body`);
-  let depth = 0;
-  for (let index = bodyStart; index < source.length; index += 1) {
-    if (source[index] === '{') depth += 1;
-    if (source[index] === '}') depth -= 1;
-    if (depth === 0) return source.slice(start, index + 1);
-  }
-  assert.fail(`${name} has no closing brace`);
+  return extractJavaScriptFunctionSource(source, name);
 }
 
 function helpers() {
   return new Function(
-    `${extractFunction('basename')};`
-      + `${extractFunction('harnessPathMention')};`
-      + `${extractFunction('harnessReferencePlan')};`
-      + 'return { harnessPathMention, harnessReferencePlan };',
+    `${extractFunction('basename')};` +
+      `${extractFunction('harnessPathMention')};` +
+      `${extractFunction('harnessReferencePlan')};` +
+      'return { harnessPathMention, harnessReferencePlan };',
   )();
 }
 
 function insertionHarness() {
   return new Function(
-    `${extractFunction('basename')};`
-      + `${extractFunction('harnessPathMention')};`
-      + `${extractFunction('harnessReferencePlan')};`
-      + `${extractFunction('focusHarnessComposer')};`
-      + `${extractFunction('insertHarnessTextFallback')};`
-      + `${extractFunction('insertHarnessReferencesIntoComposer')};`
-      + 'return insertHarnessReferencesIntoComposer;',
+    `${extractFunction('basename')};` +
+      `${extractFunction('harnessPathMention')};` +
+      `${extractFunction('harnessReferencePlan')};` +
+      `${extractFunction('focusHarnessComposer')};` +
+      `${extractFunction('insertHarnessTextFallback')};` +
+      `${extractFunction('insertHarnessReferencesIntoComposer')};` +
+      'return insertHarnessReferencesIntoComposer;',
   )();
 }
 
@@ -128,18 +120,28 @@ test('composer insertion appends without replacing the existing draft and never 
       return null;
     },
   };
-  const inserted = await insertHarnessReferencesIntoComposer(context, {
-    entries: [{ path: 'src/app.js', isDirectory: false }],
-    line: 8,
-    column: 3,
-  }, { document: documentRef });
+  const inserted = await insertHarnessReferencesIntoComposer(
+    context,
+    {
+      entries: [{ path: 'src/app.js', isDirectory: false }],
+      line: 8,
+      column: 3,
+    },
+    { document: documentRef },
+  );
   assert.equal(inserted, true);
   assert.equal(state.draft, 'keep this draft @src/app.js L8:3 ');
-  assert.deepEqual(calls.map((call) => call.kind), ['insertText', 'insertReference']);
+  assert.deepEqual(
+    calls.map((call) => call.kind),
+    ['insertText', 'insertReference'],
+  );
   assert.equal(calls[0].span.start, 'keep this draft'.length);
   assert.equal(calls[0].span.end, 'keep this draft'.length);
   assert.equal(calls[1].span.start, 'keep this draft '.length);
-  assert.equal(calls.some((call) => call.kind === 'submit'), false);
+  assert.equal(
+    calls.some((call) => call.kind === 'submit'),
+    false,
+  );
 });
 
 test('Harness action is first in Project and every editor tab menu', () => {
@@ -148,14 +150,20 @@ test('Harness action is first in Project and every editor tab menu', () => {
     source.indexOf('/* Move one entry into a directory by drag-and-drop'),
   );
   assert.match(projectMenu, /items: \[\s*buildHarnessPathAction\(/u);
-  assert.match(source, /id: 'harnessReference',[\s\S]*?label: `\$\{t\('editor\.harness'\)\}->`[\s\S]*?restoreFocus: false,/u);
+  assert.match(
+    source,
+    /id: 'harnessReference',[\s\S]*?label: `\$\{t\('editor\.harness'\)\}->`[\s\S]*?restoreFocus: false,/u,
+  );
   assert.match(source, /buildHarnessPathAction\(\[\{ path: file\.path, isDirectory: false \}\]\)/u);
   assert.match(source, /buildHarnessPathAction\(\[\{ path: splitTab, isDirectory: false \}\]\)/u);
   assert.match(source, /buildHarnessPathAction\(\[\{ path: diffTarget\.path, isDirectory: false \}\]\)/u);
 });
 
 test('Editor receives the official composer insertion bridge', () => {
-  assert.match(source, /function EditorWorkspace\(\{ t, workspaceId = '', initialHarnessCollapsed = false, onToggleHarness, onCloseEditor, onInsertHarnessReference \}\)/u);
+  assert.match(
+    source,
+    /function EditorWorkspace\(\{ t, workspaceId = '', initialHarnessCollapsed = false, onToggleHarness, onCloseEditor, onInsertHarnessReference \}\)/u,
+  );
   assert.match(source, /onInsertHarnessReference: \(request\) => insertHarnessReferencesIntoComposer\(ctx, request\)/u);
   assert.match(source, /input\.insertReference/u);
   assert.match(source, /input\.insertText/u);

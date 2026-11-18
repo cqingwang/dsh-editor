@@ -3,39 +3,14 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
+import { loadTypeScriptFunction } from './ts-source.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const source = readFileSync(join(root, 'lib/client.js'), 'utf8');
-
-function extractFunction(name) {
-  const start = source.indexOf(`function ${name}(`);
-  assert.notEqual(start, -1, `missing function ${name}`);
-  let depth = 0;
-  let quote = '';
-  let escaped = false;
-  for (let index = start; index < source.length; index += 1) {
-    const char = source[index];
-    if (quote !== '') {
-      if (escaped) escaped = false;
-      else if (char === '\\') escaped = true;
-      else if (char === quote) quote = '';
-      continue;
-    }
-    if (char === "'" || char === '"' || char === '`') {
-      quote = char;
-      continue;
-    }
-    if (char === '{') depth += 1;
-    if (char === '}') {
-      depth -= 1;
-      if (depth === 0) return new Function(`${source.slice(start, index + 1)}; return ${name};`)();
-    }
-  }
-  assert.fail(`unterminated function ${name}`);
-}
+const gitChangeModelSource = readFileSync(join(root, 'src/client/components/ui/git-change-model.ts'), 'utf8');
 
 test('unversioned detection is all-or-nothing and rejects empty or mixed sets', () => {
-  const allPathsUnversioned = extractFunction('allPathsUnversioned');
+  const allPathsUnversioned = loadTypeScriptFunction(gitChangeModelSource, 'allPathsUnversioned');
   const changes = new Map([
     ['a', { path: 'a', status: '??' }],
     ['b', { path: 'b', status: '??' }],

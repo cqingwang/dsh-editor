@@ -3,9 +3,11 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
+import { loadTypeScriptFunction } from './ts-source.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = readFileSync(join(root, 'lib/client.js'), 'utf8');
+const source = (readFileSync(join(root, 'tests/fixtures/commit-panel.legacy.js'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
+const commitModelSource = readFileSync(join(root, 'src/client/components/ui/commit-model.ts'), 'utf8');
 
 /** Evaluate one shipping function by brace balance. */
 function load(name) {
@@ -24,7 +26,7 @@ function load(name) {
   throw new Error(`unbalanced braces in ${name}`);
 }
 
-const selectionStateOf = load('selectionStateOf');
+const selectionStateOf = loadTypeScriptFunction(commitModelSource, 'selectionStateOf');
 
 test('a directory reports three states, like IDEA\'s tri-state checkbox', () => {
   const paths = ['src/a.ts', 'src/b.ts'];

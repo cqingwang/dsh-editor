@@ -2,10 +2,10 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const client = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+const client = (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) + '\n' + (await readFile(new URL('./fixtures/find-tool.legacy.js', import.meta.url), 'utf8'));
 const findTool = client.slice(
   client.indexOf('function FindToolWindow('),
-  client.indexOf('function QuickOpen('),
+  client.indexOf('/* QUICK_OPEN_BOUNDARY */'),
 );
 
 test('Find Preview aborts superseded file reads', () => {

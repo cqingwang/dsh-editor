@@ -2,26 +2,16 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+import { loadTypeScriptFunction } from './ts-source.mjs';
 
-function extractFunction(name) {
-  const start = source.indexOf(`function ${name}(`);
-  assert.notEqual(start, -1, `${name} is missing`);
-  const bodyStart = source.indexOf(') {', start) + 2;
-  assert.ok(bodyStart > 1, `${name} has no function body`);
-  let depth = 0;
-  for (let index = bodyStart; index < source.length; index += 1) {
-    if (source[index] === '{') depth += 1;
-    if (source[index] === '}') depth -= 1;
-    if (depth === 0) return source.slice(start, index + 1);
-  }
-  assert.fail(`${name} has no closing brace`);
-}
+const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+const selectionModel = await readFile(
+  new URL('../src/client/components/project/project-selection-model.ts', import.meta.url),
+  'utf8',
+);
 
 function selectionTransition() {
-  return new Function(
-    `${extractFunction('projectTreeSelectionAfterPointer')}; return projectTreeSelectionAfterPointer;`,
-  )();
+  return loadTypeScriptFunction(selectionModel, 'projectTreeSelectionAfterPointer');
 }
 
 const rows = [
@@ -117,8 +107,8 @@ test('Shift range stays anchored while Command toggles the clicked row', () => {
 
 test('Project rows commit selection on mousedown and do not toggle again on click', () => {
   const rowBlock = source.slice(
-    source.indexOf("const selected = selection.has(row.path);"),
-    source.indexOf('draggable: !row.root,', source.indexOf("const selected = selection.has(row.path);")),
+    source.indexOf('const selected = selection.has(row.path);'),
+    source.indexOf('draggable: !row.root,', source.indexOf('const selected = selection.has(row.path);')),
   );
   assert.match(rowBlock, /onMouseDown: \(event\) => \{[\s\S]*?onSelect\(row, event\);/u);
   assert.match(rowBlock, /treeRef\.current\?\.focus\(\);/u);
@@ -127,5 +117,5 @@ test('Project rows commit selection on mousedown and do not toggle again on clic
 
 test('Project selection no longer updates another state inside a state updater', () => {
   assert.doesNotMatch(source, /setSelection\(\(current\) => \{[\s\S]{0,600}?setSelectedPathRaw\(/u);
-  assert.match(source, /function projectTreeSelectionAfterPointer\(/u);
+  assert.match(selectionModel, /function projectTreeSelectionAfterPointer\(/u);
 });

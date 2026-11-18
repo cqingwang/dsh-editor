@@ -2,25 +2,19 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
+import { extractJavaScriptFunctionSource } from './ts-source.mjs';
+
 const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
 const actionsStart = source.indexOf('const searchEverywhereActions = React.useMemo');
 const actionsEnd = source.indexOf('/* Recompute match count', actionsStart);
 const actions = source.slice(actionsStart, actionsEnd);
+const findBarSource = await readFile(
+  new URL('../src/client/components/editor/EditorFindBar.tsx', import.meta.url),
+  'utf8',
+);
 
 function extractSource(name) {
-  const marker = `    function ${name}(`;
-  const start = source.indexOf(marker);
-  assert.notEqual(start, -1, `${name} should exist`);
-  let index = source.indexOf('{', start);
-  let depth = 0;
-  for (; index < source.length; index += 1) {
-    if (source[index] === '{') depth += 1;
-    else if (source[index] === '}') {
-      depth -= 1;
-      if (depth === 0) return source.slice(start, index + 1);
-    }
-  }
-  assert.fail(`unterminated ${name}`);
+  return extractJavaScriptFunctionSource(source, name);
 }
 
 function buildFunctions(names) {
@@ -33,7 +27,10 @@ test('editor Find filters matches to one selection scope', () => {
   const start = text.indexOf('End inside');
   const scope = { start, end: start + 'End inside'.length };
   const matches = editorFindResult(text, 'End', { scope }).matches;
-  assert.deepEqual(matches.map((match) => match.offset), [start]);
+  assert.deepEqual(
+    matches.map((match) => match.offset),
+    [start],
+  );
 });
 
 test('scoped replacement changes only matches contained by the scope', () => {
@@ -87,9 +84,9 @@ test('Search in Selection Only is exposed as an IDEA Action', () => {
 test('the editor Find state and toolbar retain the selection-only scope', () => {
   assert.match(source, /const openEditorFindInSelection = React\.useCallback/u);
   assert.match(source, /const nextScope = \{ start: scope\.start, end: scope\.end \}/u);
-  assert.match(source, /icon: 'target',[\s\S]*?label: t\('editor\.searchInSelectionOnly'\)/u);
-  assert.match(source, /active: replaceState\.scope !== null/u);
-  assert.match(source, /onClick: \(\) => toggleFindSelectionScope\(\)/u);
+  assert.match(findBarSource, /icon='target'[\s\S]*?label=\{t\('editor\.searchInSelectionOnly'\)\}/u);
+  assert.match(findBarSource, /active=\{state\.scope !== null\}/u);
+  assert.match(findBarSource, /onClick=\{onToggleSelectionScope\}/u);
 });
 
 test('selection-only text is localized in both dictionaries', () => {

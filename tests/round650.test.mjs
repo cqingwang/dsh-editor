@@ -6,10 +6,10 @@ import test from 'node:test';
 
 import { workspaceFileOperations } from '../lib/index.js';
 
-const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+const source = (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) + '\n' + (await readFile(new URL('./fixtures/find-tool.legacy.js', import.meta.url), 'utf8'));
 const findTool = source.slice(
   source.indexOf('function FindToolWindow('),
-  source.indexOf('function QuickOpen('),
+  source.indexOf('/* QUICK_OPEN_BOUNDARY */'),
 );
 
 test('Find keeps the exact content query and uses only a separate non-empty gate', () => {

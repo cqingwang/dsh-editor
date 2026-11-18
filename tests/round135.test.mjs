@@ -6,6 +6,8 @@ import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const source = readFileSync(join(root, 'lib/client.js'), 'utf8');
+const iconSource = readFileSync(join(root, 'src/client/components/ui/Icon.tsx'), 'utf8');
+const entryIconSource = readFileSync(join(root, 'src/client/components/ui/EntryIcon.tsx'), 'utf8');
 
 function styleBlock(name) {
   const start = source.indexOf(`      ${name}: {`);
@@ -25,15 +27,16 @@ function styleBlock(name) {
 test('the folder icon cannot be squashed by flex', () => {
   /* The root row's folder svg measured 10x16 instead of 16x16: a flex child with an
      intrinsic aspect ratio gets its WIDTH squeezed. `flex: none` on the svg pins it. */
-  const folder = source.slice(source.indexOf("case 'folder':"), source.indexOf("case 'file':"));
+  const folder = iconSource.slice(iconSource.indexOf("case 'folder':"), iconSource.indexOf("case 'file':"));
   assert.match(folder, /flex: 'none'|flexShrink: 0/);
 });
 
 test('folder icons are one step larger than file icons', () => {
-  const entry = source.slice(source.indexOf('    function EntryIcon('), source.indexOf('/** Status color and compact label'));
-  const folderSize = /name: entry\.root \? 'folderOpen' : expanded \? 'folderOpen' : 'folder', size: (\d+)/.exec(entry);
-  assert.notEqual(folderSize, null);
-  assert.ok(Number(folderSize[1]) >= 17, `folder icon ${folderSize[1]}px should be at least 17px`);
+  assert.match(
+    entryIconSource,
+    /name=\{entry\.root \? 'folderOpen' : expanded \? 'folderOpen' : 'folder'\}[\s\S]*?size=\{18\}/,
+  );
+  assert.match(entryIconSource, /name='file'[\s\S]*?size=\{16\}/);
 });
 
 test('the tree label is one step larger than before', () => {

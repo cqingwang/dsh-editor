@@ -6,6 +6,7 @@ import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const source = readFileSync(join(root, 'lib/client.js'), 'utf8');
+const splitPaneSource = readFileSync(join(root, 'src/client/components/editor/EditorSplitPane.tsx'), 'utf8');
 
 function treeMenu() {
   return source.slice(source.indexOf('const buildTreeMenu = React.useCallback('), source.indexOf('/* Move one entry into a directory by drag-and-drop'));
@@ -42,8 +43,11 @@ test('split Save uses its own path and sharing does not switch the left active t
 });
 
 test('split pane is a real Monaco surface with dirty badge and close action', () => {
-  assert.match(source, /ref: splitContainerRef/);
-  assert.match(source, /'aria-label': t\('editor\.closeSplit'\)/);
+  assert.match(source, /containerRef: splitContainerRef/);
+  assert.match(splitPaneSource, /ref=\{containerRef\}/);
+  assert.match(splitPaneSource, /<EditorSplitHeader/);
+  assert.match(splitPaneSource, /data-dsh-editor-split=''/);
+  assert.match(source, /t\('editor\.closeSplit'\)/);
   assert.match(source, /splitTabFile\?\.dirty === true/);
   assert.match(source, /setSplitPath\(null\)/);
 });

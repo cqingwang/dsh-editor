@@ -8,8 +8,8 @@ const names = [
   'navigationHistoryRecord',
   'navigationHistoryStep',
 ];
-const moduleStart = source.indexOf('/* code-navigation.js:');
-const moduleEnd = source.indexOf('/* ─────────────────────── inline-styles.js', moduleStart);
+const moduleStart = source.indexOf('/* ─────────────────────── code-navigation.ts');
+const moduleEnd = source.indexOf('/* ─────────────────────── inline-styles.ts', moduleStart);
 const navigation = new Function(
   `${source.slice(moduleStart, moduleEnd)}\nreturn { ${names.join(', ')} };`,
 )();

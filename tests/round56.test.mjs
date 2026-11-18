@@ -3,9 +3,10 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
+import { menuSource } from './ui-sources.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = readFileSync(join(root, 'lib/client.js'), 'utf8');
+const source = (readFileSync(join(root, 'tests/fixtures/terminal-panel.legacy.js'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
 
 test('the overflow menu carries the same colour stripe as the tab strip', () => {
   const start = source.indexOf('const tabLayout = overflowTabs(');
@@ -21,11 +22,8 @@ test('the overflow menu carries the same colour stripe as the tab strip', () => 
 });
 
 test('a menu swatch renders as a small coloured square before the label', () => {
-  const menuStart = source.indexOf('function ContextMenu({');
-  assert.notEqual(menuStart, -1);
-  const menu = source.slice(menuStart, source.indexOf('function splitChanges(', menuStart));
-  assert.match(menu, /item\.swatch === undefined/);
-  assert.match(menu, /styles\.menuSwatch, background: item\.swatch/);
+  assert.match(menuSource, /item\.swatch === undefined/);
+  assert.match(menuSource, /styles\.menuSwatch,[\s\S]*?background: item\.swatch/);
   /* Menus without swatches must not gain an empty gutter. */
-  assert.match(menu, /item\.swatch === undefined \|\| item\.swatch === null/);
+  assert.match(menuSource, /item\.swatch === undefined \|\| item\.swatch === null/);
 });

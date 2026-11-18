@@ -2,7 +2,10 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+const source =
+  (await readFile(new URL('./fixtures/project-panel.legacy.js', import.meta.url), 'utf8')) +
+  '\n' +
+  (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
 
 function extractSource(name) {
   const marker = `    function ${name}(`;
@@ -20,7 +23,9 @@ function extractSource(name) {
   assert.fail(`unterminated ${name}`);
 }
 
-const orderEntries = new Function(`${extractSource('orderProjectEntriesByManual')}\nreturn orderProjectEntriesByManual;`)();
+const orderEntries = new Function(
+  `${extractSource('orderProjectEntriesByManual')}\nreturn orderProjectEntriesByManual;`,
+)();
 const reorderPaths = new Function(`${extractSource('reorderProjectManualPaths')}\nreturn reorderProjectManualPaths;`)();
 
 test('manual order ranks known entries and keeps new entries stable after them', () => {
@@ -29,8 +34,14 @@ test('manual order ranks known entries and keeps new entries stable after them',
     { path: 'b', name: 'b' },
     { path: 'c', name: 'c' },
   ];
-  assert.deepEqual(orderEntries(entries, ['c', 'a']).map((entry) => entry.path), ['c', 'a', 'b']);
-  assert.deepEqual(orderEntries(entries, []).map((entry) => entry.path), ['a', 'b', 'c']);
+  assert.deepEqual(
+    orderEntries(entries, ['c', 'a']).map((entry) => entry.path),
+    ['c', 'a', 'b'],
+  );
+  assert.deepEqual(
+    orderEntries(entries, []).map((entry) => entry.path),
+    ['a', 'b', 'c'],
+  );
 });
 
 test('manual reorder moves a contiguous block before or after a sibling', () => {
@@ -46,17 +57,26 @@ test('Manual Order is exposed in Project Sort By and persisted per workspace', (
   assert.match(source, /sort_manual: '手动排序'/);
   assert.match(source, /sort_manual: 'Manual Order'/);
   assert.match(source, /dsh-editor\.project\.manualOrder:\$\{root\}/);
-  assert.match(source, /const \[manualOrder, setManualOrder\] = React\.useState\(\(\) => readProjectManualOrder\(root\)\)/);
+  assert.match(
+    source,
+    /const \[manualOrder, setManualOrder\] = React\.useState\(\(\) => readProjectManualOrder\(root\)\)/,
+  );
 });
 
 test('flattenRows applies manual order per parent directory', () => {
   const start = source.indexOf('function flattenRows(');
   const end = source.indexOf('\n    /**\n     * Resolve one visible Project row', start);
   const flatten = source.slice(start, end);
-  assert.match(flatten, /sortMode = 'name', manualOrder = null/);
+  assert.match(flatten, /sortMode = 'name',\s*manualOrder = null/u);
   assert.match(flatten, /const orderMap = manualOrder \?\? \{\}/);
-  assert.match(flatten, /sortMode === 'manual'[\s\S]*?orderProjectEntriesByManual\(frame\.list, orderMap\[frame\.parentPath\]\)/);
-  assert.match(flatten, /stack\.push\(\{[\s\S]*?list: kids,[\s\S]*?depth: frame\.depth \+ 1,[\s\S]*?parentPath: rowEntry\.path,/);
+  assert.match(
+    flatten,
+    /sortMode === 'manual'[\s\S]*?orderProjectEntriesByManual\(frame\.list, orderMap\[frame\.parentPath\]\)/,
+  );
+  assert.match(
+    flatten,
+    /stack\.push\(\{[\s\S]*?list: kids,[\s\S]*?depth: frame\.depth \+ 1,[\s\S]*?parentPath: rowEntry\.path,/,
+  );
 });
 
 test('Manual Order drag only reorders view siblings and never calls the file move path', () => {

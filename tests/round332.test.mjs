@@ -6,6 +6,12 @@ import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const source = readFileSync(join(root, 'lib/client.js'), 'utf8');
+const splitPaneSource = readFileSync(join(root, 'src/client/components/editor/EditorSplitPane.tsx'), 'utf8');
+const mainPaneSource = readFileSync(join(root, 'src/client/components/editor/EditorMainPane.tsx'), 'utf8');
+const splitDividerSource = readFileSync(
+  join(root, 'src/client/components/editor/EditorSplitDivider.tsx'),
+  'utf8',
+);
 
 function extractFunction(name) {
   const start = source.indexOf(`function ${name}(`);
@@ -40,17 +46,26 @@ test('split ratio is stateful and persisted after drag', () => {
 });
 
 test('a real vertical separator updates only flex layout state', () => {
-  assert.match(source, /'data-dsh-editor-split-divider': ''/);
-  assert.match(source, /role: 'separator'/);
-  assert.match(source, /'aria-orientation': 'vertical'/);
-  assert.match(source, /'aria-valuenow': Math\.round\(editorSplitPercent\)/);
-  assert.match(source, /setEditorSplitPercent\(next\)/);
+  assert.match(splitDividerSource, /data-dsh-editor-split-divider=''/);
+  assert.match(splitDividerSource, /role='separator'/);
+  assert.match(splitDividerSource, /aria-orientation='vertical'/);
+  assert.match(splitDividerSource, /aria-valuenow=\{Math\.round\(percent\)\}/);
+  assert.match(source, /onChange: setEditorSplitPercent/);
+  assert.match(source, /onDraggingChange: setEditorSplitDragging/);
   assert.doesNotMatch(source, /setEditorSplitPercent[\s\S]{0,200}setSplitEditorRef/);
 });
 
 test('focused group gets an accent edge while the other stays transparent', () => {
   assert.match(source, /const splitFocused = splitFile !== null && focusedPath === splitFile\.path/);
   assert.match(source, /const leftFocused = focusedPath === activePath && splitFocused === false/);
-  assert.match(source, /borderTop: `2px solid \$\{leftFocused \? 'var\(--dsw-alias-state-business-primary\)' : 'transparent'\}`/);
-  assert.match(source, /borderTop: `2px solid \$\{splitFocused \? 'var\(--dsw-alias-state-business-primary\)' : 'transparent'\}`/);
+  assert.match(source, /focused: splitFocused/);
+  assert.match(source, /focused: leftFocused/);
+  assert.match(
+    mainPaneSource,
+    /borderTop: `2px solid \$\{focused \? 'var\(--dsw-alias-state-business-primary\)' : 'transparent'\}`/,
+  );
+  assert.match(
+    splitPaneSource,
+    /borderTop: `2px solid \$\{focused \? 'var\(--dsw-alias-state-business-primary\)' : 'transparent'\}`/,
+  );
 });

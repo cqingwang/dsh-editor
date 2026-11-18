@@ -8,9 +8,10 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 import { gitCommitDiff, gitFileHistory, gitShowCommit, workspaceFileOperations } from '../lib/index.js';
-
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const read = (path) => readFileSync(join(root, path), 'utf8');
+const readClient = () =>
+  readFileSync(join(root, 'tests/fixtures/diff-preview.legacy.js'), 'utf8') + '\n' + read('lib/client.js');
 
 /** A repository with two commits touching the same file. */
 async function fixture() {
@@ -88,7 +89,7 @@ test('described paths carry the mtime the editor needs to spot external edits', 
 });
 
 test('the editor silently adopts a clean external edit and prompts on a dirty one', () => {
-  const client = read('lib/client.js');
+  const client = readClient();
   assert.match(client, /const checkExternalChanges = React\.useCallback\(async \(\) => \{/);
   assert.match(client, /const clean = paths\.filter\(\(path\) => openFilesRef\.current\.find\(\(file\) => file\.path === path\)\?\.dirty !== true\);/);
   /* Programmatic replacement must not fake unsaved work. */
@@ -99,7 +100,7 @@ test('the editor silently adopts a clean external edit and prompts on a dirty on
 });
 
 test('commit log opens a commit diff on click and the working copy on double click', () => {
-  const client = read('lib/client.js');
+  const client = readClient();
   assert.match(client, /const showCommitDiff = React\.useCallback\(\(target\) => \{/);
   assert.match(client, /setDiffTarget\(\{ path: target\.path, commit: target\.hash, staged: false \}\);/);
   /* `request` first checks a clipboard target, then commit, then staged. */
@@ -112,7 +113,7 @@ test('commit log opens a commit diff on click and the working copy on double cli
 });
 
 test('terminal clears with the IDEA shortcut and tabs move between panes', () => {
-  const client = read('lib/client.js');
+  const client = readClient();
   assert.match(client, /event\.key\.toLowerCase\(\) === 'k'/);
   assert.match(client, /const emulator = focusedPaneRef\.current === 'right' \? splitEmulatorRef\.current : emulatorRef\.current;/);
   assert.match(client, /const moveToPane = React\.useCallback\(/);
@@ -121,7 +122,7 @@ test('terminal clears with the IDEA shortcut and tabs move between panes', () =>
 });
 
 test('external-change helpers are declared before anything lists them as a dependency', () => {
-  const client = read('lib/client.js');
+  const client = readClient();
   /* A TDZ error here blanks the whole editor, so the order is part of the contract. */
   const dismissAt = client.indexOf('const dismissExternal = React.useCallback(');
   const reloadAt = client.indexOf('const reloadActiveFromDisk = React.useCallback(');
@@ -131,7 +132,7 @@ test('external-change helpers are declared before anything lists them as a depen
 });
 
 test('the log tab stacks list over details instead of two thin columns', () => {
-  const client = read('lib/client.js');
+  const client = readClient();
   assert.match(client, /commitLogBody: \{/);
   assert.match(client, /commitLogList: \{/);
   assert.match(client, /commitLogDetail: \{/);

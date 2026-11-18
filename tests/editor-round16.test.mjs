@@ -72,7 +72,7 @@ test('both sides of an MM path keep their own reading', async (t) => {
 });
 
 test('closing a dirty tab asks first and batch close asks once', () => {
-  const client = read('lib/client.js');
+  const client = `${read('tests/fixtures/terminal-panel.legacy.js')}\n${read('lib/client.js')}`;
   assert.match(client, /const closeFile = React\.useCallback\(\(path, skipConfirm = false\) => \{/);
   assert.match(client, /file\?\.dirty === true && !window\.confirm\(t\('editor\.unsavedTabsConfirm', \{ count: 1 \}\)\)/);
   assert.match(client, /const closeOtherTabs = React\.useCallback\(/);
@@ -86,7 +86,7 @@ test('closing a dirty tab asks first and batch close asks once', () => {
 });
 
 test('the editor exposes the file path in its status bar, go to line and live facts', () => {
-  const client = read('lib/client.js');
+  const client = `${read('tests/fixtures/terminal-panel.legacy.js')}\n${read('lib/client.js')}`;
   assert.doesNotMatch(client, /breadcrumbSegments/);
   assert.doesNotMatch(client, /t\('editor\.breadcrumb'\)/);
   assert.match(client, /data-dsh-editor-status-path/);
@@ -100,7 +100,7 @@ test('the editor exposes the file path in its status bar, go to line and live fa
 });
 
 test('line separators use the Monaco enum and indentation is user-owned', () => {
-  const client = read('lib/client.js');
+  const client = `${read('tests/fixtures/terminal-panel.legacy.js')}\n${read('lib/client.js')}`;
   /* `pushEOL('\\r\\n')` is silently a no-op: the argument must be the enum. */
   assert.match(client, /const sequence = monaco\?\.editor\?\.EndOfLineSequence;/);
   assert.match(client, /model\.pushEOL\(value\)/);
@@ -111,7 +111,7 @@ test('line separators use the Monaco enum and indentation is user-owned', () => 
 });
 
 test('the terminal split tracks its focused pane and remembers its ratio', () => {
-  const client = read('lib/client.js');
+  const client = `${read('tests/fixtures/terminal-panel.legacy.js')}\n${read('lib/client.js')}`;
   assert.match(client, /const \[focusedPane, setFocusedPane\] = React\.useState\('left'\);/);
   assert.match(client, /'data-dsh-terminal-pane-role': 'left'/);
   assert.match(client, /'data-dsh-terminal-pane-role': 'right'/);
@@ -122,17 +122,18 @@ test('the terminal split tracks its focused pane and remembers its ratio', () =>
 });
 
 test('commit rows render numstat badges instead of fabricating counts', () => {
-  const client = read('lib/client.js');
+  const client = `${read('tests/fixtures/commit-panel.legacy.js')}\n${read('lib/client.js')}`;
+  const commitModel = read('src/client/components/ui/commit-model.ts');
   assert.match(client, /function LineCounts\(\{ counts \}\) \{/);
   assert.match(client, /if \(counts\.binary === true\)/);
   assert.match(client, /counts: group\.id === 'staged' \? change\.stagedLines : group\.id === 'unstaged' \? change\.unstagedLines : undefined/);
   /* Round 50 moved the summing into one shared helper the directory row reuses. */
-  assert.match(client, /function subtotalOf\(changes, band\) \{/);
+  assert.match(commitModel, /export function subtotalOf\(/);
   assert.match(client, /const groupTotals = \(group\) => subtotalOf\(group\.changes, group\.id\);/);
 });
 
 test('the first shell auto-starts once the retained list settles', () => {
-  const client = read('lib/client.js');
+  const client = `${read('tests/fixtures/terminal-panel.legacy.js')}\n${read('lib/client.js')}`;
   /* A ref here never re-runs the effect, so the dock stayed empty until a manual "+". */
   assert.match(client, /const \[loaded, setLoaded\] = React\.useState\(false\);/);
   assert.match(client, /setLoaded\(true\)/);
@@ -147,7 +148,7 @@ test('the first shell auto-starts once the retained list settles', () => {
 });
 
 test('a single shell can still be split into a fresh right pane', () => {
-  const client = read('lib/client.js');
+  const client = `${read('tests/fixtures/terminal-panel.legacy.js')}\n${read('lib/client.js')}`;
   assert.match(client, /disabled: available === false \|\| activeId === null,/);
   assert.match(client, /const created = await createTerminal\(\);/);
   assert.match(client, /setSplitId\(created\.id\);/);

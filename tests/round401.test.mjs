@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+const stripeSource = await readFile(new URL('../src/client/components/ui/ActivityStripe.tsx', import.meta.url), 'utf8');
 
 test('the Harness close utility has a themed visible keyboard focus ring', () => {
   assert.match(source, /'\.dsh-editor-stripe-close:focus-visible \{',/);
@@ -12,8 +13,7 @@ test('the Harness close utility has a themed visible keyboard focus ring', () =>
 });
 
 test('the close utility remains a native keyboard-focusable button', () => {
-  const stripe = source.slice(source.indexOf('function ActivityStripe('), source.indexOf('/**\n     * IDEA-style tool-window toolbar'));
-  assert.match(stripe, /className: 'dsh-editor-stripe-item dsh-editor-stripe-close'/);
-  assert.match(stripe, /onClick: onCloseEditor/);
-  assert.doesNotMatch(stripe, /dsh-editor-stripe-close'[\s\S]{0,300}?tabIndex: -1/);
+  assert.match(stripeSource, /className='dsh-editor-stripe-item dsh-editor-stripe-close'/);
+  assert.match(stripeSource, /onClick=\{onCloseEditor\}/);
+  assert.doesNotMatch(stripeSource, /dsh-editor-stripe-close'[\s\S]{0,300}?tabIndex=/);
 });

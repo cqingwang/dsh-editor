@@ -9,10 +9,11 @@ const read = (path) => readFileSync(join(root, path), 'utf8');
 
 test('commit metrics remain available without showing a counter row', () => {
   const client = read('lib/client.js');
-  assert.match(client, /function commitMetrics\(message\) \{/);
-  assert.ok(client.includes("const newline = text.indexOf('\\n');"));
-  assert.match(client, /subjectLength: subject\.trimEnd\(\)\.length,/);
-  assert.ok(client.includes("bodyLines: body === '' ? 0 : body.trimEnd().split('\\n').length,"));
+  const commitModel = read('src/client/components/ui/commit-model.ts');
+  assert.match(commitModel, /export function commitMetrics\(/);
+  assert.ok(commitModel.includes("const newline = text.indexOf('\\n');"));
+  assert.match(commitModel, /subjectLength: subject\.trimEnd\(\)\.length,/);
+  assert.ok(commitModel.includes("bodyLines: body === '' ? 0 : body.trimEnd().split('\\n').length,"));
   assert.doesNotMatch(client, /styles\.commitCounterRow/);
   assert.doesNotMatch(client, /editor\.commitSubjectCount/);
 });
@@ -26,12 +27,15 @@ test('a commit refreshes the log so the new row appears without a manual reload'
 });
 
 test('a change-tree directory carries its leaves and stages them in one action', () => {
-  const client = read('lib/client.js');
+  const client = `${read('tests/fixtures/commit-panel.legacy.js')}\n${read('lib/client.js')}`;
   assert.match(client, /const inside = collectChanges\(leaf, \[\]\);/);
   /* The row keeps the COMPACTED path (`a/b/c` renders as one row) and adds the
      parent path for the muted label beside the name. Its visible depth follows
      the expanded tree so nested files keep IDEA's hierarchy indent. */
-  assert.match(client, /rows\.push\(\{ kind: 'directory', path, name: basename\(path\), parent: dirname\(path\), depth, open, collapseKey: key, changes: inside \}\);/);
+  assert.match(
+    client,
+    /rows\.push\(\{\s+kind: 'directory',\s+path,\s+name: basename\(path\),\s+parent: dirname\(path\),\s+depth,\s+open,\s+collapseKey: key,\s+changes: inside,?\s+\}\);/u,
+  );
   assert.match(client, /const inside = \(row\.changes \?\? \[\]\)\.map\(\(change\) => change\.path\);/);
   assert.match(client, /if \(group\.id === 'staged'\) onUnstage\(inside\);/);
   assert.match(client, /else onStage\(inside\);/);

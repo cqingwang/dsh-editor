@@ -5,7 +5,8 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = readFileSync(join(root, 'lib/client.js'), 'utf8');
+const source = (readFileSync(join(root, 'tests/fixtures/project-panel.legacy.js'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
+const projectPanelSource = readFileSync(join(root, 'src/client/components/project/ProjectPanel.tsx'), 'utf8');
 
 test('Project View stores IDEA Open Directories with Single Click off by default', () => {
   assert.match(
@@ -24,14 +25,12 @@ test('a directory row selects on one click and toggles on double click by defaul
 });
 
 test('the directory chevron remains a direct one-click toggle', () => {
-  const start = source.indexOf("isDirectory\n                ? React.createElement(");
+  const start = projectPanelSource.indexOf('{row.root ? null : isDirectory ? (');
   assert.notEqual(start, -1);
-  const chevron = source.slice(start, source.indexOf('/* Files keep the column', start));
-  assert.match(chevron, /role: 'button'/);
-  assert.match(chevron, /tabIndex: -1/);
-  assert.match(chevron, /onClick: \(event\) => \{/);
-  assert.match(chevron, /event\.stopPropagation\(\);/);
-  assert.match(chevron, /onToggle\(row\.path\);/);
+  const chevron = projectPanelSource.slice(start, projectPanelSource.indexOf('<EntryIcon', start));
+  assert.match(chevron, /role='button'/);
+  assert.match(chevron, /tabIndex=\{-1\}/);
+  assert.match(chevron, /onClick=\{\(event\) => \{[\s\S]*?event\.stopPropagation\(\);[\s\S]*?onToggle\(row\.path\);/);
 });
 
 test('the ProjectPanel wiring carries the directory preference', () => {

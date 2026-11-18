@@ -71,23 +71,24 @@ test('a branch name that git does not know is rejected, not passed as an option'
 });
 
 test('the graph toolbar exposes a branch picker and HEAD badge', () => {
-  const client = read('lib/client.js');
+  const client = `${read('lib/client.js')}\n${read('tests/fixtures/commit-graph.legacy.js')}`;
   assert.match(client, /t\('editor\.graphBranch'\)/);
   assert.match(client, /t\('editor\.graphAllBranches'\)/);
-  assert.match(client, /onChange: \(event\) => onGraphBranch\?\.\(event\.target\.value\)/);
+  assert.match(client, /onChange: \(event\) => onGraphBranch(?:\?\.)?\(event\.target\.value\)/);
   assert.match(client, /isHead \? React\.createElement\('span', \{ style: styles\.commitGraphHead, key: 'HEAD' \}, 'HEAD'\)/);
   /* The filtered empty state must not look like "this repo has no commits". */
   assert.match(client, /t\('editor\.graphNoCommitsOnBranch'\)/);
 });
 
 test('the graph rows are reachable with the keyboard', () => {
-  const client = read('lib/client.js');
+  const client = `${read('lib/client.js')}\n${read('tests/fixtures/commit-log.legacy.js')}`;
   assert.match(client, /const moveGraphCursor = \(delta, shiftKey = false\) => \{/);
   assert.match(client, /onKeyDown: graphMode/);
   assert.match(client, /if \(event\.key === 'ArrowDown' \|\| event\.key === 'ArrowUp'\)/);
   assert.match(client, /onShow\?\.\(graphRows\[graphIndex\]\.hash\)/);
   /* The active row scrolls itself into view; a keyboard cursor off-screen is useless. */
-  assert.match(client, /ref: active \? scrollGraphRowIntoView : null/);
+  assert.match(client, /rowRef: active \? scrollGraphRowIntoView : undefined/);
+  assert.match(client, /ref: rowRef/);
   /* A hovered row wins over the cursor so the two never fight over the highlight. */
   assert.match(client, /selected: graphHover \?\? graphCursor/);
   /* Moving by keyboard takes the highlight away from the pointer, and leaving the

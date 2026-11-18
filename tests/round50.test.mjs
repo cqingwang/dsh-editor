@@ -3,9 +3,11 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
+import { loadTypeScriptFunction } from './ts-source.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const source = readFileSync(join(root, 'lib/client.js'), 'utf8');
+const commitModelSource = readFileSync(join(root, 'src/client/components/ui/commit-model.ts'), 'utf8');
 
 /** Evaluate one shipping function by brace balance (same technique as round46/49). */
 function load(name) {
@@ -24,7 +26,7 @@ function load(name) {
   throw new Error(`unbalanced braces in ${name}`);
 }
 
-const subtotalOf = load('subtotalOf');
+const subtotalOf = loadTypeScriptFunction(commitModelSource, 'subtotalOf');
 
 test('a directory subtotal adds up the files below it', () => {
   const changes = [

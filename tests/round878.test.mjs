@@ -1,0 +1,140 @@
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import test from 'node:test';
+
+import { loadTypeScriptModule } from './ts-source.mjs';
+
+const root = new URL('../', import.meta.url);
+const read = (path) => readFile(new URL(path, root), 'utf8');
+const source = await read('src/client/components/commit/commit-options-menu.ts');
+const { changeGroupMenu, changesViewOptionsMenu, commitOptionsMenu } = loadTypeScriptModule(source, [
+  'changeGroupMenu',
+  'changesViewOptionsMenu',
+  'commitOptionsMenu',
+]);
+const t = (key) => key;
+
+function childById(menu, id) {
+  for (const item of menu.items) {
+    if (item?.id === id) return item;
+    const child = item?.items?.find((entry) => entry?.id === id);
+    if (child !== undefined) return child;
+  }
+  return null;
+}
+
+test('Change Group By menu preserves all modes and current check mark', () => {
+  const applied = [];
+  const menu = changeGroupMenu({
+    t,
+    position: { x: 20, y: 40 },
+    groupBy: 'module',
+    onApplyChangeGroupBy: (mode) => applied.push(mode),
+  });
+
+  assert.equal(menu.title, 'editor.groupByMenu');
+  assert.deepEqual(
+    menu.items.map((item) => item?.id),
+    ['groupBy:flat', 'groupBy:module', 'groupBy:directory'],
+  );
+  assert.equal(childById(menu, 'groupBy:flat')?.shortcut, '');
+  assert.equal(childById(menu, 'groupBy:module')?.shortcut, '✓');
+  assert.equal(childById(menu, 'groupBy:directory')?.shortcut, '');
+  childById(menu, 'groupBy:flat').run();
+  childById(menu, 'groupBy:directory').run();
+  assert.deepEqual(applied, ['flat', 'directory']);
+});
+
+test('Changes View Options reuses the Group By value menu', () => {
+  const menu = changesViewOptionsMenu({
+    t,
+    position: { x: 32, y: 52 },
+    groupBy: 'directory',
+    onApplyChangeGroupBy: () => {},
+  });
+
+  assert.equal(menu.owner, 'changes-view-options');
+  assert.equal(menu.x, 32);
+  assert.equal(menu.y, 52);
+  assert.equal(menu.title, 'editor.viewOptions');
+  assert.equal(menu.items[0]?.id, 'groupBy');
+  assert.deepEqual(
+    menu.items[0]?.items?.map((item) => item?.id),
+    ['groupBy:flat', 'groupBy:module', 'groupBy:directory'],
+  );
+});
+
+test('Commit Options preserves busy state, action order and callbacks', () => {
+  const calls = [];
+  const menu = commitOptionsMenu({
+    t,
+    position: { x: 44, y: 66 },
+    fetchBusy: true,
+    updateBusy: false,
+    commitBusy: true,
+    stageAllAvailable: false,
+    groupBy: 'flat',
+    onApplyChangeGroupBy: (mode) => calls.push(`group:${mode}`),
+    onFetch: () => calls.push('fetch'),
+    onUpdate: () => calls.push('update'),
+    onApplyPatchFile: () => calls.push('patchFile'),
+    onApplyPatchClipboard: () => calls.push('patchClipboard'),
+    onStageAll: () => calls.push('stageAll'),
+    onStash: () => calls.push('stash'),
+    onShelve: () => calls.push('shelve'),
+  });
+
+  assert.equal(menu.owner, 'commit-options');
+  assert.equal(menu.title, 'editor.commitOptions');
+  assert.deepEqual(
+    menu.items.map((item) => item?.id ?? null),
+    ['fetch', 'update', null, 'applyPatchFile', 'applyPatchClipboard', null, 'stageAll', null, 'stash', 'shelve', null, 'groupBy'],
+  );
+  assert.equal(childById(menu, 'fetch')?.label, 'editor.fetchBusy');
+  assert.equal(childById(menu, 'fetch')?.disabled, true);
+  assert.equal(childById(menu, 'update')?.label, 'editor.updateProject');
+  assert.equal(childById(menu, 'update')?.disabled, false);
+  assert.equal(childById(menu, 'applyPatchFile')?.disabled, true);
+  assert.equal(childById(menu, 'applyPatchClipboard')?.disabled, true);
+  assert.equal(childById(menu, 'stageAll')?.disabled, true);
+  assert.equal(childById(menu, 'groupBy:flat')?.shortcut, '✓');
+
+  for (const id of [
+    'fetch',
+    'update',
+    'applyPatchFile',
+    'applyPatchClipboard',
+    'stageAll',
+    'stash',
+    'shelve',
+  ]) {
+    childById(menu, id).run();
+  }
+  childById(menu, 'groupBy:module').run();
+  assert.deepEqual(calls, [
+    'fetch',
+    'update',
+    'patchFile',
+    'patchClipboard',
+    'stageAll',
+    'stash',
+    'shelve',
+    'group:module',
+  ]);
+});
+
+test('editor workspace reuses the extracted Commit menu model', async () => {
+  const workspace = await read('src/client/editor-workspace.tsx');
+  const build = await read('scripts/build-client.mjs');
+  const client = await read('lib/client.js');
+
+  assert.match(workspace, /declare const changesViewOptionsMenu:/u);
+  assert.match(workspace, /declare const commitOptionsMenu:/u);
+  assert.match(workspace, /changesViewOptionsMenu\(\{/u);
+  assert.match(workspace, /commitOptionsMenu\(\{/u);
+  assert.doesNotMatch(workspace, /owner: 'changes-view-options'/u);
+  assert.doesNotMatch(workspace, /owner: 'commit-options'/u);
+  assert.match(build, /commit-options-menu\.ts/u);
+  assert.match(client, /function changesViewOptionsMenu\(/u);
+  assert.match(client, /function commitOptionsMenu\(/u);
+});

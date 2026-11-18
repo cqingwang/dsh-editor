@@ -2,7 +2,12 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+const source =
+  (await readFile(new URL('./fixtures/context-menu.legacy.js', import.meta.url), 'utf8')) +
+  '\n' +
+  (await readFile(new URL('./fixtures/search-everywhere.legacy.js', import.meta.url), 'utf8')) +
+  '\n' +
+  (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
 const popupStart = source.indexOf('function ShowUsagesPopup(');
 const popupEnd = source.indexOf('function FindToolWindow(', popupStart);
 const popup = source.slice(popupStart, popupEnd);
@@ -29,10 +34,7 @@ test('the shared ContextMenu restores its actual opener instead of leaving focus
 });
 
 test('copy actions close only the menu, while navigation actions close the usage popup', () => {
-  const menuBuilder = popup.slice(
-    popup.indexOf('const openUsageMenuAt ='),
-    popup.indexOf('const openUsageMenu ='),
-  );
+  const menuBuilder = popup.slice(popup.indexOf('const openUsageMenuAt ='), popup.indexOf('const openUsageMenu ='));
   assert.match(menuBuilder, /onCloseMenu: \(\) => setResultMenu\(null\)/);
   assert.doesNotMatch(menuBuilder, /id: 'copyRelative'[\s\S]*?onClose\(\)/);
   assert.match(menuBuilder, /onOpenInRightSplit: \(\) => \{[\s\S]*?onClose\(\);[\s\S]*?onOpenInRightSplit\(/);
@@ -45,6 +47,6 @@ test('clipboard rejection remains a notification path and does not close the pop
     source.indexOf('function searchResultContextItems('),
   );
   assert.match(copy, /onNotify\(t\('editor\.clipboardWriteFailed'\)\)/);
-  assert.match(copy, /\.catch\(\(\) => onNotify\(t\('editor\.clipboardWriteFailed'\)\)\)/);
+  assert.match(copy, /\.\s*catch\(\(\) => onNotify\(t\('editor\.clipboardWriteFailed'\)\)\)/u);
   assert.doesNotMatch(copy, /closeSearch|onClose|setShowUsages/);
 });

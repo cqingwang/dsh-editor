@@ -9,7 +9,8 @@ import test from 'node:test';
 import { workspaceFileOperations } from '../lib/index.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = readFileSync(join(root, 'lib/client.js'), 'utf8');
+const panelSource = readFileSync(join(root, 'tests/fixtures/terminal-panel.legacy.js'), 'utf8');
+const source = (panelSource + '\n' + readFileSync(join(root, 'tests/fixtures/project-panel.legacy.js'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
 
 /* ── The reported bug: a blur commit renamed a folder into itself ───────── */
 
@@ -31,7 +32,8 @@ test('a double-click never starts a rename', () => {
 test('the rename destination comes from the original path, not a caller', () => {
   /* The TERMINAL tab has a `commitRename` too; this must anchor on the tree one,
      which is the version that calls the file API. */
-  const commit = source.slice(source.lastIndexOf('const commitRename = React.useCallback(async () => {'));
+  const projectClientSource = readFileSync(join(root, 'src/client/editor-workspace.tsx'), 'utf8');
+  const commit = projectClientSource.slice(projectClientSource.lastIndexOf('const commitRename = React.useCallback(async () => {'));
   const head = commit.slice(0, commit.indexOf('const next ='));
   /* Derived here, so no `renameState.parent` can contradict it. */
   assert.match(head, /const parent = dirname\(renameState\.path\);/);

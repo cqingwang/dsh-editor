@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
+import { diffViewModeControlSource } from './ui-sources.mjs';
 
-const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+const source = (await readFile(new URL('./fixtures/diff-preview.legacy.js', import.meta.url), 'utf8')) + '\n' + (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
 
 function extract(name) {
   const marker = `    function ${name}(`;
@@ -31,18 +32,14 @@ test('IDEA diff modes use two adjacent buttons and collapse only at the narrowes
 });
 
 test('the paired control exposes unified and side-by-side as independent toggles', () => {
-  const control = source.slice(
-    source.indexOf('function DiffViewModeControl('),
-    source.indexOf('/** One 24px panel toolbar button. */'),
-  );
-  assert.match(control, /role: 'group'/);
-  assert.match(control, /label: t\('editor\.diffUnifiedMode'\)/);
-  assert.match(control, /label: t\('editor\.diffSideBySideMode'\)/);
-  assert.match(control, /icon: 'unified'/);
-  assert.match(control, /icon: 'split'/);
-  assert.match(control, /active: sideBySide === false/);
-  assert.match(control, /active: sideBySide === true/);
-  assert.match(control, /'data-dsh-diff-fixed': ''/);
+  assert.match(diffViewModeControlSource, /role='group'/);
+  assert.match(diffViewModeControlSource, /label=\{t\('editor\.diffUnifiedMode'\)\}/);
+  assert.match(diffViewModeControlSource, /label=\{t\('editor\.diffSideBySideMode'\)\}/);
+  assert.match(diffViewModeControlSource, /icon='unified'/);
+  assert.match(diffViewModeControlSource, /icon='split'/);
+  assert.match(diffViewModeControlSource, /active=\{sideBySide === false\}/);
+  assert.match(diffViewModeControlSource, /active=\{sideBySide === true\}/);
+  assert.match(diffViewModeControlSource, /data-dsh-diff-fixed=''/);
 });
 
 test('DiffPreview renders the fixed IDEA mode control instead of a generic toolbar action', () => {

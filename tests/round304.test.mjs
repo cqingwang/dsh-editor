@@ -5,10 +5,10 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = readFileSync(join(root, 'lib/client.js'), 'utf8');
+const source = (readFileSync(join(root, 'lib/client.js'), 'utf8')) + '\n' + readFileSync(join(root, 'tests/fixtures/commit-log.legacy.js'), 'utf8');
 
 test('Commit Log disables EditSource for files absent from the working tree', () => {
-  const log = source.slice(source.indexOf('function CommitLog('), source.indexOf('function formatCommitDate('));
+  const log = source.slice(source.indexOf('function CommitLog('), source.indexOf('/* COMMIT_LOG_BOUNDARY */'));
   assert.match(log, /const \[localFileAvailability, setLocalFileAvailability\] = React\.useState\(\(\) => new Map\(\)\)/);
   assert.match(log, /const localQueryPaths = \[\.\.\.new Set\(detail\.files\.flatMap/);
   assert.match(log, /callFs\(\{ op: 'exists', paths: localQueryPaths \}\)/);

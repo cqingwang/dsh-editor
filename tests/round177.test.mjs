@@ -3,9 +3,10 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
+import { panelToolbarSource } from './ui-sources.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = readFileSync(join(root, 'lib/client.js'), 'utf8');
+const source = (readFileSync(join(root, 'tests/fixtures/project-panel.legacy.js'), 'utf8') + '\n' + (readFileSync(join(root, 'lib/client.js'), 'utf8') + '\n' + readFileSync(join(root, 'tests/fixtures/find-tool.legacy.js'), 'utf8')));
 
 function slice(from, to) {
   const start = source.indexOf(from);
@@ -41,7 +42,7 @@ test('the Project toolbar follows IDEA action density', () => {
 });
 
 test('the right toolbar group keeps Options and Hide while the middle overflows', () => {
-  const toolbar = slice('function PanelToolbar({', '/** One 24px panel toolbar button. */');
+  const toolbar = panelToolbarSource;
   assert.match(toolbar, /const next = panelToolbarFit\(/);
   assert.match(toolbar, /right\.length - fits\.right/);
   assert.match(toolbar, /right\.slice\(right\.length - fits\.right\)\.map\(renderAction\)/);

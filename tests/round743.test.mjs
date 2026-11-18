@@ -2,7 +2,9 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+import { en, zh } from './locale-source.mjs';
+
+const source = (await readFile(new URL('./fixtures/project-panel.legacy.js', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
 
 /**
  * Extract one top-level client function by its brace-balanced body.
@@ -64,5 +66,12 @@ test('The Project tree announces upload activity with aria-busy', () => {
   assert.match(panel, /'aria-busy': uploadBusy \? 'true' : undefined/u);
   assert.match(source, /uploadBusy: '已有上传正在进行，请等待完成后再拖入'/u);
   assert.match(source, /uploadBusy: 'An upload is already in progress; wait for it to finish before dropping again'/u);
-  assert.match(source, /uploadCompleteIgnored: '已上传 \{count\} 项到 \{target\}；上传期间另有 \{ignored\} 次拖入被忽略'/u);
+  assert.equal(
+    zh.editor.uploadCompleteIgnored,
+    '已上传 {count} 项到 {target}；上传期间另有 {ignored} 次拖入被忽略',
+  );
+  assert.equal(
+    en.editor.uploadCompleteIgnored,
+    'Uploaded {count} item(s) to {target}; {ignored} drop(s) were ignored while the upload was in progress',
+  );
 });

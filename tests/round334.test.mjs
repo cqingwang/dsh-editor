@@ -25,7 +25,9 @@ test('closing a right-tab range confirms dirty files once and keeps shared docum
 });
 
 test('right tab context menu closes only that group and targets the clicked tab', () => {
-  const tab = sliceBetween("'data-dsh-editor-split-path': splitTab", 'React.createElement(');
+  const attributeAt = source.indexOf("dataAttributeName: 'data-dsh-editor-split-path'");
+  const start = source.lastIndexOf('return React.createElement(EditorFileTab', attributeAt);
+  const tab = source.slice(start, source.indexOf('\n                          splitTabLayout.hidden.length === 0', start));
   assert.match(tab, /onContextMenu: \(event\) => \{/);
   assert.match(tab, /id: 'closeOthers'/);
   assert.match(tab, /id: 'closeLeft'/);
@@ -39,7 +41,9 @@ test('right tab context menu closes only that group and targets the clicked tab'
 });
 
 test('middle-click closes only the right group tab', () => {
-  const tab = sliceBetween("'data-dsh-editor-split-path': splitTab", 'React.createElement(');
+  const attributeAt = source.indexOf("dataAttributeName: 'data-dsh-editor-split-path'");
+  const start = source.lastIndexOf('return React.createElement(EditorFileTab', attributeAt);
+  const tab = source.slice(start, source.indexOf('\n                          splitTabLayout.hidden.length === 0', start));
   assert.match(tab, /onAuxClick: \(event\) => \{/);
   assert.match(tab, /event\.button !== 1/);
   assert.match(tab, /closeSplitTab\(splitTab\)/);

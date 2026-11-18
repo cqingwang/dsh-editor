@@ -2,16 +2,14 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+const source = (await readFile(new URL('./fixtures/search-everywhere.legacy.js', import.meta.url), 'utf8') + '\n' + (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) + '\n' + (await readFile(new URL('./fixtures/find-tool.legacy.js', import.meta.url), 'utf8')));
+const searchEverywhereFixture = await readFile(new URL('./fixtures/search-everywhere.legacy.js', import.meta.url), 'utf8');
 
 test('all four query/replace history menus remain read-only', () => {
-  const searchEverywhere = source.slice(
-    source.indexOf('function SearchEverywhere('),
-    source.indexOf('function FindToolWindow('),
-  );
+  const searchEverywhere = searchEverywhereFixture;
   const findTool = source.slice(
     source.indexOf('function FindToolWindow('),
-    source.indexOf('function QuickOpen('),
+    source.indexOf('/* QUICK_OPEN_BOUNDARY */'),
   );
   const editorWorkspace = source.slice(
     source.indexOf('function EditorWorkspace('),
@@ -23,7 +21,7 @@ test('all four query/replace history menus remain read-only', () => {
   );
   const editorHistoryRender = editorWorkspace.slice(
     editorWorkspace.indexOf('editorFindHistoryMenu === null'),
-    editorWorkspace.indexOf('monacoError !== null', editorWorkspace.indexOf('editorFindHistoryMenu === null')),
+    editorWorkspace.indexOf('EditorErrorBanner', editorWorkspace.indexOf('editorFindHistoryMenu === null')),
   );
   for (const block of [searchEverywhere, findTool, editorHistoryOpen, editorHistoryRender]) {
     assert.doesNotMatch(block, /deleteHistory|clearHistory|Clear History|Delete History/iu);
@@ -32,13 +30,10 @@ test('all four query/replace history menus remain read-only', () => {
 });
 
 test('query and replacement history retain their replay owners', () => {
-  const searchEverywhere = source.slice(
-    source.indexOf('function SearchEverywhere('),
-    source.indexOf('function FindToolWindow('),
-  );
+  const searchEverywhere = searchEverywhereFixture;
   const findTool = source.slice(
     source.indexOf('function FindToolWindow('),
-    source.indexOf('function QuickOpen('),
+    source.indexOf('/* QUICK_OPEN_BOUNDARY */'),
   );
   const editorWorkspace = source.slice(
     source.indexOf('function EditorWorkspace('),

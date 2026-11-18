@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
+import { en, zh } from './locale-source.mjs';
+
 const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
 const actionsStart = source.indexOf('const searchEverywhereActions = React.useMemo');
 const actionsEnd = source.indexOf('/* Recompute match count', actionsStart);
@@ -30,12 +32,18 @@ test('Search Everywhere exposes disabled IDEA Structural Search and Replace', ()
 });
 
 test('Structural actions explain the Monaco AST boundary in both languages', () => {
-  assert.match(source, /structuralSearchAction: '结构化搜索…'/);
-  assert.match(source, /structuralReplaceAction: '结构化替换…'/);
-  assert.match(source, /structuralSearchUnavailable: '当前编辑器未提供语言 AST，结构化搜索和替换暂不可用'/);
-  assert.match(source, /structuralSearchAction: 'Search Structurally…'/);
-  assert.match(source, /structuralReplaceAction: 'Replace Structurally…'/);
-  assert.match(source, /structuralSearchSynonym: 'Structural Search'/);
-  assert.match(source, /structuralReplaceSynonym: 'Structural Replace'/);
-  assert.match(source, /structuralSearchUnavailable: 'Structural search and replace require a language AST, which the current editor does not provide'/);
+  assert.equal(zh.editor.structuralSearchAction, '结构化搜索…');
+  assert.equal(zh.editor.structuralReplaceAction, '结构化替换…');
+  assert.equal(
+    zh.editor.structuralSearchUnavailable,
+    '当前编辑器未提供语言 AST，结构化搜索和替换暂不可用',
+  );
+  assert.equal(en.editor.structuralSearchAction, 'Search Structurally…');
+  assert.equal(en.editor.structuralReplaceAction, 'Replace Structurally…');
+  assert.equal(en.editor.structuralSearchSynonym, 'Structural Search');
+  assert.equal(en.editor.structuralReplaceSynonym, 'Structural Replace');
+  assert.equal(
+    en.editor.structuralSearchUnavailable,
+    'Structural search and replace require a language AST, which the current editor does not provide',
+  );
 });

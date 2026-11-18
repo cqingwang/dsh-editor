@@ -6,16 +6,19 @@ import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const source = readFileSync(join(root, 'lib/client.js'), 'utf8');
+const toolbarSource = readFileSync(join(root, 'src/client/components/commit/CommitLogToolbar.tsx'), 'utf8');
 
 function commitLog() {
-  return source.slice(source.indexOf('function CommitLog('), source.indexOf('function formatCommitDate('));
+  const start = source.indexOf('function CommitLogView(');
+  assert.notEqual(start, -1, 'CommitLogView is missing');
+  return source.slice(start, source.indexOf('const CommitLog = CommitLogView;', start));
 }
 
-test('Commit Log owns ⌘F while its panel has focus', () => {
+test('Commit Log owns ⌘L while its panel has focus', () => {
   const log = commitLog();
   assert.match(log, /const logFilterInputRef = React\.useRef\(null\)/);
-  assert.match(log, /event\.metaKey \|\| event\.ctrlKey/);
-  assert.match(log, /event\.key\.toLowerCase\(\) !== 'f'/);
+  assert.match(log, /commitLogShortcutAction\(/);
+  assert.match(log, /action === 'findInFiles'/);
   assert.match(log, /data-dsh-log-panel/);
   assert.match(log, /setShowFilter\(true\)/);
   assert.match(log, /logFilterInputRef\.current\?\.focus\(\)/);
@@ -26,7 +29,8 @@ test('Commit Log owns ⌘F while its panel has focus', () => {
 
 test('the hidden log filter input is the shortcut target', () => {
   const log = commitLog();
-  assert.match(log, /ref: logFilterInputRef,[\s\S]*?placeholder: t\('editor\.logFilterPlaceholder'\)/);
+  assert.match(toolbarSource, /ref=\{filterInputRef\}[\s\S]*?placeholder=\{t\('editor\.logFilterPlaceholder'\)\}/);
+  assert.match(log, /filterInputRef: logFilterInputRef/);
   assert.match(log, /'data-dsh-log-panel': ''/);
 });
 
@@ -38,6 +42,6 @@ test('editor find yields the Log panel shortcut to the tool window', () => {
 });
 
 test('log filter shortcut wording exists in both dictionaries', () => {
-  assert.ok(source.includes("logFilterHint: '过滤提交（⌘F）'"));
-  assert.ok(source.includes("logFilterHint: 'Filter commits (⌘F)'"));
+  assert.ok(source.includes("logFilterHint: '过滤提交（⌘L）'"));
+  assert.ok(source.includes("logFilterHint: 'Filter commits (⌘L)'"));
 });

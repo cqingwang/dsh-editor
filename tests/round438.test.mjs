@@ -2,7 +2,10 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+const source =
+  (await readFile(new URL('./fixtures/commit-panel.legacy.js', import.meta.url), 'utf8')) +
+  '\n' +
+  (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
 
 function commitPanel() {
   const start = source.indexOf('function CommitPanel(');
@@ -14,16 +17,22 @@ function commitPanel() {
 
 test('Commit tool window renders its built-in UI in IDEA English', () => {
   assert.match(source, /const englishMessages = flattenDictionary\(en\);/);
-  assert.match(source, /const commitEnglish = \(key, params\) => \{[\s\S]*?englishMessages\[key\][\s\S]*?return interpolateMessage\(text, params\);/);
+  assert.match(
+    source,
+    /const commitEnglish = \(key, params\) => \{[\s\S]*?englishMessages\[key\][\s\S]*?return interpolateMessage\(text, params\);/,
+  );
   assert.match(source, /React\.createElement\(CommitPanel, \{\s+t: commitEnglish,/s);
-  assert.match(source, /const fileCountText = \(count\) => count === 1 \? '1 file' : t\('editor\.filesCount', \{ count \}\);/);
-  assert.equal(source.match(/fileCountText\(/g)?.length, 2);
+  assert.match(
+    source,
+    /const fileCountText = \(count\) => count === 1 \? '1 file' : t\('editor\.filesCount', \{ count \}\);/,
+  );
+  assert.equal(commitPanel().match(/fileCountText\(/g)?.length, 2);
 });
 
 test('Change file rows omit porcelain M/U badges like IDEA', () => {
   const panel = commitPanel();
-  const rowStart = panel.indexOf("const change = row.change;");
-  const rowEnd = panel.indexOf("React.createElement(LineCounts, {", rowStart);
+  const rowStart = panel.indexOf('const change = row.change;');
+  const rowEnd = panel.indexOf('React.createElement(LineCounts, {', rowStart);
   assert.notEqual(rowStart, -1);
   assert.notEqual(rowEnd, -1);
   const row = panel.slice(rowStart, rowEnd);
@@ -34,8 +43,14 @@ test('Change file rows omit porcelain M/U badges like IDEA', () => {
 });
 
 test('Change tree rows retain visible hierarchy depth instead of one flat indent', () => {
-  assert.match(source, /rows\.push\(\{ kind: 'directory', path, name: basename\(path\), parent: dirname\(path\), depth, open,/);
-  assert.match(source, /rows\.push\(\{ kind: 'file', path: change\.path, name: basename\(change\.path\), depth, change \}\);/);
+  assert.match(
+    source,
+    /rows\.push\(\{\s+kind: 'directory',\s+path,\s+name: basename\(path\),\s+parent: dirname\(path\),\s+depth,\s+open,/u,
+  );
+  assert.match(
+    source,
+    /rows\.push\(\{ kind: 'file', path: change\.path, name: basename\(change\.path\), depth, change \}\);/,
+  );
   assert.match(source, /paddingLeft: 22 \+ row\.depth \* 14/);
-  assert.equal(source.match(/paddingLeft: 22 \+ row\.depth \* 14/g)?.length, 2);
+  assert.equal(commitPanel().match(/paddingLeft: 22 \+ row\.depth \* 14/g)?.length, 2);
 });

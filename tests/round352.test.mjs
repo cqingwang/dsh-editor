@@ -5,7 +5,9 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = readFileSync(join(root, 'lib/client.js'), 'utf8');
+const source = (  readFileSync(join(root, 'lib/client.js'), 'utf8') +
+  '\n' +
+  readFileSync(join(root, 'tests/fixtures/commit-graph.legacy.js'), 'utf8')) + '\n' + readFileSync(join(root, 'tests/fixtures/commit-log.legacy.js'), 'utf8');
 
 function extractFunction(name) {
   const start = source.indexOf(`    function ${name}(`);
@@ -46,7 +48,7 @@ test('graph menu target prefers keyboard cursor and falls back to selection', ()
 });
 
 test('graph Log opens the shared menu from the keyboard cursor', () => {
-  const log = source.slice(source.indexOf('function CommitLog('), source.indexOf('function formatCommitDate('));
+  const log = source.slice(source.indexOf('function CommitLog('), source.indexOf('/* COMMIT_LOG_BOUNDARY */'));
   assert.match(log, /graphLogMenuTarget\(graphRows, graphCursor, selected\)/);
   assert.match(log, /event\.key === 'ContextMenu' \|\| \(event\.shiftKey === true && event\.key === 'F10'\)/);
   assert.match(log, /data-dsh-graph-hash/);
@@ -54,7 +56,10 @@ test('graph Log opens the shared menu from the keyboard cursor', () => {
 });
 
 test('graph rows expose their hash and popup semantics', () => {
-  const graph = source.slice(source.indexOf('function CommitGraph('), source.indexOf('function scrollGraphRowIntoView('));
+  const graph = source.slice(
+    source.indexOf('function CommitGraph('),
+    source.indexOf('/* COMMIT_GRAPH_BOUNDARY */'),
+  );
   assert.match(graph, /'data-dsh-graph-hash': entry\.hash/);
   assert.match(graph, /'aria-haspopup': 'menu'/);
 });

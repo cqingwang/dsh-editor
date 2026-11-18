@@ -2,47 +2,18 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+import { loadTypeScriptModule } from './ts-source.mjs';
 
-function extractObject(name) {
-  const marker = `    const ${name} = {`;
-  const start = source.indexOf(marker);
-  assert.notEqual(start, -1, `${name} should exist`);
-  let index = source.indexOf('{', start);
-  let depth = 0;
-  for (; index < source.length; index += 1) {
-    if (source[index] === '{') depth += 1;
-    else if (source[index] === '}') {
-      depth -= 1;
-      if (depth === 0) return source.slice(start, index + 1);
-    }
-  }
-  assert.fail(`unterminated ${name}`);
-}
+const languageModel = await readFile(
+  new URL('../src/client/components/editor/editor-language-model.ts', import.meta.url),
+  'utf8',
+);
 
-function extractFunction(name) {
-  const marker = `    function ${name}(`;
-  const start = source.indexOf(marker);
-  assert.notEqual(start, -1, `${name} should exist`);
-  let index = source.indexOf('{', start);
-  let depth = 0;
-  for (; index < source.length; index += 1) {
-    if (source[index] === '{') depth += 1;
-    else if (source[index] === '}') {
-      depth -= 1;
-      if (depth === 0) return source.slice(start, index + 1);
-    }
-  }
-  assert.fail(`unterminated ${name}`);
-}
-
-const languageFor = new Function(
-  `${extractObject('LANGUAGE_BY_FILENAME')}\n`
-  + `${extractObject('LANGUAGE_BY_EXTENSION')}\n`
-  + `${extractFunction('basename')}\n`
-  + `${extractFunction('languageFor')}\n`
-  + 'return languageFor;',
-)();
+const { languageFor } = loadTypeScriptModule(languageModel, [
+  'LANGUAGE_BY_FILENAME',
+  'LANGUAGE_BY_EXTENSION',
+  'languageFor',
+]);
 
 test('Known lockfiles and case-insensitive extensions map to Monaco languages', () => {
   assert.equal(languageFor('src/app.MJS'), 'javascript');

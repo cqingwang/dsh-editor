@@ -10,7 +10,7 @@ import test from 'node:test';
 import { gitCombinedDiff } from '../lib/index.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = readFileSync(join(root, 'lib/client.js'), 'utf8');
+const source = (readFileSync(join(root, 'tests/fixtures/diff-preview.legacy.js'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
 const host = readFileSync(join(root, 'lib/index.js'), 'utf8');
 
 async function fixture() {

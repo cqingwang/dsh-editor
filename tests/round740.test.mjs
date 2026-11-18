@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
+import { panelToolbarSource } from './ui-sources.mjs';
 
-const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+const source = (await readFile(new URL('./fixtures/project-panel.legacy.js', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
 
 function extractFunction(name) {
   const start = source.indexOf(`function ${name}(`);
@@ -32,8 +33,8 @@ test('Project toolbar falls back to the selected directory or workspace root', (
 });
 
 test('PanelToolbar exposes a scoped Files drop underline', () => {
-  assert.match(source, /function PanelToolbar\(\{[\s\S]*?dropActive = false,[\s\S]*?onDragEnter,[\s\S]*?onDragLeave,[\s\S]*?onDragOver,[\s\S]*?onDrop,/u);
-  assert.match(source, /\.\.\.\(dropActive \? \{ boxShadow: 'inset 0 -2px 0 var\(--dsw-alias-state-business-primary\)' \} : null\)/u);
+  assert.match(panelToolbarSource, /function PanelToolbar\(\{[\s\S]*?dropActive = false,[\s\S]*?onDragEnter,[\s\S]*?onDragLeave,[\s\S]*?onDragOver,[\s\S]*?onDrop,/u);
+  assert.match(panelToolbarSource, /dropActive[\s\S]*?boxShadow: 'inset 0 -2px 0 var\(--dsw-alias-state-business-primary\)'/u);
 });
 
 test('Project toolbar reuses the existing OS upload path', () => {

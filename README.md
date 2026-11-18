@@ -70,7 +70,7 @@ Editor **不再插入“对话 / 轨迹 / 上下文”标签行**；没有 View 
 - Reopen Closed Terminal 会把关闭时保存的目录作为新 PTY 的 `startPath`，即使原 shell 已卸载而回退默认 shell，也仍从关闭前目录启动。
 - Terminal host list 刷新时会与 editor placements 协调：剪除已不存在的 editorId，并保证 dock active 不指向已移入编辑器的 terminal。
 - 标签跟随 shell 的 OSC 标题；手动重命名后不再被自动标题覆盖。
-- 标签可拖拽重排，顺序由宿主保存，刷新后保持；标签栏放不下时按 IDEA 收起 `»` 下拉，被选中的终端永远留在可见区，不会被藏进菜单；下拉条目带与标签栏相同的颜色条。可见标签使用 `tablist/tab` 语义和 roving `tabIndex`：Tab 进入活动标签后，`←/→` 切换可见标签、`Home/End` 跳首尾、`Enter/Space` 激活、`Shift+F10` / ContextMenu 打开当前标签菜单；末标签按 `→` 进入 `»`，`»` 上按 `←` 返回标签。`»` 自身也支持 Enter、Shift+F10 与 ContextMenu 打开同一隐藏标签菜单，菜单右缘与按钮对齐；选择隐藏终端后焦点落到新激活的可见 tab。每个 tab 的辅助技术名称固定为终端标题，不包含关闭 `×`；拖拽 start/end 会把焦点留在被拖标签，真实重排后方向键和菜单上下文仍指向该 tab。
+  - 标签可拖拽重排，顺序由宿主保存，刷新后保持；标签栏放不下时按 IDEA 收起 `»` 下拉，被选中的终端永远留在可见区，不会被藏进菜单；下拉条目带与标签栏相同的颜色条。可见标签使用 `tablist/tab` 语义和 roving `tabIndex`：Tab 进入活动标签后，`←/→` 切换可见标签、`Home/End` 跳首尾、`Enter/Space` 激活、`Shift+F10` / ContextMenu 打开当前标签菜单；右键 tab 或 `»` 时先把它们设为菜单 opener，Esc/关闭菜单后焦点回到同一 tab/按钮，而不是旧控件。末标签按 `→` 进入 `»`，`»` 上按 `←` 返回标签。`»` 自身也支持 Enter、Shift+F10 与 ContextMenu 打开同一隐藏标签菜单，菜单右缘与按钮对齐；选择隐藏终端后焦点落到新激活的可见 tab。每个 tab 的辅助技术名称固定为终端标题，不包含关闭 `×`；拖拽 start/end 会把焦点留在被拖标签，真实重排后方向键和菜单上下文仍指向该 tab。
 
 - 查找栏里 `⌘G` / `⇧⌘G` 走下一个 / 上一个匹配（原来只有按钮，键盘到计数就断了）。
 - `⌘/Ctrl+F` 打开终端查找栏，**上次的查询会保留**并重新统计命中数（再次按 ⌘F 不会覆盖已打开查找栏里的内容）。
@@ -106,6 +106,7 @@ Editor **不再插入“对话 / 轨迹 / 上下文”标签行**；没有 View 
 - Changes 文件行提交复选框也会读出完整路径和所属组，例如“将 README.md（已暂存）包含到提交”，因此 `MM` 同路径的 staged/unstaged 两侧可区分；目录复选框按真实动作命名，分别读作“暂存目录 … / 取消暂存目录 … / 将目录 … 添加到 VCS”，不再只是一个裸目录名。
 - Changes 的组头、目录行和文件行现在都属于真实 `role="treeitem"`：目录行暴露 `aria-expanded`，文件行保留 `aria-selected` 与 roving `tabIndex`，AX 结构与 Changes `role="tree"` 及其键盘导航一致。
 - Changes 目录行也进入 roving 键盘序列：`↑/↓/Home/End` 可聚焦目录，`←/→` 折叠或展开，Shift+F10 / ContextMenu 打开目录菜单；目录焦点使用 accent 内描边，文件 typeahead 仍只匹配文件路径。
+- Changes 目录行和文件行右键时会先取得焦点，再打开 ContextMenu；菜单取消或关闭后焦点返回被右键的行，而不是停留在之前选中的分组或编辑器。
 - Project 与 Changes 的 `treeitem` 现在同时暴露 `aria-level`：Project 按真实 `row.depth + 1` 计算层级，Changes 组头为 level 1、目录与文件条目为 level 2；AX 能正确读出根目录、子目录、目录内文件和变更分组。
 - Project 与 Changes 的可见节点还会暴露 `aria-posinset/aria-setsize`：Project 按真实父子块计算同级位置，Changes 组头按三个分组计数，目录/文件条目按当前可见组内 rows 计数，辅助技术可以正确播报“2/6”“3/3”等位置关系。
 - Commit 提交信息区的 **修正上一次提交（Amend）** 复选框现在有显式本地化 `aria-label`；勾选仍会预填上一条提交信息，取消仍恢复勾选前的草稿，键盘焦点保持在复选框。
@@ -180,7 +181,7 @@ Editor **不再插入“对话 / 轨迹 / 上下文”标签行**；没有 View 
 - 日志行右键（IDEA 的 Log 上下文菜单）：**Compare Revisions** 在恰好选择两个提交时出现，按当前日志顺序把较旧提交放左侧、较新提交放右侧，文件范围取两个提交 affected paths 的并集；flat Log 与 Graph 支持 `⌘/Ctrl` toggle、`Shift` 区间和 `⌘/Ctrl+A`，右键已选行保留多选，右键未选行收敛为单行。其余动作包括显示提交详情、查看首个变更文件的历史、**Compare with Local**（只比较所选提交实际影响的路径，左侧为提交版本、右侧为当前工作区；聚合 diff 只读，超过 100 个文件沿用合并差异上限，不混入无关本地修改）、**Go to Child Commit `←` / Go to Parent Commit `→`**（只导航当前已加载的 log/graph，父子关系来自 Git `%P`；merge 多父/多子展开候选，没有目标时禁用）、**New Tag…**、**Create Patch from Commit…**（用 `git format-patch` 导出所选提交，文件名包含短哈希与清理后的 subject；不移动 HEAD、不改 index/工作区）、**Checkout Revision**（检出到该提交，进入 detached HEAD，二次确认；检出后树根行与工具栏显示 `detached HEAD` 而不是含义不明的 `HEAD`，并提示“想推送或更新请先检出分支”）、**New Branch from {hash}…**、**Reset Current Branch to Here…**（Soft / Mixed / Hard；Hard 确认显示目标短哈希与未保存标签数，成功后会从磁盘重载打开文件）、**Cherry-Pick**、**Revert**、复制完整哈希、**复制提交信息**；新建标签/分支都打在右键的那个提交上，分支创建复用现有名称 Prompt 并自动切换到新分支；非法名/重名/非法修订会在输入框下方直接说明；改写历史/工作区的动作用前都会确认，失败时把 git 的第一行原因原样显示。
 - 文件恢复：`restoreFile` 只把指定路径写回某个提交的内容，仓库其余部分不动；该提交里不存在这个文件时**拒绝**而不是清空它（空文件本身可以正常恢复）。
 - 默认 flat 提交列表本身可获得键盘焦点：`↑/↓` 在当前可见提交间移动并同步详情，`Home/End` 跳首尾，`Enter` 打开当前提交；`Shift+F10` / ContextMenu 键在选中行下方打开同一份提交菜单。点击行后焦点回到列表，过滤后的隐藏提交不会被方向键或菜单跳入。Graph 与 flat 列表共用同一个真实 DOM ref，同时服务于键盘焦点、上下文菜单锚点和滚动位置恢复；切换到 Graph 时焦点直接进入日志 `role="listbox"`，菜单始终锚定当前行而不是回落到页面左上角。
-- Log 页内按 `⌘/Ctrl+F` 会打开并聚焦文本过滤框（已打开时全选原查询），编辑器查找和 Changes 过滤不会同时抢同一个键；关闭搜索按钮或按 Esc 都会同时清空查询，不会留下看不见的过滤条件。日志页支持按标题/作者/短哈希过滤，另有独立的**作者过滤框**（`git log --author`，按字面量转义，不会把 `A.*e` 当正则）；列表与详情上下堆叠（工具窗口窄，左右两栏都读不清）。
+- Log 页内按 IDEA Git Log 的 `⌘/Ctrl+L` 会打开并聚焦文本过滤框（已打开时全选原查询）；`⌘/Ctrl+F` 在 Log 内保持 IDEA 的 Find in Files 行为，Changes 内仍聚焦 path filter，编辑器查找和 Changes 过滤不会同时抢同一个键。关闭搜索按钮或按 Esc 都会同时清空查询，不会留下看不见的过滤条件。日志页支持按标题/作者/短哈希过滤，另有独立的**作者过滤框**（`git log --author`，按字面量转义，不会把 `A.*e` 当正则）；列表与详情上下堆叠（工具窗口窄，左右两栏都读不清）。
 - 日志分页：首屏 60 条，滚到底部自动追加下一页（`--skip`），到末尾显示"已显示全部提交"，不会重复行。
 - 日志详情里的文件名单击打开**该提交中的版本**差异（不读工作区，删除的文件也能看），双击打开工作区当前文件。
 - 日志详情文件右键提供 **按修订显示文件（Open Repository Version）**：宿主直接读取所选提交中的 blob，以只读 Monaco 标签打开；标签标题包含文件名、短哈希和只读提交信息，不注册可写工作区文档，也不会切换 HEAD 或修改工作区。文件在该修订中不存在时明确报错；二进制文件显示占位而不加载到文本编辑器。
@@ -267,10 +268,10 @@ Editor **不再插入“对话 / 轨迹 / 上下文”标签行**；没有 View 
 - Project 右键把复制动作收进 IDEA 的 **复制路径/引用…（Copy Path/Reference…）** 子菜单，顺序为 `绝对路径 / 文件名 / 带行号的路径 / 来自内容根的路径`，最后保留 DSH 的 shell-ready 绝对路径。带行号动作只有该文件正在编辑器里打开时才带上光标行列，避免引用别的文件的位置；光标取不到（文件没打开过）时复制纯路径，不再拼出 `:1:1`。
 - 多选时右键菜单顶部显示"已选 N 项"，单选类动作在批量选择下禁用。
 - 右键文件还可 **与修订比较**：打开一个可搜索的提交选择框（按哈希前缀、标题或作者过滤，↑/↓ 移动、Enter 确认），比较该文件“当前内容”与“该修订时的内容”（这不是查看某次提交引入的改动）。
-- 右键目录可 **暂存此目录 / 取消暂存此目录**，作用域严格限制在该目录内。
+- 右键目录可 **暂存此目录 / 取消暂存此目录**，作用域严格限制在该目录内；文件菜单不再显示目录专属的暂存动作。普通文件也不会显示禁用的逐行“定位文件”，只有目录的“展开目录”或过滤视图中的“在 Project 中定位”会出现；目录菜单只保留一个展开项，不再重复。
 - Commit 更改树里的目录行也有右键菜单：**暂存 / 取消暂存此目录**（按该组语义）、**回滚此目录的更改**（二次确认）、在 Project 中定位、**在终端中打开**（shell 的 cwd 落在该目录）；作用域是该目录下全部文件。
 - 点文件后**焦点留在树上**（IDEA 的行为）：方向键继续在树里走、typeahead 继续可用、`⇧F6`/`⌫`/`⌘R` 直接作用于选中行，不必先点回树。只有从编辑器或终端主动开文件时，焦点才跟着进编辑区。
-- 树上的键盘：`⇧F6`/`F2` 重命名、`⌫` 删除、`⌘R` 刷新、`⌥⌘N` 新建文件、方向键移动、`Enter` 打开/展开——右键菜单印出来的键都能真按。Project 行菜单的 New/Rename/Move/Delete/Open/Refresh 同时输出对应 `aria-keyshortcuts`，屏幕阅读器不必只靠可见快捷键文本推断。
+- 树上的键盘：`⇧F6`/`F2` 重命名、`⌫` 删除、`⌘R` 刷新、`⌥⌘N` 新建文件、方向键移动、`Enter` 打开/展开、`Shift+F10` / ContextMenu 打开当前选中行的完整菜单——右键菜单印出来的键都能真按。Project 行菜单的 New/Rename/Move/Delete/Open/Refresh 同时输出对应 `aria-keyshortcuts`，屏幕阅读器不必只靠可见快捷键文本推断。
 - 切换排序后**选中行会滚回可见区**，不会因为换了顺序就跑到视野外。
 - 树里直接**打字即定位**（IDEA 的 typeahead）：不弹搜索框、不过滤，按名称**前缀**匹配并把选中行滚进视野；停手 1 秒再打就是新的前缀，同一前缀继续打则跳到**下一个**命中（到末尾回绕）。缩放/重命名输入框里的按键不会被它吞掉；没有命中时按键照常交给树的其它快捷键。
 - 树内 `⌘/Ctrl+F` 是 IDEA 的 **speed search**：先即时过滤已加载行，再经宿主 `fs.search` 有界递归搜索折叠目录中的名称；命中项的父目录一并保留并合成可见父链，命中片段以黄色底纹标出，只标匹配的那几个字符而不是整行。搜索遵循 Project 的隐藏/排除项、当前排序、“目录始终置顶”和“紧凑目录”设置，跳过 `.git`、`node_modules`、构建输出等重型目录，单次最多返回 200 个命中并受访问预算约束；任一边界触发时明确显示“搜索结果已截断”，不静默截断、也不虚报具体命中数。过滤时不再显示「（空目录）」占位，等待宿主结果时不会提前显示「无匹配」。输入后当前行自动落到首个真实命中，`↑/↓` 在命中的文件之间循环且不移走搜索框焦点；Enter **打开当前命中**（目录则展开；**已展开的目录保持展开**）、关闭搜索框，并把键盘焦点交回树，Esc / `×` 清空，编辑器或终端持有焦点时 `⌘F` 仍归它们。
@@ -336,10 +337,10 @@ Editor **不再插入“对话 / 轨迹 / 上下文”标签行**；没有 View 
 
 - 文件树：按会话工作区根目录懒加载，目录优先排序；**只过滤 `.git`**（其余目录都在树里显示与展开）。
 - Project 行展开使用显式 DFS 栈而不是函数递归；children/expanded 出现自身或祖先环时重复路径只渲染一次，异常深链最多展开 128 层且总行数有界，损坏的树数据不会再触发 `Maximum call stack size exceeded`。workspace 加载后会以有界 BFS 静默预取第一层子目录节点信息，但不会把这些目录加入 expanded，树仍保持折叠；点击目录时先用已有 children 缓存立即展开，同时只等待 clicked path 自身一次 `list` 刷新，后台预取也限制为一层且不阻塞可见交互（Compact Directories 的连续单链视为同一视觉节点），更深内容继续按需加载。展开状态使用 `dsh-editor.expanded.v2:<root>`；旧版 `dsh-editor.expanded:<root>` 可能混入过自动三层展开，已不再读取，避免升级后第一次打开仍自动展开。目录默认保持 IDEA 的“单击选择、双击展开”，只有用户启用 `Open Directories with Single Click` 后才改为单击展开。工具栏中的靶心 `Select Opened File (⌥F1, 1)` 为 pinned action：窄 Project 窗格也优先保留，点击会切回 Project、展开目标文件的祖先、选中并滚动到当前编辑器文件。
-- Project View 默认采用 IDEA 的 **单击选择、双击打开文件 / 展开目录**；Project `Options → 行为` 提供 `启用预览标签页 / 单击打开文件 / 单击展开目录`，`✓` 显示当前值并跨刷新保留。目录箭头始终保留单次点击展开/收起。
+- Project View 默认采用 IDEA 的 **单击选择、双击打开文件 / 展开目录**；双击文件会把键盘焦点交给对应 Monaco 编辑器，单击选择仍把焦点留在树里。Project `Options → 行为` 提供 `启用预览标签页 / 单击打开文件 / 单击展开目录`，`✓` 显示当前值并跨刷新保留。目录箭头始终保留单次点击展开/收起。
 - 开启 **启用预览标签页** 后，Project 中单击文件会复用同一个未编辑预览标签，标签以斜体标记；开始编辑、显式打开或重新打开该文件时会转为普通标签。预览标签右键首项为 IDEA 的 **保持标签页打开（Keep Tab Open）**，普通标签不显示这一项；该动作只把预览转为常规标签，不改变内容或激活顺序，且没有默认快捷键。默认关闭，与 IDEA 的 `UISettingsState.openInPreviewTabIfPossible` 一致。
 - Project `Options → 外观` 按 IDEA 的 **Show / Sort By** 分区：显示排除项、紧凑目录和隐藏文件归入 `Show`，名称/类型/修改时间排序与 `目录始终置顶` 归入 `Sort By`。分区标题不进入键盘焦点循环，方向键只在可执行项之间移动。
-- Project Sort By 提供 IDEA 的 **Manual Order**：手动顺序按 workspace、parent directory 分别保存；已知条目按保存顺序显示，新出现条目保持宿主顺序并排在已知项后。Manual Order 下拖拽只重排同一目录的 sibling 视图顺序，不移动磁盘文件；`⌥↑ / ⌥↓` 可用键盘移动当前 sibling 选择块并保持焦点与选中行；`Reset Manual Order` 清空当前 workspace 顺序但保持 Manual Order 模式。跨目录拖拽会明确提示，磁盘仍由现有 Project 移动动作控制。
+- Project Sort By 提供 IDEA 的 **Manual Order**：手动顺序按 workspace、parent directory 分别保存；已知条目按保存顺序显示，新出现条目保持宿主顺序并排在已知项后。Manual Order 下拖拽只重排同一目录的 sibling 视图顺序，不移动磁盘文件；`⌥↑ / ⌥↓` 可用键盘移动当前 sibling 选择块并保持焦点与选中行；内部 rename/move 会把已保存 rank 同步迁移到新路径（目录移动同时迁移子目录 rank），删除文件/目录后会按权威目录 listing 清理 stale rank，同名重建不会恢复旧顺序；隐藏或 excluded 过滤生效时不会把当前不完整 listing 当作删除证据，重新显示后 manual rank 与已展开目录保持。`Reset Manual Order` 清空当前 workspace 顺序但保持 Manual Order 模式。跨目录拖拽会明确提示，磁盘仍由现有 Project 移动动作控制。
 - Project `Options → 外观 → 目录始终置顶` 默认为开；关闭后名称/类型/修改时间排序会在目录和文件全体上执行，目录可与文件交错。
 - Project `Options → 外观 → 紧凑目录` 默认为关（与 IDEA `ViewSettings.isCompactDirectories()` 的默认一致）；开启后连续单子目录链合并成一行，例如 `src/nested/deep`。合并行仍以最深目录为真实路径，展开、拖放、重命名和右键动作不会作用到显示用的路径摘要；首次展开尚未加载的目录时会沿链条继续读取并同步展开。
 - Project `Options → 外观 → 显示排除项` 默认开启以兼容当前行为；关闭后 `node_modules / dist / build / out / target / .next / .nuxt / .turbo / .cache / __pycache__ / .venv / venv` 不再显示，`.git` 仍无条件隐藏。
@@ -396,32 +397,159 @@ pnpm add link:/Users/chan/Documents/project/dsh-editor --ignore-scripts
 
 ```
 lib/index.js       宿主半：文件 API、Monaco / xterm 资源路由（从依赖包解析）
-src/client/*.js    浏览器半源码：使用 foundation / locales / project / commit /
-                   search / terminal / workspace / styles / controller 等语义文件名
-scripts/build-client.mjs 按显式模块清单合并为 DSH 要求的单文件浏览器产物
+src/client/*.ts    浏览器业务/模型模块，由构建脚本转译后嵌入单 factory
+src/client/*.tsx   React 功能组件，由 esbuild 编译后嵌入单 factory
+tests/fixtures/legacy/*.legacy.js 历史迁移 oracle；仅测试读取，不进入 npm 包
+src/client/components/ui/*.tsx 可复用 UI 组件：Icon、ToolbarButton、PanelToolbar、
+                   CompactActionBar、ActivityStripe、DiffViewModeControl、
+                   PathLabel、LineCounts、ContextMenu、EntryIcon、GitStatusBadge
+src/client/components/ui/*.ts 共享模型：toolbar-model、menu-model、file-badge、
+                   git-status-model、git-change-model、diff-model、commit-model
+src/client/components/project/*.tsx 功能组件：ProjectPanel / Project tree UI
+src/client/components/project/*.ts  Project 模型：project-selection-model
+src/client/components/diff/*.tsx  Diff 功能组件：AnnotatePreview、
+                   RepositoryVersionPreview、DiffPreview
+src/client/components/commit/*.tsx 功能组件：CommitPanel、CommitLog、
+                   CommitGraph、CommitGraphRow、CommitGraphFoldBar、NamePrompt、
+                   RevisionPicker、MoveToPicker、CodePreviewCode、
+                   Changes + Commit UI
+src/client/components/commit/*.ts 共享模型：commit-search-model、
+                   commit-log-*-controller/model、菜单模型
+src/client/components/terminal/*.tsx 功能组件：TerminalScreen、
+                   EditorTerminalTab、TerminalPanel
+src/client/components/search/*.tsx 功能组件：SearchEverywhere、
+                   ShowUsagesPopup、QuickOpen
+src/client/components/editor/*.tsx 功能组件：EditorStatusFacts、
+                   MarkdownModeSwitch、ImagePreviewPane、MarkdownPreviewPane
+src/client/components/editor/*.ts 编辑器模型：workspace-file-model、
+                   editor-path-model、editor-document-model、
+                   markdown-scroll-model、editor-navigation-model、
+                   editor-file-template-model、editor-language-model、
+                   editor-tab-model、editor-style-model
+src/client/components/editor/workspace-image-preview.tsx 图片 tab 元素构建器
+src/client/ui/styles.ts 共享 inline style token / layout styles
+scripts/build-client.mjs 使用 esbuild 编译 TSX module graph，并合成为
+                   DSH 要求的单文件浏览器产物；拒绝新的 `.js/.jsx` 模块
+.prettierrc.json   TS/TSX 格式化配置；JSX 属性逐行展开
 lib/client.js      生成的浏览器半单产物（不要直接维护；改 src/client 后重构建）
 lib/link-parser.mjs 宿主与浏览器共用、且有单测直接 import 的 ESM（终端链接语法）
 locale/*.json      中英文案（键集合、重复键、中文里混入英文由 tests/round114.test.mjs 守卫）
 cordis.patch.yml   组合包挂载补丁
 ```
 
-DSH 的 lazy-CJS 客户端契约要求最终只加载一个 `lib/client.js`。插件源码采用
-`docs/dsh-gufa-code` 相同的构建方式：`src/client/*.js` 在同一个 factory
-作用域内按 `scripts/build-client.mjs` 里的显式模块清单顺序合并，因此各模块
-仍共享 React、闭包状态和内部 helper，不需要浏览器运行时模块加载器。源码
-文件名保持语义化，不依赖数字前缀表达顺序。
+DSH 的 lazy-CJS 客户端契约要求最终只加载一个 `lib/client.js`。浏览器源码现已
+全部是 TypeScript：
+
+- React UI 使用 `.tsx`，通过 ES import 组合复用，由 esbuild 编译成 CJS
+  module graph 后嵌入 DSH factory；
+- manifest 中的独立 `.ts` 模块由 Babel 去除类型和 export 后嵌入同一 factory
+  作用域；
+- 构建入口拒绝 `.js/.jsx` 业务模块；生产源码中不保留任何旧 JavaScript
+  备份。
+
+最终仍只交付 `lib/client.js`，React 继续使用宿主的 `require('react')`。
+TSX 使用 Prettier 统一格式；`singleAttributePerLine` 强制 JSX 属性按 XML
+层级逐行展开，避免压缩成难维护的长单行。
 
 ```bash
 npm run build:client
 npm run check:client-build
+npm run format:client-components
+npm run check:format:client-components
 ```
 
 `build:client` 成功后由 `postbuild:client` 自动执行完整 `npm test` 回归；
 任一构建或测试失败都会让命令返回非零。`check:client-build` 只校验生成产物
 是否最新，不触发测试。
 
-修改任何 `src/client/*.js` 后必须重新构建 `lib/client.js`；`round671`
-会验证生成产物没有过期。
+修改任何 `src/client/*.ts` / `*.tsx` 后必须重新构建 `lib/client.js`；
+`round671` 会验证生成产物没有过期。
+
+浏览器业务模块迁移已经完成：13 个 manifest 模块全部为 TS/TSX，生产源码中
+不再保留旧 JavaScript 文件或备份。需要继续守护历史文本契约的旧
+实现已冻结到 `tests/fixtures/legacy/`，只由测试读取；`round907` 会阻止
+`.js/.jsx` 业务模块重新进入构建，并验证源码与 npm 包均无备份。
+Project 工具栏的新建菜单和 Options 菜单已抽到
+`src/client/components/project/project-options-menu.ts`，菜单 ID、快捷键、
+勾选状态、排序项和 disabled 条件由纯函数集中生成，`editor-workspace.tsx`
+只负责提供当前状态与动作回调。
+Changes View Options、Commit Options 和 Group By 菜单已抽到
+`src/client/components/commit/commit-options-menu.ts`；Fetch/Update/Patch/
+Stage All/Stash/Shelve 的顺序、busy 状态、disabled 条件和当前 Group By
+勾选由同一纯函数模型生成。
+Stash/Shelve 的异步结果菜单已抽到
+`src/client/components/commit/stash-shelve-menu.ts`；空栈、apply/drop、
+选中路径保存和 index-aware restore 的菜单项由 `stashMenu` / `shelveMenu`
+统一生成，workspace 只负责调用 git 与刷新状态。
+Commit Log 的共享行菜单已抽到 `src/client/components/commit/log-menu.ts`；
+flat Log 与 Graph 共用 Show/History/Compare、父子 commit、Cherry-Pick、Revert、
+Tag、Patch、Checkout、Branch、Reset 和复制动作。
+Commit Log 的 revision 文件菜单已抽到
+`src/client/components/commit/file-menu.ts`；Show diff、Repository Version、
+Reveal、Terminal、Open Local Version/F4、History 和相对/绝对路径复制统一由
+`commitFileMenu` 生成。
+Commit Log 详情区已抽到
+`src/client/components/commit/CommitLogDetailPane.tsx`，提交标题/作者/正文、
+file history chip、revision 文件行、F4 和文件上下文菜单由独立 TSX 组件渲染。
+Commit Log 顶部工具栏已抽到
+`src/client/components/commit/CommitLogToolbar.tsx`，日志标题、Filter 输入、
+author、Graph 分支/scope、Filter/Graph/Refresh 按钮由同一组件管理。
+Commit Log graph 的 cursor 校验、hover 优先移动、首尾 clamp 和键盘 intent 已抽到
+`src/client/components/commit/commit-log-graph-controller.ts`，CommitLog 保留
+选择/展示副作用。
+Flat Log 行已抽到 `src/client/components/commit/CommitLogFlatRow.tsx`；
+option/hash/highlight 语义、subject/meta 布局和行事件由独立 TSX 渲染。
+CommitLog 的 loading、failure/retry、no matches、no commits 和
+end-of-history 状态已抽到
+`src/client/components/commit/CommitLogListState.tsx`，按 status/footer 两段渲染。
+Flat Log 的 ContextMenu、⌘A、左右关系导航和 next/previous/first/last/current
+键盘意图已抽到
+`src/client/components/commit/commit-log-flat-controller.ts`。
+Commit Log 的 plain/meta/shift 行选择和 context-menu 选区模型已抽到
+`src/client/components/commit/commit-log-selection-model.ts`。
+Commit Log 的 subject/author/hash 过滤与空查询原数组复用已抽到
+`src/client/components/commit/commit-log-view-model.ts`。
+Commit Log 的 Filter/Graph/Fold 开关状态已抽到
+`src/client/components/commit/commit-log-view-preferences.ts`；visible、
+reload/focus、fold 和 cleanup 语义由同一 model 派生。
+Commit Log 的列表键盘命令已抽到
+`src/client/components/commit/commit-log-list-command-model.ts`；Graph 的
+context/relation/move/show/select 与 Flat 的 context/selectAll/relation/row
+由同一纯模型生成，CommitLog 只执行现有交互副作用。
+Commit Graph 的单行渲染已抽到
+`src/client/components/commit/CommitGraphRow.tsx`；option/hash/popup、lane、
+HEAD/ref/fold 装饰、hover、click、context-menu 和按行 scroll ref 统一由该
+组件处理，CommitGraph 只负责 lane/run 与 fold toolbar。
+Commit Graph 的折叠工具栏已抽到
+`src/client/components/commit/CommitGraphFoldBar.tsx`；toggle、active style、
+`aria-pressed`、focus-visible、行数提示和 `aria-describedby` 关联由独立组件
+管理，并修正英文 `1 row` 单数文案。Graph 列表键盘导航会让嵌套按钮、select
+和链接保留原生 Enter/Space 行为，不再截获 Fold/ref 控件。
+Graph ref badge 使用完整“只看该 ref 历史”的可访问名称与 focus-visible；
+长分支名限制在工具窗宽度内并使用省略号，完整名称仍保留在 title 与
+`aria-label` 中。
+Graph tag scope chip 使用 `role="group"` 和完整历史范围 aria-label，标签文本
+可省略但清除按钮保持独立可访问名称与 focus-visible；过滤或清空后焦点回到
+Graph 列表。Log toolbar 在 200px 工具窗下自动收敛为两行：branch 与动作一行，
+scope 与 author 一行，避免横向滚动或程序化横移。
+scope chip 在窄窗可缩到约 80px，在宽度恢复后可与 author 自然回到单行并增长到
+160px；label 始终可省略，完整范围仍保留在 `aria-label` 与 title 中。
+forced-colors 下 scope 使用 Canvas/CanvasText，清除按钮焦点使用 Highlight；
+`prefers-reduced-motion: reduce` 下 toolbar、scope 和 clear 均禁用
+transition/animation。
+scope 清除按钮具有 16×16 点击区域、可访问名称与 title；forced-colors 下
+hover 使用 ButtonFace/ButtonText，active 使用 Highlight/HighlightText。
+scope chip 的视觉 label 从无障碍树隐藏，group aria-label 作为唯一名称；
+scope 建立与清除通过 visually-hidden polite status 各播报一次，普通重建
+不会重复 announcement。
+announcement 的限定/清除判定由可执行纯函数生成，并使用真实中英文字典验证
+`{hash}` 插值与清除文案；重复 scope 状态返回 null，不产生额外 live mutation。
+Commit Graph 的 loading、空分支、空 ref 和 no-commits 使用 polite atomic
+status；code/branch/ref 分类由纯模型生成。Graph 加载失败时只保留 alert 与
+Retry，不再同时显示空状态、Fold 工具栏或空 Graph listbox。
+Graph 重试期间 alert 保持可见，Retry 使用 aria-disabled 并保持键盘焦点；
+Graph 模式只重试 graph 请求。成功后恢复 rows 并把焦点交还 Log listbox。
+Retry 按钮固定 64px 宽并居中文本，`Retry → Loading…` 时 alert 尺寸不会跳动。
 
 ## 依赖与离线安装
 

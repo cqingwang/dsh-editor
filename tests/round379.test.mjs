@@ -13,8 +13,8 @@ function buildTreeMenuBlock() {
 
 test('filtered Project views expose row-specific Select in Project View', () => {
   const menu = buildTreeMenuBlock();
-  assert.match(menu, /label: isDirectory[\s\S]*?editor\.expandFolder[\s\S]*?filteredView[\s\S]*?editor\.revealInProject/);
-  assert.match(menu, /disabled: isDirectory === false && filteredView !== true/);
+  assert.match(menu, /showReveal/);
+  assert.match(menu, /label: isDirectory \? t\('editor\.expandFolder'\) : t\('editor\.revealInProject'\)/);
   assert.match(menu, /run: \(\) => \{[\s\S]*?if \(isDirectory\)[\s\S]*?void revealPath\(row\.path\)/);
 });
 

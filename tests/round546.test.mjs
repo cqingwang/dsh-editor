@@ -25,7 +25,7 @@ test('context Search Web reuses symbol resolution and safe URL semantics', () =>
   );
   assert.match(action, /const query = findUsagesSearchTarget\(editor\)\.query/);
   assert.match(action, /https:\/\/www\.google\.com\/search\?q=\$\{encodeURIComponent\(query\)\}/);
-  assert.match(action, /'_blank',\n\s+'noopener,noreferrer'/);
+  assert.match(action, /'_blank',\s+'noopener,noreferrer'/u);
 });
 
 test('both editor groups localize the Search Web menu label', () => {

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+const source = (await readFile(new URL('./fixtures/search-everywhere.legacy.js', import.meta.url), 'utf8') + '\n' + (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) + '\n' + (await readFile(new URL('./fixtures/find-tool.legacy.js', import.meta.url), 'utf8')));
 
 function extractSource(name) {
   const marker = `    function ${name}(`;
@@ -43,7 +43,7 @@ test('Search Everywhere header and text menu share one Find handoff', () => {
 });
 
 test('Find Replace action switches mode without dropping results', () => {
-  const panel = source.slice(source.indexOf('function FindToolWindow('), source.indexOf('function QuickOpen('));
+  const panel = source.slice(source.indexOf('function FindToolWindow('), source.indexOf('/* QUICK_OPEN_BOUNDARY */'));
   assert.match(panel, /onReplaceMode/);
   assert.match(panel, /const replaceInputRef = React\.useRef\(null\)/);
   assert.match(panel, /const replaceFocusPendingRef = React\.useRef\(false\)/);

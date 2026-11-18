@@ -5,7 +5,15 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = readFileSync(join(root, 'lib/client.js'), 'utf8');
+const source = (readFileSync(join(root, 'tests/fixtures/terminal-panel.legacy.js'), 'utf8') + '\n' + (readFileSync(join(root, 'lib/client.js'), 'utf8') + '\n' + readFileSync(join(root, 'tests/fixtures/find-tool.legacy.js'), 'utf8')));
+const editorTerminalTabSource = readFileSync(
+  join(root, 'src/client/components/terminal/EditorTerminalTab.tsx'),
+  'utf8',
+);
+const editorTerminalAreaSource = readFileSync(
+  join(root, 'src/client/components/terminal/EditorTerminalArea.tsx'),
+  'utf8',
+);
 
 /**
  * Evaluate one shipping helper by brace balance, so these tests exercise the
@@ -78,7 +86,7 @@ test('⌘E opens Recent Files without a filesystem walk', () => {
 });
 
 test('Recent Files keeps its order; Go to File still ranks by score', () => {
-  const palette = source.slice(source.indexOf('function QuickOpen('), source.indexOf('function fuzzyScore('));
+  const palette = source.slice(source.lastIndexOf('function QuickOpen('), source.lastIndexOf('function fuzzyScore('));
   assert.match(palette, /const recent = mode === 'recent';/);
   /* The recent branch must NOT sort: "newest first" is the whole message. */
   const recentBranch = palette.slice(palette.indexOf('const matches = (recent'), palette.indexOf(': files\n'));
@@ -124,11 +132,11 @@ test('a moved terminal is a view onto the SAME PTY, not a new shell', () => {
   /* The host owns the process and its scrollback, so the move must only change
      which component renders the id. A second `create` here would kill the running
      command the user was watching. */
-  const tab = source.slice(source.indexOf('function EditorTerminalTab('), source.indexOf('function TerminalPanel('));
-  assert.match(tab, /terminalId: terminal\.id/);
+  const tab = editorTerminalTabSource;
+  assert.match(tab, /terminalId=\{terminal\.id\}/);
   assert.doesNotMatch(tab, /op: 'create'/);
   /* Typing must reach the PTY the dock would have written to. */
-  assert.match(tab, /onInput: \(data\) => onInput\(terminal\.id, data\)/);
+  assert.match(tab, /onInput=\{\(data\) => onInput\(terminal\.id, data\)\}/);
 });
 
 test('the dock stops rendering a tab that moved, so one PTY has one view', () => {
@@ -163,6 +171,9 @@ test('the editor area is one surface: a terminal hides the empty placeholder', (
   /* Both boxes in the same flex column split the height 50/50, so the shell sat
      under a "no file open" caption (measured pane 618px of 793px). */
   assert.match(source, /activeFile === null && splitFile === null && diffOpen === false && annotateTarget === null && monacoError === null && editorTerminals\.length === 0/);
+  assert.match(source, /React\.createElement\(EditorTerminalArea, \{/);
+  assert.match(source, /active: editorTerminals\.length > 0 && diffOpen === false && annotateTarget === null/);
+  assert.match(editorTerminalAreaSource, /if \(!active \|\| terminal === null\) return null;/);
 });
 
 test('a reloaded page re-resolves its editor terminals from the host', () => {

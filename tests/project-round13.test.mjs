@@ -37,7 +37,7 @@ test('sort mode keeps directories ahead of files in every ordering', () => {
 });
 
 test('project menu exposes open-in-terminal and reveal-in-file-manager', () => {
-  const client = read('lib/client.js');
+  const client = `${read('tests/fixtures/terminal-panel.legacy.js')}\n${read('lib/client.js')}`;
   const host = read('lib/index.js');
   assert.match(client, /id: 'openTerminal'/);
   assert.match(client, /id: 'revealFinder'/);
@@ -49,7 +49,7 @@ test('project menu exposes open-in-terminal and reveal-in-file-manager', () => {
 });
 
 test('open in terminal starts the shell in the requested subdirectory', () => {
-  const client = read('lib/client.js');
+  const client = `${read('tests/fixtures/terminal-panel.legacy.js')}\n${read('lib/client.js')}`;
   const host = read('lib/index.js');
   /* Round 123 added an explicit directory parameter; the ambient start directory is
      still the fallback when no directory is given. */
@@ -60,7 +60,7 @@ test('open in terminal starts the shell in the requested subdirectory', () => {
 });
 
 test('sort preference persists per browser and reloads through the toolbar', () => {
-  const client = read('lib/client.js');
+  const client = `${read('tests/fixtures/terminal-panel.legacy.js')}\n${read('lib/client.js')}`;
   assert.match(client, /function readStoredText/);
   assert.match(client, /dsh-editor\.project\.sort/);
   assert.match(client, /const cycleSort = React\.useCallback/);

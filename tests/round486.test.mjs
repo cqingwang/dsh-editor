@@ -2,7 +2,11 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+const source = (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) + '\n' + (await readFile(new URL('./fixtures/find-tool.legacy.js', import.meta.url), 'utf8'));
+const findBarSource = await readFile(
+  new URL('../src/client/components/editor/EditorFindBar.tsx', import.meta.url),
+  'utf8',
+);
 
 function extractSource(name) {
   const marker = `    function ${name}(`;
@@ -44,7 +48,7 @@ test('query and replacement histories are workspace-scoped', () => {
 test('Find query and replace fields expose history menus and Alt+ArrowDown', () => {
   const findToolWindow = source.slice(
     source.indexOf('function FindToolWindow('),
-    source.indexOf('function QuickOpen('),
+    source.indexOf('/* QUICK_OPEN_BOUNDARY */'),
   );
   assert.match(findToolWindow, /editor\.findSearchHistory/);
   assert.match(findToolWindow, /editor\.findReplaceHistory/);
@@ -54,12 +58,8 @@ test('Find query and replace fields expose history menus and Alt+ArrowDown', () 
 });
 
 test('editor Find fields expose the same history behavior', () => {
-  const findBar = source.slice(
-    source.indexOf("'div',\n                    { style: styles.findBar }"),
-    source.indexOf('monacoError !== null', source.indexOf("'div',\n                    { style: styles.findBar }")),
-  );
-  assert.match(findBar, /editor\.findSearchHistory/);
-  assert.match(findBar, /editor\.findReplaceHistory/);
-  assert.match(findBar, /event\.altKey === true && event\.key === 'ArrowDown'/);
-  assert.match(findBar, /data-dsh-editor-find-history-menu/);
+  assert.match(findBarSource, /editor\.findSearchHistory/);
+  assert.match(findBarSource, /editor\.findReplaceHistory/);
+  assert.match(findBarSource, /event\.altKey === true && event\.key === 'ArrowDown'/);
+  assert.match(findBarSource, /data-dsh-editor-find-history-menu=''/);
 });

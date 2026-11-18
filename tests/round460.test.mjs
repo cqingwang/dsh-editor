@@ -23,9 +23,9 @@ test('diagnostics retain a bounded ring of recent user actions', () => {
 });
 
 test('runtime failure records include the action sequence', () => {
-  assert.match(source, /recentActions: editorActionRing\.slice\(-12\)/);
-  assert.match(source, /reportEditorDiagnostic\('window-error', \{[\s\S]*?recentActions:/);
-  assert.match(source, /reportEditorDiagnostic\('unhandled-rejection', \{[\s\S]*?recentActions:/);
+  assert.match(source, /recentActions: editorActionRing\.slice\(-12\)/u);
+  assert.match(source, /reportEditorDiagnostic\(\s*'window-error',\s*\{[\s\S]*?recentActions:/u);
+  assert.match(source, /reportEditorDiagnostic\(\s*'unhandled-rejection',\s*\{[\s\S]*?recentActions:/u);
 });
 
 test('action listeners are installed in capture phase and removed on dispose', () => {

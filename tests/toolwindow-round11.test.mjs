@@ -3,16 +3,18 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
+import { panelToolbarSource } from './ui-sources.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const read = (path) => readFileSync(join(root, path), 'utf8');
 
 test('project tree supports meta and shift extended selection', () => {
-  const client = read('lib/client.js');
-  assert.match(client, /function projectTreeSelectionAfterPointer\(/);
-  assert.match(client, /request\?\.shiftKey === true && anchor !== null/);
-  assert.match(client, /request\?\.metaKey === true \|\| request\?\.ctrlKey === true/);
-  assert.match(client, /new Set\(paths\.slice\(start, end \+ 1\)\)/);
+  const client = `${read('tests/fixtures/terminal-panel.legacy.js')}\n${read('lib/client.js')}`;
+  const selectionModel = read('src/client/components/project/project-selection-model.ts');
+  assert.match(selectionModel, /function projectTreeSelectionAfterPointer\(/);
+  assert.match(selectionModel, /request\?\.shiftKey === true && anchor !== null/);
+  assert.match(selectionModel, /request\?\.metaKey === true \|\| request\?\.ctrlKey === true/);
+  assert.match(selectionModel, /new Set\(paths\.slice\(start, end \+ 1\)\)/);
   assert.match(client, /const selectRow = React\.useCallback/);
   assert.match(client, /onMouseDown: \(event\) => \{[\s\S]*?onSelect\(row, event\);/);
   assert.match(client, /treeRowSelectedSoft/);
@@ -20,7 +22,7 @@ test('project tree supports meta and shift extended selection', () => {
 });
 
 test('multi-row selection drives batch delete and batch copy', () => {
-  const client = read('lib/client.js');
+  const client = `${read('tests/fixtures/terminal-panel.legacy.js')}\n${read('lib/client.js')}`;
   assert.match(client, /const removeEntries = React\.useCallback/);
   assert.match(client, /editor\.deleteSelectedConfirm/);
   assert.match(client, /editor\.copySelectedPaths/);
@@ -29,7 +31,7 @@ test('multi-row selection drives batch delete and batch copy', () => {
 });
 
 test('terminal tabs follow the shell OSC title unless renamed by hand', () => {
-  const client = read('lib/client.js');
+  const client = `${read('tests/fixtures/terminal-panel.legacy.js')}\n${read('lib/client.js')}`;
   const hub = read('lib/terminal.js');
   const host = read('lib/index.js');
   assert.match(client, /emulator\.onTitleChange/);
@@ -42,7 +44,7 @@ test('terminal tabs follow the shell OSC title unless renamed by hand', () => {
 });
 
 test('terminal dock owns find and tab shortcuts', () => {
-  const client = read('lib/client.js');
+  const client = `${read('tests/fixtures/terminal-panel.legacy.js')}\n${read('lib/client.js')}`;
   assert.match(client, /function terminalMatches/);
   assert.match(client, /function countTerminalMatches/);
   assert.match(client, /function moveTerminalSelection/);
@@ -54,8 +56,7 @@ test('terminal dock owns find and tab shortcuts', () => {
 });
 
 test('tool-window toolbars keep the title and collapse their actions', () => {
-  const client = read('lib/client.js');
-  const toolbar = client.slice(client.indexOf('function PanelToolbar'), client.indexOf('/** One 24px panel toolbar button. */'));
+  const toolbar = panelToolbarSource;
   assert.match(toolbar, /panelToolbarFit/);
   assert.match(toolbar, /editor\.moreActions/);
   assert.match(toolbar, /badge/);

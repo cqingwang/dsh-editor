@@ -2,7 +2,14 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+const source =
+  (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) +
+  '\n' +
+  (await readFile(new URL('./fixtures/editor-error-boundary.legacy.js', import.meta.url), 'utf8'));
+const editorMountSource = await readFile(
+  new URL('../src/client/components/editor/EditorMount.tsx', import.meta.url),
+  'utf8',
+);
 
 function block(startMarker, endMarker) {
   const start = source.indexOf(startMarker);
@@ -26,16 +33,18 @@ test('the Editor workspace has a local recoverable render-error boundary', () =>
   assert.match(source, /static getDerivedStateFromError\(error\)/);
   assert.match(source, /t\('editor\.loadFailed'\)/);
   assert.match(source, /t\('editor\.reloadEditor'\)/);
+  assert.match(editorMountSource, /<EditorErrorBoundary/u);
+  assert.match(editorMountSource, /<Workspace/u);
   assert.match(
     source,
-    /React\.createElement\(\s*EditorErrorBoundary,[\s\S]*?React\.createElement\(EditorWorkspace,/,
+    /React\.createElement\(EditorMount, \{/,
   );
 });
 
 test('the render-error fallback keeps the Chat panel outside its failure scope', () => {
   const boundary = block(
     'class EditorErrorBoundary extends React.Component',
-    '    /** The editor workspace:',
+    '/* EDITOR_ERROR_BOUNDARY_END */',
   );
   assert.doesNotMatch(boundary, /data-conversation-region="chat"/);
   assert.match(boundary, /role: 'alert'/);
@@ -45,7 +54,7 @@ test('the render-error fallback keeps the Chat panel outside its failure scope',
 test('the boundary renders a recoverable alert instead of an empty host', () => {
   const boundarySource = block(
     'class EditorErrorBoundary extends React.Component',
-    '    /** The editor workspace:',
+    '/* EDITOR_ERROR_BOUNDARY_END */',
   ).replace(/\n      \}\n    \}\n$/, '\n      }\n    }');
   class Component {
     constructor(props) {

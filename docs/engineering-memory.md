@@ -1,5 +1,2383 @@
 # dsh-editor 工程记忆
 
+## 2026-11-18 — TypeScript-only 构建门禁
+
+**作用域**：`src/client` 浏览器业务模块与 `scripts/build-client.mjs` 的模块发现。
+
+**症状/风险**：13 个 manifest 模块虽已全部迁为 TS/TSX，但 builder 仍把
+`*.js` 视为合法输入。未来若新增或还原一个 JS 模块，它会静默重新进入单
+factory 构建，破坏“业务源码 TypeScript-only”的迁移边界，且 npm pack 检查
+只在发布时才能发现问题。
+
+**触发条件**：`src/client` 任意层级出现非 `.js.bak` 的 `.js` 或 `.jsx`
+文件，并执行 `node scripts/build-client.mjs`。
+
+**根因**：模块发现 filter 同时接受 `.js/.ts/.tsx`，`moduleSourceForBuild`
+对 JS 还有原样透传分支；文档仍保留“尚未迁移 legacy 模块”的过期说明。
+
+**修复**：
+
+- builder 的 13 项 manifest 发现只接受 `.ts/.tsx`；
+- 递归扫描 `src/client`，发现 `.js/.jsx` 立即报
+  `legacy JavaScript modules are retired` 并退出 1；
+- `moduleSourceForBuild` 对非 TS/TSX 输入抛出带文件名错误；
+- round671 同步为 TS/TSX-only 清单；
+- README 删除未迁移 legacy 表述，明确 `.js.bak` 仅作参考且不进包；
+- 新增 round907 守护清单、builder、生成帽标和 npm 打包边界。
+
+**回归**：
+
+- RED：round907 `2 fail`，builder 仍接受 `.js`，README 仍称“尚未迁移”；
+- GREEN：round907 + round671 `8 pass / 0 fail`；
+- 临时 `.js` 探针使 builder 退出 1，并点名 `__round907_probe.js`；
+- `npm run build:client`：13 modules，`lib/client.js` 2012.4 KB；
+- 全量 `npm test`：**2875 pass / 0 fail**；
+- `check:client-build`、TSX Prettier、`node --check` 三份生成 JS、
+  `git diff --check` 通过；
+- `npm pack --dry-run --json`：127 files，无源码 `.js`、无 `.js.bak`、
+  无 vendored Monaco/xterm。
+
+**适用环境**：macOS、Node 24、项目 `npm` 脚本；Node 的
+`readdirSync({ recursive: true })` 需 Node 20.1+。
+
+## 2026-11-18 — Graph Retry 视觉稳定性
+
+**作用域**：Commit Graph Retry 在失败与 loading 文案切换时的尺寸和布局。
+
+**症状/风险**：`Retry` 比 `Loading…` 窄，切换时按钮和 alert 重新排版，200px
+工具窗下错误文本换行与高度会跳动。
+
+**修复**：
+
+- `.dsh-editor-log-retry` 固定最小宽度 64px，文本居中；
+- 保留 aria-disabled、loading 文案和焦点恢复逻辑；
+- 新增 round905 视觉契约。
+
+**回归**：
+
+- 失败态与重试态 Retry 均为 64×20；
+- 两态 alert 均为 184×57；
+- 重试中 Retry 持焦，成功后焦点回到 listbox；
+- 1 host / 1 workspace，无新增 diagnostics。
+- 全量 `npm test`：**2868 pass / 0 fail**；构建一致性、Prettier、三份 JS
+  语法、`git diff --check` 和 npm pack 门禁通过，打包 126 文件、
+  无 `.js.bak`。
+
+**适用环境**：macOS、Harness 隔离 profile `r526`、200px Commit 工具窗。
+
+## 2026-11-18 — Graph Retry 恢复与焦点
+
+**作用域**：Commit Graph error alert、Retry loading、成功恢复与键盘焦点。
+
+**症状/风险**：重试时 error 被 loading 顶掉，原生 disabled 让 Retry 立即失焦；
+父级 retry 同时刷新 flat log 和 graph，flat log 先成功会提前清除 error。
+
+**修复**：
+
+- 重试期间保留 alert，aria-busy=true；
+- Retry 使用 aria-disabled + handler guard，保持焦点并显示 Loading…；
+- Graph 模式 retry 只调用 onLoadGraph；
+- failure→success 后把焦点交回 Log list；
+- 新增 round904，更新 round886。
+
+**回归**：
+
+- 首次 graph 500、第二次成功；
+- 重试中：alertBusy=true、Retry Loading…、aria-disabled=true、Retry 持焦；
+- 成功：alert 消失、Graph 1 行恢复、焦点回到 role=listbox；
+- graph attempts 2；1 host / 1 workspace，无新增 diagnostics。
+- 全量 `npm test`：**2866 pass / 0 fail**；构建一致性、Prettier、三份 JS
+  语法、`git diff --check` 和 npm pack 门禁通过，打包 126 文件、
+  无 `.js.bak`。
+
+**适用环境**：macOS、Harness 隔离 profile `r526`。
+
+## 2026-11-18 — Graph 空状态与错误状态
+
+**作用域**：Commit Graph loading、空分支、空 ref、无提交和错误状态。
+
+**症状/风险**：Graph placeholder 只有普通文本，没有 status/live 语义；API
+失败时同时出现 alert 与 “No commits on this branch”，且残留 Fold/Graph
+listbox，语义冲突。
+
+**修复**：
+
+- 新增 `src/client/components/commit/commit-graph-state-model.ts`；
+- loading 使用 `aria-busy`，全部 placeholder 使用 polite/atomic status；
+- branch/ref/empty 分类由纯函数生成；
+- CommitLog 传 `error={logFailure}`；错误且无行时不渲染 Graph body；
+- 新增 round903，真实 zh/en 字典验证状态和 error 插值。
+
+**回归**：
+
+- 定向测试 **13 pass / 0 fail**；
+- DSH Web：loading/empty/branch-empty/ref-empty 文案与 status 属性正确；
+  error 仅保留 alert+Retry，placeholder/Fold/Listbox 全部消失；
+- 1 host / 1 workspace，无新增 diagnostics。
+- 全量 `npm test`：**2862 pass / 0 fail**；构建一致性、Prettier、三份 JS
+  语法、`git diff --check` 和 npm pack 门禁通过，打包 126 文件、
+  无 `.js.bak`。
+
+**适用环境**：macOS、Harness 隔离 profile `r526`、Chromium。
+
+## 2026-11-18 — Scope announcement 双语一致性
+
+**作用域**：Commit Graph tag scope announcement 的中英文和重复状态。
+
+**症状/风险**：announcement 选择仍写在 Toolbar effect 内，双语文案和重复状态
+只能靠源码文本断言，无法直接执行验证。
+
+**修复**：
+
+- 新增 `src/client/components/commit/commit-log-scope-announcement.ts`；
+- 纯函数接收 translator、当前 hash、上一 hash，返回 null/限定/清除文案；
+- Toolbar 只保留 previous ref、effect 和 status state；
+- 新增 round902，使用真实 zh/en 字典与插值函数验证；build 阶段嵌入 model。
+
+**回归**：
+
+- 定向测试 **11 pass / 0 fail**；
+- 中文限定/清除与英文限定/清除均精确匹配；
+- DSH Web 英文 status 正确，MutationObserver 仅 1 次 announcement；
+- 1 host / 1 workspace，无新增 diagnostics；临时 tag 已删除。
+- 全量 `npm test`：**2857 pass / 0 fail**；构建一致性、Prettier、三份 JS
+  语法、`git diff --check` 和 npm pack 门禁通过，打包 125 文件、
+  无 `.js.bak`。
+
+**适用环境**：macOS、Harness 隔离 profile `r526`。CDP locale override 未穿透
+Host locale service，因此中文由真实字典可执行测试覆盖。
+
+## 2026-11-18 — Scope chip 屏幕阅读器播报
+
+**作用域**：Commit Graph tag scope chip 的无障碍播报和重复朗读。
+
+**症状/风险**：scope group 的 aria-label 与可见 label 文本相同，读屏可能
+重复朗读；scope 建立/清除没有 live status，用户只能靠视觉发现状态变化。
+
+**修复**：
+
+- 视觉 label 增加 `aria-hidden=true`，group aria-label 保留唯一语义；
+- Toolbar 用 previous scope ref 检测真实 scope 变化；
+- 新增 visually-hidden `role=status`、`aria-live=polite`、`aria-atomic=true`；
+- 新增中英文 scope announcement / cleared 文案；
+- 新增 round901。
+
+**回归**：
+
+- MutationObserver：scope 建立 1 次、Refresh 后仍 1 次、清除后累计 2 次；
+- status 文本/ARIA 正确，视觉区域为 1×1 clipped；
+- 1 host / 1 workspace，无新增 diagnostics；临时 tag 已删除。
+- 全量 `npm test`：**2854 pass / 0 fail**；构建一致性、Prettier、三份 JS
+  语法、`git diff --check` 和 npm pack 门禁通过，打包 124 文件、
+  无 `.js.bak`。
+
+**适用环境**：macOS、Chromium accessibility tree、Harness 隔离 profile `r526`。
+
+## 2026-11-18 — Scope clear forced-colors 点击反馈
+
+**作用域**：Commit Graph scope 清除按钮的鼠标反馈、点击区域和 forced-colors。
+
+**症状/风险**：清除按钮只有 aria-label，没有 title、稳定点击区域或显式
+hover/active；forced-colors 下按下反馈依赖浏览器默认行为，状态不够明确。
+
+**修复**：
+
+- clear button 增加本地化 title；
+- injected CSS 设置 16×16 最小点击区域和普通 hover/active；
+- forced-colors 下 hover 使用 ButtonFace/ButtonText，active 使用
+  Highlight/HighlightText；
+- 新增 round900。
+
+**回归**：
+
+- forced-colors：按钮 16×16，hover 白底黑字，active 深色 Highlight 底/白字；
+- mouse up 后 scope chip 消失，焦点回到 Graph listbox；
+- 1 host / 1 workspace，无新增 diagnostics；临时 tag 已删除。
+- 全量 `npm test`：**2851 pass / 0 fail**；构建一致性、Prettier、三份 JS
+  语法、`git diff --check` 和 npm pack 门禁通过，打包 124 文件、
+  无 `.js.bak`。
+
+**适用环境**：macOS、Chromium forced-colors 媒体模拟、Harness 隔离
+profile `r526`。
+
+## 2026-11-18 — Graph scope High Contrast 与 reduced-motion
+
+**作用域**：Commit Graph tag scope chip 在 forced-colors 和 reduced-motion 下的表现。
+
+**症状/风险**：scope 依赖主题 token，浏览器强制高对比模式下的最终颜色与
+焦点轮廓此前没有显式契约；未来新增过渡也可能忽略 reduced-motion。
+
+**修复**：
+
+- injected CSS 在 `forced-colors: active` 下使用 CanvasText/Canvas，
+  clear focus 使用 Highlight；
+- 在 `prefers-reduced-motion: reduce` 下对 toolbar/scope/clear 声明
+  `transition: none` 与 `animation: none`；
+- 新增 round899 静态契约测试。
+
+**回归**：
+
+- forced-colors：scope 颜色/背景/边框为 black/white/black，clear 文本黑色，
+  键盘 focus outline 为 1px solid；
+- reduced-motion：toolbar/scope/clear transition/animation 均为 `0s`；
+- 1 host / 1 workspace，无新增 diagnostics；临时 tag 已删除。
+- 全量 `npm test`：**2849 pass / 0 fail**；构建一致性、Prettier、三份 JS
+  语法、`git diff --check` 和 npm pack 门禁通过，打包 124 文件、
+  无 `.js.bak`。
+
+**适用环境**：macOS、Chromium forced-colors / reduced-motion 媒体模拟、
+Harness 隔离 profile `r526`。
+
+## 2026-11-18 — Graph scope 宽窄布局回归
+
+**作用域**：Commit Graph tag scope chip 在 tool-window 宽度变化时的布局和跳动。
+
+**症状/风险**：固定 `max-width: 80px` 使宽窗仍有充足空间时 scope 文本继续
+被过早省略；需要验证从 200px 两行恢复为较宽单行时没有横向滚动或状态丢失。
+
+**修复**：
+
+- 容器查询内 scope 改为 `flex: 1 1 80px`、`min-width: 0`、
+  `max-width: 160px`；
+- 保留两行布局策略，但允许 scope 与 author 在宽度足够时自然同排；
+- 用真实 tool-window resizer 做 200px/409.5px 往返验证。
+
+**回归**：
+
+- 200px：toolbar 52px，scope 90px，child `scrollWidth=200`、`scrollLeft=0`；
+- 409.5px：toolbar 29px，scope 106.5px，scope/author 同排，
+  panel `scrollWidth=410`、`scrollLeft=0`；
+- 往返缩放后布局与首次一致，无横向残留；1 host / 1 workspace，
+  无新增 diagnostics；临时 tag 已删除。
+- 全量 `npm test`：**2847 pass / 0 fail**；构建一致性、Prettier、三份 JS
+  语法、`git diff --check` 和 npm pack 门禁通过，打包 124 文件、
+  无 `.js.bak`。
+
+**适用环境**：macOS、Node 24.22.2、Harness 隔离 profile `r526`。
+
+## 2026-11-18 — Graph scope 焦点与窄窗工具栏修复
+
+**作用域**：Commit Graph tag scope chip、ref 过滤后的焦点和 200px Log toolbar。
+
+**症状/风险**：ref badge 过滤后 badge 被重建，焦点落回 body；scope chip
+只有 title/清除按钮，没有 group 语义。200px 下 Log toolbar 内容宽 474px，
+scope chip 部分超出面板，点击后 `overflow:hidden` 容器还会被程序化横移。
+
+**修复**：
+
+- `onPickRef` 和清空 branch 后用 `preventScroll` 把焦点交还 Graph list；
+- scope chip 增加 `role=group`、完整 aria-label、可省略 label span 和稳定
+  clear class/focus ring；
+- injected CSS 对 Log 内容使用 `overflow: clip`，阻止横向程序化滚动；
+- 使用 `@container (max-width: 520px)` 将 toolbar 排成两行：
+  第一行 branch + actions，第二行 scope + author；
+- 新增 round897。
+
+**回归**：
+
+- 定向测试 **9 pass / 0 fail**；
+- DSH Web（隔离 profile `r526`，端口 `63273`）：tag 过滤后焦点回到
+  `role=listbox`；scope group/aria-label 正确；clear focus-visible 为
+  1px accent；200px toolbar 高 52px，chip 与 author 同行，chip 完全可见；
+  child/list scrollWidth 200、scrollLeft 0；1 host / 1 workspace，
+  无新增 diagnostics；临时 tag 已删除。
+- 全量 `npm test`：**2847 pass / 0 fail**；构建一致性、Prettier、三份 JS
+  语法、`git diff --check` 和 npm pack 门禁通过，打包 124 文件、
+  无 `.js.bak`。
+
+**适用环境**：macOS、Node 24.22.2、Harness 隔离 profile `r526`。
+
+## 2026-11-18 — Graph ref badge 键盘与长分支溢出修复
+
+**作用域**：Commit Graph ref badge 的键盘激活、可访问名称和 200px 窄窗溢出。
+
+**症状/风险**：长分支 ref badge 宽 `314.86px`，把 Graph row 的
+`scrollWidth` 推到 `395px`，远超 200px 工具窗；badge 没有明确动作
+`aria-label` 和项目统一 focus-visible。
+
+**修复**：
+
+- ref button 使用 `graphFilterByRef` 作为 `aria-label` 和 title；
+- `commitGraphRef` 增加 `maxWidth: 100%`、overflow hidden、ellipsis；
+- injected CSS 增加安全覆盖和 ref focus-visible，避免改动 `.js.bak` 参考样式；
+- 新增 round896，扩充 round893 的可访问名称断言。
+
+**回归**：
+
+- 定向测试 **19 pass / 0 fail**；
+- DSH Web（隔离 profile `r526`，端口 `63272`）：长分支 badge 宽 `112px`，
+  row `scrollWidth` 从 `395` 回到 `200`，panel `200/200`；Focus outline 为
+  1px accent；Enter 后 branch select 切到长分支；1 host / 1 workspace，
+  无新增 diagnostics。
+- 全量 `npm test`：**2844 pass / 0 fail**；构建一致性、Prettier、三份 JS
+  语法、`git diff --check` 和 npm pack 门禁通过，打包 124 文件、
+  无 `.js.bak`。
+- 临时长分支只用于隔离 fixture 验证，验证后已删除。
+
+**适用环境**：macOS、Node 24.22.2、Harness 隔离 profile `r526`。
+
+## 2026-11-18 — Graph Fold 窄窗无障碍修复
+
+**作用域**：Commit Graph Fold toggle 的 200px 工具窗布局、键盘和 ARIA 状态。
+
+**症状/风险**：Fold toggle 没有项目统一的 focus-visible；行数提示未与按钮
+建立可访问关联。运行态还发现 Enter 被外层 Graph listbox 键盘处理器截获，
+导致聚焦 Fold 按钮后 Enter 不执行原生点击，ref badge 等嵌套控件有同类风险。
+
+**修复**：
+
+- Fold toggle 增加 class、`aria-describedby` 与稳定 count id；
+- injected CSS 增加统一 accent focus-visible；
+- CommitLog Graph key handler 忽略来自 button/input/textarea/select/link/
+  role=button/contenteditable 的事件，让控件保留原生 Enter/Space；
+- 新增 round895，并扩充 round894 的无障碍接线断言。
+
+**回归**：
+
+- 定向测试 **11 pass / 0 fail**；
+- DSH Web（隔离 profile `r526`，端口 `63271`）：200px 工具窗下按钮
+  `83.890625×20`，`clientWidth/scrollWidth = 200/200`；Enter 可切换 folded，
+  按钮保持焦点，focus-visible 为 1px accent，`aria-describedby` 指向 `1 row`；
+  1 host / 1 workspace，无新增 diagnostics。
+- 全量 `npm test`：**2842 pass / 0 fail**；构建一致性、Prettier、三份 JS
+  语法、`git diff --check` 和 npm pack 门禁通过，打包 124 文件、
+  无 `.js.bak`。
+
+**适用环境**：macOS、Node 24.22.2、Harness 隔离 profile `r526`。
+
+## 2026-11-18 — Commit Graph Fold 工具栏拆分
+
+**作用域**：Commit Graph 的 fold toggle、active style、行数提示和视觉回归。
+
+**症状/风险**：Fold 控件仍是 CommitGraph 内的内联 JSX，按钮状态、单复数
+文案与 Graph run 计算混在一起。运行态截图还发现英文显示 `1 rows`，折叠
+徽标使用 `commit(s)`。
+
+**修复**：
+
+- 新增 `src/client/components/commit/CommitGraphFoldBar.tsx`；
+- FoldBar 负责 `aria-pressed`、active style、button title、toggle 回调与行数提示；
+- CommitGraph 继续负责 run 计算和 folded 状态；
+- 新增 `graphFoldedCountOne` / `graphFoldedRunOne`，英文单数改为 `1 row` /
+  `1 linear commit folded`；
+- build 阶段在 CommitGraph 前嵌入 FoldBar；新增 round894，更新 round893。
+
+**回归**：
+
+- 定向测试 **15 pass / 0 fail**；
+- DSH Web（隔离 profile `r526`，端口 `63270`）视觉回归：折叠前后按钮 rect
+  均为 `83.890625×20`，容器 `200×27` 不变；折叠后显示 `1 row`；
+  1 host / 1 workspace，无新增 diagnostics。
+- 全量 `npm test`：**2840 pass / 0 fail**；构建一致性、Prettier、三份 JS
+  语法、`git diff --check` 和 npm pack 门禁通过，打包 124 文件、
+  无 `.js.bak`。
+
+**适用环境**：macOS、Node 24.22.2、Harness 隔离 profile `r526`。
+
+## 2026-11-18 — Commit Graph 行组件拆分
+
+**作用域**：Commit Graph 单行渲染、HEAD/ref/fold 装饰和行鼠标事件。
+
+**症状/风险**：Graph lane、node、HEAD、ref badge、fold badge、右键菜单和
+滚动 ref 仍集中在一个 `CommitGraph.tsx` map 内，父组件同时承担数据准备和
+整行 UI，难以独立回归复用。
+
+**修复**：
+
+- 新增 `src/client/components/commit/CommitGraphRow.tsx`；
+- row component 负责 option/hash/popup/selected 语义、lane/node、HEAD、
+  ref filter、fold badge、hover/click/context-menu；
+- CommitGraph 继续负责 lane 计算、run 选择、fold toolbar 和回调编排；
+- build 阶段在 CommitGraph 前嵌入 row module；新增 round893，并更新
+  round825/round45 的迁移接线断言。
+
+**回归**：
+
+- 定向测试 **21 pass / 0 fail**；
+- DSH Web（隔离 profile `r526`，端口 `63269`）：Graph row 的 role/hash/
+  popup、HEAD/main badge 正常；右键菜单动作顺序保持；Fold 后行与
+  1 host / 1 workspace 正常，无新增 diagnostics。
+- 全量 `npm test`：**2838 pass / 0 fail**；构建一致性、Prettier、三份 JS
+  语法、`git diff --check` 和 npm pack 门禁通过，打包 123 文件、
+  无 `.js.bak`。
+
+**适用环境**：macOS、Node 24.22.2、Harness 隔离 profile `r526`。组件通过
+build 阶段同 scope 嵌入，不引入 runtime module loader。
+
+## 2026-11-18 — Commit Log 日志过滤快捷键修正为 ⌘L
+
+**作用域**：Commit Log 文本过滤、Find in Files、Changes path filter。
+
+**证据/症状**：旧实现依据 `Vcs.Log.FocusTextFilter` 推断 Log 使用 `⌘F`。
+IDEA 2026.2 运行态对照显示，Git Log 搜索框明确标注 `⌘L`；在日志中按
+`⌘F` 打开的是 Find in Files，不是日志过滤。
+
+**修复**：
+
+- 新增 `src/client/components/commit/commit-log-shortcut-model.ts`；
+- Commit Log 内 `⌘/Ctrl+L` 聚焦并全选文本过滤框；
+- Commit Log 内 `⌘/Ctrl+F` 显式调用现有 `openFindInFilesFromShortcut`；
+- Changes 内 `⌘/Ctrl+F` 继续聚焦 path filter；
+- 中英文 `logFilterHint` 改为 `⌘L`；
+- build 阶段嵌入 module；新增 round892，并把 round348 改为读取已迁移的
+  `CommitLogView` 与 `CommitLogToolbar`，不再误测 legacy fixture。
+
+**回归**：
+
+- 定向测试 **18 pass / 0 fail**；
+- DSH Web（隔离 profile `r526`，端口 `63268`）：Log 内 `⌘L` 聚焦过滤框，
+  Log 内 `⌘F` 打开 Find in Files，Changes 内 `⌘F` 聚焦 path filter；
+  1 host / 1 workspace，无新增 diagnostics。
+- 全量 `npm test`：**2836 pass / 0 fail**；构建一致性、Prettier、三份 JS
+  语法、`git diff --check` 和 npm pack 门禁通过，打包 122 文件、
+  无 `.js.bak`。
+
+**适用环境**：macOS、IntelliJ IDEA 2026.2、Harness 隔离 profile `r526`。
+
+## 2026-11-18 — CommitLog list command model 拆分
+
+**作用域**：Commit Log flat/Graph 列表的键盘命令判定。
+
+**症状/风险**：`CommitLog.tsx` 同时处理 key intent、Graph cursor 校验、首尾/当前行
+有效性、Flat 全选和各类副作用，事件分支持续增长，难以独立验证命令边界。
+
+**修复**：
+
+- 新增 `src/client/components/commit/commit-log-list-command-model.ts`；
+- Graph 命令统一生成 context/relation/move/show/select；
+- Flat 命令统一生成 context/selectAll/relation/row；
+- CommitLog 保留菜单 DOM 测量、选择、焦点、详情加载和 Graph state 副作用；
+- build 阶段嵌入 module；新增 round891，并同步更新 round565/round887 的
+  源码接线断言。
+
+**回归**：
+
+- 定向测试 **27 pass / 0 fail**；
+- DSH Web（隔离 profile `r526`，端口 `63267`）：flat 列表 Arrow/Home/End、
+  Shift+F10 菜单正常，Graph 与 Fold 切换正常；1 host / 1 workspace，
+  无新增 diagnostics；
+- 全量 `npm test`：**2833 pass / 0 fail**；构建一致性、Prettier、三份 JS
+  语法、`git diff --check` 和 npm pack 门禁通过，打包 121 文件、
+  无 `.js.bak`；
+- Computer Use 已确认 IDEA 2026.2 的 Git Log flat 表、日志搜索框和独立 Git
+  Log 工具窗结构；IDEA 搜索框提示 `⌘L`，而按 `⌘F` 打开的是 Find in Files，
+  不是日志过滤。DSH 当前 Log filter 为 `⌘F`，下一轮先运行态复核再决定
+  是否对齐。
+
+**适用环境**：macOS、Node 24.22.2、IntelliJ IDEA 2026.2、Harness 隔离
+profile `r526`。命令模型是 bundle 同作用域纯函数模块，不引入 runtime loader。
+
+## 2026-11-18 — CommitLog view preferences 拆分
+
+**作用域**：Commit Log 的 Filter、Graph 开关和 Graph fold 状态转换。
+
+**症状/风险**：三个开关的 visible/enabled/folded 与 focus、reload、hover
+cleanup、filter cleanup 判断仍分散在 `CommitLog.tsx` 和
+`CommitLogToolbar.tsx`，无法独立验证关闭时的清理语义。
+
+**修复**：
+
+- 新增 `src/client/components/commit/commit-log-view-preferences.ts`；
+- `commitLogGraphToggle` 统一 Graph enable/load/focus；
+- `commitLogGraphFoldToggle` 统一 fold 和 hover cleanup；
+- `commitLogFilterToggle` 统一 Filter visible/focus/clear；
+- CommitLog 与 Toolbar 只执行真实 state 和 focus/reload 副作用；
+- build 阶段嵌入 module；新增 round890 验证转换和接线。
+
+**回归**：
+
+- 定向测试 **16 pass / 0 fail**；
+- 全量 `npm test`：**2829 pass / 0 fail**；
+- DSH Web（隔离 profile `r526`，端口 `63266`）：Filter 打开后自动聚焦，
+  `not-present` 显示 No matches，Esc 后清除并恢复 1 行；Graph 开启后显示
+  1 个图节点，Fold 转为 `aria-pressed=true`；1 host / 1 workspace，
+  无新增 diagnostics；
+- 下一步拆分 CommitLog list event dispatcher，再处理 graph row render layer。
+
+**适用环境**：macOS、Node 24.22.2、Harness 隔离 profile `r526`。view
+preferences 是 bundle 同作用域纯函数模块，不引入 runtime module loader。
+
+## 2026-11-18 — CommitLog filter view model 拆分
+
+**作用域**：Commit Log 的日志过滤。
+
+**症状/风险**：subject/author/hash 的大小写归一与空查询短路仍写在
+`CommitLog.tsx` 内，无法独立验证过滤顺序和原数组复用。
+
+**修复**：
+
+- 新增 `src/client/components/commit/commit-log-view-model.ts`；
+- `commitLogFilterCommits` 保留空查询原数组，按 subject/author/hash
+  做大小写无关匹配；
+- CommitLog 只持有 filter 状态并调用 view model；
+- build 阶段嵌入 module；新增 round889 验证空查询、字段匹配和委托边界。
+
+**回归**：
+
+- 定向测试 **14 pass / 0 fail**；
+- 全量 `npm test`：**2826 pass / 0 fail**；
+- DSH Web（隔离 profile `r526`，端口 `63265`）：`BASE` 命中 baseline 行，
+  `not-present` 显示 No matches；1 host / 1 workspace，无新增 diagnostics；
+- 下一步拆分 CommitLog list event dispatcher 和 graph/filter view preferences。
+
+**适用环境**：macOS、Node 24.22.2、Harness 隔离 profile `r526`。view model
+是 bundle 同作用域纯函数模块，不引入 runtime module loader。
+
+## 2026-11-18 — CommitLog selection model 拆分
+
+**作用域**：Commit Log 的 plain/Meta/Shift 行选择和 context-menu 选区。
+
+**症状/风险**：`commitSelectionAfterClick` 仍放在通用 find-tool helper 中，
+CommitLog 又各自维护 context 选区逻辑，选择语义和右键行为缺少独立边界。
+
+**修复**：
+
+- 新增 `src/client/components/commit/commit-log-selection-model.ts`；
+- 把 `commitSelectionAfterClick` 迁入该模型；
+- 新增 `commitLogContextSelection`，统一右键保留多选或选中点击行的规则；
+- `find-tool.ts` 移除旧选择 helper，round871 不再从 find-tool 加载；
+- CommitLog 改用 selection model；新增 round888 覆盖 plain/meta/shift 和
+  context selection。
+
+**回归**：
+
+- 定向测试 **20 pass / 0 fail**；
+- 全量 `npm test`：**2823 pass / 0 fail**；
+- DSH Web（隔离 profile `r526`，端口 `63264`）：行选中、⌘A、context menu
+  和详情状态正常；1 host / 1 workspace，无新增 diagnostics；
+- 下一步拆分 CommitLog list event dispatcher 和 filter/graph view preferences。
+
+**适用环境**：macOS、Node 24.22.2、Harness 隔离 profile `r526`。selection
+model 是 bundle 同作用域纯函数模块，不引入 runtime module loader。
+
+## 2026-11-18 — CommitLog flat keyboard controller 拆分
+
+**作用域**：Flat Log 的 ContextMenu/Shift+F10、⌘A、左右关系导航和
+next/previous/first/last/current 按键判定。
+
+**症状/风险**：flat Log 的按键分支仍散在 `CommitLog.tsx` 的列表事件中，
+无法独立验证修饰键、ContextMenu 和 IDEA 导航键位。
+
+**修复**：
+
+- 新增 `src/client/components/commit/commit-log-flat-controller.ts`；
+- `commitLogFlatKeyIntent` 返回 context/selectAll/relation/action 意图；
+- CommitLog 根据 intent 执行选择、焦点、关系导航和详情加载；
+- build 阶段嵌入 module；新增 round887 覆盖全部键位和委托边界。
+
+**回归**：
+
+- 定向测试 **19 pass / 0 fail**；
+- 全量 `npm test`：**2819 pass / 0 fail**；
+- DSH Web（隔离 profile `r526`，端口 `63263`）：⌘A、ArrowUp/Down、
+  Home/End、Enter 后行选择和详情保持正确；1 host / 1 workspace，
+  无新增 diagnostics；
+- 下一步拆分 CommitLog list item selection model 和列表事件分发。
+
+**适用环境**：macOS、Node 24.22.2、Harness 隔离 profile `r526`。controller
+是 bundle 同作用域纯函数模块，不引入 runtime module loader。
+
+## 2026-11-18 — CommitLog list 状态组件拆分
+
+**作用域**：Commit Log 的 loading、failure/retry、no matches、no commits 和
+end-of-history 状态。
+
+**症状/风险**：这些条件分支仍散落在列表 JSX 中，错误语义、空列表语义和
+footer 位置与 graph/flat 内容混杂，难以独立回归。
+
+**修复**：
+
+- 新增 `src/client/components/commit/CommitLogListState.tsx`；
+- `section='status'` 负责 loading、failure/retry、no matches、no commits；
+- `section='footer'` 负责 end-of-history；
+- CommitLog 两次复用组件并保留 graph/flat 内容与键盘控制；
+- build 阶段嵌入组件；新增 round886 验证状态条件和委托边界。
+
+**回归**：
+
+- 定向测试 **15 pass / 0 fail**；
+- 全量 `npm test`：**2816 pass / 0 fail**；
+- DSH Web（隔离 profile `r526`，端口 `63262`）：初始列表显示
+  “End of history”；过滤不存在的 hash 后显示 “No matches”；1 host /
+  1 workspace，无新增 diagnostics；
+- 下一步拆分 CommitLog 的 flat keyboard controller 和 list item selection model。
+
+**适用环境**：macOS、Node 24.22.2、Harness 隔离 profile `r526`。组件通过
+build 阶段同 scope 嵌入，不引入 runtime module loader。
+
+## 2026-11-18 — CommitLog flat row 组件拆分
+
+**作用域**：Commit Log flat 列表的单行渲染。
+
+**症状/风险**：flat Log 行仍内嵌在 `CommitLog.tsx` 的 map 中，option/hash/
+highlight 语义与 subject/meta 布局和父级选择/context-menu 逻辑混在一起。
+
+**修复**：
+
+- 新增 `src/client/components/commit/CommitLogFlatRow.tsx`；
+- row 组件负责 role/hash/popup/selected/highlight、点击/鼠标/context menu
+  props 以及 subject/meta 布局；
+- CommitLog 继续负责选择、焦点回收和菜单 payload；
+- build 阶段嵌入组件；新增 round885 验证 row 契约和父级委托。
+
+**回归**：
+
+- 定向测试 **19 pass / 0 fail**；
+- 全量 `npm test`：**2814 pass / 0 fail**；
+- DSH Web（隔离 profile `r526`，端口 `63261`）：flat row hash 正确、
+  `role=option`/`aria-haspopup=menu` 存在，点击后详情加载，Shift+F10 菜单
+  正常；1 host / 1 workspace，无新增 diagnostics；
+- 下一步拆分 CommitLog list content/empty/error state 组合层。
+
+**适用环境**：macOS、Node 24.22.2、Harness 隔离 profile `r526`。组件通过
+build 阶段同 scope 嵌入，不引入 runtime module loader。
+
+## 2026-11-18 — CommitLog graph controller 拆分
+
+**作用域**：Commit Graph 的 cursor 校验、hover/cursor 移动优先级、首尾 clamp
+和键盘意图映射。
+
+**症状/风险**：这些纯状态转换仍写在 `CommitLog.tsx` 的事件与 effect 中，
+无法独立验证 folded rows、空图、hover 优先、Home/End/Enter 等边界。
+
+**修复**：
+
+- 新增 `src/client/components/commit/commit-log-graph-controller.ts`；
+- 提供 `commitLogGraphCursor`、`commitLogGraphMove`、
+  `commitLogGraphKeyIntent`；
+- CommitLog 使用 controller 处理 cursor 有效性和上下移动；
+- graph key handler 使用统一 intent 映射 move/current/first/last；
+- build 阶段嵌入 module；新增 round884 覆盖 cursor/move/key intent。
+
+**回归**：
+
+- 定向测试 **24 pass / 0 fail**；
+- 全量 `npm test`：**2812 pass / 0 fail**；
+- DSH Web（隔离 profile `r526`，端口 `63260`）：Graph 视图 1 行、listbox
+  可聚焦，ArrowDown/Up/Home/End 后详情正常显示；1 host / 1 workspace，
+  无新增 diagnostics；
+- 下一步拆分 graph row render layer 和 flat list row renderer。
+
+**适用环境**：macOS、Node 24.22.2、Harness 隔离 profile `r526`。controller
+是 bundle 同作用域纯函数模块，不引入 runtime module loader。
+
+## 2026-11-18 — CommitLog 顶部工具栏组件拆分
+
+**作用域**：Commit Log list 顶部标题、filter、author、graph branch/scope 和
+Filter/Graph/Refresh 按钮。
+
+**症状/风险**：工具栏 JSX 仍内嵌在 `CommitLog.tsx`，filter 打开/聚焦/Escape、
+graph branch select、scope chip 和按钮布局与日志列表状态混杂，不利于独立
+UI 回归和复用。
+
+**修复**：
+
+- 新增 `src/client/components/commit/CommitLogToolbar.tsx`；
+- filter 输入、Filter 按钮 toggle、Esc 清除和 focus 行为收拢到组件内部；
+- graph branch/scope 和 author 输入作为受控 props；
+- CommitLog 保留 graph mode 切换、graph 加载和 list focus 副作用；
+- build 阶段嵌入组件；新增 round883 验证 toolbar 契约和 CommitLog 委托边界。
+
+**回归**：
+
+- 定向测试 **17 pass / 0 fail**；
+- 全量 `npm test`：**2808 pass / 0 fail**；
+- DSH Web（隔离 profile `r526`，端口 `63259`）：Filter commits 按钮打开
+  filter 且自动聚焦，Esc 关闭；Commit Graph 切换后出现分支选择器
+  All branches / main；1 host / 1 workspace，无新增 diagnostics；
+- 下一步拆分 CommitLog graph keyboard controller / graph row render layer。
+
+**适用环境**：macOS、Node 24.22.2、Harness 隔离 profile `r526`。组件通过
+build 阶段同 scope 嵌入，不引入 runtime module loader。
+
+## 2026-11-18 — CommitLog 详情区组件拆分
+
+**作用域**：Commit Log 详情区的 header、commit metadata/body、file history chip
+和 revision 文件行。
+
+**症状/风险**：详情区仍内嵌在 `CommitLog.tsx` 的大型函数体中，文件行 F4、
+双击、键盘/鼠标 context menu 和 local availability 读取与日志列表逻辑混在
+同一组件内，不利于复用和独立 UI 回归。
+
+**修复**：
+
+- 新增 `src/client/components/commit/CommitLogDetailPane.tsx`；
+- 显式定义 detail/file/props 类型；
+- 把详情 header、history chip、metadata/body、file rows、F4 和 context
+  menu payload 全部移入独立 TSX 组件；
+- `CommitLog.tsx` 仅保留本地文件 availability 轮询和 props 转发；
+- build 阶段嵌入组件；新增 round882 验证组件契约和 CommitLog 委托边界。
+
+**回归**：
+
+- 定向测试 **15 pass / 0 fail**；
+- 全量 `npm test`：**2806 pass / 0 fail**；
+- DSH Web（隔离 profile `r526`，端口 `63258`）：Commit details region 为 1，
+  3 个 revision 文件行正常渲染，1 host / 1 workspace，无新增 diagnostics；
+- 下一步拆分 CommitLog 顶部 list toolbar/filter/graph 控制器。
+
+**适用环境**：macOS、Node 24.22.2、Harness 隔离 profile `r526`。组件通过
+build 阶段同 scope 嵌入，不引入 runtime module loader。
+
+## 2026-11-18 — Commit Log 文件菜单拆分
+
+**作用域**：Commit Log 详情区的 revision 文件上下文菜单。
+
+**症状/风险**：`buildCommitFileMenu` 仍直接拼装 revision diff、Repository
+Version、working-copy F4、Reveal、Terminal、History 和 copy path 菜单。
+这些项的 availability 与回调分散在 workspace 中，CommitLog 只负责触发菜单，
+无法独立验证菜单契约。
+
+**修复**：
+
+- 新增 `src/client/components/commit/file-menu.ts`；
+- `commitFileMenu` 接收 path/hash/local availability、已 shell-quote 的绝对路径
+  和动作回调，输出稳定菜单；
+- 保留 revision 缺失、working copy 缺失、directory 缺失时的 disabled 规则，
+  以及 Open Local Version 的 `F4`；
+- workspace 仅保留 clipboard、terminal、editor、history 等副作用接线；
+- build 阶段嵌入 module；新增 round881 覆盖可用/不可用状态和全部回调。
+
+**回归**：
+
+- 定向测试 **16 pass / 0 fail**；
+- 全量 `npm test`：**2804 pass / 0 fail**；
+- DSH Web（隔离 profile `r526`，端口 `63257`）：revision 文件菜单显示
+  Show diff、Open Repository Version、Select in Project View、Open in Terminal、
+  Open Local Version/F4、Show History、Copy relative/absolute path；
+  1 host / 1 workspace，无新增 diagnostics；
+- 下一步拆分 Commit Log 详情头部/提交详情动作和 revision preview 数据流。
+
+**适用环境**：macOS、Node 24.22.2、Harness 隔离 profile `r526`。builder
+仍位于同一 bundle factory scope，不引入 runtime module loader。
+
+## 2026-11-18 — Commit Log 共享行菜单拆分
+
+**作用域**：Commit Log 的 flat/graph 行提交上下文菜单。
+
+**症状/风险**：`buildLogMenu` 仍在 workspace 内同时计算关系目标和拼装 20 余个
+菜单项。flat Log 与 Graph 共用这份菜单，但 parent/child 子菜单、revision
+比较、reset 模式和 clipboard 动作无法独立测试。
+
+**修复**：
+
+- 新增 `src/client/components/commit/log-menu.ts`；
+- `commitLogMenu` 接收 commit、selection hashes、parent/child targets、
+  detached 状态和动作回调，输出完整菜单；
+- 保留 compare revisions、单/多 parent-child、reset soft/mixed/hard、
+  danger、disabled、shortcut 和 copy subject 空值规则；
+- workspace 仍负责从 Log/Graph entries 计算 relation，再调用 builder；
+- build 阶段嵌入 module；新增 round880 覆盖单行、关系子菜单和全部回调。
+
+**回归**：
+
+- 定向测试 **16 pass / 0 fail**；
+- 全量 `npm test`：**2801 pass / 0 fail**；
+- DSH Web（隔离 profile `r526`，端口 `63256`）：Log 行菜单显示
+  Show/History/Compare、Go to Child/Parent、Cherry-Pick、Revert、Tag、Patch、
+  Checkout、Branch、Reset 和 Copy；父子目标为空时正确 disabled，Reset
+  子菜单显示 Soft/Mixed/Hard；1 host / 1 workspace，无新增 diagnostics；
+- 下一步拆分 Commit Log 文件菜单与 revision 预览动作。
+
+**适用环境**：macOS、Node 24.22.2、Harness 隔离 profile `r526`。builder
+仍位于同一 bundle factory scope，不引入 runtime module loader。
+
+## 2026-11-18 — Stash/Shelve 异步菜单拆分
+
+**作用域**：Commit 工具窗的 Stash 和 Shelve 菜单。
+
+**症状/风险**：`openStashMenu` / `openShelveMenu` 在 async git list 之后仍直接
+拼装菜单。空栈、selected paths、apply/drop ref 和 danger 行混在 workspace
+异步逻辑中，既难单测，也容易与 Commit Options 的 Shelve 入口漂移。
+
+**修复**：
+
+- 新增 `src/client/components/commit/stash-shelve-menu.ts`；
+- `stashMenu` 处理 save/pop、空栈、apply/drop 和 `danger` 样式；
+- `shelveMenu` 处理选中路径保存、空 shelf、index-aware apply/drop；
+- `editor-workspace.tsx` 只保留 git list 请求、错误/busy 状态和
+  `setMenu(...)`，菜单内容交给纯 builder；
+- build 阶段嵌入新 module；新增 round879 覆盖空栈、实体条目和回调参数。
+
+**回归**：
+
+- 定向测试 **25 pass / 0 fail**；
+- 全量 `npm test`：**2797 pass / 0 fail**；
+- DSH Web（隔离 profile `r526`，端口 `63255`）：Stash 菜单显示
+  “Stash all changes (including untracked)”与禁用的“Nothing to restore”；
+  Shelve 菜单显示“Shelve selected changes”与禁用的“No shelved changes”；
+  1 host / 1 workspace，无新增 diagnostics；
+- 下一步拆分 Commit Log 的 graph/flat 行上下文菜单和文件菜单。
+
+**适用环境**：macOS、Node 24.22.2、Harness 隔离 profile `r526`。builder
+仍位于同一 bundle factory scope，不引入 runtime module loader。
+
+## 2026-11-18 — Commit 工具窗菜单模型拆分
+
+**作用域**：Changes View Options、Commit Options 和 Group By 菜单。
+
+**症状/风险**：`editor-workspace.tsx` 仍内联构造 Commit 的低频命令菜单，
+Fetch/Update/Patch/Stage All/Stash/Shelve 的 busy/disabled 条件和 Group By
+勾选分散在 JSX 事件代码内，难以独立验证，也让 workspace 编排层继续膨胀。
+
+**修复**：
+
+- 新增 `src/client/components/commit/commit-options-menu.ts`；
+- 提供 `changeGroupMenu`、`changesViewOptionsMenu`、`commitOptionsMenu`
+  三个有显式输入/输出类型的纯 builder；
+- 保留原菜单 owner、ID、动作顺序、快捷键、`✓` 勾选、disabled 和
+  restoreFocus 契约；
+- `editor-workspace.tsx` 通过 `declare const` 引用同 bundle scope builder，
+  不引入 runtime module loader；
+- build 阶段嵌入新 module；新增 round878 验证菜单模型和 workspace 接线。
+
+**回归**：
+
+- 定向测试 **29 pass / 0 fail**；
+- 全量 `npm test`：**2794 pass / 0 fail**；
+- DSH Web（隔离 profile `r526`，端口 `63254`）：Commit Options 显示
+  Fetch Remotes、Update Project、Apply Patch、Stage All、Stash、Shelve 与
+  Group By；View Options 的 Group By 子菜单显示 Nothing / Module / Directory
+  且 Directory 被勾选；1 host / 1 workspace，无新增 diagnostics；
+- 运行态排障：Ego profile 累积 70 个历史 `dsh-auth-*` localhost cookie，
+  导致 HTTP 431；按站点范围用 `Network.deleteCookies` 清理非当前端口 cookie，
+  未使用 profile-wide clear，其他站点 cookie 不受影响；
+- 下一步拆分 Stash/Shelve 异步菜单与 Commit Log 上下文菜单。
+
+**适用环境**：macOS、Node 24.22.2、Harness 隔离 profile `r526`。菜单 builder
+是 bundle 同作用域模块，不得改为源码 import。
+
+## 2026-11-18 — Project 工具窗菜单模型拆分
+
+**作用域**：Project 工具栏的 New File/Directory 菜单和 Options 菜单。
+
+**症状/风险**：`editor-workspace.tsx` 内仍直接构造 Project 的 Options 菜单，
+包含 Behavior、Appearance、Show、Sort By、Manual Order 等 100 余行 JSX 事件
+逻辑。菜单项状态依赖多，继续内联难以独立测试，也让 workspace 组件继续膨胀。
+
+**修复**：
+
+- 新增 `src/client/components/project/project-options-menu.ts`；
+- `projectCreateMenu` 和 `projectOptionsMenu` 使用显式 position、菜单项、
+  toggles、sort state 和动作回调类型生成完整菜单；
+- 保持原菜单 ID、快捷键、`✓` 勾选、section、disabled 和 `restoreFocus`
+  契约不变；
+- `editor-workspace.tsx` 通过 `declare const` 引用嵌入 bundle 的同作用域
+  builder，不引入 runtime module loader；
+- build 阶段嵌入新 module；round371 改为分别检查 ProjectPanel 工具栏和
+  Options 菜单模型，不再对合并文本做脆弱的全局计数。
+
+**回归**：
+
+- 新增 `tests/round877.test.mjs`，覆盖新建菜单顺序/快捷键、Options 的
+  Behavior/Appearance/SortBy 状态、disabled 条件及所有动作回调；
+- 全量 `npm test`：**2790 pass / 0 fail**；
+- DSH Web（隔离 profile `r526`，端口 `63250`）：Project overflow 显示
+  New File or Directory…、Expand Selected、Collapse All、Options；Options
+  菜单和 Appearance 子菜单内容正确，1 host / 1 workspace，无新增 diagnostics；
+- 下一步拆分 Commit 工具窗的工具栏/上下文菜单模型，继续缩小 workspace 编排层。
+
+**适用环境**：macOS、Node 24.22.2、Harness 隔离 profile `r526`。菜单 builder
+是 bundle 同作用域模块，不得改为源码 import。
+
+## 2026-11-17 — inline-styles.js 迁移到 TypeScript
+
+**作用域**：Editor、Project、Commit、Diff、Terminal、Search、Markdown 和菜单
+共用的 React 内联样式表。
+
+**症状/风险**：`inline-styles.js` 是包含 355 个样式对象、近 3200 行的纯 JS
+字面量。它没有运行时 helper，但继续保留 JS 会让 build manifest 成为 TS 与 JS
+混合状态，也缺少样式值类型约束。
+
+**修复**：
+
+- 新增 `src/client/inline-styles.ts`，增加 `EditorStyleValue`、`EditorStyle`
+  和 `EditorStyleSheet` 类型；
+- build manifest 从 `inline-styles.js` 切换到 `inline-styles.ts`；
+- 原文件改名为 `inline-styles.js.bak`，只作迁移对照，不进入构建或 npm 包；
+- round671 模块清单、round685/round687 的 code-navigation 边界 marker
+  同步为 `.ts`；
+- Babel 会移除单一属性对象末尾的逗号，round154 的两条样式断言改为容忍
+  可选尾逗号。
+
+**回归**：
+
+- 新增 `tests/round876.test.mjs`，在相同 `EDITOR_UI_FONT` 注入下分别执行
+  TS 与 `.js.bak` 样式表，并做完整 `deepEqual`；同时逐项验证 355 个样式对象
+  的 CSS 值均为 string/number；
+- 全量 `npm test`：**2787 pass / 0 fail**；
+- `check:client-build`、TS/TSX Prettier、Node 语法检查和
+  `git diff --check` 全部通过；
+- `npm pack --dry-run`：106 个文件，包含 `src/client/inline-styles.ts`，不包含
+  旧 `inline-styles.js` 或任何 `.js.bak`；
+- DSH Web（隔离 profile `r526`，端口 `63249`）：workspace font 为
+  Trebuchet MS，Project 行高 24px、tool scroll `overflow-x:auto`，Activity
+  Stripe item 为 36×54，chat width 35%；README 可打开到 Monaco，tab 和状态栏
+  正常，运行期间无新增 diagnostics。
+
+**适用环境**：macOS、Node 24.22.2、Harness 隔离 profile `r526`。迁移后 build
+manifest 的 13 个业务模块全部是 `.ts`/`.tsx`；旧 JS 只作参考。
+
+## 2026-11-17 — injected-css.js 迁移到 TypeScript
+
+**作用域**：注入样式、Project/Changes/Log 水平滚动、树加载占位、终端 dock
+切换、聊天滚动、菜单键盘 helper、引用路径复制和 host 图标选择。
+
+**症状/风险**：`injected-css.js` 名字虽表示样式，实际还承载 Project、Commit
+和 Chat 共用的交互 helper。该模块仍为无类型 JS，且 `.js` 会原样拼入 bundle，
+历史测试对原始排版有耦合。
+
+**修复**：
+
+- 新增 `src/client/injected-css.ts`，补充 tree/scroll state、terminal
+  shortcut、editor caret、reference entry/editor、copy menu options 和
+  reference menu item 类型；
+- build manifest 从 `injected-css.js` 切换到 `injected-css.ts`；
+- 原文件改名为 `injected-css.js.bak`，只作迁移对照，不进入构建或 npm 包；
+- round671 模块清单和 client source oracle 的 module marker 同步为 `.ts`；
+- TS 经 Babel 后不再保留原 JS 逗号排版，round31 的 `pathWithLine` 源码断言
+  改为格式化无关匹配。
+
+**回归**：
+
+- 新增 `tests/round875.test.mjs`，直接执行 TS helper，覆盖树加载、workspace
+  menu、scroll restore、maintenance delay、split snap、terminal shortcut、
+  chat badge、wheel/Shift+Wheel、菜单箭头、路径复制和 shell quoting；
+- 定向测试 **25 pass / 0 fail**；
+- 全量 `npm test`：**2785 pass / 0 fail**；
+- `check:client-build`、TS/TSX Prettier、Node 语法检查和
+  `git diff --check` 全部通过；
+- `npm pack --dry-run`：106 个文件，包含 `src/client/injected-css.ts`，不包含
+  旧 `injected-css.js` 或任何 `.js.bak`；
+- DSH Web（隔离 profile `r526`，端口 `63248`）：样式节点已安装，滚动条 CSS
+  存在，chat width/offset 为 `35% / 65%`，Project 树 5 行；README 右键菜单
+  正常显示 “Copy Path/Reference…” 子菜单及 5 个引用复制动作；运行期间
+  diagnostics 文件无新增事件。
+
+**适用环境**：macOS、Node 24.22.2、Harness 隔离 profile `r526`。旧 JS 只作
+迁移对照，后续不得重新加入 build manifest。
+
+## 2026-11-17 — editor-workspace.js 迁移到 TSX
+
+**作用域**：EditorWorkspace 的工作区布局、Project/Commit/Terminal/Harness
+编排、Monaco 文件与分屏状态、文件树交互、底部终端和聊天宽度控制。
+
+**症状/风险**：`editor-workspace.js` 仍以单个 `React.createElement` 巨型
+模块承载工作区 UI。迁移为 TSX 后，192 个历史源码契约测试读取
+`lib/client.js` 时找不到旧 JSX 文本；最初尝试把 `.js.bak` 直接拼到当前
+bundle 前面，又造成 20 个唯一性/顺序断言重复命中。
+
+**修复**：
+
+- 用 Babel codemod 将 `src/client/editor-workspace.js` 转成
+  `src/client/editor-workspace.tsx`，再运行 Prettier，保留 XML 多行层级；
+- 补充 `EditorWorkspaceTranslate`、`EditorWorkspaceProps` 和
+  `EditorFocusRef` 基础类型，build manifest 改用 TSX；
+- `scripts/build-client.mjs` 支持编译 manifest 中的 `.tsx`，并清理 Babel
+  输出的顶层 `export { EditorWorkspace }`，避免生成 bundle 语法错误；
+- 原 `editor-workspace.js` 改名为 `editor-workspace.js.bak`，只作参考，
+  不进入构建或 npm 包；
+- 新增仅测试进程使用的 `tests/client-source-oracle.mjs`：读取
+  `lib/client.js` 时按 `editor-workspace.tsx` module marker 原位替换为
+  `.js.bak` 片段，保留外层 ModuleLoader 和模块顺序；生产文件不变；
+- round671 的模块清单和 `.tsx` 扫描、round829–round854 的 JSX 组件边界
+  断言同步更新。
+
+**回归**：
+
+- 新增 `tests/round874.test.mjs`，验证 TSX/旧 JS 状态、构建清单、模块
+  marker、JSX 身份、测试 oracle 仅测试使用以及 npm 排除 `.js.bak`；
+- 全量 `npm test`：**2781 pass / 0 fail**；
+- `check:client-build`、TS/TSX Prettier、`node --check` 和
+  `git diff --check` 全部通过；
+- `npm pack --dry-run`：106 个文件，包含
+  `src/client/editor-workspace.tsx`，不包含对应旧 `.js` 或任何 `.js.bak`；
+- DSH Web（隔离 profile `r526`，端口 `63247`）：Project 树正常；
+  双击 README 出现单个文件 tab 和 Monaco editor，Project 行位置打开前后
+  均为 `y=149`；Commit 显示 5 项变更，Terminal 创建真实 zsh；
+  关闭 Editor 后 host 为 1 且标记 idle，重开后仍为 1 host / 1 workspace。
+
+**适用环境**：macOS、Node 24.22.2、Harness 隔离 profile `r526`。测试 oracle
+只兼容历史文本契约，不能用于运行态，也不能被 build manifest 引用。
+
+## 2026-11-17 — controller.js 迁移到 TypeScript
+
+**作用域**：Harness mention/reference 计划、composer 插入 seam、Editor host
+生命周期、Chat 分栏、工作区菜单增强、DOM observer 和运行时诊断清理。
+
+**症状/风险**：`controller.js` 是 DOM 宿主与 React 根之间的边界，仍包含
+Harness reference 结构、host 生命周期和大量 DOM 副作用。参数和 runtime seam
+只靠 JSDoc，继续保留 JS 会让后续 editor-workspace 拆分缺少稳定边界。
+
+**修复**：
+
+- 新增 `src/client/controller.ts`，保留原函数和执行顺序，补充
+  `HarnessReferenceRequest`、`HarnessReferenceEntry`、
+  `HarnessReferencePlanResult`、`HarnessReferenceHostRequest` 和
+  `HarnessReferenceRuntime` 类型；
+- build manifest 从 `controller.js` 切换到 `controller.ts`；
+- 原 `src/client/controller.js` 改名为 `controller.js.bak`，只作迁移对照，
+  不参与构建或 npm 打包；
+- round847 改为读取 `controller.ts`；
+- `tests/ts-source.mjs` 的函数提取改为先匹配参数括号，再定位函数体，兼容
+  TypeScript 默认参数 `{}`；
+- round183/186/187/188/457/460/462/93/95 的源码断言改为格式化无关匹配。
+
+**回归**：
+
+- 新增 `tests/round873.test.mjs`，直接执行 TS helper，验证 Harness mention、
+  文件/目录 reference、选区和 plain text 投影；
+- Controller/Harness/DOM 生命周期定向测试 **15 pass / 0 fail**；
+- 全量 `npm test`：**2779 pass / 0 fail**；
+- `check:client-build`、`check:format:client-components`、Node 语法检查和
+  `git diff --check` 全部通过；
+- `npm pack --dry-run`：106 个文件，包含 `src/client/controller.ts`，不包含
+  `src/client/controller.js` 或任何 `.js.bak`；
+- DSH Web：打开 Editor 后只有 1 个 host / 1 个 workspace；关闭后 host 保留为
+  idle 且 workspace 仍挂载；重新打开后仍只有 1 个 host / 1 个 workspace。
+
+**适用环境**：macOS、Node 24.22.2、Harness 隔离 profile `r526`。旧 JS 只用于
+迁移对照，后续不得重新加入 build manifest。
+
+## 2026-11-17 — terminal.js 迁移到 TypeScript
+
+**作用域**：文本上下文搜索、editor Find/Replace、Project 排序与选择、
+terminal 恢复缓冲、终端颜色/profile、Project localStorage 和移动计划 helper。
+
+**症状/风险**：`terminal.js` 已无 React 组件，但仍是 Find、Project 和
+Terminal 共用的大型 helper 模块。lexical context、find options、project rows、
+selection request 和 restore snapshot 等结构只靠 JSDoc，继续保留 JS 会让
+后续 editor-workspace 拆分缺少稳定类型边界。
+
+**修复**：
+
+- 新增 `src/client/terminal.ts`，保留原函数和执行顺序，补充
+  `TerminalDescription`、`EditorSelectionScope`、`FindOptions`、
+  `TextContextRules`、`ProjectTreeRow`、`MovePlan`、
+  `ProjectSelectionRequest` 和 `TerminalRestoreSnapshot` 等类型；
+- build manifest 从 `terminal.js` 切换到 `terminal.ts`；
+- 原 `src/client/terminal.js` 改名为 `terminal.js.bak`，只作迁移对照，
+  不参与构建或 npm 打包；
+- round800–round802、round828 改为读取 `terminal.ts`；
+- `tests/ts-source.mjs` 新增 `extractJavaScriptFunctionSource`，先匹配参数括号
+  再定位函数体，避免默认参数 `{}` 被误认为函数体；
+- round206、round25、round562、round662 的源码断言改为格式化无关匹配；
+  round485、round535、round585、round645、round670、round695 改用共享函数提取器。
+
+**回归**：
+
+- 新增 `tests/round872.test.mjs`，直接执行 TS helper，验证：
+  - editor Find、Regex/literal replacement、scope 和 preserve-case；
+  - 文本上下文 mask/allows、Project row filter 和 highlight；
+  - terminal dock active/editor placement reconciliation；
+  - build 使用 `terminal.ts`，`terminal.js.bak` 存在且不进 npm 包；
+- 编辑器 Find/Replace 与 lexical context 定向测试 **51 pass / 0 fail**；
+- 全量 `npm test`：**2777 pass / 0 fail**；
+- `check:client-build`、`check:format:client-components`、Node 语法检查和
+  `git diff --check` 全部通过；
+- `npm pack --dry-run`：106 个文件，包含 `src/client/terminal.ts`，不包含
+  `src/client/terminal.js` 或任何 `.js.bak`；
+- DSH Web：真实 zsh 终端正常创建；执行 `printf 'omega beta omega\n'` 后，
+  Terminal Find 输入 `omega` 显示 `1/4`，Next/Previous match 正常。
+
+**适用环境**：macOS、Node 24.22.2、Harness 隔离 profile `r526`。旧 JS 只用于
+迁移对照，后续不得重新加入 build manifest。
+
+## 2026-11-17 — find-tool.js 迁移到 TypeScript
+
+**作用域**：Find 过滤与用途匹配、终端 buffer 查找、prompt/block 选择、
+Commit Graph lane/run、Commit 选择、terminal tab overflow/reorder 和菜单模型。
+
+**症状/风险**：`find-tool.js` 已无 React 组件，但仍是 Terminal、Find 和
+Commit Graph 共用的纯 helper 模块。函数参数和 buffer/tab/graph 结构只靠
+JSDoc，继续保留 JS 会让终端 Find、块选择和 tab 排序的后续重构缺少稳定边界。
+
+**修复**：
+
+- 新增 `src/client/find-tool.ts`，保留原函数和执行顺序，补充
+  `FindOccurrence`、`FindShortcutEvent`、`FuzzyMatchOptions`、
+  `CommitGraphEntry/Lanes/Run`、`TerminalBlockRange`、
+  `TerminalTabIdentity/Overflow` 和 `TerminalMenuAction` 等类型；
+- build manifest 从 `find-tool.js` 切换到 `find-tool.ts`；
+- 原 `src/client/find-tool.js` 改名为 `find-tool.js.bak`，只作迁移对照，
+  不参与构建或 npm 打包；
+- round822–round827 改为读取 `find-tool.ts`；
+- round18、round212、round34、round580 的源码断言改为格式化无关匹配，
+  保留 clipboard、tab menu、terminal clear 和 block helper 契约。
+
+**回归**：
+
+- 新增 `tests/round871.test.mjs`，直接执行 TS helper，验证：
+  - Find replace advance、搜索选项快捷键、whole-word/glob/fuzzy 匹配；
+  - Commit Graph lane/run、commit selection、local diff entries；
+  - terminal tab overflow/reorder、paste history；
+  - build 使用 `find-tool.ts`，`find-tool.js.bak` 存在且不进 npm 包；
+- 迁移定向测试 **23 pass / 0 fail**；
+- 全量 `npm test`：**2774 pass / 0 fail**；
+- `check:client-build`、`check:format:client-components`、Node 语法检查和
+  `git diff --check` 全部通过；
+- `npm pack --dry-run`：106 个文件，包含 `src/client/find-tool.ts`，不包含
+  `src/client/find-tool.js` 或任何 `.js.bak`；
+- DSH Web：Terminal 创建真实 shell；tab 右键菜单显示 Move Tab Left/Right、
+  块选择、Copy directory、README、Finder、Move to Editor 等动作；
+  执行 `printf 'alpha beta alpha\n'` 后，Terminal Find 输入 `alpha` 显示
+  `1/4`，Next/Previous match 正常。
+
+**适用环境**：macOS、Node 24.22.2、Harness 隔离 profile `r526`。旧 JS 只用于
+迁移对照，后续不得重新加入 build manifest。
+
+## 2026-11-17 — commit.js 迁移到 TypeScript
+
+**作用域**：Search Everywhere / Find 的预览窗口、结果分组、Action 分类、
+查询与替换历史、Scope、文件掩码、弹窗几何和结果菜单 helper。
+
+**症状/风险**：`commit.js` 已不再承载 Commit UI，但仍是浏览器端搜索、预览
+和历史存储的核心模块。大量 helper 依赖 loose object、Match/Group、Search
+Options 和 popup geometry；继续保留 JS 会让 Search/Find 的后续交互重构缺少
+稳定类型边界。
+
+**修复**：
+
+- 新增 `src/client/commit.ts`，保留原函数和执行顺序，补充
+  `SearchPreviewWindow`、`PreviewLineMetrics`、`FindMatchLike`、
+  `FindToolFileGroup`、`PreviewLinePart`、`CodePreviewRange`、
+  `SearchOptions`、`FindPopupGeometry`、`SearchActionLike` 和
+  `SearchEverywhereFilters` 等类型；
+- build manifest 从 `commit.js` 切换到 `commit.ts`；
+- 原 `src/client/commit.js` 改名为 `commit.js.bak`，只作迁移对照，
+  不参与构建或 npm 打包；
+- round795–round799 改为读取 `commit.ts`；
+- round589、round623、round624、round663 的源码断言改为格式化无关匹配，
+  覆盖 clipboard rejection、Action category inventory 和 Monaco colorize 链。
+
+**回归**：
+
+- 新增 `tests/round870.test.mjs`，直接执行 TS helper，验证：
+  - preview window、scroll clamp、line starts 和 match parts；
+  - Find 文件分组、Action category 和 history normalization；
+  - Search Everywhere empty-state / scope / option 判定；
+  - build 使用 `commit.ts`，`commit.js.bak` 存在且不进 npm 包；
+- Search/Find 定向测试 **20 pass / 0 fail**；
+- 全量 `npm test`：**2771 pass / 0 fail**；
+- `check:client-build`、`check:format:client-components`、Node 语法检查和
+  `git diff --check` 全部通过；
+- `npm pack --dry-run`：106 个文件，包含 `src/client/commit.ts`，不包含
+  `src/client/commit.js` 或任何 `.js.bak`；
+- DSH Web：Find in Files 搜索 `Scoped` 命中 README，结果显示 1 match /
+  1 file，预览和 match highlight 正常。
+
+**适用环境**：macOS、Node 24.22.2、Harness 隔离 profile `r526`。旧 JS 只用于
+迁移对照，后续不得重新加入 build manifest。
+
+## 2026-11-17 — editor-core.js 迁移到 TypeScript
+
+**作用域**：文件/Git API 调用、Monaco 编辑器组与动作、诊断配置、主题、
+diff theme、目录预取、补丁下载名和路径辅助函数。
+
+**症状/风险**：`editor-core.js` 已没有 React 组件，但仍是 Project、Diff、
+Terminal、Search 和 EditorWorkspace 的共同基础。参数、Monaco 实例、
+directory cache 和 file API 返回结构仅靠 JSDoc，迁移到 TSX/TS 后继续保留
+loose JS 会让后续编辑器重构缺少稳定边界。
+
+**修复**：
+
+- 新增 `src/client/editor-core.ts`，保留原函数与执行顺序，补充
+  `LocaleDictionaryTree`、`HarnessEditorLocation`、`FileApiResult`、
+  `WorkspaceTreeEntry`、`DirectoryTreeState/Result`、`RootLabel` 和
+  `MonacoEditorGroup` 等类型；
+- build manifest 从 `editor-core.js` 切换到 `editor-core.ts`；
+- 原 `src/client/editor-core.js` 改名为 `editor-core.js.bak`，只作迁移对照，
+  不参与构建或 npm 打包；
+- round805–round811、round817、round728 改为读取 `editor-core.ts`；
+- round546 的 `window.open` 参数断言改为格式化无关匹配，保留对
+  `_blank` 与 `noopener,noreferrer` 的安全约束。
+
+**回归**：
+
+- 新增 `tests/round869.test.mjs`，直接执行 TS helper，验证：
+  - path basename/ancestors、根目录标签、路径 remap 和补丁下载名；
+  - file API transitional operation 错误与本地化 recovery；
+  - 目录预取保持 bounded 且不改变 expanded 集合；
+  - Monaco diagnostics 保留语法校验并忽略 2307/2792；
+  - build 使用 `editor-core.ts`，`editor-core.js.bak` 存在且不进 npm 包；
+- 迁移定向测试 **30 pass / 0 fail**；
+- 全量 `npm test`：**2768 pass / 0 fail**；
+- `check:client-build`、`check:format:client-components`、Node 语法检查和
+  `git diff --check` 全部通过；
+- `npm pack --dry-run`：106 个文件，包含 `src/client/editor-core.ts`，不包含
+  `src/client/editor-core.js` 或任何 `.js.bak`；
+- DSH Web：Project 文件树加载正常；双击 README 后 Monaco editor 挂载，
+  textarea 获得焦点，README tab、Editor/Preview 模式、状态栏和 Go to Line
+  控件均正常。
+
+**适用环境**：macOS、Node 24.22.2、Harness 隔离 profile `r526`。旧 JS 只用于
+迁移对照，后续不得重新加入 build manifest。
+
+## 2026-11-17 — diff.js 迁移到 TypeScript
+
+**作用域**：Changes staged/unstaged/unversioned 分组、Commit 工具栏容量计算、
+changed-file 导航、Diff 键盘判定、change tree、collapse/reveal 和冲突状态。
+
+**症状/风险**：`diff.js` 已没有 React 组件，但仍是 Commit/Diff 的共享核心
+模型。参数与 tree/toolbar/target 的字段仅依赖 JSDoc，迁移到 TSX 后如果继续
+保留 loose JS，会让后续 DiffPreview 和 CommitPanel 重构缺少稳定类型边界。
+
+**修复**：
+
+- 新增 `src/client/diff.ts`，保留原函数和执行顺序，并补充
+  `DiffChange`、`DiffChangeBands`、`DiffTarget`、`DiffToolbarAction`、
+  `DiffTreeNode`、`DiffRow`、`DiffKeyboardEvent`、
+  `CombinedDiffFile` 等显式类型；
+- build manifest 从 `diff.js` 切换到 `diff.ts`；
+- 原 `src/client/diff.js` 改名为 `diff.js.bak`，只作迁移对照，不参与构建或
+  npm 打包；
+- round819 / round820 / round821 的 legacy 去重检查改为读取 `diff.ts`；
+- round19 / round438 的对象字面量源码断言改为字段序列和可空白匹配，
+  不再依赖 Prettier/Babel 是否保留单行格式或尾逗号。
+
+**回归**：
+
+- 新增 `tests/round868.test.mjs`，直接执行 TS helper，验证：
+  - staged/unstaged/unversioned 拆分和 Stage All 目标不变；
+  - Diff toolbar 分组、宽度容量和文件导航档位不变；
+  - included summary 和 collapse reveal 键不变；
+  - build 使用 `diff.ts`，`diff.js.bak` 存在且不进 npm 包；
+- Diff/Commit 模型定向测试 **109 pass / 0 fail**；
+- 全量 `npm test`：**2764 pass / 0 fail**；
+- `check:client-build`、`check:format:client-components`、Node 语法检查和
+  `git diff --check` 全部通过；
+- `npm pack --dry-run`：106 个文件，包含 `src/client/diff.ts`，不包含
+  `src/client/diff.js` 或任何 `.js.bak`；
+- DSH Web：Commit Changes 正常显示 Staged / Unstaged / Unversioned；
+  打开 `Commit: README.md` 后 Monaco diff surface 正常，文件导航、Apply/Swap、
+  视图模式和 Close Diff Editor 均在位。
+
+**适用环境**：macOS、Node 24.22.2、Harness 隔离 profile `r526`。旧 JS 只用于
+迁移对照，后续不得重新加入 build manifest。
+
+## 2026-11-17 — project.js 迁移到 TypeScript
+
+**作用域**：Project 树 OS 文件拖拽、drop 目录枚举、10 MiB 分块上传、
+冲突预检、重试/取消、进度状态和稳定错误码映射。
+
+**症状/风险**：`project.js` 是上传链路的关键实现，但参数和 host 返回值
+长期依赖 JSDoc；直接重命名成 `.ts` 虽可运行，却无法明确 drop handle、
+upload request、failure、progress 和 React state sink 的边界。
+
+**修复**：
+
+- 新增 `src/client/project.ts`，保留原有函数与执行顺序，补充
+  `ProjectTreeRow`、`ProjectDropHandles`、`ProjectDropEntry`、
+  `ProjectUploadFailure`、`ProjectUploadRequestOptions`、
+  `ProjectUploadProgressView` 和 `ProjectUploadInput` 等类型；
+- `scripts/build-client.mjs` 的 manifest 改为 `project.ts`，Babel 去除类型后
+  继续嵌入同一个宿主 factory；
+- 原 `src/client/project.js` 改名为 `project.js.bak`，只作迁移对照，
+  不参与构建或 npm 打包；
+- round749 的函数签名断言改为允许 TypeScript 参数换行后的实际输出；
+  round735 的 drag props 断言不再依赖 Babel 是否保留尾逗号。
+
+**回归**：
+
+- 新增 `tests/round867.test.mjs`，直接加载 TS helper 并验证：
+  - `WORKSPACE_UPLOAD_CHUNK_BYTES` 仍为 10 MiB；
+  - drop 名称仍拒绝空值、`.`、`..` 和路径分隔符；
+  - 上传百分比、字节格式化、4xx/5xx 重试判定和本地化错误映射不变；
+  - compact directory chain 行为不变；
+  - build 使用 `project.ts`，`project.js.bak` 存在且不进 npm 包；
+- 定向迁移/上传测试 **35 pass / 0 fail**；
+- 全量 `npm test`：**2762 pass / 0 fail**；
+- `check:client-build`、`check:format:client-components`、Node 语法检查和
+  `git diff --check` 全部通过；
+- `npm pack --dry-run`：106 个文件，包含 `src/client/project.ts`，不包含
+  `project.js` 或任何 `.js.bak`；
+- DSH Web：合成 OS `DataTransfer` drop 上传 `tsx-upload-smoke.txt`，Project
+  树出现该文件，磁盘大小 27 bytes 且内容逐字节一致。
+
+**适用环境**：macOS、Node 24.22.2、Harness 隔离 profile `r526`。旧 JS 只用于
+迁移对照，后续不得重新加入 build manifest。
+
+## 2026-11-17 — Commit Log 右键菜单把焦点还给旧控件
+
+**作用域**：Commit Log flat 行、Commit Graph 行和 `ContextMenu` 的
+opener/return-focus。
+
+**症状**：焦点在 Project 树或编辑器时，右键 Log 提交行打开菜单，Esc 关闭后
+焦点回到旧控件，而不是刚操作的 Log。
+
+**根因**：`ContextMenu` 在挂载时记录 `document.activeElement` 作为 opener。
+flat Log 与 Graph 的 `onContextMenu` 只打开菜单，没有先聚焦 Log listbox，
+因此记录的 opener 仍是旧控件。
+
+**修复**：
+
+- flat Log 行在 `preventDefault/stopPropagation` 后先调用
+  `listRef.current?.focus?.({ preventScroll: true })`；
+- Graph wrapper 同样先聚焦 Log listbox，再执行 `setGraphCursor` 和
+  `onContextMenu`；
+- 继续复用 `ContextMenu` 的唯一 return-focus 路径。
+
+**回归**：
+
+- 新增 `tests/round866.test.mjs`，初始 RED 为 **0 pass / 2 fail**；
+- GREEN：定向测试 **32 pass / 0 fail**；
+- DSH Web：Log 右键菜单关闭后 activeElement 为 Commit Log 的
+  `role=listbox`。
+
+## 2026-11-17 — Changes/Terminal 右键菜单把焦点还给旧控件
+
+**作用域**：Commit Changes 目录/文件行、Terminal tab 与 `»` overflow 的
+ContextMenu opener/return-focus。
+
+**症状**：Project 树或编辑器持焦时，右键 Changes 行或 Terminal tab 打开菜单，
+Esc 关闭后焦点会回到之前的 Project/编辑器，而不是刚右键的目标；后续键盘
+操作落在错误表面。
+
+**根因**：`ContextMenu` 在挂载时记录 `document.activeElement` 作为 opener。
+Changes 目录/文件行和 Terminal tab/overflow 的 `onContextMenu` 只打开菜单，
+没有先聚焦自身，因此记录的 opener 仍是旧控件。
+
+**修复**：
+
+- CommitPanel 的 Changes 目录行、文件行 `onContextMenu` 在构造 payload 前调用
+  `event.currentTarget.focus?.()`；
+- TerminalPanel 的终端 tab 与 overflow 按钮右键时同样先聚焦自身；
+- 保留 ContextMenu 现有的关闭/取消统一恢复逻辑，不新增第二套焦点状态。
+
+**回归**：
+
+- 新增 `tests/round865.test.mjs`；
+- 定向测试 **17 pass / 0 fail**；
+- 全量 `npm test`：**2758 pass / 0 fail**；
+- DSH Web：Project 树持焦后右键 Terminal tab，菜单关闭后 activeElement
+  回到同一 `role=tab` 和 terminal id，console 无 error/warn。
+
+## 2026-11-17 — Project 行菜单展示无效的跨类型动作
+
+**作用域**：Project 文件/目录右键与键盘上下文菜单的能力可见性。
+
+**症状**：
+
+- 文件行菜单出现“暂存此目录 / 取消暂存此目录”，只能以 disabled 形式存在；
+- 普通文件菜单出现 disabled 的逐行定位动作；
+- 目录菜单同时出现两个“展开目录”；
+- 目录菜单还会显示只适用于文件的 Compare with Clipboard / Revision。
+
+**根因**：`buildTreeMenu()` 只用 `disabled` 表达跨类型不可执行状态，
+没有按 row kind 过滤菜单项；目录展开动作同时由 `open` 与 `reveal` 两条路径生成。
+
+**修复**：
+
+- `project-selection-model.ts` 新增 `projectRowMenuCapabilities()`，统一返回
+  `showDirectoryActions / showFileActions / showReveal`；
+- 文件菜单只保留文件专属 compare 动作，目录菜单只保留目录 Git 动作；
+- 普通文件不再渲染逐行定位；过滤视图文件仍显示 Select in Project View；
+- 目录只保留单一“展开目录”，删除重复的 toggle 菜单项；
+- 根节点不显示目录专属、文件专属或逐行 reveal 动作。
+
+**回归**：
+
+- 新增 `tests/round864.test.mjs`；
+- 定向测试 **22 pass / 0 fail**；
+- 全量 `npm test`：**2756 pass / 0 fail**；
+- DSH Web 文件菜单无目录 staging / disable reveal；目录菜单只有一个展开项并保留
+  目录 staging，不出现文件 compare；console 无 error/warn。
+
+## 2026-11-17 — Project 树 Shift+F10/ContextMenu 不打开行菜单
+
+**作用域**：Project 树焦点、键盘上下文菜单与 IDEA 的 `Show Context Menu`
+快捷键。
+
+**症状**：鼠标右键行可以打开 Project 菜单，但点击选中行后按 `Shift+F10`
+没有任何反应。树容器仍是 active element，说明按键到达了树，但行本身从未
+获得 DOM 焦点。
+
+**根因**：ProjectPanel 只给根标题按钮和行绑定了鼠标 `contextmenu`；
+`onTreeKeyDown` 没有处理 `Shift+F10/ContextMenu`。由于 `onMouseDown` 把焦点
+放在树滚动容器上，行上的键盘处理路径永远收不到该键。
+
+**修复**：
+
+- `project-selection-model.ts` 新增
+  `projectContextMenuRowAfterKeyboard(rows, selectedPath)`，只返回可见、
+  非 placeholder、非 root 的选中行；
+- ProjectPanel 的树容器统一处理 `Shift+F10/ContextMenu`；
+- 有选中行时复用 `onSelect + onContextMenu` payload，无有效行时打开项目根
+  菜单；
+- 菜单定位优先使用选中行 rect，缺失时回落到树容器 rect；
+- `tests/ts-source.mjs` 的函数提取支持 TypeScript 泛型函数。
+
+**回归**：
+
+- 新增 `tests/round863.test.mjs`；
+- 定向测试 **17 pass / 0 fail**；
+- 全量 `npm test`：**2754 pass / 0 fail**；
+- DSH Web：选中 README 后按 `Shift+F10` 打开完整 Project 行菜单，
+  console 无 error/warn。
+
+## 2026-11-17 — Project 双击首次打开文件未聚焦编辑器
+
+**作用域**：Project 文件树双击、Project speed-search Enter、IDEA EditSource
+焦点交接与 Monaco 首次挂载时序。
+
+**症状**：双击一个尚未打开的 Project 文件时文件 tab 和内容会出现，但键盘
+焦点仍留在 Project 树；再次双击已打开文件才正常。IDEA 2026.2 同一操作会
+打开 README 并把焦点放进编辑器。
+
+**根因**：
+
+- ProjectPanel 双击仍直接调用 `onOpen()`，该路径只负责读取/激活文件；
+- 即使改用 `editLocalVersion()`，`openFile()` 只表示文件读取完成，并不保证
+  React 已提交新的 editor surface；
+- 旧的 `setTimeout(0)` 在首次打开时可能早于 Monaco ref 可用，focus 静默丢失。
+
+**修复**：
+
+- ProjectPanel 新增 `onOpenEditSource`，仅双击文件走 EditSource 焦点语义；
+  普通单击、speed-search Enter 和树键盘边界保持不变；
+- EditorWorkspace 把该 prop 接到现有 `editLocalVersion`；
+- 新增 `focusEditorOnNextFrame(editorRef, requestFrame, maxAttempts)`：
+  在 `openFile()` 成功后按 bounded animation frames 等待 Monaco ref，再 focus；
+- Commit Log 的 EditSource 也复用同一等待逻辑。
+
+**回归**：
+
+- 新增 `tests/round862.test.mjs`，覆盖双击 wiring、speed-search/单击边界和
+  editor ref 延迟挂载时的 frame retry；
+- 定向测试 **23 pass / 0 fail**；
+- 全量 `npm test`：**2752 pass / 0 fail**；
+- IDEA 运行态：双击 README 后 focused element 为 README 编辑器；
+- DSH Web：首次双击 `notes.md` 后 active element 为 Monaco `TEXTAREA`，
+  普通单击 README 后 active element 仍在 Project tree，console 无 error/warn。
+
+## 2026-11-17 — locales 迁移到 TypeScript 并修复格式化耦合测试
+
+**作用域**：浏览器端中英文字典、dotted-key 扁平化、`{name}` 插值、
+Replace 计数参数、Commit 工具窗口英文副本和 locale 契约测试。
+
+**症状/风险**：`locales.js` 是两层文案字典，缺少字典/参数类型；改为
+`.ts` 并交给 Prettier 后，超过 `printWidth=120` 的长文案会把
+`key: 'value'` 拆成多行，历史测试按单行源码匹配时误报缺 key。
+
+**修复**：
+
+- 新增 `src/client/locales.ts`，定义 `LocaleTree`、`LocaleDictionary`、
+  `LocaleParams`、`TranslateFunction`；
+- 保留 `zh` / `en` 运行时结构、`flattenDictionary`、`interpolateMessage`、
+  `searchReplaceCountParams`、`englishMessages` 和 `commitEnglish` 语义；
+- build manifest 切换到 `locales.ts`，旧文件改名 `locales.js.bak`；
+- 新增 `tests/locale-source.mjs`，直接转译并执行真实 TS locale 模块；
+- round114 / 553 / 554 / 617 / 156 / 626 / 743 的文案断言改为读取运行时
+  字典，不再依赖源码是否单行；
+- round114 的重复 key 检查改为格式化无关的 `key:` 扫描，继续保留防护。
+
+**回归**：
+
+- 新增 `tests/round861.test.mjs`，覆盖扁平 key 集合、中文/英文值、
+  插值和 Replace 计数参数；
+- 迁移后定向测试 **37 pass / 0 fail**；
+- 全量 `npm test`：**2749 pass / 0 fail**。
+- 隔离 DSH Web：Editor 正常加载，Project 选项菜单显示中文「刷新 / 行为 /
+  外观」等文案，浏览器 console 无 error/warn。
+
+## 2026-11-17 — foundation 从全局 legacy JS 迁移到 TypeScript
+
+**作用域**：浏览器端全局 foundation、IDEA 快捷键判定、平台识别、
+Monaco cancellation 过滤、Search 焦点循环和诊断 ring。
+
+**症状/风险**：`foundation.js` 被所有业务模块直接引用，但参数、诊断记录、
+键盘 event 和模块级状态均无类型；迁移为 TS 后还必须保证编译结果仍能被
+历史测试按 `    function name(` factory 缩进切片。
+
+**根因与修复**：
+
+- 新增 `src/client/foundation.ts`，补充 `KeyboardShortcutEvent`、
+  `EditorActionRecord`、`EditorDiagnosticRecord`、`IdeaUsageActionId`
+  等显式类型；
+- build-client 对根级 `.ts` 编译结果补回 4 空格 factory 缩进，避免编译后
+  函数顶格导致 `round460/462/464/600/601/605` 的源码切片失效；
+- `round600/601/605` 的函数提取改为先找参数右括号、再找函数体左花括号，
+  兼容 Prettier/Babel 将参数和 `{` 分行的输出；
+- `foundation.js` 在 TS 等价测试通过后改名为
+  `src/client/foundation.js.bak`，退出构建与 npm 打包。
+
+**回归**：新增 `tests/round860.test.mjs`；迁移后定向测试
+**57 pass / 0 fail**；全量 `npm test` **2746 pass / 0 fail**。
+隔离 DSH Web 中 Editor 工作台正常加载，Project tree 可交互，浏览器
+console 无 error/warn。
+
+## 2026-11-17 — code-navigation 从 legacy JS 迁移到 TypeScript
+
+**作用域**：浏览器端代码导航、导入解析、声明查找与导航历史纯函数。
+
+**用户要求**：模块逐个翻译为 TS/TSX；先通过单元测试，再把旧 JS 改名为
+`.js.bak` 作为参考，且 `.js.bak` 不参与构建和 npm 打包。
+
+**实现**：
+
+- 新增 `src/client/code-navigation.ts`，为导入绑定、导航位置、历史栈、
+  声明位置和 workspace resolver 输入补充显式 TypeScript 类型；
+- `scripts/build-client.mjs` 的模块 manifest 现可包含根级 `.ts`，使用 Babel
+  TypeScript 插件转译、移除类型和 export 后按原执行顺序嵌入单 factory；
+- `src/client/code-navigation.js` 在 TS 等价测试通过后改名为
+  `src/client/code-navigation.js.bak`，不再进入构建；
+- round671 / round685 / round687 的模块清单与边界更新为
+  `code-navigation.ts`；
+
+**回归**：
+
+- 新增 `tests/round859.test.mjs`，直接执行 TS 模块并覆盖 import binding、
+  URI 解码、导航历史、声明查找和 import-first resolver；
+- 迁移后定向测试 **53 pass / 0 fail**；
+- 验证 `lib/client.js` 只含 `code-navigation.ts` 模块标记，不含旧
+  `code-navigation.js` 标记；npm files 继续排除所有 `.js.bak`。
+- 全量 `npm test`：**2743 pass / 0 fail**；
+- 隔离 DSH Web：Editor 工作台加载成功，Project speed search 可打开并
+  返回 `README.md` 结果，浏览器 console 无 error/warn。
+
+## 2026-11-17 — Project speed search 丢失 Manual Order
+
+**作用域**：Project 工具窗口递归搜索、Manual Order 与祖先节点合成。
+
+**症状**：递归 speed search 命中文件后，搜索结果按宿主遍历顺序显示；
+即使 Project tree 使用 Manual Order，兄弟节点的手动顺序也不生效。
+
+**根因**：`searchEntryRows()` 合成祖先树时没有接收 `sortMode/manualOrder`，
+直接保留了 host search 返回顺序；`ProjectPanel` 也没有把 `manualOrder`
+继续传入。
+
+**修复**：
+
+- `searchEntryRows(matches, projectName, compactDirectories, sortMode, manualOrder)`
+  在 `manual` 模式下对每个 sibling 集合调用
+  `orderProjectEntriesByManual()`；
+- 最终 `flattenRows()` 同样传入 `sortMode/manualOrder`，保持非 manual 模式
+  继续使用宿主顺序；
+- `ProjectPanel` 接收 `manualOrder` 并纳入 `visibleRows` 依赖，
+  `EditorWorkspace` 调用点同步传递该 prop。
+
+**回归**：`tests/round858.test.mjs` 覆盖 manual sibling 顺序、非 manual
+host 顺序和 ProjectPanel wiring；定向套件 **25 pass / 0 fail**。
+
+## 2026-11-17 — React UI 迁移到 TSX module graph 与 Prettier 格式规范
+
+**作用域**：浏览器 React 组件、共享 UI、布局工具栏、构建管线与格式化配置。
+
+**用户要求**：
+
+- React 组件和布局改用 JSX；
+- 文件使用 `.tsx` / TypeScript 语法；
+- 使用编译工具生成部署 JS；
+- 拆分通用 UI 与功能组件以便 import；
+- TSX 中 JSX 属性使用 XML 层级多行格式，不压缩成单行。
+- 模块逐个翻译并替换；测试通过后，旧 JS 改名为 `.js.bak` 作为参考，
+  不加入构建。
+
+**实现**：
+
+- 引入 esbuild、Babel createElement-to-JSX codemod、Prettier devDependencies；
+- `.prettierrc.json` 配置 `printWidth=120`、single quote、
+  `singleAttributePerLine=true`、`bracketSameLine=true`、LF；
+- 拆分可复用模块：
+  - `components/ui/Icon.tsx`
+  - `components/ui/ToolbarButton.tsx`
+  - `components/ui/ActivityStripe.tsx`
+  - `components/ui/PanelToolbar.tsx`
+  - `components/ui/CompactActionBar.tsx`
+  - `components/ui/commit-model.ts`
+  - `components/ui/Menu.tsx`
+  - `components/ui/DiffViewModeControl.tsx`
+  - `components/ui/diff-model.ts`
+  - `components/ui/EntryIcon.tsx`
+  - `components/ui/file-badge.ts`
+  - `components/ui/GitStatusBadge.tsx`
+  - `components/ui/git-change-model.ts`
+  - `components/ui/git-status-model.ts`
+  - `components/ui/LineCounts.tsx`
+  - `components/ui/menu-model.ts`
+  - `components/ui/PathLabel.tsx`
+  - `components/ui/toolbar-model.ts`
+  - `components/commit/CommitPanel.tsx`
+  - `components/commit/CodePreviewCode.tsx`
+  - `components/commit/NamePrompt.tsx`
+  - `components/commit/MoveToPicker.tsx`
+  - `components/commit/RevisionPicker.tsx`
+  - `components/commit/commit-search-model.ts`
+  - `components/project/ProjectPanel.tsx`
+  - `components/terminal/TerminalScreen.tsx`
+  - `components/terminal/EditorTerminalTab.tsx`
+  - `components/terminal/TerminalPanel.tsx`
+  - `ui/styles.ts`
+- 组件通过 ES import 复用，由 esbuild 编译为 CJS module graph 后嵌入
+  DSH 单 `lib/client.js` factory；
+- React 仍由宿主 `require('react')` 提供；
+- legacy `ui-primitives.js` 已移除上述组件定义，只保留尚未迁移的业务 UI；
+- ProjectPanel 的 TSX 源码由 Babel 编译为 `React.createElement` 后嵌入单
+  factory，历史行为回归测试继续使用 `tests/fixtures/project-panel.legacy.js`
+  作为迁移前 oracle；
+- 新增 `format:client-components` /
+  `check:format:client-components`；
+- README 同步目录和构建说明。
+
+**回归**：
+
+- 迁移过程中静态源码测试从读取 legacy 函数体改为读取对应 TSX 源文件；
+- 60 个 ProjectPanel 历史测试统一采用 legacy fixture + 当前生成产物组合
+  读取，避免旧契约与新组件源码互相污染；
+- 22 个 ContextMenu 历史测试采用 `tests/fixtures/context-menu.legacy.js`
+  作为迁移前 oracle；新增 round789 直接验证 TSX 与 model 源；
+- `src/client/menu.js` 已完成迁移并通过全量测试，随后改名为
+  `src/client/menu.js.bak`；`build-client.mjs` 模块数由 17 降为 16；
+- `package.json` 使用 `!src/client/**/*.js.bak`，避免参考文件进入 npm 包；
+- `EntryIcon` 与 `fileBadge` 已迁入独立 TSX/TS 模块，`ui-primitives.js`
+  删除对应旧实现；该文件仍含 `GitStatusBadge` 等 helper，整体暂不退役；
+- `GitStatusBadge` 与 `gitStatusInfo` 已迁入 TSX/TS 模块；`ui-primitives.js`
+  现在只剩纯 diff/git/commit helper，组件实现已全部迁出；
+- `diffSideLabels`、`diffViewStateKey`、`transferDiffLine` 已迁入
+  `diff-model.ts`；`ui-primitives.js` 只剩 7 个纯 git/commit helper；
+- `canCompareWithHead`、`badgeFor`、`allPathsUnversioned`、
+  `pathsScheduledForRemoval` 已迁入 `git-change-model.ts`；
+  `ui-primitives.js` 只剩 `selectionStateOf`、`subtotalOf`、`commitMetrics`；
+- `selectionStateOf`、`subtotalOf`、`commitMetrics` 已迁入
+  `commit-model.ts`；`ui-primitives.js` 改名 `ui-primitives.js.bak`，
+  从 build manifest 移除，构建模块数降为 15；
+- `CommitPanel` 已迁入 `components/commit/CommitPanel.tsx`，由 Babel
+  TypeScript/JSX 转换后嵌入单 factory；`commit.js` 仅保留其余日志/选择器
+  helper 组件；
+- 新增 `tests/fixtures/commit-panel.legacy.js`；54 个历史 CommitPanel
+  静态测试及 9 个相关调用链测试改用 fixture-first；
+- 新增 `tests/round795.test.mjs` 验证 TSX 源、构建嵌入和 legacy 去重；
+- `NamePrompt` 已迁入 `components/commit/NamePrompt.tsx`，legacy 副本追加到
+  CommitPanel fixture 以保留历史切片边界；新增 `tests/round796.test.mjs`；
+- `RevisionPicker` 与 `commitSearchScore` 已迁入独立 TSX/TS 模块；
+  build-client 同时编译并注入 commit-search-model；
+- 新增 `tests/round797.test.mjs`；round49 / round144 改为读取实际 TSX/TS；
+- `MoveToPicker` 已迁入 `components/commit/MoveToPicker.tsx`；
+  legacy 副本追加到 CommitPanel fixture；新增 `tests/round798.test.mjs`；
+- `CodePreviewCode` 已迁入 `components/commit/CodePreviewCode.tsx`；
+  迁移时发现并修复了被截断的 preview/colorize helper，新增
+  `tests/round799.test.mjs`；
+- `TerminalScreen` 已迁入 `components/terminal/TerminalScreen.tsx`；
+  新增 `tests/fixtures/terminal-screen.legacy.js`，5 个历史测试改为
+  fixture-first；新增 `tests/round800.test.mjs`；
+- `EditorTerminalTab` 已迁入 `components/terminal/EditorTerminalTab.tsx`；
+  round145 改为直接读取 TSX；新增 `tests/round801.test.mjs`；
+- `TerminalPanel` 已迁入 `components/terminal/TerminalPanel.tsx`；
+  新增 `tests/fixtures/terminal-panel.legacy.js` 和
+  `tests/round802.test.mjs`；17 个 TerminalPanel 历史测试与 20 个
+  终端相关测试改为 fixture-first；
+- `SearchEverywhere` 已迁入 `components/search/SearchEverywhere.tsx`；
+  新增 `tests/fixtures/search-everywhere.legacy.js`，95 个搜索相关历史测试
+  改为 fixture-first；修正 round621 / round622 / round556 的 fixture 边界；
+- `ShowUsagesPopup` 已迁入 `components/search/ShowUsagesPopup.tsx`；
+  legacy 副本追加到同一搜索 fixture，新增 `tests/round804.test.mjs`；
+- `search-everywhere.js` 已改名为 `src/client/search-everywhere.js.bak`，
+  从 `build-client.mjs` 清单移除，构建模块数由 15 降为 14；
+- `package.json` 的 `!src/client/**/*.js.bak` 继续保证参考文件不进入 npm 包；
+- `EditorStatusFacts` 已迁入
+  `components/editor/EditorStatusFacts.tsx`；`editor-core.js` 删除旧组件，
+  build-client 单独编译并嵌入新 TSX；新增 `tests/round805.test.mjs`；
+- `MarkdownModeSwitch` 已迁入
+  `components/editor/MarkdownModeSwitch.tsx`；保持 code / split / preview
+  三态、`aria-pressed`、`data-dsh-markdown-mode` 和 13px 图标；
+  round396 改为读取 TSX，新增 `tests/round806.test.mjs`；
+- `ImagePreviewPane` 已迁入
+  `components/editor/ImagePreviewPane.tsx`；保持浏览器原生解码、
+  loading/error/尺寸元数据、焦点激活和图片路由属性；round752 / round754
+  改为读取 TSX，新增 `tests/round807.test.mjs`；
+- `MarkdownPreviewPane` 已迁入
+  `components/editor/MarkdownPreviewPane.tsx`；保持宿主 Markdown primitive、
+  MarkdownDelegateProvider、workspace 图片解析、本地链接 guard 和外部链接
+  安全打开；round385 / round396 / round399 / round404 / round409 /
+  round755 / round756 改为读取 TSX，新增 `tests/round808.test.mjs`；
+- workspace tab 模型已迁入
+  `components/editor/workspace-file-model.ts`：
+  `workspaceFileFromResponse`、`workspaceReloadOperation`、
+  `workspaceFileAfterReload` 使用 text/image 联合类型；
+- 图片 tab 元素构建器已迁入
+  `components/editor/workspace-image-preview.tsx`，使用 XML 层级 JSX
+  创建 `ImagePreviewPane`；
+- round753 改为通过 `tests/ts-source.mjs` 执行 TS 模型；round754 增加
+  builder 断言；新增 `tests/round809.test.mjs`；
+- 图片/Markdown 路径模型已迁入
+  `components/editor/editor-path-model.ts`：
+  `isImagePreviewPath`、`imagePreviewUrl`、`markdownAssetRevisionForPath`、
+  `nextMarkdownAssetRevisions`、`markdownWorkspaceImageUrl`；
+- round752 改为直接执行 TS 图片扩展名函数；新增 `tests/round810.test.mjs`
+  覆盖图片 URL 参数、目录级 revision 和 Markdown workspace 图片 URL；
+- `dirname` 与 `resolveMarkdownLink` 已并入
+  `components/editor/editor-path-model.ts`，路径模型现可独立执行；
+- round385 改为直接执行 TS resolver；round810 的真实图片 URL 测试不再
+  stub `resolveMarkdownLink`；新增 `tests/round811.test.mjs`；
+- Markdown 文档模型已迁入
+  `components/editor/editor-document-model.ts`：
+  `MarkdownMode` 联合类型、`normalizeMarkdownMode`、`isMarkdownPath`；
+- `MarkdownModeSwitch.tsx` 直接复用 `MarkdownMode` 类型；
+- round385 改为执行 TS 文档模型；round806 验证类型复用；
+  新增 `tests/round812.test.mjs`；
+- Project tree 选择模型已迁入
+  `components/project/project-selection-model.ts`：
+  `ProjectTreeSelectionRequest/Result` 类型和
+  `projectTreeSelectionAfterPointer`；
+- round718 改为执行 TS 选择函数；toolwindow-round11 改为读取 TS 模型；
+  新增 `tests/round813.test.mjs`；
+- Markdown 滚动模型已迁入
+  `components/editor/markdown-scroll-model.ts`：
+  `MarkdownScrollBox`、`markdownScrollRatio`、
+  `markdownScrollTopForRatio`；
+- round386 改为直接执行 TS 滚动函数；新增 `tests/round814.test.mjs`；
+- Go to Line 模型已迁入
+  `components/editor/editor-navigation-model.ts`：
+  `GotoLinePosition`、`GotoLineShortcutEvent`、
+  `parseGotoLinePosition`、`gotoLineShortcutMatches`；
+- round689 改为执行 TS 导航函数；新增 `tests/round815.test.mjs`；
+- New File 模板模型已迁入
+  `components/editor/editor-file-template-model.ts`：
+  `EditorFileTemplateExtension` 与 `templateFor`；
+- round144 改为执行 TS 模板函数；新增 `tests/round816.test.mjs`；
+- 编辑器语言映射已迁入
+  `components/editor/editor-language-model.ts`：
+  filename/extension 映射与 `languageFor`；
+- `tests/ts-source.mjs` 新增整模块 TypeScript 转译/加载 helper，
+  支持导出常量参与执行测试；
+- round682 改为执行 TS 语言模型；新增 `tests/round817.test.mjs`；
+- `DIFF_TAB_KEY` 已迁入 `components/editor/editor-tab-model.ts`；
+  `EDITOR_UI_FONT`、`EDITOR_CODE_FONT_SIZE`、
+  `EDITOR_CODE_LINE_HEIGHT` 已迁入
+  `components/editor/editor-style-model.ts`；
+- 两个常量模块在 factory body 之前注入，保证 legacy inline styles 初始化时
+  不再依赖后置 UI bundle；
+- `domain-core.js` 改名为 `src/client/domain-core.js.bak`，
+  从 build manifest 移除，构建模块数由 14 降为 13；
+- round671 更新为 13 模块；8 个历史迁移测试改为读取 `.js.bak`；
+  新增 `tests/round818.test.mjs`；
+- `AnnotatePreview` 已迁入
+  `components/diff/AnnotatePreview.tsx`：
+  保持 PathLabel、truncated hint、selected row、Open Commit 和关闭动作；
+- round44 改为读取 TSX；round147 的 PathLabel 计数改为跨 TSX/client；
+- 新增 `tests/round819.test.mjs`；
+- `RepositoryVersionPreview` 已迁入
+  `components/diff/RepositoryVersionPreview.tsx`：
+  保持只读 Monaco、binary fallback、PathLabel、Open Local 和关闭；
+- round568 改为读取 TSX；新增 `tests/round820.test.mjs`；
+- `DiffPreview` 已使用项目现有 Babel createElement-to-JSX codemod
+  迁移到 `components/diff/DiffPreview.tsx`；
+- 新增 `tests/fixtures/diff-preview.legacy.js`，冻结迁移前 1869 行组件；
+- 61 个直接 DiffPreview 测试与 round17 / round25 / round147 /
+  round156 / round185 / round190 / round210 / round211 / round220 /
+  round230 / round266 / round316 / round381 / round382 / round441
+  等间接测试改为 fixture-first；
+- DiffPreview 定向历史契约 **204 pass / 0 fail**；
+- 新增 `tests/round821.test.mjs` 验证 TSX、JSX、关键 diff 生命周期和
+  legacy fixture 去重；
+- `diff.js` 当时已无 React 组件，但仍保留 diff/commit helper；该文件已在
+  第 868 轮整体迁入 `diff.ts`，旧实现保留为 `diff.js.bak`；
+- `QuickOpen` 已迁入 `components/search/QuickOpen.tsx`：
+  保持 Go to File fuzzy 排序、Recent Files MRU 顺序、文件徽标、
+  ↑/↓/Enter/Esc、loading/noMatches/recentEmpty；
+- 新增 `tests/fixtures/find-tool.legacy.js`，冻结 QuickOpen + fuzzyScore；
+- 73 个 QuickOpen/FindToolWindow 历史测试追加 fixture；63 个直接 QuickOpen
+  测试使用 fixture 的 `lastIndexOf` 边界，FindToolWindow 测试改用
+  `QUICK_OPEN_BOUNDARY` 注释；
+- 新增 `tests/round822.test.mjs`；
+- `FindScopeEditor` 已迁入 `components/search/FindScopeEditor.tsx`：
+  保持 Scope 新建、复制、删除、上下移动、Shared、include/exclude、
+  IDEA Scope XML 导入/导出入口和保存校验；
+- 新增 `tests/fixtures/find-scope-editor.legacy.js`，冻结迁移前组件；
+  round696 改为 fixture-first，新增 `tests/round823.test.mjs`；
+- round753 的旧源码切片结束标记已按实际 helper 注释修正为
+  `Make one path visible in the tree`，避免迁移后的测试边界失效；
+- `FindToolWindow` 已使用项目已有 Babel createElement-to-JSX codemod
+  迁入 `components/search/FindToolWindow.tsx`，保留弹窗/停靠布局、
+  Find/Replace、Scope、File Mask、历史、结果树、预览、键盘与上下文菜单；
+- 新函数名使用 `FindToolWindowView`，再导出 `FindToolWindow` 别名；这避免
+  compiled 产物先于历史 fixture 命中 `function FindToolWindow(`，导致测试
+  切片跨越新旧两份源码；
+- 旧组件冻结到 `tests/fixtures/find-tool.legacy.js`，顺序固定为
+  `FindToolWindow → QUICK_OPEN_BOUNDARY → QuickOpen`；
+- Search Everywhere / Find 历史测试显式追加 find-tool fixture；
+  新增 `tests/round824.test.mjs`；
+- `CommitGraph` 已使用 Babel createElement-to-JSX codemod 迁入
+  `components/commit/CommitGraph.tsx`，保留 lane/track、HEAD/ref 徽标、
+  run 折叠、行选择、hover、ref 过滤与右键菜单；
+- 新函数名使用 `CommitGraphView`，再导出 `CommitGraph` 别名；旧组件冻结到
+  `tests/fixtures/commit-graph.legacy.js`，与 CommitPanel fixture 隔离；
+- round42 / 43 / 45 / 46 / 69 / 352 / 353 / 354 改为读取 graph fixture；
+  新增 `tests/round825.test.mjs`；
+- `CommitLog` 已使用 Babel createElement-to-JSX codemod 迁入
+  `components/commit/CommitLog.tsx`，保持日志筛选、作者过滤、分页、
+  提交详情、文件行动作、图模式、多选、键盘与上下文菜单；
+- 新函数名使用 `CommitLogView`，再导出 `CommitLog` 别名；旧组件冻结到
+  `tests/fixtures/commit-log.legacy.js`，含 `COMMIT_LOG_BOUNDARY` 和旧
+  `formatCommitDate` 边界 oracle；
+- 37 个 CommitLog 历史测试显式追加 log fixture，日志切片统一改用
+  `COMMIT_LOG_BOUNDARY`；新增 `tests/round826.test.mjs`；
+- CommitLog 的 Babel 输出会把 `_extends` helper 放在 import 前，build-client
+  注入前改为移除任意位置的 import 语句，避免生成非法 CJS factory；
+- `MeasuringScreen` 已迁入
+  `components/terminal/MeasuringScreen.tsx`，保持隐藏 xterm、FitAddon、
+  ResizeObserver、网格 clamp、`onGrid` live ref 和 80×24 fallback；
+- 新函数名使用 `MeasuringScreenView`，再导出 `MeasuringScreen` 别名；旧组件
+  冻结到 `tests/fixtures/measuring-screen.legacy.js`；round150 改为
+  fixture-first，新增 `tests/round827.test.mjs`；
+- `find-tool.js` 当时已无 React.createElement 或组件函数，但仍保留终端/find
+  纯 helper；该文件已在第 871 轮迁入 `find-tool.ts`，旧实现保留为
+  `find-tool.js.bak`；
+- `EditorErrorBoundary` 已从 `terminal.js` 迁入
+  `components/editor/EditorErrorBoundary.tsx`，保持 getDerivedStateFromError、
+  componentDidCatch 诊断、workspaceId 恢复、generation 重挂载和 fallback UI；
+- 新 class 使用 `EditorErrorBoundaryView` 名称，再导出 `EditorErrorBoundary`
+  别名；旧实现冻结到
+  `tests/fixtures/editor-error-boundary.legacy.js`；round451 / round457 改为
+  fixture-first，新增 `tests/round828.test.mjs`；
+- Go to Line 弹层已从 `EditorWorkspace` 抽离到
+  `components/editor/EditorGotoLinePopup.tsx`；父组件继续拥有 gotoState、
+  target path/pane、Monaco reveal 和提交/关闭逻辑；
+- 旧内联 JSX 冻结到
+  `tests/fixtures/editor-goto-line-popup.legacy.js`；round689 改为读取 TSX，
+  新增 `tests/round829.test.mjs`；
+- Editor Find/Replace 栏已从 `EditorWorkspace` 抽离到
+  `components/editor/EditorFindBar.tsx`；搜索算法、Monaco replacement、
+  选项持久化、错误和 scope 仍由父组件拥有；
+- 旧内联 JSX 冻结到 `tests/fixtures/editor-find-bar.legacy.js`；
+  round485 / 486 / 535 / 551 / 585 改为读取 TSX，新增
+  `tests/round830.test.mjs`；
+- Editor 状态栏已从 `EditorWorkspace` 抽离到
+  `components/editor/EditorStatusBar.tsx`；父组件继续拥有 statusFile/path、
+  Clipboard、Go to Line 和 Annotate 回调；
+- 旧内联 JSX 冻结到 `tests/fixtures/editor-status-bar.legacy.js`；
+  round684 / 686 改为读取 TSX，新增 `tests/round831.test.mjs`；
+- 通用文件标签行已迁入 `components/editor/EditorFileTab.tsx`，支持动态
+  data attribute、角色/选中态、脏标记、关闭按钮、拖拽和上下文菜单回调；
+- 右侧 split tab 已改用 EditorFileTab；旧内联 JSX 冻结到
+  `tests/fixtures/editor-file-tab.legacy.js`；round333 / 334 / 340 / 341 /
+  375 / 689 更新为组件边界断言，新增 `tests/round832.test.mjs`；
+- 左侧 file tab 也已复用 EditorFileTab；标签条容器迁入
+  `components/editor/EditorTabStrip.tsx`，负责 open/hidden 数据、
+  Markdown mode 与 overflow 按钮，菜单内容仍由父组件拥有；
+- 旧左侧标签和 tab strip 分别冻结到
+  `tests/fixtures/editor-main-file-tab.legacy.js` /
+  `tests/fixtures/editor-tab-strip.legacy.js`；round148 / 174 / 59 / 676 /
+  679 等更新，新增 `tests/round833.test.mjs`；
+- Commit/Compare diff tab 已迁入 `components/editor/EditorDiffTab.tsx`；
+  右键菜单、diffTarget 和 closeDiff 仍由 EditorWorkspace 拥有；
+- 旧 diff tab 内联 JSX 冻结到 `tests/fixtures/editor-diff-tab.legacy.js`；
+  round148 更新为组件边界断言，新增 `tests/round834.test.mjs`；
+- 外部修改与保存冲突提示条已迁入
+  `components/editor/EditorConflictBars.tsx`；父组件继续拥有
+  externalChanges、conflict 和 reload/recreate/keep-local/overwrite/dismiss；
+- 旧内联 JSX 冻结到
+  `tests/fixtures/editor-conflict-bars.legacy.js`；round26 的 deleted 分支
+  改为读取 TSX，新增 `tests/round835.test.mjs`；
+- 右侧 split pane header 已迁入
+  `components/editor/EditorSplitHeader.tsx`，负责 split tab strip、
+  overflow 和 Close Split；父组件继续拥有 split state、拖拽和编辑器组；
+- 旧 header 内联 JSX 冻结到
+  `tests/fixtures/editor-split-header.legacy.js`；round338 更新为组件边界
+  断言，新增 `tests/round836.test.mjs`；
+- 右侧 split pane 外层、Monaco container 和图片预览 fallback 已迁入
+  `components/editor/EditorSplitPane.tsx`；组件复用 EditorSplitHeader，
+  父组件继续拥有 split percent、focus border、拖拽、overflow 菜单和图片路由；
+- 迁移时发现旧内联垂直分隔条曾被一起删除，已恢复原 `role=separator`、
+  clamp 与 `dsh-editor.editor.splitPercent` 持久化逻辑，避免抽离造成功能回归；
+- 旧 split pane JSX 冻结到
+  `tests/fixtures/editor-split-pane.legacy.js`；round330 / 332 / 836 更新为
+  组件边界断言，新增 `tests/round837.test.mjs`；
+- 左侧 editor pane 的布局、focus border、Monaco container 和预览插槽已迁入
+  `components/editor/EditorMainPane.tsx`；split 比例、Markdown/图片 preview、
+  openFile 和 Monaco model 绑定仍由父组件拥有；
+- 旧左侧 pane JSX 冻结到
+  `tests/fixtures/editor-main-pane.legacy.js`；round332 / 385 更新为组件边界
+  断言，新增 `tests/round838.test.mjs`；
+- 左右编辑区之间的垂直分隔条已迁入
+  `components/editor/EditorSplitDivider.tsx`；clamp、拖动 listener、
+  split percent setter 和持久化 callback 继续由父组件提供；
+- 旧 divider JSX 冻结到
+  `tests/fixtures/editor-split-divider.legacy.js`；round332 更新为组件边界
+  断言，新增 `tests/round839.test.mjs`；
+- 编辑器区域终端可见性已迁入
+  `components/terminal/EditorTerminalArea.tsx`；active/terminal 守卫、
+  EditorTerminalTab 固定参数和 no-op 回调由组件管理，PTY 与父组件生命周期
+  不变；
+- 旧 terminal area JSX 冻结到
+  `tests/fixtures/editor-terminal-area.legacy.js`；round145 更新为组件边界
+  断言，新增 `tests/round840.test.mjs`；
+- Terminal dock 外框、resize grip 与高度手势已迁入
+  `components/terminal/EditorTerminalDock.tsx`；TerminalPanel、PTY、
+  focus return 和 editor terminal 同步仍由父组件拥有；
+- 组件直接提交最新 clamp 后高度，父组件据此持久化；旧的 terminalHeightRef
+  已删除；旧 JSX 冻结到 `tests/fixtures/editor-terminal-dock.legacy.js`，
+  round149 更新，新增 `tests/round841.test.mjs`；
+- Diff surface 的 active 守卫和 RepositoryVersionPreview / DiffPreview
+  分支已迁入 `components/editor/EditorDiffArea.tsx`；diff inclusion、
+  navigation、undo/redo、view state 和 Search In Changes 仍由父组件提供；
+- 旧 diff surface JSX 冻结到 `tests/fixtures/editor-diff-area.legacy.js`；
+  round148 更新，新增 `tests/round842.test.mjs`；
+- Annotate surface 的 active/target 守卫与 AnnotatePreview 绑定已迁入
+  `components/editor/EditorAnnotateArea.tsx`；lines、loading/truncated、
+  selected、close 和打开 commit 回调仍由父组件提供；
+- 旧 annotate surface JSX 冻结到 `tests/fixtures/editor-annotate-area.legacy.js`；
+  round44 更新，新增 `tests/round843.test.mjs`；
+- Find tool 底部 dock 外框、resize grip 与高度手势已迁入
+  `components/search/FindToolDock.tsx`；FindToolWindow、搜索/替换、
+  结果导航和打开文件逻辑仍由父组件拥有；
+- 组件直接提交最新 clamp 后高度，父组件据此持久化；旧
+  findToolDockHeightRef 已删除；旧 JSX 冻结到
+  `tests/fixtures/find-tool-dock.legacy.js`，round635 更新，新增
+  `tests/round844.test.mjs`；
+- Find tool 浮层外框、persisted geometry style 和 FindToolWindow clone
+  注入已迁入 `components/search/FindToolPopup.tsx`；move/resize 逻辑、
+  geometry state/persistence 和搜索状态仍由父组件拥有；
+- 旧 popup JSX 冻结到 `tests/fixtures/find-tool-popup.legacy.js`；
+  round715 更新，新增 `tests/round845.test.mjs`；
+- Editor empty placeholder 与 file-surface row 容器已迁入
+  `components/editor/EditorFileSurface.tsx`；fileSurfaceVisible、empty 条件和
+  左右 pane children 仍由父组件提供；
+- 旧 JSX 冻结到 `tests/fixtures/editor-file-surface.legacy.js`；
+  round44 / 148 更新，新增 `tests/round846.test.mjs`；
+- controller 中的 ErrorBoundary + EditorWorkspace 启动嵌套已迁入
+  `components/editor/EditorMount.tsx`；createRoot、host 生命周期和 controller
+  state 仍由 JS controller 拥有，Workspace 通过 component prop 传入；
+- 旧 render 调用冻结到 `tests/fixtures/editor-mount.legacy.js`；
+  round219 / 451 更新，新增 `tests/round847.test.mjs`；
+- EditorWorkspace 根节点样式、workspace id、gutter surface 和 editor file drag
+  props 已迁入 `components/editor/EditorWorkspaceShell.tsx`；工具窗口、编辑器
+  与业务 state 继续作为 children 由父组件拥有；
+- 旧 root JSX 冻结到 `tests/fixtures/editor-workspace-shell.legacy.js`；
+  round735 更新，新增 `tests/round848.test.mjs`；
+- ActivityStripe、side panel、side resizer 和 main column 的共同 workspace body
+  容器已迁入 `components/editor/EditorWorkspaceBody.tsx`；面板内容、tool
+  widths、resize 与 panelVisible 仍由父组件拥有；
+- 旧 body JSX 冻结到 `tests/fixtures/editor-workspace-body.legacy.js`；
+  新增 `tests/round849.test.mjs`；
+- Project/Commit tool-window side panel 外框、flex 计算和 dragging cursor
+  已迁入 `components/editor/EditorToolWindowPanel.tsx`；面板内容、tool widths、
+  panelVisible 与 resize 手柄仍由父组件拥有；
+- 旧 side panel JSX 冻结到
+  `tests/fixtures/editor-tool-window-panel.legacy.js`；新增
+  `tests/round850.test.mjs`；
+- tool-window side resize 手柄和宽度拖动行为已迁入
+  `components/editor/EditorToolWindowResizer.tsx`；组件直接提交最新 clamp
+  后宽度，父组件负责 activity/toolWidths 持久化；旧 toolWidthsRef 已删除；
+- 旧 resizer JSX 冻结到
+  `tests/fixtures/editor-tool-window-resizer.legacy.js`；round156 更新，
+  新增 `tests/round851.test.mjs`；
+- workspace main column 外框已迁入
+  `components/editor/EditorWorkspaceMainColumn.tsx`；editor surface、
+  status/dock、find 与全部编辑业务 children 仍由父组件拥有；
+- 旧 main column JSX 冻结到
+  `tests/fixtures/editor-workspace-main-column.legacy.js`；round849 更新，
+  新增 `tests/round852.test.mjs`；
+- editor surface 容器已迁入
+  `components/editor/EditorWorkspaceSurface.tsx`；tab strip、file surface、
+  diff/annotate、dock、Find 和 status 子节点仍由父组件拥有；
+- 旧 surface JSX 冻结到
+  `tests/fixtures/editor-workspace-surface.legacy.js`；新增
+  `tests/round853.test.mjs`；
+- Monaco 初始化错误和通用 editor error 已迁入统一
+  `components/editor/EditorErrorBanner.tsx`；错误 state 仍由父组件拥有；
+- 旧 error JSX 冻结到 `tests/fixtures/editor-error-banner.legacy.js`；
+  round622 更新 history 切片边界，新增 `tests/round854.test.mjs`；
+- `editor-workspace.js` 已无原始 DOM `React.createElement('div'...)`；
+  剩余 createElement 仅为已迁移组件调用；
+- 内部 rename/move 没有迁移 Manual Order：旧 child path 留在保存 rank 中，
+  新 path 被视为未知条目并排到已知项后；目录 move 还会留下旧 parent key
+  和后代 rank；
+- 新增 `remapProjectManualOrder(order, entries)`：同目录 rename 原位替换、
+  跨目录 file move 从旧 parent 移除且仅加入已有 destination order、
+  directory move 迁移 parent key 和后代 rank；destination 原本没有 manual
+  order 时不创建，避免副作用式重排；
+- EditorWorkspace 在 rename/move `refreshTree()` 前更新 manualOrder state
+  与 localStorage；round855 覆盖纯函数与 wiring；
+- 删除文件/目录后 manual order 的 stale rank 未收敛，同名重建会恢复旧顺序；
+  directory delete 还会留下 parent key 与后代 ranks；
+- 新增 `pruneProjectManualOrder(order/rootEntries/children)`：复用 expansion
+  pruning 的已加载 listing 证据，删除 stale child rank、已删除 parent key
+  和后代 keys；未加载 parent 保留；workspace effect 变化时同步持久化；
+- round856 覆盖 file delete、directory delete、unknown listing 和 wiring；
+- expanded/manual-order pruning 原先把隐藏或 excluded 过滤后的 listing 当成
+  完整文件集；关闭 Show Hidden / excluded 会误删仍存在的目录展开状态与
+  manual rank；
+- prune helpers 增加 `authoritative:false` identity guard；workspace 使用
+  render-time 同步的 `listingAuthoritativeRef`，只有 hidden 与 excluded 都
+  可见时才执行 prune，避免异步 listing / filter 竞态；
+- 首次运行态验证发现 ref 声明在 `showExcludedFiles` 之前，触发 TDZ error
+  boundary；已调整到两个 state hooks 之后并增加声明顺序回归；
+- round857 覆盖非权威/权威 listing 与 binding；Ego Browser 连续两次切换
+  Show Hidden，`.hidden855` 保持展开、子文件恢复可见；
+- `editor-core.js` 当时已无 React 组件函数，但仍保留 Monaco 初始化、
+  文件 API 和编辑器会话 helper；该文件已在第 869 轮整体迁入
+  `editor-core.ts`，旧实现保留为 `editor-core.js.bak`；
+- npm pack 文件数上限从旧组件数 `<60` 调整为 `<140`：TSX 组件按文件拆分后
+  合法包文件数会增加，`<140` 继续用于识别 Monaco vendored-copy 爆炸，
+  同时明确断言不包含 `assets/monaco` / `assets/xterm`；
+- Prettier check：通过；
+- 全量 `npm test`：**2737 pass / 0 fail**；
+- `node --check lib/client.js`：通过。
+
+**运行态证据**：
+
+- Ego Browser / 隔离 DSH Web：
+  - ActivityStripe 渲染 Project / Commit / Terminal / Harness；
+  - Project PanelToolbar 渲染 target、Hide、More actions；
+  - Project tree 折叠/展开正常，⌘F 文件名搜索返回 `src/app.js`；
+  - Commit 的 LineCounts 显示精确 `+2 −1` 与完整 tooltip；
+  - Project More actions 的 ContextMenu 自动聚焦首项；
+  - `Copy Path/Reference…` 展开 5 项子菜单，ArrowLeft 关闭子菜单并恢复
+    父项焦点；
+  - Project 文件树与 Commit Changes 树继续显示文件/目录图标；
+  - Go to File 中 README 显示 `M`，`nav-main.js` / `nav-target.js` 显示
+    `U` 状态徽标；
+  - Commit Diff 正常打开 HEAD/Index 双 Monaco 面板；
+  - Go to File 继续显示 README 的 `M` 与未跟踪文件的 `U`；
+  - Commit Changes 树、三态 checkbox 和 `+2 −1` 行数继续正常；
+  - CommitPanel 的 Change/Commit 子页、tree、过滤框和提交按钮正常；
+  - Commit 消息输入可更新状态，按钮保持可用；
+  - 分支菜单可打开 New Branch NamePrompt；输入后 OK 启用，Esc 正常关闭；
+  - Change 菜单可打开 Compare with Revision RevisionPicker；
+  - picker 显示 commit hash/subject/author，并可搜索过滤；
+  - F6 打开 Move to…；目录列表和当前位置标记正常；输入 src 后过滤正确；
+  - Search Everywhere 预览渲染 `.dsh-editor-code-preview-code`，并生成匹配高亮；
+  - Terminal 面板成功创建 xterm，执行 `echo terminal-screen-ok` 并显示输出；
+  - Move to Editor 创建 editor terminal tab；
+  - Move back to the terminal dock 后 editor tab 消失、dock tab 保留；
+  - TerminalPanel 正常挂载 xterm，执行 `echo terminal-panel-ok` 并显示输出；
+  - Terminal Options 显示 clear/font/refresh 动作；
+  - 无 render error。
+- Search Everywhere 迁移运行态复核：
+  - 双击 Shift 仍按现有产品路由打开 Find in Files，不是迁移回归；
+  - `⌘⇧A` 打开 Search Everywhere，Text 页查询 `end` 返回 4 条结果；
+  - Preview 显示 4 行源码，方向键切换当前结果，查询框 Esc 关闭；
+  - 无 render error。
+- Show Usages 迁移运行态复核：
+  - 编辑器光标位于 `export` 时 `⌃⌥U` 打开弹框，返回 3 条用法；
+  - 输入 `nav-target` 后本地过滤为 2 条，方向键移动到第二条；
+  - Esc 关闭弹框，无 render error。
+- EditorStatusFacts 迁移运行态复核：
+  - 打开 `src/app.js` 后状态栏为
+    `1:1 / UTF-8 / 2 lines / 绝对路径`；
+  - 路径按钮仍为可访问的 `Copy path: …`；
+  - 无 render error。
+- MarkdownModeSwitch 迁移运行态复核：
+  - README 的三个按钮分别为 Editor / Editor and Preview / Preview；
+  - 切到 code 时仅 editor pane 可见，切到 preview 时仅 preview pane 可见；
+  - 两种状态的 `aria-pressed` 与 `data-dsh-markdown-mode` 同步；
+  - 验证后恢复 split，无 render error。
+- ImagePreviewPane 迁移运行态复核：
+  - 首次复测时旧 `63237` 宿主返回 `unknown operation "image"`；
+    按隔离 `DSH_HOME=/private/tmp/dsh-editor-r526-home`、profile `r526`
+    重启统一 `dsh` launcher 后恢复；
+  - 有效 PNG 显示 `image/png`、alt、`1 × 1` 元数据，点击后 pane 获得焦点；
+  - 损坏 PNG 隐藏 `<img>` 并显示 `Image preview failed: …` alert；
+  - 两次验证均无 render error；临时图片已清理。
+- MarkdownPreviewPane 迁移运行态复核：
+  - 临时 Markdown 渲染 `Runtime preview` 标题和工作区图片；
+  - 图片 URL 指向 `/api/file` 且自然尺寸为 `1 × 1`；
+  - 点击 `docs/missing.md` 保持在预览内并显示
+    `Could not open the Markdown link target: docs/missing.md`；
+  - 点击 `docs/notes.md` 打开真实文件 tab，状态路径同步；
+  - 无 render error，临时 Markdown 与图片已清理。
+- workspace file model 迁移运行态复核：
+  - 文本 tab 打开 `runtime-model.txt`，外部改写后显示 `model v2`；
+  - 图片 tab 打开 `runtime-model.png`，媒体类型 `image/png`、
+    自然尺寸 `1 × 1`；
+  - 无 render error，临时文件已清理。
+- editor path model 迁移运行态复核：
+  - Markdown 图片 URL 为 `/api/file`，`path` 指向工作区绝对图片；
+  - 图片 tab URL 为 `/api/dsh-editor/image`，包含 sessionId、path、
+    version，workspaceId 在 session scope 下为空；
+  - 两张图片自然尺寸均为 `1 × 1`，无 render error；
+  - 临时 Markdown 与图片已清理。
+- Markdown link resolver 迁移运行态复核：
+  - `docs/../docs/notes.md` 规范化为 `docs/notes.md` 并打开；
+  - 缺失链接显示本地化 alert，预览保持打开；
+  - `../../outside.md` 不打开文件并清除旧 alert；
+  - 外部链接在新窗口打开 `https://example.com/`；
+  - 临时 Markdown 已清理，无 render error。
+- editor document model 迁移运行态复核：
+  - localStorage 中的非法 `invalid` 模式被归一化为 `code`；
+  - 切换到分栏后 editor 与 preview 同时可见；
+  - 持久化值更新为 `split`，`aria-pressed` 同步；
+  - 无 render error。
+- project selection model 迁移运行态复核：
+  - 普通点击 `app.js` 仅选中该行；
+  - Meta 点击 `nav-main.js` 后同时选中 `app.js`、`nav-main.js`；
+  - Shift 点击 `nav-target.js` 后按锚点重算为
+    `nav-main.js`、`nav-target.js`；
+  - 无 render error。
+- markdown scroll model 迁移运行态复核：
+  - 160 段长 Markdown 在 split 模式下预览与 Monaco 同步；
+  - 预览顶部时 Monaco 可见 `Paragraph 001`，垂直滑块 `0px`；
+  - 预览滚到 50% 后 Monaco 可见 `Paragraph 076`，滑块 `199px`；
+  - 无 render error，临时长文档已清理。
+- editor navigation model 迁移运行态复核：
+  - 20 行文本中执行 `⌘L` 输入 `12:5`，状态栏定位到 `12:5`；
+  - 输入 `line:7` 后弹框保持打开并显示本地化校验错误；
+  - 无 render error，临时文本已清理。
+- editor file template model 迁移运行态复核：
+  - Project `New File` 创建 `runtime-template.ts`；
+  - 编辑器首行显示 `export {};`；
+  - 磁盘字节内容包括 `export {};\n`；
+  - 无 render error，临时文件已清理。
+- editor language model 迁移运行态复核：
+  - `runtime-lang.ts` → `typescript`；
+  - `runtime-lang.py` → `python`；
+  - `runtime-lang.json` → `json`；
+  - `Dockerfile.dev` → `dockerfile`；
+  - `runtime-lang.unknown` → `plaintext`；
+  - 无 render error，临时文件已清理。
+- domain-core retirement 运行态复核：
+  - Monaco Markdown 模式为 `markdown`；
+  - 字体仍为 `Trebuchet MS` + CJK 回退；
+  - 字号 `13px`，行高 `20px`；
+  - 无 render error。
+- AnnotatePreview 迁移运行态复核：
+  - `src/app.js` 打开 Annotate 视图；
+  - blame 行显示 `Test · 2026-11-16 02:12`、短 hash、行号；
+  - 行 title 包含完整 hash、summary 和 Open Commit 提示；
+  - Close annotate 后 pane 消失；
+  - 无 render error。
+- RepositoryVersionPreview 迁移运行态复核：
+  - 从 Commit Log 的 `src/app.js` 选择 Open Repository Version；
+  - pane hash 为完整 `8d5451a…`；
+  - toolbar 显示 `Version: app.js (8d5451a)`；
+  - 只读 Monaco 正常挂载 1 个 editor；
+  - Open Local 与 Close 按钮存在，Close 后 pane 消失；
+  - 无 render error。
+- DiffPreview 迁移运行态复核：
+  - Commit Changes 选中 README.md 后正常打开 Commit diff；
+  - 可见 1 个 `.monaco-diff-editor` 和 2 个 Monaco editor；
+  - toolbar 包含 Previous/Next file、Apply、Swap、Disable Editing、
+    Unified/Side-by-side、Close；
+  - unified 模式 `aria-pressed=true` 且保留 diff editor；
+  - 恢复 side-by-side 后 2 个 editor 可见；
+  - Close 后 diff surface 隐藏；
+  - 无 render error。
+- QuickOpen 迁移运行态复核：
+  - `⌘⇧O` 打开 Go to File；
+  - 查询 `app` 命中 `app.js`，Enter 后打开 `src/app.js`；
+  - `⌘E` 打开 Recent Files，保持最近文件顺序；
+  - Recent Files 行显示 M/U 状态徽标；
+  - Esc 关闭 Recent Files；
+  - 无 render error。
+- FindScopeEditor 迁移运行态复核：
+  - Find in Files 的 `Edit Scopes…` 正常打开 Scope 对话框；
+  - 新增、复制、删除、上下移动和 Import/Export 入口均存在；
+  - 新增 `TSX Scope Round823`，名称、`src/**` / `*.js`、
+    `*.md` / `node_modules/**` 和 Shared 状态保存后重新打开仍完整；
+  - Scope 下拉自动显示并选中该自定义 Scope；
+  - Cancel 关闭后无 render error。
+- FindToolWindow 迁移运行态复核：
+  - `⌘⇧F` 打开 Find 弹窗，搜索 `endValue` 命中 `src/app.js`；
+  - 活动结果、文件徽标和源码预览均正常；
+  - 切换到 Find 停靠窗口后查询与 Scope 保留，预览布局变为右侧；
+  - Replace 行展开并保留输入；
+  - 结果文件折叠/展开后预览行继续正确加载；
+  - 无 render error。
+- CommitGraph 迁移运行态复核：
+  - Commit Log 切换到 Commit Graph 后正常渲染 `8d5451a`；
+  - HEAD、main ref、作者与提交时间正确；
+  - Fold linear runs 可折叠并恢复；
+  - 点击图行后 Commit details 显示 baseline 与变更文件；
+  - 点击 main ref 后分支过滤值变为 `main`；
+  - 图行右键菜单显示完整 Commit 操作；
+  - 无 render error。
+- CommitLog 迁移运行态复核：
+  - Commit Log 正常显示 `8d5451a` / baseline；
+  - 点击提交行后详情显示作者、时间和三个变更文件；
+  - 日志筛选输入可用，无命中时显示 `No matches`；
+  - Esc 清除并隐藏筛选框；
+  - Commit Graph 与图行右键菜单继续正常；
+  - 无 render error。
+- MeasuringScreen 迁移运行态复核：
+  - Terminal 通过 `Alt+F12` 正常展开；
+  - 持久化 PTY 恢复并正常渲染 xterm；
+  - 关闭全部终端标签后再次打开会重新创建 shell；
+  - 无 MeasuringScreen/Terminal 专属异常；
+  - 页面仅保留既有 Monaco `export definition not found` 提示，与本轮无关。
+- EditorErrorBoundary 迁移运行态复核：
+  - Editor host 与 workspace 首次挂载正常；
+  - 关闭 Editor 后 host 进入 idle；
+  - 再次打开编辑器复用同一个 host 节点；
+  - workspace 继续存在，页面无 alert；
+  - fallback UI 的可执行恢复逻辑由 round451 覆盖。
+- EditorGotoLinePopup 迁移运行态复核：
+  - `Meta+L` 打开 Go to Line/Column 弹层；
+  - 无效输入保持弹层，显示 `Enter a valid line or line:column`，
+    并将输入标为 `aria-invalid=true`；
+  - 输入 `2:1` 后弹层关闭；
+  - 编辑器状态栏更新为 `2:1`；
+  - 无 alert/render error。
+- EditorFindBar 迁移运行态复核：
+  - `Meta+F` 打开查询栏并命中 `1/1`；
+  - `Meta+R` 展示 Replace 输入、Preserve case 和 Replace All；
+  - Search History 菜单正常显示 workspace 历史；
+  - Regex 输入 `[` 时显示 invalid regular expression alert；
+  - 无 FindBar 专属 render error。
+- EditorStatusBar 迁移运行态复核：
+  - 状态栏显示 `1:1`、`UTF-8`、`2 lines` 和完整文件路径；
+  - 路径按钮 title/aria 包含完整绝对路径；
+  - 点击复制路径后显示 `Copied`；
+  - Go to Line/Column 与 Annotate 按钮存在；
+  - 无 alert/render error。
+- EditorFileTab 迁移运行态复核：
+  - 从 Project 的 Open in Split 打开 app.js；
+  - split tab 显示 role=tab、selected=true、draggable=true；
+  - close label 为 `Close app.js`；
+  - split 右键菜单包含关闭、移动、Save、复制路径和 Select in Project View；
+  - Close Split 后 split tab 消失；
+  - 无 alert/render error。
+- EditorTabStrip 迁移运行态复核：
+  - tab strip 的 openTabs=3、hiddenTabs=0，openList 顺序正确；
+  - 左侧三个文件标签均 role=tab 且 draggable=true；
+  - README 激活后 trailing 区显示 Editor / Editor and Preview / Preview；
+  - 当前宽度足够，overflow 不出现；overflow 算法和菜单由自动测试覆盖；
+  - 无 alert/render error。
+- EditorDiffTab 迁移运行态复核：
+  - Commit diff 固定首 tab 显示 `Commit: README.md`；
+  - role=tab、selected=true、close label 正确；
+  - 1 个 Monaco diff editor 正常挂载；
+  - 右键菜单包含关闭、关闭其他、关闭右侧、关闭全部和 Open in editor；
+  - 点击关闭后 diff tab 与 diff editor 消失；
+  - 无 alert/render error。
+- EditorConflictBars 迁移运行态复核：
+  - clean README 被外部修改时自动静默同步；
+  - 编辑器内产生未保存内容后，外部修改显示
+    `This file changed on disk`；
+  - Reload from disk 与 Keep editor contents 按钮出现；
+  - 点击 Keep 后提示条消失，dirty 状态保留；
+  - 关闭编辑器后恢复 README fixture；
+  - 无 alert/render error。
+- EditorSplitHeader 迁移运行态复核：
+  - Open in Split 打开 app.js；
+  - split tabs hidden=0，data attribute 正确；
+  - split tab role=tab、label 和 close 控件正常；
+  - Close Split 后 split header 与 split tab 消失；
+  - 无 alert/render error。
+- EditorSplitPane 迁移运行态复核：
+  - Open in Split 打开 app.js 后出现 `data-dsh-editor-split`；
+  - split tabs hidden=0，split tab role=tab，Monaco container 正常挂载；
+  - Resize Editor Split 分隔条保持可访问角色；
+  - Close Split 后 pane、split tab 与 close 控件全部消失；
+  - 无新增 dsh-editor render/window/unhandled 诊断。
+- EditorMainPane 迁移运行态复核：
+  - `data-dsh-markdown-workspace` 与 Monaco editor pane 正常渲染；
+  - Preview 模式隐藏 editor pane，Editor 模式恢复 Monaco；
+  - 右侧 split 聚焦时左边框透明、右边框高亮，点击左侧后准确反转；
+  - Close Split 后右侧 pane 消失，左侧 editor 继续正常显示；
+  - 无 dsh-editor error 日志。
+- EditorSplitDivider 迁移运行态复核：
+  - divider role=separator、aria-orientation=vertical，
+    aria-valuemin=20、aria-valuemax=80、aria-valuenow=41；
+  - title 为 `Resize Editor Split`；
+  - Close Split 后 divider 与 split pane 消失，左侧 pane 保留；
+  - 无 dsh-editor error 日志。
+- EditorTerminalArea 迁移运行态复核：
+  - Terminal 标签菜单 Move to Editor 后出现 `data-dsh-editor-terminal-tab`；
+  - 编辑器内终端输入框正常渲染；
+  - Move back to the terminal dock 后编辑区终端消失，dock tab 恢复；
+  - 无 dsh-editor error 日志。
+- EditorTerminalDock 迁移运行态复核：
+  - dock 高度 244px，resize cursor=row-resize，title 正确；
+  - Hide terminal 后 panel 消失；
+  - 再次打开 Terminal 后 dock 与高度恢复；
+  - 无 dsh-editor error 日志。
+- EditorDiffArea 迁移运行态复核：
+  - Commit 选中 README.md 并 Show diff 后出现 `Commit: README.md`；
+  - diff surface 与 1 个 Monaco diff editor 正常渲染；
+  - 差异统计、侧边模式、文件导航和关闭控件正常；
+  - 无 dsh-editor error 日志。
+- EditorAnnotateArea 迁移运行态复核：
+  - notes.md 的 Annotate pane、toolbar 和 3 条 blame 行正常渲染；
+  - Close annotate 后 annotate pane 消失，Monaco editor pane 恢复；
+  - 无 dsh-editor error 日志。
+- FindToolDock 迁移运行态复核：
+  - 搜索后 Open in Find Window 正常切换到 dock；
+  - dock 高度 328px，FindToolWindow 位于 dock 内，popup 消失；
+  - resize cursor=row-resize，title 为 `Resize Find Window`；
+  - 无 dsh-editor error 日志。
+- FindToolPopup 迁移运行态复核：
+  - Cmd+Shift+F 后 popup 正常渲染，FindToolWindow 位于 popup 内；
+  - geometry 生效，transform=none，8 个 resize handles 正常；
+  - 无 dsh-editor error 日志。
+- EditorFileSurface 迁移运行态复核：
+  - 文件打开时 surface display=flex，EditorMainPane 位于容器内；
+  - 关闭全部文件后 surface display=none，empty placeholder 显示；
+  - 无 dsh-editor error 日志。
+- EditorMount 迁移运行态复核：
+  - Editor 打开后 host、workspace、tab strip 和 Monaco pane 正常挂载；
+  - host 非 idle；
+  - 无 dsh-editor error 日志。
+- EditorWorkspaceShell 迁移运行态复核：
+  - shell display=flex，gutter surface=idea；
+  - ActivityStripe 与 file surface 位于 shell 内；
+  - 无 dsh-editor error 日志。
+- EditorWorkspaceBody 迁移运行态复核：
+  - body display=flex，ActivityStripe 为首个子节点；
+  - body 共 4 个布局子节点，main column 与 file surface 存在；
+  - 无 dsh-editor error 日志。
+- EditorToolWindowPanel 迁移运行态复核：
+  - panel display=flex，flex=`0 0 clamp(200px, 28%, 420px)`；
+  - Project tree 位于 panel 内；
+  - resize cursor=col-resize，title 正确；
+  - 无 dsh-editor error 日志。
+- EditorToolWindowResizer 迁移运行态复核：
+  - resizer 宽 5px，cursor=col-resize，title 正确；
+  - side panel flex 保持 200px 下限与 28% 偏好；
+  - 无 dsh-editor error 日志。
+- EditorWorkspaceMainColumn 迁移运行态复核：
+  - main column display=flex，位于 body 最后一项；
+  - file surface 与 tab strip 位于 main column 内；
+  - 无 dsh-editor error 日志。
+- EditorWorkspaceSurface 迁移运行态复核：
+  - surface display=flex、position=relative；
+  - tab strip 与 file surface 位于 surface 内；
+  - 无 dsh-editor error 日志。
+- EditorErrorBanner 迁移运行态复核：
+  - workspace 与 Monaco editor pane 正常加载；
+  - 无可见 Monaco 错误提示；
+  - 无 dsh-editor error 日志。
+- Manual Order rename/move 修复验证：
+  - RED：round855 初始 helper 缺失；
+  - GREEN：round855 / round562 / round563 / round785 16/16；
+  - DSH Web Manual Order 菜单可切换并恢复默认排序，无 dsh-editor error；
+  - `Alt+↑` 自动化受 CUA locator 限制，排序迁移由可执行 helper 和 wiring
+    回归覆盖。
+- Manual Order delete/prune 修复验证：
+  - RED：round856 helper 缺失；
+  - GREEN：round856 / round855 / round784 / round562 / round563 20/20；
+  - DSH Web Manual Order 菜单可切换并恢复 Sort by Name，无 dsh-editor error；
+  - delete/recreate stale rank 清理由可执行纯函数和 workspace wiring 回归覆盖。
+- Hidden/excluded filtered-listing 修复验证：
+  - RED：round857 非权威 listing 仍被 prune；
+  - 运行态发现并修复 `showExcludedFiles` TDZ；
+  - GREEN：round857 / round856 / round855 / round784 / static-order 20/20；
+  - Ego Browser 连续两次切换 Show Hidden，隐藏目录与子文件状态保持；
+
+**适用边界**：
+
+- 本轮完成共享 UI / layout primitives 第一批迁移、ProjectPanel 功能组件、
+  PathLabel、LineCounts、ContextMenu、menu-model、EntryIcon 与 file-badge
+  以及 GitStatusBadge / gitStatusInfo、diff-model、git-change-model、
+  commit-model、CommitPanel、NamePrompt、RevisionPicker、MoveToPicker 与
+  commit-search-model、CodePreviewCode、TerminalScreen、EditorTerminalTab、
+  TerminalPanel、SearchEverywhere、ShowUsagesPopup、QuickOpen、
+  FindScopeEditor、FindToolWindow、CommitGraph、CommitLog、MeasuringScreen、
+  EditorErrorBoundary、EditorGotoLinePopup、EditorFindBar、EditorStatusBar、
+  EditorFileTab、EditorTabStrip、EditorDiffTab、EditorConflictBars 与
+  EditorSplitHeader、EditorSplitPane、EditorMainPane、EditorSplitDivider
+  及 EditorTerminalArea、EditorTerminalDock、EditorDiffArea、
+  EditorAnnotateArea、FindToolDock、FindToolPopup、EditorFileSurface
+  、EditorMount、EditorWorkspaceShell、EditorWorkspaceBody 与
+  EditorToolWindowPanel、EditorToolWindowResizer、
+  EditorWorkspaceMainColumn、EditorWorkspaceSurface、EditorErrorBanner
+  的 TSX/TS 化；并修复 Manual Order rename/move 路径迁移缺陷；
+- `ui-primitives.js` 已全部退役；terminal.js 和当时的 commit.js 已无 React
+  组件，但仍保留终端/find/preview 纯 helper；`commit.js` 已在第 870 轮迁入
+  `commit.ts`，`terminal.js` 已在第 872 轮迁入 `terminal.ts`，旧实现分别保留
+  为 `.js.bak`；`search-everywhere.js` 已退役为 `.js.bak`；
+- 不改变 DOM 结构、ARIA、CSS 或业务 hooks。
+
 ## 2026-11-17 — 外部删除目录后 expanded state 残留
 
 **作用域**：Project tree expanded state、localStorage、children cache、
@@ -21131,7 +23509,7 @@ npm test
 - Ego 93 仍由 Chromium clipboard permission prompt 占用，
   运行态留待权限恢复后统一补验。
 
-## 2026-11-15 — Commit Log ⌘F Focus Text Filter
+## 2026-11-15 — Commit Log Focus Text Filter（2026-11-18 修正为 ⌘L）
 
 **作用域**：Commit Log 文本过滤、编辑器全局查找、Changes 快捷键互斥。
 
@@ -21171,6 +23549,10 @@ npm test
 - 代码已同步到 63101 profile；
 - Ego 93 仍由 Chromium clipboard permission prompt 占用，
   Changes / Log 的 `⌘F` 与 typeahead 运行态待恢复后统一补验。
+
+**后续修正（2026-11-18）**：上述 `⌘F` 是静态推断错误。IDEA 2026.2 的
+Git Log 实际使用 `⌘L` 定位过滤框，`⌘F` 打开 Find in Files；当前实现已按
+第 892 轮修正。
 
 ## 2026-11-15 — Commit Changes 的 ⌘F 焦点归属
 

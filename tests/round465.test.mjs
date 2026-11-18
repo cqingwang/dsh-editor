@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+const source = (await readFile(new URL('./fixtures/search-everywhere.legacy.js', import.meta.url), 'utf8') + '\n' + (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) + '\n' + (await readFile(new URL('./fixtures/find-tool.legacy.js', import.meta.url), 'utf8')));
 
 function extract(name) {
   const marker = `    function ${name}(`;
@@ -36,7 +36,7 @@ test('preview windows stay bounded but retain context around the selected line',
 });
 
 test('Search Everywhere Preview reads the selected file and renders a highlighted line', () => {
-  const dialog = source.slice(source.indexOf('function SearchEverywhere('), source.indexOf('function QuickOpen('));
+  const dialog = source.slice(source.indexOf('function SearchEverywhere('), source.lastIndexOf('function QuickOpen('));
   assert.match(dialog, /const \[previewOpen, setPreviewOpen\] = React\.useState\(false\)/);
   assert.match(dialog, /t\('editor\.searchPreview'\)/);
   assert.match(dialog, /callFs\(\{ op: 'read', path: activeResult\.path \}, \{ signal: previewAbort\.signal \}\)/);
@@ -46,7 +46,7 @@ test('Search Everywhere Preview reads the selected file and renders a highlighte
 });
 
 test('All-page filters can toggle files, text and actions without closing the menu', () => {
-  const dialog = source.slice(source.indexOf('function SearchEverywhere('), source.indexOf('function QuickOpen('));
+  const dialog = source.slice(source.indexOf('function SearchEverywhere('), source.lastIndexOf('function QuickOpen('));
   assert.match(dialog, /const \[searchFilters, setSearchFilters\] = React\.useState/);
   assert.match(dialog, /const \[filterMenu, setFilterMenu\] = React\.useState\(null\)/);
   assert.match(dialog, /t\('editor\.searchFilter'\)/);

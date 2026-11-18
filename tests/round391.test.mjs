@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
+import { compactActionBarSource } from './ui-sources.mjs';
 
-const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+const source = ((await readFile(new URL('./fixtures/commit-panel.legacy.js', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'))) + '\n' + await readFile(new URL('./fixtures/commit-log.legacy.js', import.meta.url), 'utf8');
 
 function extract(name) {
   const marker = `    function ${name}(`;
@@ -75,8 +76,8 @@ test('Commit Changes actions declare IDEA semantic groups without changing order
 });
 
 test('the compact overflow menu renders grouped actions and keeps null separators', () => {
-  const bar = source.slice(source.indexOf('function CompactActionBar('), source.indexOf('/** Project tool window:'));
-  assert.match(bar, /items: groupCompactActions\(hidden\)\.map\(\(action\) => action === null/);
+  const bar = compactActionBarSource;
+  assert.match(bar, /items: groupCompactActions\(hidden\)\.map/);
   assert.match(bar, /action === null\s*\? null/);
   assert.match(bar, /disabled: action\.disabled === true/);
 });

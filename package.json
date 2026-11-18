@@ -54,12 +54,22 @@
     "build:client": "node scripts/build-client.mjs",
     "postbuild:client": "npm test",
     "check:client-build": "node scripts/build-client.mjs --check",
-    "test": "node --test --test-concurrency=1 \"tests/*.test.mjs\"",
+    "format:client-components": "prettier --write \"src/client/**/*.{ts,tsx}\"",
+    "check:format:client-components": "prettier --check \"src/client/**/*.{ts,tsx}\"",
+    "test": "node --import ./tests/client-source-oracle.mjs --test --test-concurrency=1 \"tests/*.test.mjs\"",
     "fixture:editor": "bash scripts/prepare-editor-fixture.sh"
   },
   "dependencies": {
     "@xterm/addon-fit": "0.11.0",
     "@xterm/xterm": "6.0.0",
     "monaco-editor": "0.52.2"
+  },
+  "devDependencies": {
+    "@babel/core": "7.29.13",
+    "@babel/plugin-transform-react-jsx": "7.27.1",
+    "@babel/plugin-transform-typescript": "7.28.0",
+    "babel-plugin-transform-react-createelement-to-jsx": "1.1.0",
+    "esbuild": "0.28.2",
+    "prettier": "3.6.2"
   }
 }

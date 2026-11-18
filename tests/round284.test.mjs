@@ -3,29 +3,14 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
+import { loadTypeScriptFunction } from './ts-source.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const source = readFileSync(join(root, 'lib/client.js'), 'utf8');
-
-function extractFunction(name) {
-  const start = source.indexOf(`    function ${name}(`);
-  assert.notEqual(start, -1, `${name} is missing`);
-  let index = source.indexOf('{', start);
-  let depth = 0;
-  for (; index < source.length; index += 1) {
-    if (source[index] === '{') depth += 1;
-    else if (source[index] === '}') {
-      depth -= 1;
-      if (depth === 0) return source.slice(start, index + 1);
-    }
-  }
-  throw new Error(`unbalanced ${name}`);
-}
+const gitChangeModelSource = readFileSync(join(root, 'src/client/components/ui/git-change-model.ts'), 'utf8');
 
 test('Compare with HEAD is offered only when HEAD can contain the path', () => {
-  const canCompareWithHead = new Function(
-    `'use strict';\n${extractFunction('canCompareWithHead')}\nreturn canCompareWithHead;`,
-  )();
+  const canCompareWithHead = loadTypeScriptFunction(gitChangeModelSource, 'canCompareWithHead');
   for (const status of [' M', 'MM', 'D ', ' D']) {
     assert.equal(canCompareWithHead({ status }), true, `${status} should be comparable`);
   }

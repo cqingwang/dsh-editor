@@ -5,7 +5,10 @@ import { join } from 'node:path';
 import test from 'node:test';
 
 const host = await import('../lib/index.js');
-const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+const source =
+  (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) +
+  '\n' +
+  (await readFile(new URL('./fixtures/find-tool.legacy.js', import.meta.url), 'utf8'));
 
 async function fixture(t) {
   const root = await mkdtemp(join(tmpdir(), 'dsh-editor-round714-'));

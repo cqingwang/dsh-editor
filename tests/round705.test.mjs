@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+const source = (await readFile(new URL('./fixtures/search-everywhere.legacy.js', import.meta.url), 'utf8') + '\n' + (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) + '\n' + (await readFile(new URL('./fixtures/find-tool.legacy.js', import.meta.url), 'utf8')));
 
 function extractFunction(name) {
   const start = source.indexOf(`function ${name}(`);
@@ -49,7 +49,7 @@ test('preview boundary lines clamp instead of inventing negative or excess scrol
 });
 
 test('Search Everywhere recenters after preview resize and soft-wrap changes', () => {
-  const dialog = source.slice(source.indexOf('function SearchEverywhere('), source.indexOf('function QuickOpen('));
+  const dialog = source.slice(source.indexOf('function SearchEverywhere('), source.indexOf('/* QUICK_OPEN_BOUNDARY */'));
   assert.match(dialog, /new ResizeObserver\(recenter\)/u);
   assert.match(dialog, /observer\?\.observe\(body\)/u);
   assert.match(dialog, /observer\?\.disconnect\(\)/u);
@@ -57,7 +57,7 @@ test('Search Everywhere recenters after preview resize and soft-wrap changes', (
 });
 
 test('Find in Files recenters after preview resize and soft-wrap changes', () => {
-  const component = source.slice(source.indexOf('function FindToolWindow('), source.indexOf('function QuickOpen('));
+  const component = source.slice(source.indexOf('function FindToolWindow('), source.indexOf('/* QUICK_OPEN_BOUNDARY */'));
   assert.match(component, /new ResizeObserver\(recenter\)/u);
   assert.match(component, /observer\?\.observe\(body\)/u);
   assert.match(component, /observer\?\.disconnect\(\)/u);

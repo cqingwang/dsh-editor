@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
+import { compactActionBarSource } from './ui-sources.mjs';
 
-const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+const source = ((await readFile(new URL('./fixtures/commit-panel.legacy.js', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'))) + '\n' + await readFile(new URL('./fixtures/commit-log.legacy.js', import.meta.url), 'utf8');
 
 function extract(name) {
   const marker = `    function ${name}(`;
@@ -74,10 +75,7 @@ test('pinned actions never reorder the full IDEA action sequence', () => {
 });
 
 test('the compact action bar renders the selected set and overflows every other action', () => {
-  const bar = source.slice(
-    source.indexOf('function CompactActionBar('),
-    source.indexOf('/** Project tool window:'),
-  );
+  const bar = compactActionBarSource;
   assert.match(bar, /const visibleActions = selectCompactActions\(actions, visibleCount\);/);
   assert.match(bar, /const hidden = actions\.filter\(\(action\) => visibleActions\.includes\(action\) === false\);/);
   assert.match(bar, /visibleActions\.map\(\(action\) =>/);

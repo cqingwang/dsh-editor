@@ -2,7 +2,9 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+import { en } from './locale-source.mjs';
+
+const source = (await readFile(new URL('./fixtures/search-everywhere.legacy.js', import.meta.url), 'utf8') + '\n' + (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) + '\n' + (await readFile(new URL('./fixtures/find-tool.legacy.js', import.meta.url), 'utf8')));
 
 function extractFunction(name) {
   const start = source.indexOf(`function ${name}(`);
@@ -91,12 +93,18 @@ test('Find Next and Previous expose IDEA descriptions that participate in /repla
   );
   assert.match(actions, /id: 'findNext',[\s\S]*?description: t\('editor\.findNextActionHint'\)/);
   assert.match(actions, /id: 'findPrevious',[\s\S]*?description: t\('editor\.findPreviousActionHint'\)/);
-  assert.match(source, /findNextActionHint: 'Repeat the last Find\/Replace operation or move to the next occurrence of the selected text'/);
-  assert.match(source, /findPreviousActionHint: 'Repeat the last Find\/Replace operation in the reverse direction, or moving to the previous occurrence of the selected text'/);
+  assert.equal(
+    en.editor.findNextActionHint,
+    'Repeat the last Find/Replace operation or move to the next occurrence of the selected text',
+  );
+  assert.equal(
+    en.editor.findPreviousActionHint,
+    'Repeat the last Find/Replace operation in the reverse direction, or moving to the previous occurrence of the selected text',
+  );
   assert.match(actions, /id: 'findInFiles',[\s\S]*?description: t\('editor\.findInFilesHint'\)/);
   assert.match(actions, /id: 'replaceInFiles',[\s\S]*?description: t\('editor\.replaceInFilesHint'\)/);
-  assert.match(source, /findInFilesHint: 'Find a string in multiple files'/);
-  assert.match(source, /replaceInFilesHint: 'Replace a string in multiple files with another string'/);
+  assert.equal(en.editor.findInFilesHint, 'Find a string in multiple files');
+  assert.equal(en.editor.replaceInFilesHint, 'Replace a string in multiple files with another string');
 });
 
 test('replace Enter intent accepts IDEA Alt+Shift and legacy Cmd/Ctrl acceleration', () => {
@@ -121,7 +129,7 @@ test('both replacement inputs use the shared intent resolver', () => {
   );
   const findTool = source.slice(
     source.indexOf('function FindToolWindow('),
-    source.indexOf('function QuickOpen('),
+    source.indexOf('/* QUICK_OPEN_BOUNDARY */'),
   );
   assert.match(searchEverywhere, /replaceInputAction\(event, 'all'\) === 'all'/);
   assert.match(findTool, /replaceInputAction\(event, 'single'\) !== null/);

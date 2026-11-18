@@ -101,7 +101,7 @@ test('cherry-pick applies one commit onto the current branch', async (t) => {
 });
 
 test('the log row menu offers cherry-pick, revert and restore', () => {
-  const client = read('lib/client.js');
+  const client = `${read('lib/client.js')}\n${read('tests/fixtures/commit-log.legacy.js')}`;
   assert.match(client, /const buildLogMenu = React\.useCallback\(/);
   assert.match(client, /run: \(\) => void runHistoryAction\('cherryPick', commit\.hash\)/);
   assert.match(client, /run: \(\) => void runHistoryAction\('revert', commit\.hash\)/);

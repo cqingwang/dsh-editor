@@ -33,9 +33,9 @@ test('the rejection handler consumes only the known Monaco cancellation', () => 
   const rejection = block('const onUnhandledRejection =', 'observer.observe(document.body');
   assert.match(rejection, /isMonacoCancellation\(event\.reason, stack\)/);
   assert.match(rejection, /event\.preventDefault\(\)/);
-  assert.match(rejection, /reportEditorDiagnostic\('unhandled-rejection'/);
+  assert.match(rejection, /reportEditorDiagnostic\(\s*'unhandled-rejection'/u);
   assert.match(
     rejection,
-    /event\.preventDefault\(\);[\s\S]*?return;[\s\S]*?reportEditorDiagnostic\('unhandled-rejection'/,
+    /event\.preventDefault\(\);[\s\S]*?return;[\s\S]*?reportEditorDiagnostic\(\s*'unhandled-rejection'/u,
   );
 });
