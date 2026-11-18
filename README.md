@@ -399,7 +399,8 @@ pnpm add link:/Users/chan/Documents/project/dsh-editor --ignore-scripts
 lib/index.js       宿主半：文件 API、Monaco / xterm 资源路由（从依赖包解析）
 src/client/*.ts    浏览器业务/模型模块，由构建脚本转译后嵌入单 factory
 src/client/*.tsx   React 功能组件，由 esbuild 编译后嵌入单 factory
-tests/fixtures/legacy/*.legacy.js 历史迁移 oracle；仅测试读取，不进入 npm 包
+tests/fixtures/legacy/editor-workspace.legacy.js 历史工作区 oracle；仅测试读取，
+                   不进入 npm 包
 src/client/components/ui/*.tsx 可复用 UI 组件：Icon、ToolbarButton、PanelToolbar、
                    CompactActionBar、ActivityStripe、DiffViewModeControl、
                    PathLabel、LineCounts、ContextMenu、EntryIcon、GitStatusBadge
@@ -433,7 +434,7 @@ scripts/build-client.mjs 使用 esbuild 编译 TSX module graph，并合成为
 .prettierrc.json   TS/TSX 格式化配置；JSX 属性逐行展开
 lib/client.js      生成的浏览器半单产物（不要直接维护；改 src/client 后重构建）
 lib/link-parser.mjs 宿主与浏览器共用、且有单测直接 import 的 ESM（终端链接语法）
-locale/*.json      中英文案（键集合、重复键、中文里混入英文由 tests/round114.test.mjs 守卫）
+locale/*.json      中英文案（键集合、重复键、中文里混入英文由 tests/i18n-dictionaries-define-same-keys.test.mjs 守卫）
 cordis.patch.yml   组合包挂载补丁
 ```
 
@@ -466,9 +467,11 @@ npm run check:format:client-components
 `round671` 会验证生成产物没有过期。
 
 浏览器业务模块迁移已经完成：13 个 manifest 模块全部为 TS/TSX，生产源码中
-不再保留旧 JavaScript 文件或备份。需要继续守护历史文本契约的旧
-实现已冻结到 `tests/fixtures/legacy/`，只由测试读取；`round907` 会阻止
-`.js/.jsx` 业务模块重新进入构建，并验证源码与 npm 包均无备份。
+不再保留旧 JavaScript 文件或备份。`editor-workspace` 的单一 client oracle
+仍冻结在 `tests/fixtures/legacy/editor-workspace.legacy.js`；顶层高引用历史
+fixture 已从 40 份收敛到 8 份，测试会继续逐组迁移到 TS/TSX 边界。
+`editor-production-browser-modules-typescript-only` 测试会阻止 `.js/.jsx`
+业务模块重新进入构建，并验证源码与 npm 包均无备份。
 Project 工具栏的新建菜单和 Options 菜单已抽到
 `src/client/components/project/project-options-menu.ts`，菜单 ID、快捷键、
 勾选状态、排序项和 disabled 条件由纯函数集中生成，`editor-workspace.tsx`

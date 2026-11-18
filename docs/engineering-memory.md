@@ -1,5 +1,210 @@
 # dsh-editor 工程记忆
 
+## 2026-11-18 — TerminalPanel 引用分批迁移
+
+**作用域**：`terminal-panel.legacy.js` 的 41 个引用测试。
+
+**症状/风险**：一次性把全部测试源切到 `TerminalPanel.tsx` 会产生 36 个失败，
+大量断言仍依赖旧 createElement/函数切片；直接删除 fixture 会让测试长期处于
+半迁移状态。
+
+**触发条件**：批量替换 terminal-panel legacy 路径后执行引用测试。
+
+**根因**：部分测试已按行为和 TSX 组件组织，另一部分仍是历史文本契约，两类
+测试不能使用同一迁移节奏。
+
+**修复**：
+
+- 先批量切换到 TSX 并运行 41 个引用文件；
+- 全部通过的 14 个文件永久保留 TSX 源；
+- 有失败的 26 个文件回滚到 legacy，保持整组 156 项全绿；
+- 保留 fixture，直到所有引用清零后再删除。
+
+**回归**：
+
+- 引用组：**156 pass / 0 fail**；
+- 全量 `npm test`：**2809 pass / 0 fail**；
+- `terminal-panel` 引用文件：41 → 27（含 budget）；
+- build、Prettier、fixture/命名守卫、`git diff --check` 通过。
+
+**下一轮**：先处理只差一个旧断言的 find/reopen/dock/tab accessibility 文件，
+再迁移 split/close/session/Paste History 复合测试。
+
+## 2026-11-18 — TerminalScreen legacy oracle 退役
+
+**作用域**：`terminal-screen.legacy.js` 与其 6 个实际引用测试。
+
+**症状/风险**：终端缓冲、焦点恢复和 emulator callback 已有 TSX 实现及直接
+测试，但断言仍通过 legacy screen 文本查旧函数形状；组件测试无法反映当前
+TSX 的真实 ref、callback 和 streaming wiring。
+
+**触发条件**：`rg 'terminal-screen.legacy.js' tests`。
+
+**根因**：历史测试按旧 terminal.js 单文件函数切片编写，组件迁移后未切换到
+TSX 与当前编译产物。
+
+**修复**：
+
+- 删除 EditorTerminalTab / TerminalScreen 的 build/legacy 迁移测试；
+- emulator callback、live cwd、restore buffer、可见性焦点和 Alt+F12 测试
+  直接读取 `TerminalScreen.tsx` / `TerminalPanel.tsx`；
+- helper 仍从 `lib/client.js` 执行真实实现；
+- 删除 `terminal-screen.legacy.js` 并收窄 budget。
+
+**回归**：
+
+- 定向终端测试：**23 pass / 0 fail**；
+- 全量 `npm test`：**2809 pass / 0 fail**；
+- 顶层 legacy fixture：9 → 8；
+- `terminal-screen.legacy.js` 零引用；
+- build、Prettier、fixture/命名守卫、`git diff --check` 通过。
+
+**下一轮**：迁移 `terminal-panel.legacy.js` 的 42 个引用。
+
+## 2026-11-18 — Commit Graph legacy oracle 退役
+
+**作用域**：`commit-graph.legacy.js` 及其 9 个引用测试。
+
+**症状/风险**：graph 的真实 git 行为、lane/run 算法和 TSX 组件测试已经存在，
+但 toolbar、HEAD、ref scope、context menu 与键盘断言仍拼接 legacy graph 文本；
+fixture 只重复证明旧实现“已经迁走”。
+
+**触发条件**：`rg 'commit-graph.legacy.js' tests`。
+
+**根因**：历史测试按旧单文件函数切片编写，组件拆分后未同步到 TSX/model 边界。
+
+**修复**：
+
+- 删除 CommitGraph 的 build/fixture 迁移测试；
+- 组件断言直接读取 `CommitGraph.tsx`、`CommitGraphRow.tsx`、
+  `CommitLog.tsx`、`CommitLogToolbar.tsx`；
+- 纯算法继续从 `lib/client.js` 执行 `linearRun`、`assignGraphLanes`、
+  `graphDisplayEntries`、`refScopeOf`、`graphLogMenuTarget`；
+- 删除 `commit-graph.legacy.js` 并收窄 fixture budget。
+
+**回归**：
+
+- 定向 graph 测试：**37 pass / 0 fail**；
+- 全量 `npm test`：**2811 pass / 0 fail**；
+- 顶层 legacy fixture：10 → 9；
+- `commit-graph.legacy.js` 零引用；
+- `check:client-build`、TSX Prettier、`git diff --check` 通过。
+
+**下一轮**：迁移 `terminal-screen.legacy.js` 的 7 个引用。
+
+## 2026-11-18 — Legacy oracle 40 → 10，测试改读 TS/TSX 边界
+
+**作用域**：`tests/fixtures/*.legacy.js` 与对应组件测试。
+
+**症状/风险**：大量组件已有 TSX 实现和直接结构测试，但测试仍拼接旧
+legacy 文本以确认“build 已迁移”。这些断言只证明迁移过程，不证明当前行为，
+也让 fixture 数量长期停留在 40 份。
+
+**触发条件**：组件测试继续读取 `tests/fixtures/*.legacy.js` 或
+`build embeds ... legacy definition` 断言。
+
+**修复**：
+
+- 删除 27 份仅被单文件引用的组件 fixture 及其迁移测试块；
+- `MeasuringScreen`、`TerminalScreen`、`TerminalPanel` 改为直接读取 TSX；
+- diagnostics 与 host-reuse 测试改读编译产物中的
+  `EditorErrorBoundaryView`，保留可恢复错误行为执行测试；
+- custom Scope UI 测试改读 `FindScopeEditor.tsx`，helper 继续从
+  `find-tool.ts` 编译产物执行；
+- 新增 fixture budget 测试，当前白名单固定为 10 份顶层 fixture 和 1 份
+  editor-workspace oracle。
+
+**回归**：
+
+- 单引用 fixture 清理后的组件定向测试：**90 pass / 0 fail**；
+- 低引用 fixture 迁移后的定向测试：**24 pass / 0 fail**；
+- 全量 `npm test`：**2813 pass / 0 fail**；
+- 引用图无悬空 fixture 路径；
+- 顶层 legacy fixture：40 → 10；
+- `check:client-build`、TSX Prettier、`git diff --check` 通过。
+
+**剩余边界**：10 份高引用 fixture 仍承载历史文本契约，下一轮从
+`commit-graph` 与 `terminal-screen` 开始迁移。fixture budget 测试会阻止
+新增 oracle。
+
+**适用环境**：macOS、Node 24；本轮只改测试，不改生产运行时。
+
+## 2026-11-18 — Legacy 顶层 oracle 清理与测试命名归一
+
+**作用域**：`tests/fixtures/legacy`、迁移专用测试、`round*.test.mjs` 命名。
+
+**症状/风险**：TS/TSX 迁移完成后，另 16 份顶层 legacy fixture 仍被迁移测试
+直接读取，测试文件也继续以 round 编号命名；文件名无法表达所属模块，重复的
+“build embeds / legacy removed”断言增加了维护成本。
+
+**触发条件**：搜索 `tests/fixtures/legacy` 或 `round*.test.mjs`。
+
+**根因**：迁移过程用 fixture 冻结旧文本并用 round 文件名记录实施顺序；完成
+后未按模块和当前行为测试边界做二次收敛。
+
+**修复**：
+
+- 使用 Babel AST 删除只验证 legacy fixture/build 迁移的测试块；
+- 删除 16 份已有 TS/TSX 直接行为测试覆盖的顶层 fixture；
+- 还原 `inline-styles.ts` 的 355 个样式对象、scalar 和代表布局断言，不再与
+  legacy 样式表做全量 deepEqual；
+- 825 个 `round*.test.mjs` 按模块前缀和首条功能描述重命名；
+- 新增 `tests/editor-test-naming.test.mjs`，禁止 round 文件名回归。
+
+**回归**：
+
+- 保留的定向迁移行为测试：**47 pass / 0 fail**；
+- 全量 `npm test`：**2843 pass / 0 fail**；
+- `find tests -name 'round*.test.mjs'`：空；
+- `tests/fixtures/legacy`：仅保留 `editor-workspace.legacy.js`；
+- `check:client-build`、TSX Prettier、syntax spot check、
+  `git diff --check` 通过。
+
+**剩余边界**：
+
+- 临时移除 `client-source-oracle.mjs` 会触发 **312 fail / 211 files**；
+  最后一份 editor-workspace oracle 仍承担大量历史文本契约；
+- `tests/fixtures/*.legacy.js` 仍有 40 份组件 oracle，下一轮按引用图继续迁移。
+
+**适用环境**：macOS、Node 24、`@babel/core` AST；该轮只调整测试与文档，不改
+生产运行时。
+
+## 2026-11-18 — `.js.bak` 删除与历史 oracle 冻结
+
+**作用域**：`src/client` 生产源码、迁移历史测试和 npm 打包边界。
+
+**症状/风险**：TS/TSX 迁移完成后，17 个 `.js.bak` 仍留在生产源码树中；
+虽然构建和 npm 包已排除它们，但 IDE 搜索、代码审查和后续重构仍会把旧实现
+当作当前源码，容易误改或误删。
+
+**触发条件**：执行 `find src -name '*.js.bak'`，或搜索迁移旧模块实现。
+
+**根因**：逐模块迁移采用“旧文件改 `.bak` 留作对照”的中间策略；迁移完成后
+没有执行最终清理，测试也直接依赖源码树中的备份路径。
+
+**修复**：
+
+- 将 17 个旧实现冻结到 `tests/fixtures/legacy/*.legacy.js`；
+- 删除 `src/client` 下全部 `.js.bak`；
+- 32 个测试文件改读冻结 fixture，`client-source-oracle.mjs` 同样切换；
+- 迁移测试的备份存在断言改为源码删除断言；
+- `package.json` 删除 `.js.bak` 排除项；
+- README 改为当前状态，不再宣称源码保留旧备份；
+- round907 校验递归源码目录和 npm files 中均无 `.js.bak`。
+
+**回归**：
+
+- 定向迁移契约：**84 pass / 0 fail**；
+- 全量 `npm test`：**2875 pass / 0 fail**；
+- `find src -name '*.js.bak'`：空；
+- `check:client-build`、TSX Prettier、`node --check lib/client.js`、
+  `node --check scripts/build-client.mjs`、`git diff --check` 通过；
+- `npm pack --dry-run --json`：127 files，无 `.js.bak`、无
+  `tests/fixtures/legacy`、无源码 `.js`。
+
+**适用环境**：macOS、Node 24、项目 npm scripts。历史 fixture 只用于冻结
+迁移前文本/行为契约，不属于生产源码。
+
 ## 2026-11-18 — TypeScript-only 构建门禁
 
 **作用域**：`src/client` 浏览器业务模块与 `scripts/build-client.mjs` 的模块发现。

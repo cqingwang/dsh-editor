@@ -20,21 +20,21 @@ test('terminal tabs carry an explicit order the host persists', () => {
 });
 
 test('terminal tabs are draggable and reorder told the host', () => {
-  const client = `${read('tests/fixtures/terminal-panel.legacy.js')}\n${read('lib/client.js')}`;
+  const client = `${read('src/client/components/terminal/TerminalPanel.tsx')}\n${read('src/client/terminal.ts')}`;
   assert.match(client, /const \[dragId, setDragId\] = React\.useState/);
-  assert.match(client, /draggable: true/);
+  assert.match(client, /draggable=\{true\}/);
   assert.match(client, /void moveTab\(source, terminal\.id\)/);
   assert.match(client, /const moveTab = React\.useCallback/);
-  assert.match(client, /op: 'reorder', ids: next/);
+  assert.match(client, /op: 'reorder',\s+ids: next,/);
   assert.match(client, /terminalTabDrop/);
 });
 
 test('a freshly created entry opens straight into inline rename', () => {
-  const client = `${read('tests/fixtures/terminal-panel.legacy.js')}\n${read('lib/client.js')}`;
+  const client = `${read('src/client/components/project/ProjectPanel.tsx')}\n${read('src/client/editor-workspace.tsx')}`;
   /* Round 153 dropped `parent` from the rename state: `commitRename` derives the
      destination from the entry's own path, so no caller can supply one that makes
      the new name a child of the entry itself. */
-  assert.match(client, /setRenameState\(\{ path, value: name, fresh: true \}\)/);
+  assert.match(client, /setRenameState\(\{\s+path,\s+value: name,\s+fresh: true,\s+\}\)/);
   assert.match(client, /const inlineEditing = activeNode\?\.closest\('\[data-dsh-editor-workspace\] input'\)/);
   /* Round 143: a plain tree click also keeps the caret in the tree, which is what
      makes the tree's advertised keys (F2, Delete, ⌘R, typeahead) reachable. */
