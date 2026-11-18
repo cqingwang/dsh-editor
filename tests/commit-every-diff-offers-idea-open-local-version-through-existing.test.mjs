@@ -6,6 +6,7 @@ import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const source = (readFileSync(join(root, 'src/client/components/diff/DiffPreview.tsx'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
+const workspaceSource = readFileSync(join(root, 'src/client/editor-workspace.tsx'), 'utf8');
 
 function diffPreview() {
   return source.slice(source.indexOf('function DiffPreview('), source.indexOf('export { DiffPreview };'));
@@ -21,9 +22,9 @@ test('every diff offers IDEA Open Local Version through existing openFile', () =
   assert.doesNotMatch(diff, /\.\.\.\(diffReadOnly && typeof target\?\.path === 'string' && typeof onOpenLocal === 'function'/);
   assert.match(diff, /id: 'openLocalVersion'/);
   assert.match(diff, /label: t\('editor\.openLocalVersion'\)/);
-  assert.match(diff, /if \(localPathAvailable !== false\) onOpenLocal\(target\);/);
+  assert.match(diff, /if \(localPathAvailable !== false\) onOpenLocal\(target\.path\);/);
 
-  assert.match(source, /onOpenLocal: \(localTarget\) => void openFile\(localTarget\.path\)/);
+  assert.match(workspaceSource, /onOpenLocal=\{\(path\) => void openFile\(path\)\}/);
 });
 
 test('Open Local Version wording exists in both dictionaries', () => {

@@ -199,7 +199,7 @@ export function ContextMenu({ menu, onClose }: ContextMenuProps) {
             role={typeof item.active === 'boolean' ? 'menuitemcheckbox' : 'menuitem'}
             data-menu-item-id={item.id}
             aria-label={item.label}
-            aria-checked={typeof item.active === 'boolean' ? String(item.active) : undefined}
+            aria-checked={typeof item.active === 'boolean' ? item.active : undefined}
             aria-haspopup={Array.isArray(item.items) && item.items.length > 0 ? 'menu' : undefined}
             aria-expanded={Array.isArray(item.items) && item.items.length > 0 ? submenu === item.id : undefined}
             aria-keyshortcuts={item.ariaKeyShortcuts}
@@ -299,7 +299,7 @@ export function ContextMenu({ menu, onClose }: ContextMenuProps) {
                       role={typeof child.active === 'boolean' ? 'menuitemcheckbox' : 'menuitem'}
                       data-menu-item-id={child.id}
                       aria-label={child.label}
-                      aria-checked={typeof child.active === 'boolean' ? String(child.active) : undefined}
+                      aria-checked={typeof child.active === 'boolean' ? child.active : undefined}
                       aria-haspopup={Array.isArray(child.items) && child.items.length > 0 ? 'menu' : undefined}
                       aria-expanded={
                         Array.isArray(child.items) && child.items.length > 0 ? submenu === child.id : undefined

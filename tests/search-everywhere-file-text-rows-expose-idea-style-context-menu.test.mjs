@@ -7,7 +7,7 @@ const source = (await readFile(new URL('../src/client/components/search/SearchEv
 test('Search Everywhere file and text rows expose an IDEA-style context menu', () => {
   const dialog = source.slice(source.indexOf('function SearchEverywhere('), source.indexOf('function FindToolWindowView('));
   const menu = source.slice(source.indexOf('function searchResultContextItems('), source.indexOf('function searchEverywhereOptionId('));
-  assert.match(dialog, /const \[resultMenu, setResultMenu\] = React\.useState\(null\)/);
+  assert.match(dialog, /const \[resultMenu, setResultMenu\] = React\.useState(?:<[^>]+>)?\(null\)/);
   assert.match(dialog, /onContextMenu: \(event\) => openResultMenu\(event, result\)/);
   assert.match(menu, /t\('editor\.openInRightSplit'\)/);
   assert.match(menu, /t\('editor\.openInEditor'\)/);

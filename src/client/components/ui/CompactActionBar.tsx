@@ -1,8 +1,23 @@
 import React from 'react';
 import { styles } from '../../ui/styles';
+import { ContextMenu } from './Menu';
 import { ToolbarButton } from './ToolbarButton';
-import { groupCompactActions, selectCompactActions, toolbarActionActive } from './toolbar-model';
-function CompactActionBar({ actions, t, ariaLabel, style = null, slotWidth = 26 }) {
+import {
+  groupCompactActions,
+  selectCompactActions,
+  toolbarActionActive,
+  type ToolbarActionLike,
+} from './toolbar-model';
+
+interface CompactActionBarProps {
+  actions: ToolbarActionLike[];
+  t: (key: string, params?: Record<string, unknown>) => string;
+  ariaLabel: string;
+  style?: React.CSSProperties | null;
+  slotWidth?: number;
+}
+
+function CompactActionBar({ actions, t, ariaLabel, style = null, slotWidth = 26 }: CompactActionBarProps) {
   const ref = React.useRef(null);
   const [visibleCount, setVisibleCount] = React.useState(actions.length);
   const [menuPosition, setMenuPosition] = React.useState(null);
@@ -46,7 +61,7 @@ function CompactActionBar({ actions, t, ariaLabel, style = null, slotWidth = 26 
                   shortcut: action.active === true ? '✓' : '',
                   disabled: action.disabled === true,
                   active: typeof action.active === 'boolean' ? action.active : undefined,
-                  run: () => action.onClick(),
+                  run: () => action.onClick?.(),
                   ariaKeyShortcuts: action.ariaKeyShortcuts,
                 },
           ),

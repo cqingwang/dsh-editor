@@ -1,11 +1,10 @@
 import React from 'react';
-import { styles } from '../../ui/styles';
 export interface IconProps {
   name: string;
   size?: number;
 }
 function Icon({ name, size = 14 }: IconProps) {
-  const common = {
+  const common: React.SVGProps<SVGSVGElement> = {
     width: size,
     height: size,
     viewBox: '0 0 16 16',

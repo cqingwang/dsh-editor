@@ -62,7 +62,7 @@ test('the branch popup offers new-branch and prompts for a name', () => {
   const block = client.slice(start, start + 2600);
   assert.match(block, /t\('editor\.newBranchAction'\)/);
   assert.match(block, /setNamePrompt\(\{[\s\S]{0,40}kind: 'branch'/);
-  assert.match(client, /const \[namePrompt, setNamePrompt\] = React\.useState\(null\);/);
+  assert.match(client, /const \[namePrompt, setNamePrompt\] = React\.useState(?:<[^>]+>)?\(null\);/);
 });
 
 test('the host routes the new operation and exports it', () => {

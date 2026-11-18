@@ -15,7 +15,7 @@ test('conflicted files are detected, badged and resolvable from the change menu'
   assert.match(client, /editor\.conflictBadge/);
   assert.match(client, /id: 'acceptOurs'/);
   assert.match(client, /id: 'acceptTheirs'/);
-  assert.match(client, /op: 'resolve', paths, side/);
+  assert.match(client, /op: 'resolve',\s*paths,\s*side/);
   assert.match(host, /async function gitResolveConflict/);
   assert.match(host, /'checkout', side, '--'/);
   assert.match(host, /case 'resolve':/);

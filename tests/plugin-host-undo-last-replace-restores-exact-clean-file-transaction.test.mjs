@@ -93,7 +93,7 @@ test('Undo validates dirty buffers before host rollback and clears stale operati
     source.indexOf('const dismissExternal = React.useCallback'),
   );
   assert.match(undo, /model\.getValue\(\) !== entry\.afterContent/);
-  assert.match(undo, /callFs\(\{\s+op: 'undoReplaceText',\s+operationId: operation\.operationId,\s+\}\)/);
+  assert.match(undo, /callFs(?:<[^>]+>)?\(\{\s+op: 'undoReplaceText',\s+operationId: operation\.operationId,\s+\}\)/);
   assert.match(undo, /commitFindToolDirtyPlans\(dirtyPlans\)/);
   assert.match(undo, /setFindReplaceUndoStack\(\(current\) => current\.slice\(0, -1\)\)/);
   assert.match(undo, /setFindReplaceRedoStack\(\(current\) => boundedReplaceHistory\(current, operation\)\)/);

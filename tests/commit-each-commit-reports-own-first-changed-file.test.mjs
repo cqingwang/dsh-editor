@@ -42,7 +42,7 @@ test('the log menu resolves history from the right-clicked commit', () => {
   const menu = read('src/client/components/commit/log-menu.ts');
   assert.match(client, /const showCommitHistory = React\.useCallback\(\s+async \(hash\) => \{/);
   /* It must fetch the commit it was given instead of reading the selected detail. */
-  assert.match(client, /const detail = await callGit\(\{ op: 'show', hash \}\);/);
+  assert.match(client, /const detail = await callGit(?:<[^>]+>)?\(\{ op: 'show', hash \}\);/);
   assert.match(client, /void showFileHistory\(first\.path\);/);
   /* A commit that changed nothing says so rather than opening a random file. */
   assert.match(client, /t\('editor\.noChangedFiles'\)/);

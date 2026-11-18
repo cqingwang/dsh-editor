@@ -27,11 +27,11 @@ export interface EditorDiagnosticRecord {
 
 export type IdeaUsageActionId = 'findUsages' | 'showUsages' | 'findUsagesSettings';
 
-const React = require('react');
-const { createRoot } = require('react-dom/client');
+export const React = require('react');
+export const { createRoot } = require('react-dom/client');
 /* The host's own file artwork; unavailable on an older host, in which case
    the existing file-extension badges remain the fallback. */
-const primitives = (() => {
+export const primitives = (() => {
   try {
     return require('@deepseek-ai/dsh-client-ui-primitives');
   } catch {
@@ -40,11 +40,11 @@ const primitives = (() => {
 })();
 
 /** Locale namespace owned by this plugin. */
-const NS = 'dsh-editor';
+export const NS = 'dsh-editor';
 /** Last operational Editor events, kept in memory for the current page. */
 const editorDiagnosticRing: EditorDiagnosticRecord[] = [];
 /** Recent user interactions used only as context for Editor runtime errors. */
-const editorActionRing: EditorActionRecord[] = [];
+export const editorActionRing: EditorActionRecord[] = [];
 let editorDiagnosticSequence = 0;
 
 /**
@@ -244,9 +244,10 @@ export function searchHistoryShortcutMatches(event: KeyboardShortcutEvent | null
 export function searchEverywhereNextFocusIndex(length: unknown, index: unknown, backward: unknown): number | null {
   const count = Math.max(0, Math.floor(Number(length) || 0));
   if (count === 0) return null;
-  const valid = Number.isInteger(index) && index >= 0 && index < count;
+  const current = Number(index);
+  const valid = Number.isInteger(current) && current >= 0 && current < count;
   if (!valid) return backward === true ? count - 1 : 0;
-  return backward === true ? (index - 1 + count) % count : (index + 1) % count;
+  return backward === true ? (current - 1 + count) % count : (current + 1) % count;
 }
 
 /**
@@ -292,19 +293,19 @@ export function findActionShortcutBlockedByChildContext(
  * @param {Event} event - captured click or keydown event.
  * @returns {void}
  */
-export function recordDiagnosticAction(event: {
-  type: string;
-  target: EventTarget | null;
-  key: string;
-  metaKey?: boolean;
-  ctrlKey?: boolean;
-  altKey?: boolean;
-  shiftKey?: boolean;
-}): void {
+export function recordDiagnosticAction(
+  event: Event & {
+    key?: string;
+    metaKey?: boolean;
+    ctrlKey?: boolean;
+    altKey?: boolean;
+    shiftKey?: boolean;
+  },
+): void {
   const target = event.target instanceof Element ? event.target : null;
   if (target?.closest('input, textarea, [contenteditable="true"]') !== null) return;
   const actionTarget = target?.closest('button, [role="tab"], [role="menuitem"], [data-row-key]') ?? null;
-  const key = event.type === 'keydown' ? event.key : '';
+  const key = event.type === 'keydown' ? (event.key ?? '') : '';
   const keyboardShortcut =
     event.type === 'keydown' && (event.metaKey || event.ctrlKey || event.altKey || event.key.length > 1);
   if (actionTarget === null && !keyboardShortcut) return;
@@ -371,9 +372,18 @@ export function reportEditorDiagnostic(
 }
 
 /** xterm constructors, loaded at most once. */
-let xtermPromise: Promise<unknown> | null = null;
 /* The host can remount the workspace during layout updates; the selected
    IDEA tool window is user context and must not silently fall back to Project. */
 let lastEditorActivity = 'project';
+
+/** Read the last active IDEA-style tool window for remount persistence. */
+export function readLastEditorActivity(): string {
+  return lastEditorActivity;
+}
+
+/** Remember the active tool window without importing a mutable binding. */
+export function writeLastEditorActivity(activity: string): void {
+  lastEditorActivity = activity;
+}
 /** Tab label is intentionally identical in both languages. */
-const VIEW_LABEL = 'Editor';
+export const VIEW_LABEL = 'Editor';

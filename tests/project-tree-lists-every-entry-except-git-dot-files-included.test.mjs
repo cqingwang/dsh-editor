@@ -178,7 +178,7 @@ test('the diff tab is named Commit: for changes and Compare: for a revision', ()
   /* The overflow list carries the same entry, or the pinned tab could vanish. */
   assert.match(
     source,
-    /entry === DIFF_TAB_KEY\s+\? \{\s+id: 'tab:diff',\s+label: diffTabName,\s+run: \(\) => setDiffActive\(true\),\s+\}/,
+    /typeof entry === 'string'\s+\? \{[\s\S]*?id: 'tab:diff'[\s\S]*?label: diffTabName[\s\S]*?run: \(\) => setDiffActive\(true\)/,
   );
 });
 

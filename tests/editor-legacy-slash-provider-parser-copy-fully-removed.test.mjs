@@ -63,7 +63,7 @@ test('narrow Search Everywhere keeps tabs and toolbar non-shrinking', () => {
   assert.match(dialog, /overflowX: 'auto'/);
   assert.match(dialog, /scrollbarWidth: 'none'/);
   assert.match(dialog, /aria-selected': effectiveTab === tab\.id/);
-  assert.match(dialog, /handleSearchTabKeyDown\(event, tab\)/);
+  assert.match(dialog, /handleSearchTabKeyDown\(event\)/);
 });
 
 test('tab stop stays on the active tab while all tabs remain reachable', () => {

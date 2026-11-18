@@ -1,18 +1,13 @@
 import React from 'react';
 import { styles } from '../../ui/styles';
+import { formatCommitDate } from '../../find-tool';
+import type { CommitLogEntry } from './CommitLog';
 
 type Translate = (key: string, params?: Record<string, unknown>) => string;
 
-interface CommitLogFlatCommit {
-  hash: string;
-  subject: string;
-  author: string;
-  date: string;
-}
-
 interface CommitLogFlatRowProps {
   t: Translate;
-  commit: CommitLogFlatCommit;
+  commit: CommitLogEntry;
   selectionIncluded: boolean;
   highlighted: boolean;
   rowRef?: (node: HTMLDivElement | null) => void;

@@ -30,7 +30,7 @@ test('action tooltip stays inside the viewport and flips above when needed', () 
 
 test('Action tooltips appear after a hover delay instead of instantly', () => {
   const dialog = source.slice(source.indexOf('function SearchEverywhere('), source.indexOf('function FindToolWindowView('));
-  assert.match(dialog, /const \[resultTooltip, setResultTooltip\] = React\.useState\(null\)/);
+  assert.match(dialog, /const \[resultTooltip, setResultTooltip\] = React\.useState(?:<[^>]+>)?\(null\)/);
   assert.match(dialog, /const resultTooltipTimerRef = React\.useRef\(null\)/);
   assert.match(dialog, /window\.setTimeout\([\s\S]*?450\)/);
   assert.match(dialog, /searchEverywhereTooltipPosition\(/);

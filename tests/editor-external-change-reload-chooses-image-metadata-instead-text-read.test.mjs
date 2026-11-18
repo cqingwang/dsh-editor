@@ -58,7 +58,7 @@ test('both external-change paths ask the host for the correct operation', () => 
   const reloadEnd = client.indexOf('/**\n       * Make one path visible', reloadStart);
   const reload = client.slice(reloadStart, reloadEnd);
   assert.match(reload, /op: workspaceReloadOperation\(file\)/u);
-  assert.doesNotMatch(reload, /const value = await callFs\(\{ op: 'read', path \}\);/u);
+  assert.doesNotMatch(reload, /const value = await callFs(?:<[^>]+>)?\(\{ op: 'read', path \}\);/u);
   const externalStart = client.indexOf('const checkExternalChanges = React.useCallback');
   const externalEnd = client.indexOf('/**\n       * Follow the workspace', externalStart);
   const external = client.slice(externalStart, externalEnd);

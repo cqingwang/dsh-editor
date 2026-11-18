@@ -23,7 +23,10 @@ test('createTerminal accepts an explicit start directory', () => {
   const start = source.indexOf('const createTerminal = React.useCallback(');
   assert.notEqual(start, -1);
   const block = source.slice(start, source.indexOf('\n  );', start) + 5);
-  assert.match(block, /const createTerminal = React\.useCallback\(\s+async \(shellPath, directory, restoreSnapshot = ''\)/);
+  assert.match(
+    block,
+    /const createTerminal = React\.useCallback\(\s+async \([\s\S]*?shellPath[^,]*,[\s\S]*?directory[^,]*,[\s\S]*?restoreSnapshot = '',[\s\S]*?\) => \{/,
+  );
   /* An explicit directory wins over the ambient "open in terminal" one. */
   assert.match(block, /startPath:\s*typeof directory === 'string' && directory !== ''/u);
 });

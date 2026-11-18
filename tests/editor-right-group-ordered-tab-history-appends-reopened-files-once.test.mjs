@@ -15,8 +15,8 @@ function closeSplitTab() {
 }
 
 test('right group keeps an ordered tab history and appends reopened files once', () => {
-  assert.match(source, /const \[splitTabs, setSplitTabs\] = React\.useState\(\[\]\)/);
-  assert.match(source, /const splitTabsRef = React\.useRef\(\[\]\)/);
+  assert.match(source, /const \[splitTabs, setSplitTabs\] = React\.useState(?:<[^>]+>)?\(\[\]\)/);
+  assert.match(source, /const splitTabsRef = React\.useRef(?:<[^>]+>)?\(\[\]\)/);
   const open = source.slice(source.indexOf('const openInRightSplit = React.useCallback('), source.indexOf('/**\n       * Save one open model by path.'));
   assert.match(open, /setSplitTabs\(\(current\) => current\.includes\(path\) \? current : \[\.\.\.current, path\]\)/);
   assert.match(open, /splitTabsRef\.current = nextSplitTabs/);

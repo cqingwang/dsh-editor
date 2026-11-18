@@ -1,5 +1,6 @@
 import React from 'react';
 import { styles } from '../../ui/styles';
+import { basename } from '../../editor-core';
 
 type Translate = (key: string, params?: Record<string, unknown>) => string;
 

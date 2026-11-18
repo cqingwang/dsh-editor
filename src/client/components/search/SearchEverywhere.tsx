@@ -1,11 +1,49 @@
 import React from 'react';
 import { styles } from '../../ui/styles';
+import {
+  findActionShortcutMatches,
+  isMacPlatform,
+  searchEverywhereNextFocusIndex,
+  searchHistoryShortcutMatches,
+} from '../../foundation';
 import { CodePreviewCode } from '../commit/CodePreviewCode';
+import { dirname } from '../editor/editor-path-model';
 import { CompactActionBar } from '../ui/CompactActionBar';
 import { ContextMenu } from '../ui/Menu';
+import { badgeFor } from '../ui/git-change-model';
 import { GitStatusBadge } from '../ui/GitStatusBadge';
 import { Icon } from '../ui/Icon';
 import { ToolbarButton } from '../ui/ToolbarButton';
+import type { ToolbarActionLike } from '../ui/toolbar-model';
+import {
+  centerPreviewLineInContainer,
+  defaultSearchEverywhereFilters,
+  nextEnabledSearchResultIndex,
+  normalizeSearchResultIndex,
+  rankSearchActions,
+  replaceInputAction,
+  searchEverywhereActionCategory,
+  searchEverywhereActiveOptionIds,
+  searchEverywhereAriaKeyShortcuts,
+  searchEverywhereFiltersNeedReset,
+  searchEverywhereGroupNavigationDirection,
+  searchEverywhereGroupTargetIndex,
+  searchEverywhereItemInfo,
+  searchEverywhereOffersClearOptions,
+  searchEverywhereOffersFindInFiles,
+  searchEverywhereOffersScopeExpansion,
+  searchEverywhereOptionId,
+  searchEverywherePreviewWindow,
+  searchEverywhereResultTooltip,
+  searchEverywhereSection,
+  searchEverywhereTabTarget,
+  searchEverywhereTooltipPosition,
+  searchFindHandoff,
+  searchResultContextItems,
+  useCodePreviewColorizedLines,
+} from '../../commit';
+import { basename, callFs } from '../../editor-core';
+import { fileExtensionFilterMatches, fuzzyScore, normalizeFileExtensionFilter } from '../../find-tool';
 
 type Translate = (key: string, params?: Record<string, unknown>) => string;
 
@@ -13,12 +51,22 @@ interface SearchEverywhereState {
   query: string;
   tab: string;
   index: number;
-  [key: string]: unknown;
+  replace?: string;
+  replaceFocusRequest?: number;
+  caseSensitive?: boolean;
+  wholeWords?: boolean;
+  regex?: boolean;
+  preserveCase?: boolean;
+  fileMask?: string;
+  withReplace?: boolean;
+  includeNonProject?: boolean;
 }
 
 interface SearchFileResult {
   path: string;
-  [key: string]: unknown;
+  content?: string;
+  status?: string;
+  staged?: boolean;
 }
 
 interface SearchTextResult {
@@ -32,16 +80,39 @@ interface SearchTextResult {
 interface SearchActionRow {
   id: string;
   label: string;
+  icon?: string;
+  description?: string;
+  shortcut?: string;
+  group?: string;
   disabled?: boolean;
+}
+
+interface SearchResult {
+  kind: 'action' | 'file' | 'text' | 'history';
+  rowKey: string;
+  path?: string;
+  id?: string;
+  line?: number;
+  column?: number;
+  title?: string;
+  subtitle?: string;
+  disabled?: boolean;
+  history?: boolean;
+  rememberQuery?: boolean;
+  rememberCommand?: boolean;
+  run?: () => void;
+  keepOpen?: boolean;
   [key: string]: unknown;
 }
+
+type FindHandoffRequest = ReturnType<typeof searchFindHandoff>['request'];
 
 export interface SearchEverywhereProps {
   t: Translate;
   state: SearchEverywhereState;
   files: SearchFileResult[];
   openFiles: SearchFileResult[];
-  changes: SearchFileResult[];
+  changes: Map<string, string>;
   textMatches: SearchTextResult[];
   actions: SearchActionRow[];
   recentSearches: string[];
@@ -56,10 +127,24 @@ export interface SearchEverywhereProps {
   replaceBusy: boolean;
   onQuery: (query: string) => void;
   onTab: (tab: string) => void;
-  onMove: (delta: number) => void;
-  onActivate: () => void;
+  onMove: (delta: number, total?: number, index?: number) => void;
+  onActivate: (result: SearchResult) => void;
   onClose: () => void;
-  [key: string]: unknown;
+  onReplaceChange: (value: string) => void;
+  onReplaceAll: () => void;
+  onRememberQuery: (query: string) => void;
+  onRememberCommand: (command: string) => void;
+  onOpenFindUsagesHistory: (value?: string) => void;
+  onOpenInFindToolWindow: (request: FindHandoffRequest) => void;
+  onToggleIncludeNonProject: () => void;
+  onToggleCaseSensitive: () => void;
+  onToggleWholeWords: () => void;
+  onToggleRegex: () => void;
+  onTogglePreserveCase: () => void;
+  onFileMaskChange: (value: string) => void;
+  onOpenInRightSplit: (path: string, location?: { path?: string; line?: number; column?: number } | null) => void;
+  onRevealResult: (path: string) => void;
+  onNotify: (message: string) => void;
 }
 
 function SearchEverywhere({
@@ -219,10 +304,10 @@ function SearchEverywhere({
     ariaKeyShortcuts: searchEverywhereAriaKeyShortcuts(action.shortcut),
   }));
   const fileMatches = files
-    .filter((path) => fileExtensionFilterMatches(path, state.fileMask))
-    .map((path) => ({
-      path,
-      score: fuzzyScore(path, effectiveQuery, {
+    .filter((file) => fileExtensionFilterMatches(file.path, state.fileMask))
+    .map((file) => ({
+      path: file.path,
+      score: fuzzyScore(file.path, effectiveQuery, {
         caseSensitive: state.caseSensitive === true,
         wholeWords: state.wholeWords === true,
       }),
@@ -415,7 +500,7 @@ function SearchEverywhere({
           loading: false,
           kind: activeResult.kind,
           path: activeResult.path,
-          content: value?.content ?? '',
+          content: typeof value?.content === 'string' ? value.content : '',
           line: activeResult.line ?? 1,
           error: null,
         });
@@ -497,7 +582,7 @@ function SearchEverywhere({
     );
     tab?.focus?.();
   };
-  const handleSearchTabKeyDown = (event, tab) => {
+  const handleSearchTabKeyDown = (event) => {
     if (event.target !== event.currentTarget) return;
     const targetId = searchEverywhereTabTarget(tabs, effectiveTab, event.key);
     if (targetId === null) return;
@@ -637,17 +722,18 @@ function SearchEverywhere({
     const rect = searchInputRef.current?.getBoundingClientRect?.();
     if (rect !== undefined && rect !== null) openQueryHistoryMenuAt(rect);
   };
-  const trapSearchEverywhereFocus = (event) => {
+  const trapSearchEverywhereFocus = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (event.key !== 'Tab') return false;
     const root = event.currentTarget instanceof Element ? event.currentTarget : null;
     if (root === null) return false;
     const selector =
       'button:not([disabled]), input:not([disabled]), select:not([disabled]), ' +
       'textarea:not([disabled]), [tabindex="0"]:not([disabled])';
-    const focusables = [...new Set(root.querySelectorAll(selector))].filter(
+    const focusables = [...new Set(root.querySelectorAll<HTMLElement>(selector))].filter(
       (element) => element.tabIndex >= 0 && (element.getClientRects?.().length ?? 0) > 0,
     );
-    const currentIndex = focusables.indexOf(document.activeElement);
+    const currentElement = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const currentIndex = currentElement === null ? -1 : focusables.indexOf(currentElement);
     if (currentIndex < 0) return false;
     const nextIndex = searchEverywhereNextFocusIndex(focusables.length, currentIndex, event.shiftKey === true);
     if (nextIndex === null) return false;
@@ -799,12 +885,12 @@ function SearchEverywhere({
     )
       return false;
     onOpenInFindToolWindow(
-      refresh === true
+      (refresh === true
         ? {
             ...request.request,
             refresh: true,
           }
-        : request.request,
+        : request.request) as FindHandoffRequest,
     );
     return true;
   };
@@ -822,7 +908,7 @@ function SearchEverywhere({
       preserveCase: state.preserveCase === true,
       includeExcluded: state.includeNonProject === true,
       fileMask: normalizeFileExtensionFilter(state.fileMask),
-    });
+    } as FindHandoffRequest);
   };
   const replaceShortcut = (event) => {
     const meta = event?.metaKey === true || event?.ctrlKey === true;
@@ -869,7 +955,7 @@ function SearchEverywhere({
     window.addEventListener('keydown', onKeyDown, true);
     return () => window.removeEventListener('keydown', onKeyDown, true);
   }, [onQuery, onTab]);
-  const headerActions = [
+  const headerActions: ToolbarActionLike[] = [
     {
       id: 'include',
       icon: 'project',
@@ -1012,7 +1098,7 @@ function SearchEverywhere({
                   event.currentTarget.focus?.();
                   onTab(tab.id);
                 }}
-                onKeyDown={(event) => handleSearchTabKeyDown(event, tab)}>
+                onKeyDown={(event) => handleSearchTabKeyDown(event)}>
                 {tab.label}
               </button>
             ))}

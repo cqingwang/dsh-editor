@@ -18,7 +18,7 @@ test('the editor tab strip overflows into `»` instead of squeezing every tab', 
   /* The layout is computed once per render and consumed by the strip. */
   /* Round 148: the Commit diff owns a pinned tab, so the strip overflows one
      list that starts with that key and continues with the open files. */
-  assert.match(source, /const fileTabLayout = overflowTabs\(allTabs, visibleTabCount\(tabStripWidth, allTabs\.length\), activeTabKey, \(entry\) =>\s+entry === DIFF_TAB_KEY \? DIFF_TAB_KEY : entry\.path,\s*\);/);
+  assert.match(source, /const fileTabLayout = overflowTabs\(allTabs, visibleTabCount\(tabStripWidth, allTabs\.length\), activeTabKey, tabKey\);/);
   assert.match(source, /<EditorTabStrip/);
   assert.match(source, /children=\{fileTabLayout\.visible\.map\(\(entry\) => fileTabElement\(entry\)\)\}/);
   assert.match(tabStripSource, /t\('editor\.tabsOverflow', \{ count: hiddenCount \}\)/);

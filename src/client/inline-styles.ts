@@ -1,9 +1,11 @@
 /* inline-styles.ts: dsh-editor React inline style sheet. Generated into lib/client.js by scripts/build-client.mjs. */
-type EditorStyleValue = string | number;
-type EditorStyle = Record<string, EditorStyleValue>;
+import { EDITOR_UI_FONT } from './components/editor/editor-style-model';
+import type { CSSProperties } from 'react';
+
+type EditorStyle = CSSProperties;
 type EditorStyleSheet = Record<string, EditorStyle>;
 
-const styles: EditorStyleSheet = {
+export const styles: EditorStyleSheet = {
   root: {
     display: 'flex',
     flexDirection: 'column',
@@ -713,9 +715,8 @@ const styles: EditorStyleSheet = {
   findToolScopeButton: {
     flex: 'none',
     height: 24,
-    padding: '0 4px',
+    padding: '0 6px',
     border: 'none',
-    borderBottom: '2px solid transparent',
     borderRadius: 4,
     background: 'transparent',
     color: 'var(--dsw-alias-label-secondary)',
@@ -724,10 +725,9 @@ const styles: EditorStyleSheet = {
     cursor: 'pointer',
   },
   findToolScopeButtonActive: {
-    background: 'transparent',
+    background: 'var(--dsw-alias-interactive-bg-hover)',
     color: 'var(--dsw-alias-label-primary)',
     fontWeight: 600,
-    borderBottomColor: 'var(--dsw-alias-state-business-primary)',
   },
   findToolScopeSelect: {
     flex: '1 1 160px',
@@ -825,6 +825,10 @@ const styles: EditorStyleSheet = {
     minHeight: 0,
     overflow: 'auto',
     padding: '3px 0',
+  },
+  findToolListEmpty: {
+    display: 'flex',
+    flexDirection: 'column',
   },
   findToolPopupMessage: {
     display: 'flex',

@@ -25,7 +25,7 @@ test('Project offers Split Open for files only', () => {
 });
 
 test('EditorWorkspace owns an independent second editor group', () => {
-  assert.match(source, /const \[splitPath, setSplitPath\] = React\.useState\(null\)/);
+  assert.match(source, /const \[splitPath, setSplitPath\] = React\.useState(?:<[^>]+>)?\(null\)/);
   assert.match(source, /const splitPathRef = React\.useRef\(null\)/);
   assert.match(source, /const splitEditorRef = React\.useRef\(null\)/);
   assert.match(source, /const splitContainerRef = React\.useRef\(null\)/);

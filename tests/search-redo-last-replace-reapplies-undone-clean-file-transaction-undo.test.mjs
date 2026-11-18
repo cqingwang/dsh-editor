@@ -94,9 +94,9 @@ test('Undo and Redo alternate the same dirty and host snapshots', () => {
     source.indexOf('const dismissExternal = React.useCallback'),
   );
   assert.match(undo, /setFindReplaceRedoStack\(\(current\) => boundedReplaceHistory\(current, operation\)\)/);
-  assert.match(undo, /callFs\(\{\s*op: 'undoReplaceText',\s*operationId: operation\.operationId,\s*\}\)/);
+  assert.match(undo, /callFs(?:<[^>]+>)?\(\{\s*op: 'undoReplaceText',\s*operationId: operation\.operationId,\s*\}\)/);
   assert.match(redo, /model\.getValue\(\) !== entry\.beforeContent/);
-  assert.match(redo, /callFs\(\{\s*op: 'redoReplaceText',\s*operationId: operation\.operationId,\s*\}\)/);
+  assert.match(redo, /callFs(?:<[^>]+>)?\(\{\s*op: 'redoReplaceText',\s*operationId: operation\.operationId,\s*\}\)/);
   assert.match(redo, /setFindReplaceUndoStack\(\(current\) => boundedReplaceHistory\(current, operation\)\)/);
   assert.match(redo, /setFindReplaceRedoStack\(\(current\) => current\.slice\(0, -1\)\)/);
   assert.match(source, /op: 'redoReplaceText'/);

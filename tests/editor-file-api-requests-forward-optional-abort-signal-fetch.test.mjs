@@ -34,7 +34,7 @@ test('file API requests forward an optional abort signal to fetch', () => {
 
 test('callFs forwards request options without changing existing callers', () => {
   const callFs = extractFunction('callFs');
-  assert.match(callFs, /function callFs\(payload, options = \{\}\)/u);
+  assert.match(callFs, /function callFs(?:<[^>]+>)?\(payload, options = \{\}\)/u);
   assert.match(callFs, /requestFileApi\(payload, options\)/u);
 });
 
@@ -44,7 +44,7 @@ test('Find aborts in-flight text searches when its generation is replaced', () =
   assert.ok(start >= 0 && end > start);
   const effect = workspaceSource.slice(start, end);
   assert.match(effect, /const searchAbort = new AbortController\(\);/u);
-  assert.match(effect, /callFs\(\s*\{[\s\S]*?signal: searchAbort\.signal/u);
+  assert.match(effect, /callFs(?:<[^>]+>)?\(\s*\{[\s\S]*?signal: searchAbort\.signal/u);
   assert.match(effect, /window\.clearTimeout\(timer\);\s+searchAbort\.abort\(\);/u);
   assert.match(effect, /failure\?\.name === 'AbortError'[\s\S]*?return;/u);
 });

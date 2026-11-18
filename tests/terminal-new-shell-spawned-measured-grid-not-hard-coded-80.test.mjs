@@ -59,7 +59,7 @@ test('the measurement is shared, awaited, and falls back safely', () => {
   assert.match(report, /measuredRef\.current = value;/);
   assert.match(report, /measureWaiters\.current = \[\];/);
 
-  const wait = slice('const awaitMeasured = React.useCallback(', 'const \[shells, setShells\]');
+  const wait = slice('const awaitMeasured = React.useCallback(', 'const [shellMenu, setShellMenu]');
   /* A click can arrive before the async xterm load settled: wait, but not forever. */
   assert.match(wait, /window\.setTimeout\(\(\) => finish\(measuredRef\.current\), timeout\);/);
   assert.match(wait, /value \?\?\s*\{\s*cols: 80,\s*rows: 24,?\s*\}/);

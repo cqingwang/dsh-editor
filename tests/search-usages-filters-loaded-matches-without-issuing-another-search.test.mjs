@@ -98,7 +98,7 @@ test('Show Usages popup is transient, keyboard navigable, and can pin to Find', 
   assert.match(popup, /event\.key === 'Enter'/);
   assert.match(popup, /event\.key === 'Escape'/);
   assert.match(popup, /onClick=\{onPin\}/);
-  assert.match(workspaceSource, /const \[showUsages, setShowUsages\] =\s*React\.useState\(null\)/);
+  assert.match(workspaceSource, /const \[showUsages, setShowUsages\] =\s*React\.useState(?:<[^>]+>)?\(null\)/);
   assert.match(source, /op: 'searchText'/);
   assert.match(source, /const pinShowUsages = React\.useCallback/);
   assert.match(source, /setShowUsages\(null\);[\s\S]*?openFindTool\(\s*current\.query,\s*'find'/);

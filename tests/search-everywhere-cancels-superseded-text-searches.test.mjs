@@ -14,7 +14,7 @@ function searchEverywhereEffect() {
 test('Search Everywhere cancels superseded text searches', () => {
   const effect = searchEverywhereEffect();
   assert.match(effect, /const searchAbort = new AbortController\(\);/u);
-  assert.match(effect, /callFs\(\s*\{[\s\S]*?signal: searchAbort\.signal/u);
+  assert.match(effect, /callFs(?:<[^>]+>)?\(\s*\{[\s\S]*?signal: searchAbort\.signal/u);
   assert.match(effect, /window\.clearTimeout\(timer\);\s+searchAbort\.abort\(\);/u);
   assert.match(effect, /failure\?\.name === 'AbortError'[\s\S]*?return;/u);
 });

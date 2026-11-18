@@ -1,5 +1,6 @@
 import React from 'react';
 import { styles } from '../../ui/styles';
+import { codePreviewMatchRanges, markCodePreviewMatches } from '../../commit';
 
 export interface CodePreviewSegment {
   text: string;
@@ -12,9 +13,6 @@ export interface CodePreviewCodeProps {
   segments?: CodePreviewSegment[] | null;
   style?: React.CSSProperties;
 }
-
-declare function codePreviewMatchRanges(segments?: CodePreviewSegment[] | null): Array<{ start: number; end: number }>;
-declare function markCodePreviewMatches(root: HTMLElement, ranges: Array<{ start: number; end: number }>): void;
 
 /** One syntax-colorized Search/Find preview line with match highlighting. */
 function CodePreviewCode({ text, html, segments, style }: CodePreviewCodeProps) {

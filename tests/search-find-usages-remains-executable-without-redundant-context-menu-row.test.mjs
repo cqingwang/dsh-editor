@@ -127,7 +127,7 @@ test('both editor groups hand the invoking editor to the shared Find Usages path
 });
 
 test('per-editor context keys use the instance API and avoid the callback TDZ', () => {
-  assert.match(source, /editor\.createContextKey\?\.\(findUsagesPrecondition, false\)/u);
+  assert.match(source, /editor\.createContextKey(?:<[^()]*>)?\(findUsagesPrecondition, false\)/u);
   assert.doesNotMatch(source, /monaco\.editor\.createContextKey/u);
   const runnerRef = workspaceSource.indexOf('const findUsagesRunnerRef =');
   const mainGroup = workspaceSource.indexOf('const group = createCodeEditorGroup(monaco, containerRef.current');

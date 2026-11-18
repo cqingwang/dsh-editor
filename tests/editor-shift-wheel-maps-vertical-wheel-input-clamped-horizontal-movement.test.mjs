@@ -35,7 +35,7 @@ test('Shift+Wheel maps vertical wheel input to clamped horizontal movement', () 
 test('all horizontal tool surfaces use the shared Shift+Wheel bridge', () => {
   assert.match(source, /function applyShiftWheelScroll\(event\) \{/);
   assert.match(source, /function bindShiftWheelScroll\(node\) \{/);
-  assert.match(source, /addEventListener\('wheel', applyShiftWheelScroll, \{ passive: false \}\)/);
+  assert.match(source, /addEventListener\('wheel', listener, \{ passive: false \}\)/);
   assert.match(source, /node\.scrollLeft = next;/);
   const count = (source.match(/bindShiftWheelScroll\(/g) ?? []).length;
   assert.ok(count >= 5, `expected Project, Changes, Log, detail and binder; found ${count}`);

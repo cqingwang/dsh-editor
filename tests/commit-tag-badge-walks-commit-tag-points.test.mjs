@@ -126,7 +126,7 @@ test('annotate rows jump into the commit log', () => {
 test('both log views mark the commit the detail pane shows', () => {
   const client = source;
   /* One selection, two renderings: a row picked in either view is marked in both. */
-  assert.match(client, /const \[\s*selectedCommit,\s*setSelectedCommit,\s*\] = React\.useState\(null\);/);
+  assert.match(client, /const \[\s*selectedCommit,\s*setSelectedCommit,\s*\] = React\.useState(?:<[^>]+>)?\(null\);/);
   assert.match(client, /setSelectedCommit\(hash\);/);
   assert.match(client, /selectionIncluded=\{selectedCommits\.includes\(commit\.hash\)\}/);
   assert.match(client, /aria-selected=\{selectionIncluded\}/);
@@ -153,7 +153,7 @@ test('re-opening an open file keeps the Annotate reading mode', () => {
 test('a double-click cannot open the same file twice', () => {
   const client = source;
   /* Two clicks fire two reads before either resolves; both appends used to land. */
-  assert.match(client, /const openingRef = React\.useRef\(new Set\(\)\);/);
+  assert.match(client, /const openingRef\s*=\s*React\.useRef(?:<[^()]*>)?\(new Set\(\)\);/);
   assert.match(client, /if \(existing === undefined && openingRef\.current\.has\(path\)\) \{/);
   assert.match(client, /current\.some\(\(entry\) => entry\.path === path\) \? current : \[file, \.\.\.current\]/);
   assert.match(client, /openingRef\.current\.delete\(path\);/);

@@ -1,20 +1,158 @@
 import React from 'react';
 import { styles } from '../../ui/styles';
+import { selectionStateOf, subtotalOf } from '../ui/commit-model';
 import { CompactActionBar } from '../ui/CompactActionBar';
 import { ContextMenu } from '../ui/Menu';
 import { EntryIcon } from '../ui/EntryIcon';
+import { pathsScheduledForRemoval } from '../ui/git-change-model';
 import { Icon } from '../ui/Icon';
 import { LineCounts } from '../ui/LineCounts';
 import { PanelToolbar } from '../ui/PanelToolbar';
 import { ToolbarButton } from '../ui/ToolbarButton';
+import {
+  changeFilterTargets,
+  changeTreeOf,
+  collapseKeysOf,
+  cycleChangeTarget,
+  type DiffChange,
+  filterChanges,
+  flattenChangeTree,
+  groupingDepth,
+  isConflict,
+  splitChanges,
+  stageAllTargets,
+} from '../../diff';
+import type { DiffTarget } from '../diff/DiffPreview';
+import { parentDirLabel } from '../../editor-core';
+import { bindShiftWheelScroll } from '../../injected-css';
+import { branchLabel } from '../../terminal';
+import { CommitLog } from './CommitLog';
 
 type Translate = (key: string, params?: Record<string, unknown>) => string;
+type CommitLogComponentProps = React.ComponentProps<typeof CommitLog>;
 
 export interface CommitPanelProps {
   t: Translate;
+  git:
+    | {
+        changes?: DiffChange[];
+        detached?: boolean;
+        ahead?: number;
+        behind?: number;
+        operation?: string;
+        lastCommit?: { subject?: string } | null;
+      }
+    | null
+    | undefined;
   selectedPaths: Set<string>;
   message: string;
-  [key: string]: unknown;
+  amend: boolean;
+  busy: boolean;
+  error: string | null;
+  onRetryStatus?: () => void;
+  notice: string | null;
+  diffTarget: DiffTarget | null;
+  selectedChange: DiffTarget | null;
+  selectedGroup: string | null;
+  selectedChanges: Set<string>;
+  chosenChangeList?: DiffTarget[];
+  collapsedGroups: Set<string>;
+  monacoReady: boolean;
+  onTogglePath: (path: string) => void;
+  onToggleGroup: (group: string) => void;
+  onToggleDirectory: (path: string | string[] | undefined) => void;
+  onSelectChange: (target: DiffTarget | null) => void;
+  onSelectGroup: (group: string | null) => void;
+  onSelectDiff: (target: DiffTarget) => void;
+  onShowDiff: (target: DiffTarget) => void;
+  onShowCombinedDiff?: (targets: DiffTarget[]) => void;
+  onRollbackSelected?: (targets: DiffTarget[]) => void;
+  onRollbackGroup?: (group: string, paths: string[]) => void;
+  onSelectOpenedChange?: () => void;
+  onExpandChanges?: () => void;
+  onCollapseChanges?: () => void;
+  onChangesKeyDown?: (event: React.KeyboardEvent<HTMLElement>) => void;
+  onChangesKeyUp?: (event: React.KeyboardEvent<HTMLElement>) => void;
+  changeRowRefs: React.RefObject<Map<string, HTMLElement>>;
+  onStage: (paths: string[]) => void;
+  onStageAllTracked?: () => void;
+  onUnstage: (paths: string[]) => void;
+  onGitignore: (paths: string[]) => void;
+  onCopyPatch?: (targets: DiffTarget[]) => void;
+  onCreatePatch?: (targets: DiffTarget[]) => void;
+  onShelve?: (position: { x: number; y: number }) => void;
+  onContextMenu?: (payload: {
+    directory?: string;
+    change?: DiffChange;
+    staged?: boolean;
+    selectedChanges?: Set<string>;
+    changes?: DiffChange[];
+    group?: string;
+    x: number;
+    y: number;
+  }) => void;
+  mode: 'changes' | 'log';
+  onMode: (mode: 'changes' | 'log') => void;
+  scrollRefs?: {
+    changes?: React.RefObject<HTMLDivElement | null>;
+    log?: React.RefObject<HTMLDivElement | null>;
+  };
+  onRestoreScroll?: (...args: unknown[]) => void;
+  commits: CommitLogComponentProps['commits'];
+  logLoading: boolean;
+  logDetail: CommitLogComponentProps['detail'];
+  onLoadLog: () => void;
+  onSelectCommit: (hash: string) => void;
+  onOpenFile?: CommitLogComponentProps['onOpenFile'];
+  onEditSource?: CommitLogComponentProps['onEditSource'];
+  historyPath: string | null;
+  onShowCommitDiff?: CommitLogComponentProps['onShowCommitDiff'];
+  onClearHistory?: () => void;
+  logAuthor: string;
+  onLogAuthor: (value: string) => void;
+  onLoadMoreLog?: () => void;
+  logExhausted: boolean;
+  onLogContextMenu?: CommitLogComponentProps['onContextMenu'];
+  onDirectoryMenu?: CommitLogComponentProps['onDirectoryMenu'];
+  highlightedCommit: string | null;
+  graph: CommitLogComponentProps['graph'];
+  onLoadGraph?: CommitLogComponentProps['onLoadGraph'];
+  onGraphBranch?: CommitLogComponentProps['onGraphBranch'];
+  onGraphRef?: CommitLogComponentProps['onGraphRef'];
+  selected: string | null;
+  selectedCommits: string[];
+  onSelectCommits: (hashes: string[]) => void;
+  logFailure: string | null;
+  onRetry?: () => void;
+  onFileMenu?: CommitLogComponentProps['onFileMenu'];
+  onFindInFiles?: () => void;
+  onMessage: (value: string) => void;
+  history: string[];
+  onRecall: (delta: number) => void;
+  onPickHistory: (index: number) => void;
+  onAmend: (value: boolean) => void;
+  onCommit: (push: boolean) => void;
+  onRefresh: () => void;
+  onHide: () => void;
+  projectName: string;
+  onBranchMenu?: (position?: { x: number; y: number }) => void;
+  branchMenuOpen?: boolean;
+  templates?: string[];
+  onTemplate?: (prefix: string) => void;
+  identityMissing?: boolean;
+  pushFailure?: string | null;
+  onPush?: () => void;
+  undoMessage?: string;
+  onUndoMessage?: () => void;
+  pushing?: boolean;
+  groupBy: string;
+  onOptionsMenu?: (position: { x: number; y: number }) => void;
+  optionsOpen?: boolean;
+  onViewOptionsMenu?: (position: { x: number; y: number }) => void;
+  viewOptionsOpen?: boolean;
+  pathQuery: string;
+  onPathQuery: (value: string) => void;
+  onRevealChange: (target: DiffTarget) => void;
 }
 
 function CommitPanel({
@@ -33,7 +171,6 @@ function CommitPanel({
   selectedChanges,
   chosenChangeList = [],
   collapsedGroups,
-  monacoReady,
   onTogglePath,
   onToggleGroup,
   onToggleDirectory,
@@ -61,7 +198,6 @@ function CommitPanel({
   mode,
   onMode,
   scrollRefs,
-  onRestoreScroll,
   commits,
   logLoading,
   logDetail,
@@ -694,11 +830,6 @@ function CommitPanel({
                   ...(selectedInRange && !selectedForChange ? styles.commitFileRowRange : null),
                   ...(selectedForDiff ? styles.commitFileRowActive : null),
                 }}
-                ref={(element) => {
-                  const key = `${group.id}:${change.path}`;
-                  if (element === null) changeRowRefs.current.delete(key);
-                  else changeRowRefs.current.set(key, element);
-                }}
                 title={change.path}
                 data-dsh-change-path={change.path}
                 data-dsh-change-staged={group.id === 'staged'}
@@ -1234,7 +1365,11 @@ function CommitPanel({
                   } else if (filteredTargets.length > 0 && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
                     event.preventDefault();
                     const direction = event.key === 'ArrowDown' ? 'next' : 'previous';
-                    const target = cycleChangeTarget(filteredTargets, selectedChange, direction);
+                    const currentTarget =
+                      typeof selectedChange?.path === 'string'
+                        ? { path: selectedChange.path, staged: selectedChange.staged === true }
+                        : null;
+                    const target = cycleChangeTarget(filteredTargets, currentTarget, direction);
                     if (target !== null)
                       onSelectChange?.({
                         path: target.path,

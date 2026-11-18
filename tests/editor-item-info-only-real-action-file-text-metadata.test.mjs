@@ -67,7 +67,7 @@ test('Show Item Info is available for Action, file and text result menus', () =>
 });
 
 test('item info renders as an accessible in-dialog status surface', () => {
-  assert.match(dialog, /const \[resultInfo, setResultInfo\] = React\.useState\(null\)/);
+  assert.match(dialog, /const \[resultInfo, setResultInfo\] = React\.useState(?:<[^>]+>)?\(null\)/);
   assert.match(dialog, /'data-dsh-search-item-info': ''/);
   assert.match(dialog, /role: 'status'/);
   assert.match(dialog, /'aria-live': 'polite'/);

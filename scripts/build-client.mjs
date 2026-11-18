@@ -12,6 +12,7 @@ import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { transformAsync } from '@babel/core';
+import { parse } from '@babel/parser';
 import { build } from 'esbuild';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -68,13 +69,25 @@ const uiExports = [
   'commitMetrics',
 ];
 const availableFiles = readdirSync(partsDir)
-  .filter((name) => name.endsWith('.ts') || name.endsWith('.tsx'))
+  .filter((name) => (name.endsWith('.ts') || name.endsWith('.tsx')) && !name.endsWith('.d.ts'))
   .sort((left, right) => left.localeCompare(right, 'en'));
 const missingFiles = files.filter((name) => !availableFiles.includes(name));
 const unlistedFiles = availableFiles.filter((name) => !files.includes(name));
 const legacyJavaScriptFiles = readdirSync(partsDir, { recursive: true })
   .filter((name) => typeof name === 'string' && (name.endsWith('.js') || name.endsWith('.jsx')))
   .sort((left, right) => left.localeCompare(right, 'en'));
+const clientCompilerOptions = JSON.parse(readFileSync(join(root, 'tsconfig.client.json'), 'utf8')).compilerOptions;
+const monacoTypeScriptConfig = {
+  target: clientCompilerOptions.target,
+  lib: Array.isArray(clientCompilerOptions.lib)
+    ? clientCompilerOptions.lib.map((name) => String(name).toLowerCase())
+    : undefined,
+  jsx: clientCompilerOptions.jsx,
+  jsxImportSource: clientCompilerOptions.jsxImportSource,
+  downlevelIteration: clientCompilerOptions.downlevelIteration,
+  allowSyntheticDefaultImports: clientCompilerOptions.allowSyntheticDefaultImports,
+  resolveJsonModule: clientCompilerOptions.resolveJsonModule,
+};
 
 if (missingFiles.length > 0) {
   console.error(`build-client: manifest references missing modules: ${missingFiles.join(', ')}`);
@@ -96,14 +109,62 @@ if (legacyJavaScriptFiles.length > 0) {
 const header = `window.__ModuleLoader__.load({
   id: 'dsh-editor',
   factory: (require) => {
+    /* Generated from tsconfig.client.json; do not duplicate in source. */
+    globalThis.__dshEditorTypeScriptConfig = ${JSON.stringify(monacoTypeScriptConfig)};
 `;
+
+/**
+ * Remove only statement-level module syntax from compiled module text.
+ *
+ * The merged DSH factory cannot keep import/export declarations, but a text
+ * regex would also alter the word "export" inside strings or comments. Parse
+ * the compiled JavaScript and replace only AST-owned ranges, preserving line
+ * breaks for readable diagnostics.
+ * @param {string} source - compiled JavaScript module.
+ * @returns {string} module body without import/export syntax.
+ */
+function stripModuleSyntax(source) {
+  const ast = parse(source, { sourceType: 'module', plugins: ['jsx', 'typescript'] });
+  let result = '';
+  let cursor = 0;
+  const eraseRange = (value) => '\n'.repeat((value.match(/\n/gu) ?? []).length);
+  for (const statement of ast.program.body) {
+    if (statement.type === 'ImportDeclaration' || statement.type === 'ExportAllDeclaration') {
+      result += source.slice(cursor, statement.start);
+      result += eraseRange(source.slice(statement.start, statement.end));
+      cursor = statement.end;
+      continue;
+    }
+    if (statement.type === 'ExportNamedDeclaration') {
+      result += source.slice(cursor, statement.start);
+      if (statement.declaration === null) {
+        result += eraseRange(source.slice(statement.start, statement.end));
+        cursor = statement.end;
+      } else {
+        result += eraseRange(source.slice(statement.start, statement.declaration.start));
+        cursor = statement.declaration.start;
+      }
+      continue;
+    }
+    if (statement.type === 'ExportDefaultDeclaration') {
+      result += source.slice(cursor, statement.start);
+      result += eraseRange(source.slice(statement.start, statement.declaration.start));
+      cursor = statement.declaration.start;
+    }
+  }
+  return `${result}${source.slice(cursor)}`;
+}
 
 async function moduleSourceForBuild(name) {
   if (!name.endsWith('.ts') && !name.endsWith('.tsx')) {
     throw new Error(`build-client: expected a TypeScript module, received ${name}`);
   }
   const source = readFileSync(join(partsDir, name), 'utf8');
-  const result = await transformAsync(source, {
+  /* Source imports document module dependencies for TS/ESLint, but the DSH
+     artifact executes these modules in one factory scope. Remove the
+     declarations before Babel so stripping them does not leave line gaps. */
+  const sourceWithoutImports = stripModuleSyntax(source);
+  const result = await transformAsync(sourceWithoutImports, {
     filename: name,
     plugins: [
       ['@babel/plugin-transform-typescript', { isTSX: name.endsWith('.tsx'), allExtensions: true }],
@@ -116,12 +177,7 @@ async function moduleSourceForBuild(name) {
     configFile: false,
     babelrc: false,
   });
-  const compiled = (result.code ?? '')
-    .replace(/^import[\s\S]*?;\n/gm, '')
-    .replace(/^export\s+(?=(?:(?:async\s+)?function|const|let|var|class)\b)/gm, '')
-    .replace(/^export\s*\{[^}]*\};?\s*$/gm, '')
-    .replace(/export\s*\{\s*\};\s*$/gm, '')
-    .trimEnd();
+  const compiled = stripModuleSyntax(result.code ?? '').trimEnd();
   return compiled
     .split('\n')
     .map((line) => (line === '' ? '' : `    ${line}`))
@@ -150,7 +206,7 @@ const editorTabModelResult = await transformAsync(
     babelrc: false,
   },
 );
-const editorTabModelBody = (editorTabModelResult.code ?? '').replace(/^export /gm, '').trimEnd();
+const editorTabModelBody = stripModuleSyntax(editorTabModelResult.code ?? '').trimEnd();
 if (editorTabModelBody === '') {
   console.error('build-client: Babel produced an empty editor tab model');
   process.exit(1);
@@ -174,7 +230,7 @@ const editorStyleModelResult = await transformAsync(
     babelrc: false,
   },
 );
-const editorStyleModelBody = (editorStyleModelResult.code ?? '').replace(/^export /gm, '').trimEnd();
+const editorStyleModelBody = stripModuleSyntax(editorStyleModelResult.code ?? '').trimEnd();
 if (editorStyleModelBody === '') {
   console.error('build-client: Babel produced an empty editor style model');
   process.exit(1);
@@ -201,10 +257,7 @@ const projectPanelResult = await transformAsync(
     babelrc: false,
   },
 );
-const projectPanelBody = (projectPanelResult.code ?? '')
-  .replace(/^import[\s\S]*?;\n/gm, '')
-  .replace(/^export \{ ProjectPanel \};\s*$/gm, '')
-  .trimEnd();
+const projectPanelBody = stripModuleSyntax(projectPanelResult.code ?? '').trimEnd();
 if (projectPanelBody === '') {
   console.error('build-client: Babel produced an empty ProjectPanel module');
   process.exit(1);
@@ -228,9 +281,7 @@ const projectOptionsMenuResult = await transformAsync(
     babelrc: false,
   },
 );
-const projectOptionsMenuBody = (projectOptionsMenuResult.code ?? '')
-  .replace(/^export /gm, '')
-  .trimEnd();
+const projectOptionsMenuBody = stripModuleSyntax(projectOptionsMenuResult.code ?? '').trimEnd();
 if (projectOptionsMenuBody === '') {
   console.error('build-client: Babel produced an empty project options menu module');
   process.exit(1);
@@ -257,10 +308,7 @@ const commitPanelResult = await transformAsync(
     babelrc: false,
   },
 );
-const commitPanelBody = (commitPanelResult.code ?? '')
-  .replace(/^import[\s\S]*?;\n/gm, '')
-  .replace(/^export \{ CommitPanel \};\s*$/gm, '')
-  .trimEnd();
+const commitPanelBody = stripModuleSyntax(commitPanelResult.code ?? '').trimEnd();
 if (commitPanelBody === '') {
   console.error('build-client: Babel produced an empty CommitPanel module');
   process.exit(1);
@@ -284,7 +332,7 @@ const commitOptionsMenuResult = await transformAsync(
     babelrc: false,
   },
 );
-const commitOptionsMenuBody = (commitOptionsMenuResult.code ?? '').replace(/^export /gm, '').trimEnd();
+const commitOptionsMenuBody = stripModuleSyntax(commitOptionsMenuResult.code ?? '').trimEnd();
 if (commitOptionsMenuBody === '') {
   console.error('build-client: Babel produced an empty commit options menu module');
   process.exit(1);
@@ -308,7 +356,7 @@ const stashShelveMenuResult = await transformAsync(
     babelrc: false,
   },
 );
-const stashShelveMenuBody = (stashShelveMenuResult.code ?? '').replace(/^export /gm, '').trimEnd();
+const stashShelveMenuBody = stripModuleSyntax(stashShelveMenuResult.code ?? '').trimEnd();
 if (stashShelveMenuBody === '') {
   console.error('build-client: Babel produced an empty stash/shelve menu module');
   process.exit(1);
@@ -332,7 +380,7 @@ const commitLogMenuResult = await transformAsync(
     babelrc: false,
   },
 );
-const commitLogMenuBody = (commitLogMenuResult.code ?? '').replace(/^export /gm, '').trimEnd();
+const commitLogMenuBody = stripModuleSyntax(commitLogMenuResult.code ?? '').trimEnd();
 if (commitLogMenuBody === '') {
   console.error('build-client: Babel produced an empty commit log menu module');
   process.exit(1);
@@ -356,7 +404,7 @@ const commitFileMenuResult = await transformAsync(
     babelrc: false,
   },
 );
-const commitFileMenuBody = (commitFileMenuResult.code ?? '').replace(/^export /gm, '').trimEnd();
+const commitFileMenuBody = stripModuleSyntax(commitFileMenuResult.code ?? '').trimEnd();
 if (commitFileMenuBody === '') {
   console.error('build-client: Babel produced an empty commit file menu module');
   process.exit(1);
@@ -380,9 +428,7 @@ const commitLogGraphControllerResult = await transformAsync(
     babelrc: false,
   },
 );
-const commitLogGraphControllerBody = (commitLogGraphControllerResult.code ?? '')
-  .replace(/^export /gm, '')
-  .trimEnd();
+const commitLogGraphControllerBody = stripModuleSyntax(commitLogGraphControllerResult.code ?? '').trimEnd();
 if (commitLogGraphControllerBody === '') {
   console.error('build-client: Babel produced an empty commit log graph controller module');
   process.exit(1);
@@ -406,7 +452,7 @@ const commitLogFlatControllerResult = await transformAsync(
     babelrc: false,
   },
 );
-const commitLogFlatControllerBody = (commitLogFlatControllerResult.code ?? '').replace(/^export /gm, '').trimEnd();
+const commitLogFlatControllerBody = stripModuleSyntax(commitLogFlatControllerResult.code ?? '').trimEnd();
 if (commitLogFlatControllerBody === '') {
   console.error('build-client: Babel produced an empty commit log flat controller module');
   process.exit(1);
@@ -430,9 +476,7 @@ const commitLogListCommandModelResult = await transformAsync(
     babelrc: false,
   },
 );
-const commitLogListCommandModelBody = (commitLogListCommandModelResult.code ?? '')
-  .replace(/^export /gm, '')
-  .trimEnd();
+const commitLogListCommandModelBody = stripModuleSyntax(commitLogListCommandModelResult.code ?? '').trimEnd();
 if (commitLogListCommandModelBody === '') {
   console.error('build-client: Babel produced an empty commit log list command model');
   process.exit(1);
@@ -456,9 +500,7 @@ const commitLogScopeAnnouncementResult = await transformAsync(
     babelrc: false,
   },
 );
-const commitLogScopeAnnouncementBody = (commitLogScopeAnnouncementResult.code ?? '')
-  .replace(/^export /gm, '')
-  .trimEnd();
+const commitLogScopeAnnouncementBody = stripModuleSyntax(commitLogScopeAnnouncementResult.code ?? '').trimEnd();
 if (commitLogScopeAnnouncementBody === '') {
   console.error('build-client: Babel produced an empty commit log scope announcement model');
   process.exit(1);
@@ -482,9 +524,7 @@ const commitLogShortcutModelResult = await transformAsync(
     babelrc: false,
   },
 );
-const commitLogShortcutModelBody = (commitLogShortcutModelResult.code ?? '')
-  .replace(/^export /gm, '')
-  .trimEnd();
+const commitLogShortcutModelBody = stripModuleSyntax(commitLogShortcutModelResult.code ?? '').trimEnd();
 if (commitLogShortcutModelBody === '') {
   console.error('build-client: Babel produced an empty commit log shortcut model');
   process.exit(1);
@@ -508,7 +548,7 @@ const commitLogSelectionModelResult = await transformAsync(
     babelrc: false,
   },
 );
-const commitLogSelectionModelBody = (commitLogSelectionModelResult.code ?? '').replace(/^export /gm, '').trimEnd();
+const commitLogSelectionModelBody = stripModuleSyntax(commitLogSelectionModelResult.code ?? '').trimEnd();
 if (commitLogSelectionModelBody === '') {
   console.error('build-client: Babel produced an empty commit log selection model');
   process.exit(1);
@@ -532,7 +572,7 @@ const commitLogViewModelResult = await transformAsync(
     babelrc: false,
   },
 );
-const commitLogViewModelBody = (commitLogViewModelResult.code ?? '').replace(/^export /gm, '').trimEnd();
+const commitLogViewModelBody = stripModuleSyntax(commitLogViewModelResult.code ?? '').trimEnd();
 if (commitLogViewModelBody === '') {
   console.error('build-client: Babel produced an empty commit log view model');
   process.exit(1);
@@ -556,9 +596,7 @@ const commitLogViewPreferencesResult = await transformAsync(
     babelrc: false,
   },
 );
-const commitLogViewPreferencesBody = (commitLogViewPreferencesResult.code ?? '')
-  .replace(/^export /gm, '')
-  .trimEnd();
+const commitLogViewPreferencesBody = stripModuleSyntax(commitLogViewPreferencesResult.code ?? '').trimEnd();
 if (commitLogViewPreferencesBody === '') {
   console.error('build-client: Babel produced an empty commit log view preferences module');
   process.exit(1);
@@ -585,10 +623,7 @@ const namePromptResult = await transformAsync(
     babelrc: false,
   },
 );
-const namePromptBody = (namePromptResult.code ?? '')
-  .replace(/^import[\s\S]*?;\n/gm, '')
-  .replace(/^export \{ NamePrompt \};\s*$/gm, '')
-  .trimEnd();
+const namePromptBody = stripModuleSyntax(namePromptResult.code ?? '').trimEnd();
 if (namePromptBody === '') {
   console.error('build-client: Babel produced an empty NamePrompt module');
   process.exit(1);
@@ -615,10 +650,7 @@ const revisionPickerResult = await transformAsync(
     babelrc: false,
   },
 );
-const revisionPickerBody = (revisionPickerResult.code ?? '')
-  .replace(/^import[\s\S]*?;\n/gm, '')
-  .replace(/^export \{ RevisionPicker \};\s*$/gm, '')
-  .trimEnd();
+const revisionPickerBody = stripModuleSyntax(revisionPickerResult.code ?? '').trimEnd();
 if (revisionPickerBody === '') {
   console.error('build-client: Babel produced an empty RevisionPicker module');
   process.exit(1);
@@ -642,7 +674,7 @@ const commitSearchModelResult = await transformAsync(
     babelrc: false,
   },
 );
-const commitSearchModelBody = (commitSearchModelResult.code ?? '').replace(/^export /gm, '').trimEnd();
+const commitSearchModelBody = stripModuleSyntax(commitSearchModelResult.code ?? '').trimEnd();
 if (commitSearchModelBody === '') {
   console.error('build-client: Babel produced an empty commit search model');
   process.exit(1);
@@ -669,10 +701,7 @@ const moveToPickerResult = await transformAsync(
     babelrc: false,
   },
 );
-const moveToPickerBody = (moveToPickerResult.code ?? '')
-  .replace(/^import[\s\S]*?;\n/gm, '')
-  .replace(/^export \{ MoveToPicker \};\s*$/gm, '')
-  .trimEnd();
+const moveToPickerBody = stripModuleSyntax(moveToPickerResult.code ?? '').trimEnd();
 if (moveToPickerBody === '') {
   console.error('build-client: Babel produced an empty MoveToPicker module');
   process.exit(1);
@@ -699,10 +728,7 @@ const codePreviewCodeResult = await transformAsync(
     babelrc: false,
   },
 );
-const codePreviewCodeBody = (codePreviewCodeResult.code ?? '')
-  .replace(/^import[\s\S]*?;\n/gm, '')
-  .replace(/^export \{ CodePreviewCode \};\s*$/gm, '')
-  .trimEnd();
+const codePreviewCodeBody = stripModuleSyntax(codePreviewCodeResult.code ?? '').trimEnd();
 if (codePreviewCodeBody === '') {
   console.error('build-client: Babel produced an empty CodePreviewCode module');
   process.exit(1);
@@ -729,10 +755,7 @@ const editorStatusFactsResult = await transformAsync(
     babelrc: false,
   },
 );
-const editorStatusFactsBody = (editorStatusFactsResult.code ?? '')
-  .replace(/^import[\s\S]*?;\n/gm, '')
-  .replace(/^export \{ EditorStatusFacts \};\s*$/gm, '')
-  .trimEnd();
+const editorStatusFactsBody = stripModuleSyntax(editorStatusFactsResult.code ?? '').trimEnd();
 if (editorStatusFactsBody === '') {
   console.error('build-client: Babel produced an empty EditorStatusFacts module');
   process.exit(1);
@@ -759,10 +782,7 @@ const markdownModeSwitchResult = await transformAsync(
     babelrc: false,
   },
 );
-const markdownModeSwitchBody = (markdownModeSwitchResult.code ?? '')
-  .replace(/^import[\s\S]*?;\n/gm, '')
-  .replace(/^export \{ MarkdownModeSwitch \};\s*$/gm, '')
-  .trimEnd();
+const markdownModeSwitchBody = stripModuleSyntax(markdownModeSwitchResult.code ?? '').trimEnd();
 if (markdownModeSwitchBody === '') {
   console.error('build-client: Babel produced an empty MarkdownModeSwitch module');
   process.exit(1);
@@ -789,10 +809,7 @@ const imagePreviewPaneResult = await transformAsync(
     babelrc: false,
   },
 );
-const imagePreviewPaneBody = (imagePreviewPaneResult.code ?? '')
-  .replace(/^import[\s\S]*?;\n/gm, '')
-  .replace(/^export \{ ImagePreviewPane \};\s*$/gm, '')
-  .trimEnd();
+const imagePreviewPaneBody = stripModuleSyntax(imagePreviewPaneResult.code ?? '').trimEnd();
 if (imagePreviewPaneBody === '') {
   console.error('build-client: Babel produced an empty ImagePreviewPane module');
   process.exit(1);
@@ -819,10 +836,7 @@ const markdownPreviewPaneResult = await transformAsync(
     babelrc: false,
   },
 );
-const markdownPreviewPaneBody = (markdownPreviewPaneResult.code ?? '')
-  .replace(/^import[\s\S]*?;\n/gm, '')
-  .replace(/^export \{ MarkdownPreviewPane \};\s*$/gm, '')
-  .trimEnd();
+const markdownPreviewPaneBody = stripModuleSyntax(markdownPreviewPaneResult.code ?? '').trimEnd();
 if (markdownPreviewPaneBody === '') {
   console.error('build-client: Babel produced an empty MarkdownPreviewPane module');
   process.exit(1);
@@ -846,7 +860,7 @@ const workspaceFileModelResult = await transformAsync(
     babelrc: false,
   },
 );
-const workspaceFileModelBody = (workspaceFileModelResult.code ?? '').replace(/^export /gm, '').trimEnd();
+const workspaceFileModelBody = stripModuleSyntax(workspaceFileModelResult.code ?? '').trimEnd();
 if (workspaceFileModelBody === '') {
   console.error('build-client: Babel produced an empty workspace file model');
   process.exit(1);
@@ -873,10 +887,7 @@ const workspaceImagePreviewResult = await transformAsync(
     babelrc: false,
   },
 );
-const workspaceImagePreviewBody = (workspaceImagePreviewResult.code ?? '')
-  .replace(/^import[\s\S]*?;\n/gm, '')
-  .replace(/^export /gm, '')
-  .trimEnd();
+const workspaceImagePreviewBody = stripModuleSyntax(workspaceImagePreviewResult.code ?? '').trimEnd();
 if (workspaceImagePreviewBody === '') {
   console.error('build-client: Babel produced an empty workspace image preview');
   process.exit(1);
@@ -900,7 +911,7 @@ const editorPathModelResult = await transformAsync(
     babelrc: false,
   },
 );
-const editorPathModelBody = (editorPathModelResult.code ?? '').replace(/^export /gm, '').trimEnd();
+const editorPathModelBody = stripModuleSyntax(editorPathModelResult.code ?? '').trimEnd();
 if (editorPathModelBody === '') {
   console.error('build-client: Babel produced an empty editor path model');
   process.exit(1);
@@ -924,7 +935,7 @@ const editorDocumentModelResult = await transformAsync(
     babelrc: false,
   },
 );
-const editorDocumentModelBody = (editorDocumentModelResult.code ?? '').replace(/^export /gm, '').trimEnd();
+const editorDocumentModelBody = stripModuleSyntax(editorDocumentModelResult.code ?? '').trimEnd();
 if (editorDocumentModelBody === '') {
   console.error('build-client: Babel produced an empty editor document model');
   process.exit(1);
@@ -948,7 +959,7 @@ const markdownScrollModelResult = await transformAsync(
     babelrc: false,
   },
 );
-const markdownScrollModelBody = (markdownScrollModelResult.code ?? '').replace(/^export /gm, '').trimEnd();
+const markdownScrollModelBody = stripModuleSyntax(markdownScrollModelResult.code ?? '').trimEnd();
 if (markdownScrollModelBody === '') {
   console.error('build-client: Babel produced an empty Markdown scroll model');
   process.exit(1);
@@ -972,7 +983,7 @@ const editorNavigationModelResult = await transformAsync(
     babelrc: false,
   },
 );
-const editorNavigationModelBody = (editorNavigationModelResult.code ?? '').replace(/^export /gm, '').trimEnd();
+const editorNavigationModelBody = stripModuleSyntax(editorNavigationModelResult.code ?? '').trimEnd();
 if (editorNavigationModelBody === '') {
   console.error('build-client: Babel produced an empty editor navigation model');
   process.exit(1);
@@ -996,7 +1007,7 @@ const editorFileTemplateModelResult = await transformAsync(
     babelrc: false,
   },
 );
-const editorFileTemplateModelBody = (editorFileTemplateModelResult.code ?? '').replace(/^export /gm, '').trimEnd();
+const editorFileTemplateModelBody = stripModuleSyntax(editorFileTemplateModelResult.code ?? '').trimEnd();
 if (editorFileTemplateModelBody === '') {
   console.error('build-client: Babel produced an empty editor file template model');
   process.exit(1);
@@ -1020,7 +1031,7 @@ const editorLanguageModelResult = await transformAsync(
     babelrc: false,
   },
 );
-const editorLanguageModelBody = (editorLanguageModelResult.code ?? '').replace(/^export /gm, '').trimEnd();
+const editorLanguageModelBody = stripModuleSyntax(editorLanguageModelResult.code ?? '').trimEnd();
 if (editorLanguageModelBody === '') {
   console.error('build-client: Babel produced an empty editor language model');
   process.exit(1);
@@ -1047,10 +1058,7 @@ const annotatePreviewResult = await transformAsync(
     babelrc: false,
   },
 );
-const annotatePreviewBody = (annotatePreviewResult.code ?? '')
-  .replace(/^import[\s\S]*?;\n/gm, '')
-  .replace(/^export \{ AnnotatePreview \};\s*$/gm, '')
-  .trimEnd();
+const annotatePreviewBody = stripModuleSyntax(annotatePreviewResult.code ?? '').trimEnd();
 if (annotatePreviewBody === '') {
   console.error('build-client: Babel produced an empty AnnotatePreview module');
   process.exit(1);
@@ -1077,10 +1085,7 @@ const repositoryVersionPreviewResult = await transformAsync(
     babelrc: false,
   },
 );
-const repositoryVersionPreviewBody = (repositoryVersionPreviewResult.code ?? '')
-  .replace(/^import[\s\S]*?;\n/gm, '')
-  .replace(/^export \{ RepositoryVersionPreview \};\s*$/gm, '')
-  .trimEnd();
+const repositoryVersionPreviewBody = stripModuleSyntax(repositoryVersionPreviewResult.code ?? '').trimEnd();
 if (repositoryVersionPreviewBody === '') {
   console.error('build-client: Babel produced an empty RepositoryVersionPreview module');
   process.exit(1);
@@ -1107,10 +1112,7 @@ const diffPreviewResult = await transformAsync(
     babelrc: false,
   },
 );
-const diffPreviewBody = (diffPreviewResult.code ?? '')
-  .replace(/^import[\s\S]*?;\n/gm, '')
-  .replace(/^export \{ DiffPreview \};\s*$/gm, '')
-  .trimEnd();
+const diffPreviewBody = stripModuleSyntax(diffPreviewResult.code ?? '').trimEnd();
 if (diffPreviewBody === '') {
   console.error('build-client: Babel produced an empty DiffPreview module');
   process.exit(1);
@@ -1134,7 +1136,7 @@ const projectSelectionModelResult = await transformAsync(
     babelrc: false,
   },
 );
-const projectSelectionModelBody = (projectSelectionModelResult.code ?? '').replace(/^export /gm, '').trimEnd();
+const projectSelectionModelBody = stripModuleSyntax(projectSelectionModelResult.code ?? '').trimEnd();
 if (projectSelectionModelBody === '') {
   console.error('build-client: Babel produced an empty project selection model');
   process.exit(1);
@@ -1161,10 +1163,7 @@ const terminalScreenResult = await transformAsync(
     babelrc: false,
   },
 );
-const terminalScreenBody = (terminalScreenResult.code ?? '')
-  .replace(/^import[\s\S]*?;\n/gm, '')
-  .replace(/^export \{ TerminalScreen \};\s*$/gm, '')
-  .trimEnd();
+const terminalScreenBody = stripModuleSyntax(terminalScreenResult.code ?? '').trimEnd();
 if (terminalScreenBody === '') {
   console.error('build-client: Babel produced an empty TerminalScreen module');
   process.exit(1);
@@ -1191,10 +1190,7 @@ const editorTerminalTabResult = await transformAsync(
     babelrc: false,
   },
 );
-const editorTerminalTabBody = (editorTerminalTabResult.code ?? '')
-  .replace(/^import[\s\S]*?;\n/gm, '')
-  .replace(/^export \{ EditorTerminalTab \};\s*$/gm, '')
-  .trimEnd();
+const editorTerminalTabBody = stripModuleSyntax(editorTerminalTabResult.code ?? '').trimEnd();
 if (editorTerminalTabBody === '') {
   console.error('build-client: Babel produced an empty EditorTerminalTab module');
   process.exit(1);
@@ -1221,11 +1217,7 @@ const editorTerminalAreaResult = await transformAsync(
     babelrc: false,
   },
 );
-const editorTerminalAreaBody = (editorTerminalAreaResult.code ?? '')
-  .replace(/^import[\s\S]*?;\n/gm, '')
-  .replace(/import[^;\n]*;\s*/g, '')
-  .replace(/^export \{ EditorTerminalArea \};\s*$/gm, '')
-  .trimEnd();
+const editorTerminalAreaBody = stripModuleSyntax(editorTerminalAreaResult.code ?? '').trimEnd();
 if (editorTerminalAreaBody === '') {
   console.error('build-client: Babel produced an empty EditorTerminalArea module');
   process.exit(1);
@@ -1252,11 +1244,7 @@ const editorTerminalDockResult = await transformAsync(
     babelrc: false,
   },
 );
-const editorTerminalDockBody = (editorTerminalDockResult.code ?? '')
-  .replace(/^import[\s\S]*?;\n/gm, '')
-  .replace(/import[^;\n]*;\s*/g, '')
-  .replace(/^export \{ EditorTerminalDock \};\s*$/gm, '')
-  .trimEnd();
+const editorTerminalDockBody = stripModuleSyntax(editorTerminalDockResult.code ?? '').trimEnd();
 if (editorTerminalDockBody === '') {
   console.error('build-client: Babel produced an empty EditorTerminalDock module');
   process.exit(1);
@@ -1283,10 +1271,7 @@ const terminalPanelResult = await transformAsync(
     babelrc: false,
   },
 );
-const terminalPanelBody = (terminalPanelResult.code ?? '')
-  .replace(/^import[\s\S]*?;\n/gm, '')
-  .replace(/^export \{ TerminalPanel \};\s*$/gm, '')
-  .trimEnd();
+const terminalPanelBody = stripModuleSyntax(terminalPanelResult.code ?? '').trimEnd();
 if (terminalPanelBody === '') {
   console.error('build-client: Babel produced an empty TerminalPanel module');
   process.exit(1);
@@ -1313,10 +1298,7 @@ const searchEverywhereResult = await transformAsync(
     babelrc: false,
   },
 );
-const searchEverywhereBody = (searchEverywhereResult.code ?? '')
-  .replace(/^import[\s\S]*?;\n/gm, '')
-  .replace(/^export \{ SearchEverywhere \};\s*$/gm, '')
-  .trimEnd();
+const searchEverywhereBody = stripModuleSyntax(searchEverywhereResult.code ?? '').trimEnd();
 if (searchEverywhereBody === '') {
   console.error('build-client: Babel produced an empty SearchEverywhere module');
   process.exit(1);
@@ -1343,10 +1325,7 @@ const showUsagesPopupResult = await transformAsync(
     babelrc: false,
   },
 );
-const showUsagesPopupBody = (showUsagesPopupResult.code ?? '')
-  .replace(/^import[\s\S]*?;\n/gm, '')
-  .replace(/^export \{ ShowUsagesPopup \};\s*$/gm, '')
-  .trimEnd();
+const showUsagesPopupBody = stripModuleSyntax(showUsagesPopupResult.code ?? '').trimEnd();
 if (showUsagesPopupBody === '') {
   console.error('build-client: Babel produced an empty ShowUsagesPopup module');
   process.exit(1);
@@ -1373,10 +1352,7 @@ const quickOpenResult = await transformAsync(
     babelrc: false,
   },
 );
-const quickOpenBody = (quickOpenResult.code ?? '')
-  .replace(/^import[\s\S]*?;\n/gm, '')
-  .replace(/^export \{ QuickOpen \};\s*$/gm, '')
-  .trimEnd();
+const quickOpenBody = stripModuleSyntax(quickOpenResult.code ?? '').trimEnd();
 if (quickOpenBody === '') {
   console.error('build-client: Babel produced an empty QuickOpen module');
   process.exit(1);
@@ -1403,10 +1379,7 @@ const findScopeEditorResult = await transformAsync(
     babelrc: false,
   },
 );
-const findScopeEditorBody = (findScopeEditorResult.code ?? '')
-  .replace(/^import[\s\S]*?;\n/gm, '')
-  .replace(/^export \{ FindScopeEditor \};\s*$/gm, '')
-  .trimEnd();
+const findScopeEditorBody = stripModuleSyntax(findScopeEditorResult.code ?? '').trimEnd();
 if (findScopeEditorBody === '') {
   console.error('build-client: Babel produced an empty FindScopeEditor module');
   process.exit(1);
@@ -1433,10 +1406,7 @@ const findToolWindowResult = await transformAsync(
     babelrc: false,
   },
 );
-const findToolWindowBody = (findToolWindowResult.code ?? '')
-  .replace(/^import[\s\S]*?;\n/gm, '')
-  .replace(/^export \{ FindToolWindow \};\s*$/gm, '')
-  .trimEnd();
+const findToolWindowBody = stripModuleSyntax(findToolWindowResult.code ?? '').trimEnd();
 if (findToolWindowBody === '') {
   console.error('build-client: Babel produced an empty FindToolWindow module');
   process.exit(1);
@@ -1463,10 +1433,7 @@ const commitGraphFoldBarResult = await transformAsync(
     babelrc: false,
   },
 );
-const commitGraphFoldBarBody = (commitGraphFoldBarResult.code ?? '')
-  .replace(/^import[\s\S]*?;\n/gm, '')
-  .replace(/^export \{ CommitGraphFoldBar \};\s*$/gm, '')
-  .trimEnd();
+const commitGraphFoldBarBody = stripModuleSyntax(commitGraphFoldBarResult.code ?? '').trimEnd();
 if (commitGraphFoldBarBody === '') {
   console.error('build-client: Babel produced an empty CommitGraphFoldBar module');
   process.exit(1);
@@ -1490,9 +1457,7 @@ const commitGraphStateModelResult = await transformAsync(
     babelrc: false,
   },
 );
-const commitGraphStateModelBody = (commitGraphStateModelResult.code ?? '')
-  .replace(/^export /gm, '')
-  .trimEnd();
+const commitGraphStateModelBody = stripModuleSyntax(commitGraphStateModelResult.code ?? '').trimEnd();
 if (commitGraphStateModelBody === '') {
   console.error('build-client: Babel produced an empty commit graph state model');
   process.exit(1);
@@ -1519,10 +1484,7 @@ const commitGraphRowResult = await transformAsync(
     babelrc: false,
   },
 );
-const commitGraphRowBody = (commitGraphRowResult.code ?? '')
-  .replace(/^import[\s\S]*?;\n/gm, '')
-  .replace(/^export \{ CommitGraphRow \};\s*$/gm, '')
-  .trimEnd();
+const commitGraphRowBody = stripModuleSyntax(commitGraphRowResult.code ?? '').trimEnd();
 if (commitGraphRowBody === '') {
   console.error('build-client: Babel produced an empty CommitGraphRow module');
   process.exit(1);
@@ -1549,10 +1511,7 @@ const commitGraphResult = await transformAsync(
     babelrc: false,
   },
 );
-const commitGraphBody = (commitGraphResult.code ?? '')
-  .replace(/^import[\s\S]*?;\n/gm, '')
-  .replace(/^export \{ CommitGraph \};\s*$/gm, '')
-  .trimEnd();
+const commitGraphBody = stripModuleSyntax(commitGraphResult.code ?? '').trimEnd();
 if (commitGraphBody === '') {
   console.error('build-client: Babel produced an empty CommitGraph module');
   process.exit(1);
@@ -1579,11 +1538,7 @@ const commitLogResult = await transformAsync(
     babelrc: false,
   },
 );
-const commitLogBody = (commitLogResult.code ?? '')
-  .replace(/^import[\s\S]*?;\n/gm, '')
-  .replace(/import[^;\n]*;\s*/g, '')
-  .replace(/^export \{ CommitLog \};\s*$/gm, '')
-  .trimEnd();
+const commitLogBody = stripModuleSyntax(commitLogResult.code ?? '').trimEnd();
 if (commitLogBody === '') {
   console.error('build-client: Babel produced an empty CommitLog module');
   process.exit(1);
@@ -1610,10 +1565,7 @@ const commitLogDetailPaneResult = await transformAsync(
     babelrc: false,
   },
 );
-const commitLogDetailPaneBody = (commitLogDetailPaneResult.code ?? '')
-  .replace(/^import[\s\S]*?;\n/gm, '')
-  .replace(/^export \{ CommitLogDetailPane \};\s*$/gm, '')
-  .trimEnd();
+const commitLogDetailPaneBody = stripModuleSyntax(commitLogDetailPaneResult.code ?? '').trimEnd();
 if (commitLogDetailPaneBody === '') {
   console.error('build-client: Babel produced an empty CommitLogDetailPane module');
   process.exit(1);
@@ -1640,10 +1592,7 @@ const commitLogToolbarResult = await transformAsync(
     babelrc: false,
   },
 );
-const commitLogToolbarBody = (commitLogToolbarResult.code ?? '')
-  .replace(/^import[\s\S]*?;\n/gm, '')
-  .replace(/^export \{ CommitLogToolbar \};\s*$/gm, '')
-  .trimEnd();
+const commitLogToolbarBody = stripModuleSyntax(commitLogToolbarResult.code ?? '').trimEnd();
 if (commitLogToolbarBody === '') {
   console.error('build-client: Babel produced an empty CommitLogToolbar module');
   process.exit(1);
@@ -1670,11 +1619,7 @@ const commitLogFlatRowResult = await transformAsync(
     babelrc: false,
   },
 );
-const commitLogFlatRowBody = (commitLogFlatRowResult.code ?? '')
-  .replace(/^import[\s\S]*?;\n/gm, '')
-  .replace(/import[^;\n]*;\s*/g, '')
-  .replace(/^export \{ CommitLogFlatRow \};\s*$/gm, '')
-  .trimEnd();
+const commitLogFlatRowBody = stripModuleSyntax(commitLogFlatRowResult.code ?? '').trimEnd();
 if (commitLogFlatRowBody === '') {
   console.error('build-client: Babel produced an empty CommitLogFlatRow module');
   process.exit(1);
@@ -1701,11 +1646,7 @@ const commitLogListStateResult = await transformAsync(
     babelrc: false,
   },
 );
-const commitLogListStateBody = (commitLogListStateResult.code ?? '')
-  .replace(/^import[\s\S]*?;\n/gm, '')
-  .replace(/import[^;\n]*;\s*/g, '')
-  .replace(/^export \{ CommitLogListState \};\s*$/gm, '')
-  .trimEnd();
+const commitLogListStateBody = stripModuleSyntax(commitLogListStateResult.code ?? '').trimEnd();
 if (commitLogListStateBody === '') {
   console.error('build-client: Babel produced an empty CommitLogListState module');
   process.exit(1);
@@ -1732,11 +1673,7 @@ const measuringScreenResult = await transformAsync(
     babelrc: false,
   },
 );
-const measuringScreenBody = (measuringScreenResult.code ?? '')
-  .replace(/^import[\s\S]*?;\n/gm, '')
-  .replace(/import[^;\n]*;\s*/g, '')
-  .replace(/^export \{ MeasuringScreen \};\s*$/gm, '')
-  .trimEnd();
+const measuringScreenBody = stripModuleSyntax(measuringScreenResult.code ?? '').trimEnd();
 if (measuringScreenBody === '') {
   console.error('build-client: Babel produced an empty MeasuringScreen module');
   process.exit(1);
@@ -1763,11 +1700,7 @@ const editorErrorBoundaryResult = await transformAsync(
     babelrc: false,
   },
 );
-const editorErrorBoundaryBody = (editorErrorBoundaryResult.code ?? '')
-  .replace(/^import[\s\S]*?;\n/gm, '')
-  .replace(/import[^;\n]*;\s*/g, '')
-  .replace(/^export \{ EditorErrorBoundary \};\s*$/gm, '')
-  .trimEnd();
+const editorErrorBoundaryBody = stripModuleSyntax(editorErrorBoundaryResult.code ?? '').trimEnd();
 if (editorErrorBoundaryBody === '') {
   console.error('build-client: Babel produced an empty EditorErrorBoundary module');
   process.exit(1);
@@ -1794,11 +1727,7 @@ const editorMountResult = await transformAsync(
     babelrc: false,
   },
 );
-const editorMountBody = (editorMountResult.code ?? '')
-  .replace(/^import[\s\S]*?;\n/gm, '')
-  .replace(/import[^;\n]*;\s*/g, '')
-  .replace(/^export \{ EditorMount \};\s*$/gm, '')
-  .trimEnd();
+const editorMountBody = stripModuleSyntax(editorMountResult.code ?? '').trimEnd();
 if (editorMountBody === '') {
   console.error('build-client: Babel produced an empty EditorMount module');
   process.exit(1);
@@ -1825,11 +1754,7 @@ const editorGotoLinePopupResult = await transformAsync(
     babelrc: false,
   },
 );
-const editorGotoLinePopupBody = (editorGotoLinePopupResult.code ?? '')
-  .replace(/^import[\s\S]*?;\n/gm, '')
-  .replace(/import[^;\n]*;\s*/g, '')
-  .replace(/^export \{ EditorGotoLinePopup \};\s*$/gm, '')
-  .trimEnd();
+const editorGotoLinePopupBody = stripModuleSyntax(editorGotoLinePopupResult.code ?? '').trimEnd();
 if (editorGotoLinePopupBody === '') {
   console.error('build-client: Babel produced an empty EditorGotoLinePopup module');
   process.exit(1);
@@ -1856,11 +1781,7 @@ const editorFindBarResult = await transformAsync(
     babelrc: false,
   },
 );
-const editorFindBarBody = (editorFindBarResult.code ?? '')
-  .replace(/^import[\s\S]*?;\n/gm, '')
-  .replace(/import[^;\n]*;\s*/g, '')
-  .replace(/^export \{ EditorFindBar \};\s*$/gm, '')
-  .trimEnd();
+const editorFindBarBody = stripModuleSyntax(editorFindBarResult.code ?? '').trimEnd();
 if (editorFindBarBody === '') {
   console.error('build-client: Babel produced an empty EditorFindBar module');
   process.exit(1);
@@ -1887,11 +1808,7 @@ const editorStatusBarResult = await transformAsync(
     babelrc: false,
   },
 );
-const editorStatusBarBody = (editorStatusBarResult.code ?? '')
-  .replace(/^import[\s\S]*?;\n/gm, '')
-  .replace(/import[^;\n]*;\s*/g, '')
-  .replace(/^export \{ EditorStatusBar \};\s*$/gm, '')
-  .trimEnd();
+const editorStatusBarBody = stripModuleSyntax(editorStatusBarResult.code ?? '').trimEnd();
 if (editorStatusBarBody === '') {
   console.error('build-client: Babel produced an empty EditorStatusBar module');
   process.exit(1);
@@ -1918,11 +1835,7 @@ const editorFileTabResult = await transformAsync(
     babelrc: false,
   },
 );
-const editorFileTabBody = (editorFileTabResult.code ?? '')
-  .replace(/^import[\s\S]*?;\n/gm, '')
-  .replace(/import[^;\n]*;\s*/g, '')
-  .replace(/^export \{ EditorFileTab \};\s*$/gm, '')
-  .trimEnd();
+const editorFileTabBody = stripModuleSyntax(editorFileTabResult.code ?? '').trimEnd();
 if (editorFileTabBody === '') {
   console.error('build-client: Babel produced an empty EditorFileTab module');
   process.exit(1);
@@ -1949,11 +1862,7 @@ const editorTabStripResult = await transformAsync(
     babelrc: false,
   },
 );
-const editorTabStripBody = (editorTabStripResult.code ?? '')
-  .replace(/^import[\s\S]*?;\n/gm, '')
-  .replace(/import[^;\n]*;\s*/g, '')
-  .replace(/^export \{ EditorTabStrip \};\s*$/gm, '')
-  .trimEnd();
+const editorTabStripBody = stripModuleSyntax(editorTabStripResult.code ?? '').trimEnd();
 if (editorTabStripBody === '') {
   console.error('build-client: Babel produced an empty EditorTabStrip module');
   process.exit(1);
@@ -1980,11 +1889,7 @@ const editorDiffTabResult = await transformAsync(
     babelrc: false,
   },
 );
-const editorDiffTabBody = (editorDiffTabResult.code ?? '')
-  .replace(/^import[\s\S]*?;\n/gm, '')
-  .replace(/import[^;\n]*;\s*/g, '')
-  .replace(/^export \{ EditorDiffTab \};\s*$/gm, '')
-  .trimEnd();
+const editorDiffTabBody = stripModuleSyntax(editorDiffTabResult.code ?? '').trimEnd();
 if (editorDiffTabBody === '') {
   console.error('build-client: Babel produced an empty EditorDiffTab module');
   process.exit(1);
@@ -2011,11 +1916,7 @@ const editorConflictBarsResult = await transformAsync(
     babelrc: false,
   },
 );
-const editorConflictBarsBody = (editorConflictBarsResult.code ?? '')
-  .replace(/^import[\s\S]*?;\n/gm, '')
-  .replace(/import[^;\n]*;\s*/g, '')
-  .replace(/^export \{ EditorConflictBars \};\s*$/gm, '')
-  .trimEnd();
+const editorConflictBarsBody = stripModuleSyntax(editorConflictBarsResult.code ?? '').trimEnd();
 if (editorConflictBarsBody === '') {
   console.error('build-client: Babel produced an empty EditorConflictBars module');
   process.exit(1);
@@ -2042,11 +1943,7 @@ const editorSplitHeaderResult = await transformAsync(
     babelrc: false,
   },
 );
-const editorSplitHeaderBody = (editorSplitHeaderResult.code ?? '')
-  .replace(/^import[\s\S]*?;\n/gm, '')
-  .replace(/import[^;\n]*;\s*/g, '')
-  .replace(/^export \{ EditorSplitHeader \};\s*$/gm, '')
-  .trimEnd();
+const editorSplitHeaderBody = stripModuleSyntax(editorSplitHeaderResult.code ?? '').trimEnd();
 if (editorSplitHeaderBody === '') {
   console.error('build-client: Babel produced an empty EditorSplitHeader module');
   process.exit(1);
@@ -2073,11 +1970,7 @@ const editorSplitPaneResult = await transformAsync(
     babelrc: false,
   },
 );
-const editorSplitPaneBody = (editorSplitPaneResult.code ?? '')
-  .replace(/^import[\s\S]*?;\n/gm, '')
-  .replace(/import[^;\n]*;\s*/g, '')
-  .replace(/^export \{ EditorSplitPane \};\s*$/gm, '')
-  .trimEnd();
+const editorSplitPaneBody = stripModuleSyntax(editorSplitPaneResult.code ?? '').trimEnd();
 if (editorSplitPaneBody === '') {
   console.error('build-client: Babel produced an empty EditorSplitPane module');
   process.exit(1);
@@ -2104,11 +1997,7 @@ const editorMainPaneResult = await transformAsync(
     babelrc: false,
   },
 );
-const editorMainPaneBody = (editorMainPaneResult.code ?? '')
-  .replace(/^import[\s\S]*?;\n/gm, '')
-  .replace(/import[^;\n]*;\s*/g, '')
-  .replace(/^export \{ EditorMainPane \};\s*$/gm, '')
-  .trimEnd();
+const editorMainPaneBody = stripModuleSyntax(editorMainPaneResult.code ?? '').trimEnd();
 if (editorMainPaneBody === '') {
   console.error('build-client: Babel produced an empty EditorMainPane module');
   process.exit(1);
@@ -2135,11 +2024,7 @@ const editorSplitDividerResult = await transformAsync(
     babelrc: false,
   },
 );
-const editorSplitDividerBody = (editorSplitDividerResult.code ?? '')
-  .replace(/^import[\s\S]*?;\n/gm, '')
-  .replace(/import[^;\n]*;\s*/g, '')
-  .replace(/^export \{ EditorSplitDivider \};\s*$/gm, '')
-  .trimEnd();
+const editorSplitDividerBody = stripModuleSyntax(editorSplitDividerResult.code ?? '').trimEnd();
 if (editorSplitDividerBody === '') {
   console.error('build-client: Babel produced an empty EditorSplitDivider module');
   process.exit(1);
@@ -2166,11 +2051,7 @@ const editorDiffAreaResult = await transformAsync(
     babelrc: false,
   },
 );
-const editorDiffAreaBody = (editorDiffAreaResult.code ?? '')
-  .replace(/^import[\s\S]*?;\n/gm, '')
-  .replace(/import[^;\n]*;\s*/g, '')
-  .replace(/^export \{ EditorDiffArea \};\s*$/gm, '')
-  .trimEnd();
+const editorDiffAreaBody = stripModuleSyntax(editorDiffAreaResult.code ?? '').trimEnd();
 if (editorDiffAreaBody === '') {
   console.error('build-client: Babel produced an empty EditorDiffArea module');
   process.exit(1);
@@ -2197,11 +2078,7 @@ const editorAnnotateAreaResult = await transformAsync(
     babelrc: false,
   },
 );
-const editorAnnotateAreaBody = (editorAnnotateAreaResult.code ?? '')
-  .replace(/^import[\s\S]*?;\n/gm, '')
-  .replace(/import[^;\n]*;\s*/g, '')
-  .replace(/^export \{ EditorAnnotateArea \};\s*$/gm, '')
-  .trimEnd();
+const editorAnnotateAreaBody = stripModuleSyntax(editorAnnotateAreaResult.code ?? '').trimEnd();
 if (editorAnnotateAreaBody === '') {
   console.error('build-client: Babel produced an empty EditorAnnotateArea module');
   process.exit(1);
@@ -2228,11 +2105,7 @@ const findToolDockResult = await transformAsync(
     babelrc: false,
   },
 );
-const findToolDockBody = (findToolDockResult.code ?? '')
-  .replace(/^import[\s\S]*?;\n/gm, '')
-  .replace(/import[^;\n]*;\s*/g, '')
-  .replace(/^export \{ FindToolDock \};\s*$/gm, '')
-  .trimEnd();
+const findToolDockBody = stripModuleSyntax(findToolDockResult.code ?? '').trimEnd();
 if (findToolDockBody === '') {
   console.error('build-client: Babel produced an empty FindToolDock module');
   process.exit(1);
@@ -2259,11 +2132,7 @@ const findToolPopupResult = await transformAsync(
     babelrc: false,
   },
 );
-const findToolPopupBody = (findToolPopupResult.code ?? '')
-  .replace(/^import[\s\S]*?;\n/gm, '')
-  .replace(/import[^;\n]*;\s*/g, '')
-  .replace(/^export \{ FindToolPopup \};\s*$/gm, '')
-  .trimEnd();
+const findToolPopupBody = stripModuleSyntax(findToolPopupResult.code ?? '').trimEnd();
 if (findToolPopupBody === '') {
   console.error('build-client: Babel produced an empty FindToolPopup module');
   process.exit(1);
@@ -2290,11 +2159,7 @@ const editorFileSurfaceResult = await transformAsync(
     babelrc: false,
   },
 );
-const editorFileSurfaceBody = (editorFileSurfaceResult.code ?? '')
-  .replace(/^import[\s\S]*?;\n/gm, '')
-  .replace(/import[^;\n]*;\s*/g, '')
-  .replace(/^export \{ EditorFileSurface \};\s*$/gm, '')
-  .trimEnd();
+const editorFileSurfaceBody = stripModuleSyntax(editorFileSurfaceResult.code ?? '').trimEnd();
 if (editorFileSurfaceBody === '') {
   console.error('build-client: Babel produced an empty EditorFileSurface module');
   process.exit(1);
@@ -2321,11 +2186,7 @@ const editorWorkspaceShellResult = await transformAsync(
     babelrc: false,
   },
 );
-const editorWorkspaceShellBody = (editorWorkspaceShellResult.code ?? '')
-  .replace(/^import[\s\S]*?;\n/gm, '')
-  .replace(/import[^;\n]*;\s*/g, '')
-  .replace(/^export \{ EditorWorkspaceShell \};\s*$/gm, '')
-  .trimEnd();
+const editorWorkspaceShellBody = stripModuleSyntax(editorWorkspaceShellResult.code ?? '').trimEnd();
 if (editorWorkspaceShellBody === '') {
   console.error('build-client: Babel produced an empty EditorWorkspaceShell module');
   process.exit(1);
@@ -2352,11 +2213,7 @@ const editorWorkspaceBodyResult = await transformAsync(
     babelrc: false,
   },
 );
-const editorWorkspaceBodyBody = (editorWorkspaceBodyResult.code ?? '')
-  .replace(/^import[\s\S]*?;\n/gm, '')
-  .replace(/import[^;\n]*;\s*/g, '')
-  .replace(/^export \{ EditorWorkspaceBody \};\s*$/gm, '')
-  .trimEnd();
+const editorWorkspaceBodyBody = stripModuleSyntax(editorWorkspaceBodyResult.code ?? '').trimEnd();
 if (editorWorkspaceBodyBody === '') {
   console.error('build-client: Babel produced an empty EditorWorkspaceBody module');
   process.exit(1);
@@ -2383,11 +2240,7 @@ const editorToolWindowPanelResult = await transformAsync(
     babelrc: false,
   },
 );
-const editorToolWindowPanelBody = (editorToolWindowPanelResult.code ?? '')
-  .replace(/^import[\s\S]*?;\n/gm, '')
-  .replace(/import[^;\n]*;\s*/g, '')
-  .replace(/^export \{ EditorToolWindowPanel \};\s*$/gm, '')
-  .trimEnd();
+const editorToolWindowPanelBody = stripModuleSyntax(editorToolWindowPanelResult.code ?? '').trimEnd();
 if (editorToolWindowPanelBody === '') {
   console.error('build-client: Babel produced an empty EditorToolWindowPanel module');
   process.exit(1);
@@ -2414,11 +2267,7 @@ const editorToolWindowResizerResult = await transformAsync(
     babelrc: false,
   },
 );
-const editorToolWindowResizerBody = (editorToolWindowResizerResult.code ?? '')
-  .replace(/^import[\s\S]*?;\n/gm, '')
-  .replace(/import[^;\n]*;\s*/g, '')
-  .replace(/^export \{ EditorToolWindowResizer \};\s*$/gm, '')
-  .trimEnd();
+const editorToolWindowResizerBody = stripModuleSyntax(editorToolWindowResizerResult.code ?? '').trimEnd();
 if (editorToolWindowResizerBody === '') {
   console.error('build-client: Babel produced an empty EditorToolWindowResizer module');
   process.exit(1);
@@ -2445,11 +2294,7 @@ const editorWorkspaceMainColumnResult = await transformAsync(
     babelrc: false,
   },
 );
-const editorWorkspaceMainColumnBody = (editorWorkspaceMainColumnResult.code ?? '')
-  .replace(/^import[\s\S]*?;\n/gm, '')
-  .replace(/import[^;\n]*;\s*/g, '')
-  .replace(/^export \{ EditorWorkspaceMainColumn \};\s*$/gm, '')
-  .trimEnd();
+const editorWorkspaceMainColumnBody = stripModuleSyntax(editorWorkspaceMainColumnResult.code ?? '').trimEnd();
 if (editorWorkspaceMainColumnBody === '') {
   console.error('build-client: Babel produced an empty EditorWorkspaceMainColumn module');
   process.exit(1);
@@ -2476,11 +2321,7 @@ const editorWorkspaceSurfaceResult = await transformAsync(
     babelrc: false,
   },
 );
-const editorWorkspaceSurfaceBody = (editorWorkspaceSurfaceResult.code ?? '')
-  .replace(/^import[\s\S]*?;\n/gm, '')
-  .replace(/import[^;\n]*;\s*/g, '')
-  .replace(/^export \{ EditorWorkspaceSurface \};\s*$/gm, '')
-  .trimEnd();
+const editorWorkspaceSurfaceBody = stripModuleSyntax(editorWorkspaceSurfaceResult.code ?? '').trimEnd();
 if (editorWorkspaceSurfaceBody === '') {
   console.error('build-client: Babel produced an empty EditorWorkspaceSurface module');
   process.exit(1);
@@ -2507,11 +2348,7 @@ const editorErrorBannerResult = await transformAsync(
     babelrc: false,
   },
 );
-const editorErrorBannerBody = (editorErrorBannerResult.code ?? '')
-  .replace(/^import[\s\S]*?;\n/gm, '')
-  .replace(/import[^;\n]*;\s*/g, '')
-  .replace(/^export \{ EditorErrorBanner \};\s*$/gm, '')
-  .trimEnd();
+const editorErrorBannerBody = stripModuleSyntax(editorErrorBannerResult.code ?? '').trimEnd();
 if (editorErrorBannerBody === '') {
   console.error('build-client: Babel produced an empty EditorErrorBanner module');
   process.exit(1);

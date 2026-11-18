@@ -22,14 +22,14 @@ test('every diff with a local path offers IDEA EditSource, not only read-only di
     /\.\.\.\(diffReadOnly && typeof target\?\.path === 'string' && typeof onOpenLocal === 'function'/,
   );
   assert.match(diff, /shortcut: 'F4'/);
-  assert.match(diff, /if \(localPathAvailable !== false\) onOpenLocal\(target\);/);
+  assert.match(diff, /if \(localPathAvailable !== false\) onOpenLocal\(target\.path\);/);
 });
 
 test('F4 opens the local source from the diff surface and keeps foreign editors out', () => {
   const diff = diffPreview();
   assert.match(
     diff,
-    /event\.key === 'F4'[\s\S]*?insideDiffPane[\s\S]*?onOpenLocal\(target\)/,
+    /event\.key === 'F4'[\s\S]*?insideDiffPane[\s\S]*?onOpenLocal\(target\.path\)/,
   );
   assert.match(
     diff,

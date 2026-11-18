@@ -57,14 +57,14 @@ export function workspaceFileFromResponse(
 }
 
 export function workspaceReloadOperation(file: WorkspaceFile | null | undefined): WorkspaceReloadOperation {
-  return file?.kind === 'image' ? 'image' : 'read';
+  return file !== null && file !== undefined && 'kind' in file && file.kind === 'image' ? 'image' : 'read';
 }
 
 export function workspaceFileAfterReload(
   file: WorkspaceFile,
   value: WorkspaceTextResponse | WorkspaceImageResponse,
 ): WorkspaceFile {
-  if (file.kind === 'image') {
+  if ('kind' in file && file.kind === 'image') {
     const image = value as WorkspaceImageResponse;
     return {
       ...file,

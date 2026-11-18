@@ -23,7 +23,7 @@ test('Find has a workspace-scoped exact history separate from Search Everywhere'
   assert.match(source, /dsh-editor\.find\.query\.history:/);
   assert.match(source, /function readFindQueryHistory\(root\)/);
   assert.match(source, /function writeFindQueryHistory\(root, history\)/);
-  assert.match(source, /const \[recentFindQueries, setRecentFindQueries\] = React\.useState\(\[\]\)/);
+  assert.match(source, /const \[recentFindQueries, setRecentFindQueries\] = React\.useState(?:<[^>]+>)?\(\[\]\)/);
   assert.match(source, /const rememberCurrentFindQuery = React\.useCallback/);
   assert.match(source, /setRecentFindQueries\(next\)/);
   assert.match(source, /setRecentFindQueries\(root === '' \? \[\] : readFindQueryHistory\(root\)\)/);

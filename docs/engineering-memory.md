@@ -1,5 +1,188 @@
 # dsh-editor 工程记忆
 
+## 2026-11-18 — 编辑器类型诊断、ESLint 对齐与源码优先回归
+
+**作用域**：`tsconfig.json`、`eslint.config.mjs`、`src/client/**/*.{ts,tsx}`、
+`scripts/build-client.mjs`、`tests/ts-source.mjs` 及客户端类型/import 回归。
+
+**症状/证据**：
+
+- 编辑器仍报告 `TS2580 Cannot find name 'require'`、`TS2349 This expression
+  is not callable` 和 `onCreatePatch: unknown`；命令行只跑自定义
+  `tsconfig.client.json` 时没有工作区根配置，编辑器语言服务无法稳定复用同一
+  套 Node/React/DOM 类型；
+- ESLint 配置明确关闭了 `no-undef` 和 `@typescript-eslint/no-unused-vars`，
+  只能发现语法问题，不能替代 TypeScript 语义检查；
+- 多个 TSX 模块用 `declare function/const` 假装同 factory 作用域里有实现，
+  源码本身缺少 import，仍需依赖编译产物才能解释符号来源；
+- 构建器曾在 Babel 输出上全局执行 `export -> ""` 文本替换，会误伤字符串和
+  注释，不是结构化的模块语法剥离。
+
+**根因**：
+
+- 编辑器与 CI 没有共同的项目根 `tsconfig.json`，`@types/node` 等依赖虽已安装
+  但语言服务未必纳入；
+- 历史测试以 `lib/client.js` 文本作为正确性 oracle，掩盖了源码漏 import、
+  类型注解缺失和不可调用表达式；
+- 单 factory 合并运行模式被误当成源码可以省略显式依赖声明。
+
+**修复**：
+
+- 新增根 `tsconfig.json` 继承 `tsconfig.client.json`，`typecheck:client-source`
+  与编辑器均使用同一源码范围；
+- 根 `tsconfig.json` 直接声明 `jsx: react-jsx` / `jsxImportSource: react`，
+  防止语言服务未完整解析 `extends` 时对 TSX 报 TS17004；
+- Harness 内置 Monaco TS worker 不读取工作区 tsconfig；构建器从
+  `tsconfig.client.json` 读取 target/lib/jsx 等字段并注入
+  `__dshEditorTypeScriptConfig`，`configureMonacoLanguageDiagnostics()` 只做
+  Monaco 枚举转换，从运行时语言服务层消除 TS17004/TS2550/TS2802，且不维护
+  第二份配置；
+- Monaco worker 的 lib 文件映射使用小写键，构建注入时将
+  `ES2022/DOM/DOM.Iterable` 规范化为 `es2022/dom/dom.iterable`，避免 lib
+  选项存在但 worker 实际解析不到；
+- Monaco 的 `languages.typescript` 与 defaults 是延迟注册的；加载器现在会等待
+  `typescriptDefaults`/`javascriptDefaults` 真正可调用，并在新建 TS/TSX model
+  时再次确认配置，避免缓存一个未配置的 worker；不能与 `editor.main` 并行
+  加载独立 `tsMode.js`，否则会因 `vs/editor/editor.api` 尚未注册而让编辑器
+  整体空白；
+- `tsconfig.client.json` 显式启用 `downlevelIteration`；即使编辑器按 ES5
+  目标检查，`NodeListOf` 的 `for...of`/spread 也不会触发 TS2802；
+- ESLint 启用 `no-undef`、`@typescript-eslint/no-unused-vars` 和
+  `@typescript-eslint/no-explicit-any` 错误门禁，并补充 browser/node globals；
+- 清除所有 `declare function/const` 跨模块伪装，改为真实 import/export；
+  `foundation` 的 React/primitives、Commit preview helpers、Markdown image
+  helpers、Project/Commit menu builders 等均恢复显式依赖；
+- 构建器改用 Babel AST 删除语句级 import/export，保留字符串、注释和换行；
+- `tests/ts-source.mjs` 同样用 AST 剥离模块语法；类型/import 回归直接读取
+  TS/TSX，生成产物只保留给构建顺序与打包契约检查。
+
+**回归**：
+
+- `npm run lint:client-types`：ESLint + source import AST + tsc 全部通过；
+- 源码 tsc：0 error；源码 import 检查：118 source modules verified；
+- 新增 ESLint 门禁回归验证 `no-undef`、`no-unused-vars` 为错误级且源码无
+  `@ts-ignore` / `eslint-disable`；
+- `npm run build:client`、`npm run check:client-build`、`node --check
+  lib/client.js`：通过；
+- 全量 `npm test`：**2819 pass / 0 fail**；
+- `git diff --check`、TS/TSX Prettier：通过。
+
+**适用环境**：macOS、Node 24.22.2、TypeScript 5.9.3、ESLint 9.39.5。
+后续新增客户端逻辑必须保留真实 import；测试类型/行为时读取或执行 TS/TSX，
+不得以 `lib/client.js` 能运行作为源码正确的依据。
+
+## 2026-11-18 — 跨模块导出符号缺失 import 与源码 AST 门禁
+
+**作用域**：`src/client/**/*.{ts,tsx}`、`scripts/check-client-source-imports.mjs`、
+`scripts/build-client.mjs`、`tests/ts-source.mjs`、`package.json` 的 lint 门禁。
+
+**症状/证据**：
+
+- `src/client/editor-core.ts` 直接调用 `interpolateMessage`、
+  `flattenDictionary`，但文件只 import 了 Monaco 类型，TypeScript 报
+  `TS2304 Cannot find name`；
+- `npm run lint:client-types` 当时只执行 ESLint 语法规则，
+  `no-undef` 被关闭且未配置 type-aware project service，因此没有暴露该错误；
+- 测试 helper 又会剥离 import 后执行源码，测试行为本身也不能证明 import 完整；
+- 源码 AST 检查首次运行定位 **83 处**跨模块导出符号漏 import。
+
+**根因**：
+
+- 浏览器产物由 Babel 去类型、剥离 import 后拼进单一 DSH factory 作用域，
+  编译产物仍可运行，掩盖了源码依赖声明缺失；
+- 旧约束把“同 factory 作用域”误当成“源码不需要 import”，导致 TS/TSX
+  无法独立判断符号来源；
+- ESLint 的 `no-undef` 对 TypeScript 名称解析并不可靠，真实门禁应使用
+  TypeScript AST/编译器能力。
+
+**修复**：
+
+- 为所有被跨模块引用的导出函数、常量和类型补齐显式 import；
+- 新增 `scripts/check-client-source-imports.mjs`，只读取
+  `src/client/**/*.{ts,tsx}` AST，不读取 `lib/client.js`；
+- 检查复用其他模块导出符号时是否 import，缺失时输出来源文件、行列和目标模块；
+- `lint:client-types` 接入 `check:client-source-imports`；
+- `scripts/build-client.mjs` 在 Babel 转换前移除源码 import，保持单 factory
+  产物稳定且不产生多余空行；
+- `tests/ts-source.mjs` 的 import 剥离仅用于执行行为测试，并在回归中单独调用
+  源码 import 门禁，不能用执行结果替代源码 import 正确性。
+
+**回归**：
+
+- 新源码 AST 门禁：修复前 **83 missing source imports / exit 1**，修复后
+  **117 source modules verified / exit 0**；
+- 定向 import/helper 回归：**30 pass / 0 fail**；
+- `npm run build:client`：构建成功；
+- postbuild `lint:client-types + npm test`：**2811 pass / 0 fail**；
+- `npm run check:client-build`、TS/TSX Prettier、`node --check` 和
+  `git diff --check`：通过。
+
+**适用环境**：macOS、Node 24.22.2、TypeScript 5.9.3。后续新增跨模块导出引用
+必须保留源码 import；最终运行时仍只交付 `lib/client.js`。
+
+## 2026-11-18 — Find 空查询与零结果提示垂直居中
+
+**作用域**：Find in Files 空结果列表、`FindToolWindow.tsx`、
+`ui/styles.ts`、`inline-styles.ts` 和对应回归测试。
+
+**症状/证据**：
+
+- IDEA 2026.2 在空查询和 `Nothing found` 两种状态下，提示文字都位于结果区
+  垂直中部；
+- DSH 修复前提示贴在结果区顶部，视觉重心与 IDEA 明显不同；
+- Computer Use 实窗同时核对了空查询与无匹配查询，问题在两态一致复现。
+
+**根因**：`findToolList` 本身不是 flex 容器，`findToolPopupMessage` 的
+`alignItems/justifyContent` 只有在父容器建立 flex 上下文后才能生效。
+
+**修复**：
+
+- 新增 `findToolListEmpty` 样式，在无结果行时把结果列表切换为纵向 flex；
+- 有结果时仍使用原列表布局，避免改变结果行高度、滚动和键盘导航；
+- `ui/styles.ts` 与 `inline-styles.ts` 同步；
+- 新增 `search-find-empty-result-message-centered.test.mjs`，同时锁定样式布局和
+  仅空结果时应用的条件。
+
+**回归**：
+
+- 空态/样式定向：**5 pass / 0 fail**；
+- 全量 `npm test`：**2809 pass / 0 fail**；
+- DSH 原生应用运行态：空查询和无匹配提示均垂直居中；
+- `lint:client-types`、TS/TSX Prettier、`check:client-build`、
+  `git diff --check`：通过。
+
+## 2026-11-18 — Find Scope selected 样式与双份 styles 表同步
+
+**作用域**：Find in Files Scope 模式选中态、`ui/styles.ts`、
+`inline-styles.ts` 及 360px 最小宽度回归。
+
+**症状/证据**：
+
+- IDEA 2026.2 的 `In Project` 选中态是浅灰圆角填充，不是 accent 下划线；
+- DSH 只修改 `ui/styles.ts` 后，运行产物仍从 `inline-styles.ts` 读取旧下划线；
+- 新样式测试首次命中 `lib/client.js` 中 UI bundle 的同名样式对象，掩盖了真实
+  FindToolWindow 所用全局 styles 表。
+
+**根因**：项目同时保留 UI bundle 使用的 `ui/styles.ts` 与 factory 全局使用的
+`inline-styles.ts`，两份表存在重复的 Find Scope 样式；只改一份会造成测试与
+运行时目标错位。
+
+**修复**：
+
+- 两份表统一为 `0 6px` 横向 padding、无 `borderBottom`；
+- active 背景统一为 `var(--dsw-alias-interactive-bg-hover)`，保留主文字色与
+  600 字重；
+- 新回归从 `lib/client.js` 的 `inline-styles.ts` module marker 之后定位真实
+  factory styles；
+- 360px 最小宽度测试同步断言新的 6px padding。
+
+**回归**：
+
+- Scope 定向：**4 pass / 0 fail**；
+- 全量 `npm test`：**2807 pass / 0 fail**；
+- `lint:client-types`、TS/TSX Prettier、`check:client-build`、
+  `git diff --check`：全部通过。
+
 ## 2026-11-18 — Find in Files 弹框尺寸与旧默认值迁移
 
 **作用域**：Find in Files popup geometry、inline styles、localStorage 恢复和
@@ -25,7 +208,7 @@
 
 - geometry 定向：**6 pass / 0 fail**；
 - Find/Search 定向：**20 pass / 0 fail**；
-- 全量 `npm test`：**2806 pass / 0 fail**；
+- 全量 `npm test`：**2807 pass / 0 fail**；
 - DSH 原生应用重新载入后 `⌘⇧F` 实测约 `510×440`，与 IDEA `510×439`
   对齐；
 - Ego Browser 的 DSH Web 入口仍被局域网 PIN 验证页拦截，未猜测凭据；使用
@@ -97,7 +280,9 @@
 - lint 初始：**129 个 explicit-any 错误**；修复后：
   `npm run lint:client-types` **0 error / 0 warning**；
 - `npm run build:client`：构建成功；
-- build 后置 `lint:client-types + npm test`：**2806 pass / 0 fail**；
+- build 后置 `lint:client-types + npm test`：**2807 pass / 0 fail**；
+- 2026-11-18 收尾复核：`lint:client-types` 仍为 0 error / 0 warning，
+  TS/TSX 源码无显式 `any`，全量 `npm test` **2807 pass / 0 fail**；
 - `npm run check:client-build`：**13 modules verified**；
 - `git diff --check`：通过。
 

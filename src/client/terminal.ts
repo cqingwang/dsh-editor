@@ -1,5 +1,13 @@
 /* terminal.ts: dsh-editor terminal state, search context and project helper module. Generated into lib/client.js by scripts/build-client.mjs. */
 import type * as Monaco from 'monaco-editor';
+import { dirname } from './components/editor/editor-path-model';
+import { gitStatusInfo } from './components/ui/git-status-model';
+import { findToolPathMatchesScope } from './commit';
+import { detectTheme } from './editor-core';
+import { currentEditorWorkspaceId, currentSessionId } from './components/editor/editor-path-model';
+import { TYPEAHEAD_RESET_MS } from './diff';
+import { basename, currentTerminalScope, remapPathAfterMove } from './editor-core';
+import { fileExtensionFilterMatches, normalizeFileExtensionFilter } from './find-tool';
 
 interface TerminalDescription {
   id: string;
@@ -45,32 +53,6 @@ interface ProjectTreeRow {
   [key: string]: unknown;
 }
 
-interface MoveConflict {
-  from: string;
-  to: string;
-  reason: 'duplicate' | 'exists';
-}
-
-interface MovePlan {
-  moves: Array<{ from: string; to: string }>;
-  conflicts: MoveConflict[];
-  intoSelf: string[];
-  unchanged: string[];
-}
-
-interface ProjectSelectionRequest {
-  rowPaths: string[];
-  selection: Set<string>;
-  selectedPath: string | null;
-  previousPaths?: string[];
-}
-
-interface TerminalRestoreSnapshot {
-  id?: string;
-  data?: string;
-  [key: string]: unknown;
-}
-
 /**
  * IDEA-style terminal tool window body: xterm screen over the host PTY.
  *
@@ -99,7 +81,7 @@ interface TerminalRestoreSnapshot {
  * @param {string[]} editorIds - terminal ids rendered by the editor.
  * @returns {string|null} next active dock terminal id.
  */
-function terminalActiveAfterClose(
+export function terminalActiveAfterClose(
   remaining: TerminalDescription[],
   splitId: string | null,
   editorIds: string[],
@@ -118,7 +100,7 @@ function terminalActiveAfterClose(
  * @param {string|null} currentActive - current active dock terminal.
  * @returns {{editorIds: string[], activeId: string|null}} reconciled state.
  */
-function reconcileTerminalDockState(
+export function reconcileTerminalDockState(
   listed: TerminalDescription[],
   editorIds: string[],
   currentActive: string | null,
@@ -135,7 +117,7 @@ function reconcileTerminalDockState(
 }
 
 /** xterm palette derived from the live app tokens, so light/dark both read correctly. */
-function terminalTheme(node: HTMLElement): {
+export function terminalTheme(node: HTMLElement): {
   background: string;
   foreground: string;
   cursor: string;
@@ -161,7 +143,7 @@ function terminalTheme(node: HTMLElement): {
  * @param {object|null} editor - active Monaco editor.
  * @returns {{start: number, end: number}|null} non-empty selection scope.
  */
-function editorFindSelectionScope(
+export function editorFindSelectionScope(
   editor: Monaco.editor.IStandaloneCodeEditor | null | undefined,
 ): EditorSelectionScope | null {
   const model = editor?.getModel?.() ?? null;
@@ -180,7 +162,7 @@ function editorFindSelectionScope(
  * @param {object|null} editor - active Monaco editor.
  * @returns {{scope: {start: number, end: number}|null, query: string|null}} request.
  */
-function editorFindKeyboardRequest(editor: Monaco.editor.IStandaloneCodeEditor | null | undefined): {
+export function editorFindKeyboardRequest(editor: Monaco.editor.IStandaloneCodeEditor | null | undefined): {
   scope: EditorSelectionScope | null;
   query: string | null;
 } {
@@ -204,7 +186,7 @@ function editorFindKeyboardRequest(editor: Monaco.editor.IStandaloneCodeEditor |
  * @param {{start: number, end: number}|null} scope - current editor selection.
  * @returns {'toggle'|'open'|null} shortcut action.
  */
-function editorFindSelectionShortcutAction(
+export function editorFindSelectionShortcutAction(
   replaceState: unknown,
   scope: EditorSelectionScope | null,
 ): 'toggle' | 'open' | null {
@@ -224,7 +206,7 @@ const TEXT_SEARCH_CONTEXT_FILTERS = new Set([
 ]);
 
 /** 收敛持久化值或 UI 值。 */
-function normalizeTextSearchContextFilter(value: unknown): string {
+export function normalizeTextSearchContextFilter(value: unknown): string {
   return typeof value === 'string' && TEXT_SEARCH_CONTEXT_FILTERS.has(value) ? value : 'anywhere';
 }
 
@@ -295,8 +277,12 @@ const MARKDOWN_TEXT_CONTEXT_RULES = {
   strings: [],
 };
 
-const TEXT_CONTEXT_RULES_BY_EXTENSION = new Map([
-  ...[
+const TEXT_CONTEXT_RULES_BY_EXTENSION = new Map<string, TextContextRules>();
+const registerTextContextRules = (extensions: string[], rules: TextContextRules): void => {
+  for (const extension of extensions) TEXT_CONTEXT_RULES_BY_EXTENSION.set(extension, rules);
+};
+registerTextContextRules(
+  [
     'js',
     'jsx',
     'mjs',
@@ -323,22 +309,20 @@ const TEXT_CONTEXT_RULES_BY_EXTENSION = new Map([
     'proto',
     'groovy',
     'gradle',
-  ].map((extension) => [extension, C_LIKE_TEXT_CONTEXT_RULES]),
-  ...['py', 'pyw'].map((extension) => [extension, PYTHON_TEXT_CONTEXT_RULES]),
-  ...['rb', 'sh', 'bash', 'zsh', 'fish', 'yml', 'yaml', 'toml', 'ini', 'cfg', 'conf', 'properties'].map((extension) => [
-    extension,
-    HASH_TEXT_CONTEXT_RULES,
-  ]),
-  ...['css', 'scss', 'sass', 'less', 'styl'].map((extension) => [extension, CSS_TEXT_CONTEXT_RULES]),
-  ...['html', 'htm', 'xhtml', 'xml', 'svg', 'vue', 'svelte', 'astro'].map((extension) => [
-    extension,
-    HTML_TEXT_CONTEXT_RULES,
-  ]),
-  ...['sql', 'lua'].map((extension) => [extension, SQL_TEXT_CONTEXT_RULES]),
-  ['php', PHP_TEXT_CONTEXT_RULES],
-  ['rs', RUST_TEXT_CONTEXT_RULES],
-  ...['md', 'markdown'].map((extension) => [extension, MARKDOWN_TEXT_CONTEXT_RULES]),
-]);
+  ],
+  C_LIKE_TEXT_CONTEXT_RULES,
+);
+registerTextContextRules(['py', 'pyw'], PYTHON_TEXT_CONTEXT_RULES);
+registerTextContextRules(
+  ['rb', 'sh', 'bash', 'zsh', 'fish', 'yml', 'yaml', 'toml', 'ini', 'cfg', 'conf', 'properties'],
+  HASH_TEXT_CONTEXT_RULES,
+);
+registerTextContextRules(['css', 'scss', 'sass', 'less', 'styl'], CSS_TEXT_CONTEXT_RULES);
+registerTextContextRules(['html', 'htm', 'xhtml', 'xml', 'svg', 'vue', 'svelte', 'astro'], HTML_TEXT_CONTEXT_RULES);
+registerTextContextRules(['sql', 'lua'], SQL_TEXT_CONTEXT_RULES);
+registerTextContextRules(['php'], PHP_TEXT_CONTEXT_RULES);
+registerTextContextRules(['rs'], RUST_TEXT_CONTEXT_RULES);
+registerTextContextRules(['md', 'markdown'], MARKDOWN_TEXT_CONTEXT_RULES);
 
 /** 按文件名选择保守词法规则；未知类型不猜测注释或字符串。 */
 function textSearchContextRulesForPath(path: string): TextContextRules | null {
@@ -459,7 +443,7 @@ function textSearchContextAllows(mask: Uint8Array, offset: number, length: numbe
  * @param {{caseSensitive?: boolean, wholeWords?: boolean, regex?: boolean, scope?: {start: number, end: number}|null, path?: string, contextFilter?: string}} [options] - find options and lexical context.
  * @returns {{source: string|null, flags: string, regex: RegExp|null, matches: object[], error: string|null}} compiled result.
  */
-function editorFindResult(
+export function editorFindResult(
   text: string,
   query: string,
   options?: FindOptions,
@@ -527,8 +511,9 @@ function editorFindResult(
     contextFilter === 'anywhere' || typeof options.path !== 'string' || options.path === ''
       ? null
       : textSearchContextMask(sourceText, options.path);
-  const scopeStart = Math.max(0, Math.floor(Number(options.scope?.start)));
-  const scopeEnd = Math.max(0, Math.floor(Number(options.scope?.end)));
+  const scope = options.scope as { start?: unknown; end?: unknown } | null | undefined;
+  const scopeStart = Math.max(0, Math.floor(Number(scope?.start)));
+  const scopeEnd = Math.max(0, Math.floor(Number(scope?.end)));
   const hasScope = Number.isFinite(scopeStart) && Number.isFinite(scopeEnd) && scopeEnd > scopeStart;
   regex.lastIndex = 0;
   while (true) {
@@ -557,12 +542,12 @@ function editorFindResult(
  * @param {object} [options] - Find options.
  * @returns {number[]} offsets.
  */
-function findMatches(text: string, query: string, options: FindOptions = {}): number[] {
+export function findMatches(text: string, query: string, options: FindOptions = {}): number[] {
   return editorFindResult(text, query, options).matches.map((match) => match.offset);
 }
 
 /** Count occurrences of one query under current Find options. */
-function countOccurrences(text: string, query: string, options: FindOptions = {}): number {
+export function countOccurrences(text: string, query: string, options: FindOptions = {}): number {
   return editorFindResult(text, query, options).matches.length;
 }
 
@@ -606,7 +591,7 @@ function editorRegexReplacementText(matched: string, replacement: string, source
  * @param {object} [options] - Find options.
  * @returns {{text: string, count: number, error: string|null}} rewritten text and count.
  */
-function editorReplaceAll(
+export function editorReplaceAll(
   text: string,
   query: string,
   replacement: string,
@@ -650,7 +635,7 @@ function editorReplaceAll(
  * @param {object} [options] - Find options.
  * @returns {{text: string, count: number, replacementText: string, length: number, error: string|null}} rewrite.
  */
-function editorReplaceAt(
+export function editorReplaceAt(
   text: string,
   query: string,
   replacement: string,
@@ -705,7 +690,7 @@ function editorReplaceAt(
  * @param {number} column - one-based column.
  * @returns {number|null} text offset, or null for malformed coordinates.
  */
-function textOffsetAtLineColumn(text: string, line: number, column: number): number | null {
+export function textOffsetAtLineColumn(text: string, line: number, column: number): number | null {
   const sourceText = typeof text === 'string' ? text : '';
   const wantedLine = Number(line);
   const wantedColumn = Number(column);
@@ -789,7 +774,20 @@ function textSearchFileMatches(
  * @param {number} [limit=200] - shared result cap.
  * @returns {{matches: object[], truncated: boolean}} merged result rows.
  */
-function mergeFindToolDirtyMatches(hostMatches, dirtyFiles, query, options = {}, scopeOptions = {}, limit = 200) {
+export function mergeFindToolDirtyMatches(
+  hostMatches: Array<{ path?: string; line?: number; column?: number }>,
+  dirtyFiles: Array<{ path?: string; content?: string; mtime?: number }>,
+  query: string,
+  options: FindOptions & { fileMask?: string; scope?: { start?: unknown; end?: unknown } | null } = {},
+  scopeOptions: {
+    mode?: string;
+    directory?: string;
+    preset?: string;
+    allowedPaths?: string[] | null;
+    recursive?: boolean;
+  } = {},
+  limit = 200,
+): { matches: Array<{ path?: string; line?: number; column?: number }>; truncated: boolean } {
   const maximum = Math.max(1, Math.min(500, Number(limit) || 200));
   const dirtyPaths = new Set();
   const dirtyMatches = [];
@@ -810,7 +808,14 @@ function mergeFindToolDirtyMatches(hostMatches, dirtyFiles, query, options = {},
     dirtyPaths.add(file.path);
     if (!findToolPathMatchesScope(file.path, scopeMode, scopeOptions)) continue;
     if (fileMask !== '' && !fileExtensionFilterMatches(file.path, fileMask)) continue;
-    const searched = textSearchFileMatches(file.path, file.content, query, options, file.mtime, maximum);
+    const searched = textSearchFileMatches(
+      file.path,
+      typeof file.content === 'string' ? file.content : '',
+      query,
+      options,
+      typeof file.mtime === 'number' ? file.mtime : undefined,
+      maximum,
+    );
     dirtyMatches.push(...searched.matches);
     if (searched.truncated) truncated = true;
   }
@@ -836,7 +841,7 @@ function mergeFindToolDirtyMatches(hostMatches, dirtyFiles, query, options = {},
  * @param {{expanded: Set<string>|null, rootEntries: object[]|null, children: object|null}} request - current tree cache.
  * @returns {Set<string>} the same set when valid, or a pruned copy.
  */
-function pruneProjectExpandedPaths(request) {
+export function pruneProjectExpandedPaths(request) {
   const expanded = request?.expanded instanceof Set ? request.expanded : new Set();
   if (expanded.size === 0 || request?.authoritative === false) return expanded;
   const knownListings = new Map();
@@ -871,7 +876,7 @@ function pruneProjectExpandedPaths(request) {
  * @param {{order: object|null, rootEntries: object[]|null, children: object|null}} request - current order and tree cache.
  * @returns {object} the same order when valid, or a pruned copy.
  */
-function pruneProjectManualOrder(request) {
+export function pruneProjectManualOrder(request) {
   const order =
     request?.order !== null && typeof request?.order === 'object' && !Array.isArray(request.order) ? request.order : {};
   if (Object.keys(order).length === 0 || request?.authoritative === false) return order;
@@ -940,7 +945,7 @@ function pruneProjectManualOrder(request) {
  * @param {Array<[string, string]>} entries - old/new path pairs.
  * @returns {Set<string>} the same set when no expanded path moved.
  */
-function remapProjectExpandedPaths(expanded, entries) {
+export function remapProjectExpandedPaths(expanded, entries) {
   const source = expanded instanceof Set ? expanded : new Set();
   const moves = (Array.isArray(entries) ? entries : []).filter(
     (entry) =>
@@ -979,7 +984,7 @@ function expandedStorageKey(root) {
  * @param {string} root - absolute workspace root, used as the storage key.
  * @returns {string[]} workspace-relative directory paths.
  */
-function readExpanded(root) {
+export function readExpanded(root: string): string[] {
   if (root === '') return [];
   try {
     const raw = window.localStorage.getItem(expandedStorageKey(root));
@@ -995,7 +1000,7 @@ function readExpanded(root) {
  * @param {string} root - absolute workspace root.
  * @param {Set<string>} expanded - workspace-relative directory paths.
  */
-function writeExpanded(root, expanded) {
+export function writeExpanded(root, expanded) {
   if (root === '') return;
   try {
     window.localStorage.setItem(
@@ -1015,7 +1020,7 @@ function writeExpanded(root, expanded) {
  * @param {string} root - workspace root, used as part of the key.
  * @returns {Set<string>} collapse keys (`<group>:<directory path>`).
  */
-function readCollapsedGroups(root) {
+export function readCollapsedGroups(root: string): Set<string> {
   try {
     const raw = window.localStorage.getItem(`dsh-editor.collapsedGroups:${root}`);
     if (raw === null || raw === '') return new Set();
@@ -1033,7 +1038,7 @@ function readCollapsedGroups(root) {
  * @param {Set<string>} collapsed - collapse keys currently folded.
  * @returns {void}
  */
-function writeCollapsedGroups(root, collapsed) {
+export function writeCollapsedGroups(root, collapsed) {
   if (root === '') return;
   try {
     window.localStorage.setItem(`dsh-editor.collapsedGroups:${root}`, JSON.stringify([...collapsed]));
@@ -1043,7 +1048,7 @@ function writeCollapsedGroups(root, collapsed) {
 }
 
 /** Read a persisted number with a safe fallback. */
-function readStoredNumber(key, fallback) {
+export function readStoredNumber(key, fallback) {
   try {
     const raw = window.localStorage.getItem(key);
     const value = raw === null ? NaN : Number(raw);
@@ -1054,7 +1059,7 @@ function readStoredNumber(key, fallback) {
 }
 
 /** Persist one numeric preference; a storage-less browser keeps the memory value. */
-function writeStoredNumber(key, value) {
+export function writeStoredNumber(key, value) {
   try {
     window.localStorage.setItem(key, String(Math.round(value)));
   } catch {
@@ -1063,13 +1068,13 @@ function writeStoredNumber(key, value) {
 }
 
 /** Keep the terminal dock within a readable range. */
-const clampTerminalHeight = (value) => {
+export const clampTerminalHeight = (value) => {
   const next = Number(value);
   return Number.isFinite(next) ? Math.max(96, Math.min(640, next)) : 220;
 };
 
 /** 将 IDEA 持久 Find 工具窗高度限制在可读范围内。 */
-function clampFindDockHeight(value) {
+export function clampFindDockHeight(value) {
   const next = Number(value);
   return Number.isFinite(next) ? Math.max(180, Math.min(720, next)) : 280;
 }
@@ -1086,7 +1091,7 @@ const TOOL_PANEL_MIN_PX = 200;
  * @param {number} value - remembered percentage.
  * @returns {string} a CSS flex declaration.
  */
-function toolPanelFlex(activity, value) {
+export function toolPanelFlex(activity, value) {
   const percent = Number.isFinite(value) ? Math.max(14, Math.min(72, value)) : activity === 'project' ? 28 : 25;
   const max = activity === 'project' ? 420 : 480;
   return `0 0 clamp(${TOOL_PANEL_MIN_PX}px, ${percent}%, ${max}px)`;
@@ -1097,7 +1102,7 @@ function toolPanelFlex(activity, value) {
  * @param {number|string} value - requested left-pane percentage.
  * @returns {number} percentage in the IDEA editor-split safe range.
  */
-function clampEditorSplitPercent(value, width = null) {
+export function clampEditorSplitPercent(value, width = null) {
   const next = Number(value);
   if (!Number.isFinite(next)) return 50;
   const rowWidth = Number(width);
@@ -1158,7 +1163,7 @@ function normalizeEditorSession(value) {
  * @param {string} root - absolute workspace root.
  * @returns {ReturnType<typeof normalizeEditorSession>} safe session, empty when absent.
  */
-function readEditorSession(root) {
+export function readEditorSession(root) {
   if (typeof root !== 'string' || root === '') return normalizeEditorSession(null);
   try {
     const raw = window.localStorage.getItem(`dsh-editor.editor.session:${root}`);
@@ -1174,7 +1179,7 @@ function readEditorSession(root) {
  * @param {object} value - open/split state.
  * @returns {void}
  */
-function writeEditorSession(root, value) {
+export function writeEditorSession(root, value) {
   if (typeof root !== 'string' || root === '') return;
   try {
     window.localStorage.setItem(`dsh-editor.editor.session:${root}`, JSON.stringify(normalizeEditorSession(value)));
@@ -1189,7 +1194,7 @@ function writeEditorSession(root, value) {
  * @param {string} fallback - value used when nothing usable is stored.
  * @returns {string} stored value or the fallback.
  */
-function readStoredText(key, fallback) {
+export function readStoredText(key, fallback) {
   try {
     const raw = window.localStorage.getItem(key);
     return raw === null || raw === '' ? fallback : raw;
@@ -1210,7 +1215,7 @@ function readStoredText(key, fallback) {
  * @param {number} fallback - default percentage.
  * @returns {number} clamped width percentage.
  */
-function readToolWidth(root, activity, fallback) {
+export function readToolWidth(root, activity, fallback) {
   if (typeof root !== 'string' || root === '') return fallback;
   try {
     const raw = window.localStorage.getItem(`dsh-editor.toolWidth.${activity}:${root}`);
@@ -1228,7 +1233,7 @@ function readToolWidth(root, activity, fallback) {
  * @param {number} value - width percentage.
  * @returns {void}
  */
-function writeToolWidth(root, activity, value) {
+export function writeToolWidth(root, activity, value) {
   if (typeof root !== 'string' || root === '' || !Number.isFinite(value)) return;
   try {
     window.localStorage.setItem(
@@ -1250,7 +1255,7 @@ function writeToolWidth(root, activity, value) {
  * @param {string} root - absolute workspace root.
  * @returns {string[]} workspace-relative paths, newest first.
  */
-function readRecentFiles(root) {
+export function readRecentFiles(root) {
   if (root === '') return [];
   try {
     const raw = window.localStorage.getItem(`dsh-editor.recent:${root}`);
@@ -1269,7 +1274,7 @@ function readRecentFiles(root) {
  * @param {string[]} list - workspace-relative paths, newest first.
  * @returns {void}
  */
-function writeRecentFiles(root, list) {
+export function writeRecentFiles(root, list) {
   if (root === '') return;
   try {
     window.localStorage.setItem(`dsh-editor.recent:${root}`, JSON.stringify(list.slice(0, 30)));
@@ -1289,7 +1294,7 @@ function writeRecentFiles(root, list) {
  * @param {number} limit - maximum entries retained.
  * @returns {string[]} the new list, or the same array when nothing changed.
  */
-function pushRecent(list, path, limit = 30) {
+export function pushRecent(list, path, limit = 30) {
   if (typeof path !== 'string' || path === '') return Array.isArray(list) ? list : [];
   const current = Array.isArray(list) ? list : [];
   if (current[0] === path) return current;
@@ -1304,7 +1309,7 @@ function pushRecent(list, path, limit = 30) {
  * not how to rebuild a shell. Stored per Session, like the tab profile.
  * @returns {string[]} terminal ids currently moved into the editor.
  */
-function readEditorTerminals() {
+export function readEditorTerminals() {
   try {
     const raw = window.localStorage.getItem(`dsh-editor.terminal.editor:${currentTerminalScope()}`);
     const parsed = raw === null ? null : JSON.parse(raw);
@@ -1319,7 +1324,7 @@ function readEditorTerminals() {
  * @param {string[]} ids - terminal ids.
  * @returns {void}
  */
-function writeEditorTerminals(ids) {
+export function writeEditorTerminals(ids) {
   try {
     window.localStorage.setItem(
       `dsh-editor.terminal.editor:${currentTerminalScope()}`,
@@ -1331,7 +1336,7 @@ function writeEditorTerminals(ids) {
 }
 
 /** IDEA terminal font-size actions, clamped to a usable range. */
-function terminalFontSize(current, action) {
+export function terminalFontSize(current, action) {
   const value = Number.isFinite(Number(current)) ? Math.round(Number(current)) : 12;
   if (action === 'increase') return Math.min(24, Math.max(8, value) + 1);
   if (action === 'decrease') return Math.max(8, Math.max(8, value) - 1);
@@ -1339,7 +1344,7 @@ function terminalFontSize(current, action) {
 }
 
 /** Persist one explicit terminal font size. */
-function storeFontSize(next) {
+export function storeFontSize(next) {
   try {
     window.localStorage.setItem('dsh-editor.terminal.fontSize', String(next));
   } catch {
@@ -1349,7 +1354,7 @@ function storeFontSize(next) {
 }
 
 /** Call the host terminal API. */
-async function callTerminal(payload) {
+export async function callTerminal(payload) {
   const sessionId = currentSessionId();
   const workspaceId = currentEditorWorkspaceId();
   if (sessionId === '' && workspaceId === '') throw new Error('no active Session or workspace');
@@ -1373,7 +1378,7 @@ async function callTerminal(payload) {
  * @param {string} root - workspace root used as the storage key.
  * @returns {string} stored draft, or '' when none.
  */
-function readCommitDraft(root) {
+export function readCommitDraft(root) {
   if (typeof root !== 'string' || root === '') return '';
   try {
     return window.localStorage.getItem(`dsh-editor.commitDraft:${root}`) ?? '';
@@ -1388,7 +1393,7 @@ function readCommitDraft(root) {
  * @param {string} text - current message text.
  * @returns {void}
  */
-function writeCommitDraft(root, text) {
+export function writeCommitDraft(root, text) {
   if (typeof root !== 'string' || root === '') return;
   try {
     if (typeof text === 'string' && text !== '') window.localStorage.setItem(`dsh-editor.commitDraft:${root}`, text);
@@ -1429,7 +1434,7 @@ function directorySignature(entries) {
  * @param {object[]} next - freshly read listing.
  * @returns {object[]} previous when nothing changed, else `next`.
  */
-function keepUnchangedListing(previous, next) {
+export function keepUnchangedListing(previous, next) {
   if (Array.isArray(previous) && directorySignature(previous) === directorySignature(next)) return previous;
   return next;
 }
@@ -1443,7 +1448,7 @@ function keepUnchangedListing(previous, next) {
  * @param {object[]} entries - root listing.
  * @returns {string[]} file paths.
  */
-function collectFilePaths(entries) {
+export function collectFilePaths(entries) {
   return (Array.isArray(entries) ? entries : [])
     .filter((entry) => entry?.kind === 'file' && typeof entry.path === 'string')
     .map((entry) => entry.path);
@@ -1458,7 +1463,7 @@ function collectFilePaths(entries) {
  * @returns {Array<{shell: string, cwd: string, title: string}>} usable entries.
  */
 /** IDEA's terminal tab colours, cycled in order. */
-const TERMINAL_COLORS = ['#cf222e', '#bf8700', '#1a7f37', '#2f65ca', '#8250df', '#1b7c83'];
+export const TERMINAL_COLORS = ['#cf222e', '#bf8700', '#1a7f37', '#2f65ca', '#8250df', '#1b7c83'];
 
 /**
  * Read the colour assigned to each terminal tab of this Session.
@@ -1467,7 +1472,7 @@ const TERMINAL_COLORS = ['#cf222e', '#bf8700', '#1a7f37', '#2f65ca', '#8250df', 
  * the host: the host's terminal list stays a pure process description.
  * @returns {Record<string, string>} terminal id → CSS colour.
  */
-function readTerminalColors() {
+export function readTerminalColors() {
   try {
     const raw = window.localStorage.getItem(`dsh-editor.terminal.colors:${currentTerminalScope()}`);
     const parsed = raw === null ? null : JSON.parse(raw);
@@ -1488,7 +1493,7 @@ function readTerminalColors() {
  * @param {Record<string, string>} colours - terminal id → CSS colour.
  * @returns {void}
  */
-function writeTerminalColors(colours) {
+export function writeTerminalColors(colours) {
   try {
     window.localStorage.setItem(`dsh-editor.terminal.colors:${currentTerminalScope()}`, JSON.stringify(colours));
   } catch {
@@ -1503,7 +1508,7 @@ function writeTerminalColors(colours) {
  * well-formed `{shell, cwd}` entries survive.
  * @returns {Array<{shell: string, cwd: string, title: string}>} usable entries, newest first.
  */
-function readClosedTerminals() {
+export function readClosedTerminals() {
   try {
     const raw = window.localStorage.getItem(`dsh-editor.terminal.closed:${currentTerminalScope()}`);
     if (raw === null || raw === '') return [];
@@ -1524,7 +1529,7 @@ function readClosedTerminals() {
   }
 }
 
-function readTerminalProfile() {
+export function readTerminalProfile() {
   try {
     const raw = window.localStorage.getItem(`dsh-editor.terminal.profile:${currentTerminalScope()}`);
     if (raw === null || raw === '') return [];
@@ -1566,7 +1571,7 @@ function boundTerminalRestoreBuffer(value) {
 }
 
 /** Read bounded scrollback snapshots for the current browser tab. */
-function readTerminalRestoreSnapshots() {
+export function readTerminalRestoreSnapshots() {
   try {
     const raw = window.sessionStorage.getItem(terminalRestoreStorageKey());
     const parsed = raw === null ? null : JSON.parse(raw);
@@ -1578,7 +1583,7 @@ function readTerminalRestoreSnapshots() {
 }
 
 /** Persist bounded scrollback snapshots for the current browser tab. */
-function writeTerminalRestoreSnapshots(snapshots) {
+export function writeTerminalRestoreSnapshots(snapshots) {
   try {
     window.sessionStorage.setItem(
       terminalRestoreStorageKey(),
@@ -1594,7 +1599,7 @@ function writeTerminalRestoreSnapshots(snapshots) {
 }
 
 /** Seed one recreated terminal with its previous scrollback tail. */
-function seedTerminalRestoreBuffer(id, snapshot) {
+export function seedTerminalRestoreBuffer(id, snapshot) {
   if (typeof id !== 'string' || id === '') return;
   const text = boundTerminalRestoreBuffer(snapshot);
   if (text === '') return;
@@ -1603,21 +1608,21 @@ function seedTerminalRestoreBuffer(id, snapshot) {
 }
 
 /** Consume the one-shot scrollback seed for a terminal stream. */
-function takeTerminalRestoreBuffer(id) {
+export function takeTerminalRestoreBuffer(id) {
   const text = terminalPendingRestoreBuffers.get(id) ?? '';
   terminalPendingRestoreBuffers.delete(id);
   return text;
 }
 
 /** Replace the live buffer with an authoritative host snapshot. */
-function resetTerminalLiveBuffer(id, data, restored = '') {
+export function resetTerminalLiveBuffer(id, data, restored = '') {
   const next = boundTerminalRestoreBuffer(`${restored}${typeof data === 'string' ? data : ''}`);
   terminalLiveBuffers.set(id, next);
   return next;
 }
 
 /** Append incremental output to the live buffer. */
-function appendTerminalLiveBuffer(id, data) {
+export function appendTerminalLiveBuffer(id, data) {
   const next = boundTerminalRestoreBuffer(
     `${terminalLiveBuffers.get(id) ?? ''}${typeof data === 'string' ? data : ''}`,
   );
@@ -1626,19 +1631,19 @@ function appendTerminalLiveBuffer(id, data) {
 }
 
 /** Explicitly clear one terminal's visible and session-restorable history. */
-function clearTerminalLiveBuffer(id) {
+export function clearTerminalLiveBuffer(id) {
   terminalPendingRestoreBuffers.delete(id);
   terminalLiveBuffers.set(id, '');
 }
 
 /** Drop all retained state for a closed terminal. */
-function forgetTerminalLiveBuffer(id) {
+export function forgetTerminalLiveBuffer(id) {
   terminalPendingRestoreBuffers.delete(id);
   terminalLiveBuffers.delete(id);
 }
 
 /** Write current terminal order and bounded buffers into sessionStorage. */
-function persistTerminalRestoreSnapshots(list) {
+export function persistTerminalRestoreSnapshots(list) {
   const terminals = Array.isArray(list) ? list : [];
   /* Initial mount has no list yet; keep the previous browser-tab snapshots
          until restoreTerminals has recreated the tabs. */
@@ -1687,7 +1692,7 @@ function compactDirectoryChain(entry, children) {
  * @param {string[]} order - saved workspace-relative child paths.
  * @returns {object[]} view-ordered entries.
  */
-function orderProjectEntriesByManual(entries, order) {
+export function orderProjectEntriesByManual(entries, order) {
   const list = Array.isArray(entries) ? [...entries] : [];
   const saved = Array.isArray(order) ? order.filter((path) => typeof path === 'string' && path !== '') : [];
   const rank = new Map(saved.map((path, index) => [path, index]));
@@ -1709,7 +1714,7 @@ function orderProjectEntriesByManual(entries, order) {
  * @param {'before'|'after'} edge - insertion side.
  * @returns {string[]} reordered sibling paths.
  */
-function reorderProjectManualPaths(current, sources, target, edge) {
+export function reorderProjectManualPaths(current, sources, target, edge) {
   const list = Array.isArray(current) ? current.filter((path) => typeof path === 'string' && path !== '') : [];
   const moving = new Set(
     (Array.isArray(sources) ? sources : []).filter((path) => list.includes(path) && path !== target),
@@ -1734,7 +1739,7 @@ function reorderProjectManualPaths(current, sources, target, edge) {
  * @param {Array<[string, string]>} entries - old/new workspace paths.
  * @returns {object} the same map when no saved rank moved.
  */
-function remapProjectManualOrder(order, entries) {
+export function remapProjectManualOrder(order, entries) {
   const current = order !== null && typeof order === 'object' && !Array.isArray(order) ? order : {};
   const moves = (Array.isArray(entries) ? entries : []).filter(
     (entry) =>
@@ -1786,7 +1791,7 @@ function remapProjectManualOrder(order, entries) {
  * @param {'up'|'down'} direction - requested movement.
  * @returns {{target: string, edge: 'before'|'after'}|null} insertion target.
  */
-function manualReorderBoundary(current, sources, direction) {
+export function manualReorderBoundary(current, sources, direction) {
   const list = Array.isArray(current) ? current : [];
   const moving = new Set((Array.isArray(sources) ? sources : []).filter((path) => list.includes(path)));
   if (moving.size === 0) return null;
@@ -1801,7 +1806,7 @@ function manualReorderBoundary(current, sources, direction) {
 }
 
 /** Read the per-workspace manual Project order map. */
-function readProjectManualOrder(root) {
+export function readProjectManualOrder(root: string): Record<string, string[]> {
   if (typeof root !== 'string' || root === '') return {};
   try {
     const parsed = JSON.parse(window.localStorage.getItem(`dsh-editor.project.manualOrder:${root}`) ?? '{}');
@@ -1818,7 +1823,7 @@ function readProjectManualOrder(root) {
 }
 
 /** Persist the per-workspace manual Project order map. */
-function writeProjectManualOrder(root, order) {
+export function writeProjectManualOrder(root, order) {
   if (typeof root !== 'string' || root === '') return;
   try {
     window.localStorage.setItem(`dsh-editor.project.manualOrder:${root}`, JSON.stringify(order ?? {}));
@@ -1835,7 +1840,7 @@ function writeProjectManualOrder(root, order) {
  * tree starts directly with the real top-level entries. Keeping a synthetic
  * root row duplicated that information and consumed a full row of height.
  */
-function flattenRows(
+export function flattenRows(
   entries,
   children,
   expanded,
@@ -1935,7 +1940,7 @@ function flattenRows(
  * @param {number} index - target row index.
  * @returns {{level: number, posinset: number, setsize: number}} position.
  */
-function projectTreePosition(rows, index) {
+export function projectTreePosition(rows, index) {
   const list = Array.isArray(rows) ? rows : [];
   const row = list[index];
   const depth = Math.max(0, Math.floor(Number(row?.depth) || 0));
@@ -1966,12 +1971,12 @@ function projectTreePosition(rows, index) {
 }
 
 /** Normalize the Project views that have a real data source in this plugin. */
-function normalizeProjectView(view) {
+export function normalizeProjectView(view) {
   return ['projectFiles', 'openFiles', 'changedFiles'].includes(view) ? view : 'projectFiles';
 }
 
 /** Project Files is the only view backed by the real disk tree. */
-function projectViewIsTree(view) {
+export function projectViewIsTree(view) {
   return normalizeProjectView(view) === 'projectFiles';
 }
 
@@ -1988,7 +1993,7 @@ function projectViewIsTree(view) {
  * @param {{changes?: object[]}|null} git - current Git snapshot.
  * @returns {object[]} rows for the selected view.
  */
-function projectViewRows(view, projectRows, openFiles, git) {
+export function projectViewRows(view, projectRows, openFiles, git) {
   const normalized = normalizeProjectView(view);
   if (projectViewIsTree(normalized)) return projectRows;
   if (normalized !== 'openFiles' && normalized !== 'changedFiles') return projectRows;
@@ -2023,7 +2028,7 @@ function projectViewRows(view, projectRows, openFiles, git) {
  * @param {string|null} selectedPath - current primary row.
  * @returns {{selection: Set<string>, primary: string|null}} sanitized state.
  */
-function filteredViewSelection(rowPaths, selection, selectedPath) {
+export function filteredViewSelection(rowPaths, selection, selectedPath) {
   const visible = new Set(
     (Array.isArray(rowPaths) ? rowPaths : []).filter((path) => typeof path === 'string' && path !== ''),
   );
@@ -2096,7 +2101,7 @@ function projectSelectionAfterRowsChange(request) {
  * @param {{selection?: Set<string>|null, selectedPath: string|null, previousPaths: string[], rowPaths: string[], expanded: Set<string>|null}} request - row transition.
  * @returns {{selection: Set<string>, primary: string|null}} reconciled selection.
  */
-function projectSelectionSetAfterRowsChange(request) {
+export function projectSelectionSetAfterRowsChange(request) {
   const source =
     request?.selection instanceof Set
       ? request.selection
@@ -2127,7 +2132,7 @@ function projectSelectionSetAfterRowsChange(request) {
  * @param {(key: string) => string} t - translator.
  * @returns {Array<{id: string, label: string, available: boolean}>} menu entries.
  */
-function projectViewDefinitions(t) {
+export function projectViewDefinitions(t) {
   return [
     { id: 'projectFiles', label: t('editor.projectViewProjectFiles'), available: true },
     { id: 'openFiles', label: t('editor.projectViewOpenFiles'), available: true },
@@ -2148,7 +2153,7 @@ function projectViewDefinitions(t) {
  * @param {(key: string, params?: object) => string} t - plugin translator.
  * @returns {string} the notice text.
  */
-function describeMoved(moved, conflict, t) {
+export function describeMoved(moved, conflict, t) {
   const done = Array.isArray(moved) ? moved.filter((path) => typeof path === 'string' && path !== '') : [];
   const blocked = typeof conflict === 'string' ? conflict : '';
   if (done.length === 0) return t('editor.moveConflict', { path: blocked });
@@ -2167,7 +2172,7 @@ function describeMoved(moved, conflict, t) {
  * @param {string} path - the path the action was about.
  * @returns {string} the text to show.
  */
-function hostErrorText(message, translate, path) {
+export function hostErrorText(message, translate, path) {
   if (typeof message !== 'string' || message === '') return typeof message === 'string' ? message : '';
   if (message === 'path does not exist') return translate('editor.pathMissing', { path: String(path) });
   if (message === 'path escapes the workspace') return translate('editor.pathOutsideWorkspace');
@@ -2186,7 +2191,7 @@ function hostErrorText(message, translate, path) {
  * @param {number} line - 1-based line in the modified model.
  * @returns {{index: number, total: number}} 1-based hunk index, together with the total.
  */
-function hunkAt(changes, line) {
+export function hunkAt(changes, line) {
   const list = Array.isArray(changes) ? changes : [];
   const total = list.length;
   const target = Number(line);
@@ -2218,7 +2223,7 @@ function hunkAt(changes, line) {
  * @param {object[]} history - existing newest-last undo stack.
  * @returns {object[]} the same stack while a restore is active, else sorted history.
  */
-function restoreUndoStack(active, history) {
+export function restoreUndoStack(active, history) {
   const list = Array.isArray(history) ? history : [];
   return active === null || active === undefined ? list : list;
 }
@@ -2235,12 +2240,11 @@ function restoreUndoStack(active, history) {
  * @param {{startLineNumber: number, startColumn: number, endLineNumber: number, endColumn: number}} selection - modified selection.
  * @returns {object[]} char changes to revert, in document order.
  */
-function selectedCharChanges(changes, selection) {
+export function selectedCharChanges(changes, selection) {
   const list = Array.isArray(changes) ? changes : [];
   const startLine = Number(selection?.startLineNumber);
   const endLine = Number(selection?.endLineNumber);
   if (!Number.isFinite(startLine) || !Number.isFinite(endLine)) return [];
-  const startColumn = Number(selection?.startColumn);
   const endColumn = Number(selection?.endColumn);
   const before = (aLine, aColumn, bLine, bColumn) => aLine < bLine || (aLine === bLine && aColumn < bColumn);
   const result = [];
@@ -2311,7 +2315,7 @@ function selectedCharChanges(changes, selection) {
  * @param {object|null|undefined} change - one Monaco line change.
  * @returns {object[]} mappings accepted by revertRangeMappings().
  */
-function lineChangeRangeMappings(change) {
+export function lineChangeRangeMappings(change) {
   if (change === null || change === undefined) return [];
   const startLineNumber = Math.max(1, Math.floor(Number(change.modifiedStartLineNumber) || 1));
   const endLineNumber = Math.max(startLineNumber, Math.floor(Number(change.modifiedEndLineNumber) || startLineNumber));
@@ -2332,7 +2336,7 @@ function lineChangeRangeMappings(change) {
  * @param {{kind?: string, open?: boolean}|null} hit - the matched row.
  * @returns {'open'|'expand'|'keep'|'none'} the action to take.
  */
-function revealInTree(hit) {
+export function revealInTree(hit) {
   if (hit === null || hit === undefined) return 'none';
   if (hit.kind === 'file') return 'open';
   if (hit.kind === 'directory') {
@@ -2353,11 +2357,10 @@ function revealInTree(hit) {
  * @param {{continues: boolean[], index: number, depth: number}} state - per-depth flags, the column, the row's depth.
  * @returns {'line'|'none'} what to draw in that column.
  */
-function guideKind(state) {
+export function guideKind(state) {
   if (state === null || state === undefined) return 'none';
   const continues = Array.isArray(state.continues) ? state.continues : [];
   const index = Number(state.index);
-  const depth = Number(state.depth);
   if (!Number.isFinite(index) || index < 0) return 'none';
   return continues[index] === false ? 'none' : 'line';
 }
@@ -2385,7 +2388,7 @@ function continuationFlags(isLast) {
  * @param {{status?: string, selected?: boolean}|null} state - the row's porcelain status and selection.
  * @returns {string|null} a CSS colour, or null for "keep the default".
  */
-function treeNameColor(state) {
+export function treeNameColor(state) {
   if (state === null || state === undefined) return null;
   if (state.selected === true) return '#fff';
   const status = typeof state.status === 'string' ? state.status : '';
@@ -2404,7 +2407,7 @@ function treeNameColor(state) {
  * @param {{path: string, status: string}[]|null} changes - changes inside the folder.
  * @returns {{color: string}|null} the tint, or null when the folder is clean.
  */
-function directoryTint(changes) {
+export function directoryTint(changes) {
   const inside = Array.isArray(changes) ? changes : [];
   if (inside.length === 0) return null;
   if (
@@ -2437,7 +2440,7 @@ function directoryTint(changes) {
  * @param {{branch?: string, detached?: boolean, hash?: string}|null} git - status payload.
  * @returns {string} the chip text, or '' when there is nothing to show.
  */
-function branchLabel(git) {
+export function branchLabel(git) {
   if (git === null || git === undefined) return '';
   const branch = typeof git.branch === 'string' ? git.branch.trim() : '';
   if (git.detached === true) {
@@ -2460,7 +2463,7 @@ function branchLabel(git) {
  * @param {string} payload - the OSC 7 payload.
  * @returns {string|null} the absolute path, or null when it is not a file URL.
  */
-function cwdFromOsc7(payload) {
+export function cwdFromOsc7(payload) {
   if (typeof payload !== 'string') return null;
   const match = /^file:\/\/[^/]*(\/.*)$/.exec(payload.trim());
   if (match === null) return null;
@@ -2484,7 +2487,7 @@ function cwdFromOsc7(payload) {
  * @param {string} directory - workspace-relative directory the shell is in.
  * @returns {string|null} the workspace-relative README path, or null.
  */
-function readmeInDirectory(names, directory) {
+export function readmeInDirectory(names, directory) {
   if (!Array.isArray(names)) return null;
   const match = names.find((name) => typeof name === 'string' && /^readme(\.(md|markdown|txt|rst))?$/i.test(name));
   if (match === undefined) return null;
@@ -2529,7 +2532,7 @@ function typeaheadMatch(rows, buffer, fromPath, advance) {
  * @param {Array<{path?: string, staged?: boolean, order?: number}|null>} changes - visible changes.
  * @returns {Array<{name: string, path: string, workspacePath: string, staged: boolean, order: number}>} candidates.
  */
-function changeTypeaheadRows(changes) {
+export function changeTypeaheadRows(changes) {
   return (Array.isArray(changes) ? changes : [])
     .map((change, index) => ({ change, index }))
     .filter(
@@ -2561,7 +2564,7 @@ function changeTypeaheadRows(changes) {
  * @param {{rows: object[], buffer: string, path: string|null, key: string, now: number, lastAt: number}} input - one keystroke's context.
  * @returns {{buffer: string, at: number, hit: string|null}} the next typeahead state.
  */
-function typeaheadStep(input) {
+export function typeaheadStep(input) {
   const key = typeof input?.key === 'string' ? input.key : '';
   const rows = Array.isArray(input?.rows) ? input.rows : [];
   const previous = typeof input?.buffer === 'string' ? input.buffer : '';
@@ -2593,7 +2596,7 @@ function typeaheadStep(input) {
  * @param {string} query - speed-search text.
  * @returns {object[]} hit rows in display order.
  */
-function speedSearchHitRows(rows, query) {
+export function speedSearchHitRows(rows, query) {
   const needle = typeof query === 'string' ? query.trim().toLowerCase() : '';
   if (needle === '') return [];
   return (Array.isArray(rows) ? rows : []).filter(
@@ -2619,7 +2622,7 @@ function speedSearchHitRows(rows, query) {
  * @param {'first'|'next'|'previous'} direction - navigation intent.
  * @returns {string|null} target row path, or null when nothing matches.
  */
-function speedSearchTarget(rows, query, currentPath, direction) {
+export function speedSearchTarget(rows, query, currentPath, direction) {
   const hits = speedSearchHitRows(rows, query);
   if (hits.length === 0) return null;
   const currentIndex = hits.findIndex((row) => row.path === currentPath);
@@ -2640,7 +2643,7 @@ function speedSearchTarget(rows, query, currentPath, direction) {
  * @param {string} clickedPath - row that received the context-menu gesture.
  * @returns {string[]} workspace-relative files in stable display order.
  */
-function projectRightSplitPaths(rows, selection, clickedPath) {
+export function projectRightSplitPaths(rows, selection, clickedPath) {
   if (typeof clickedPath !== 'string' || clickedPath === '') return [];
   const selected = selection instanceof Set ? selection : new Set();
   const wanted = selected.size > 1 && selected.has(clickedPath) ? selected : new Set([clickedPath]);
@@ -2675,7 +2678,7 @@ function projectSingleClickPreference(current, legacy) {
  * Read the unified Project single-click preference and migrate old state.
  * @returns {boolean} whether selecting a file with one click opens it.
  */
-function readProjectSingleClickOpen() {
+export function readProjectSingleClickOpen() {
   const current = readStoredText('dsh-editor.project.singleClickOpen', '0');
   const legacy = readStoredText('dsh-editor.project.autoscrollToSource', '0');
   const enabled = projectSingleClickPreference(current, legacy);
@@ -2700,7 +2703,7 @@ function readProjectSingleClickOpen() {
  * @param {Set<string>|null} selection - selected paths.
  * @returns {boolean} true when at least one selected row is an expandable directory.
  */
-function projectCanExpandSelection(rows, selection) {
+export function projectCanExpandSelection(rows, selection) {
   const selected = selection instanceof Set ? selection : new Set();
   if (selected.size === 0) return false;
   return (Array.isArray(rows) ? rows : []).some(
@@ -2719,7 +2722,7 @@ function projectCanExpandSelection(rows, selection) {
  * @param {Set<string>|null} expanded - expanded directory paths.
  * @returns {boolean} true when at least one directory still needs expansion.
  */
-function projectCanExpandAll(entries, children, expanded) {
+export function projectCanExpandAll(entries, children, expanded) {
   const expandedSet = expanded instanceof Set ? expanded : new Set();
   const queue = (Array.isArray(entries) ? entries : [])
     .filter((entry) => entry?.kind === 'directory' && typeof entry.path === 'string')
@@ -2744,7 +2747,7 @@ function projectCanExpandAll(entries, children, expanded) {
  * @param {Set<string>|null} expanded - expanded directory paths.
  * @returns {boolean} true when the tree contains an expanded directory.
  */
-function projectCanCollapseAll(expanded) {
+export function projectCanCollapseAll(expanded) {
   return expanded instanceof Set && expanded.size > 0;
 }
 
@@ -2758,7 +2761,7 @@ function projectCanCollapseAll(expanded) {
  * @param {{query: string, rows: {path: string}[]}|null} state - the query and the filtered rows.
  * @returns {boolean} true when the query is non-empty and nothing but the root matched.
  */
-function treeSearchMiss(state) {
+export function treeSearchMiss(state) {
   if (state === null || state === undefined) return false;
   if (state.loading === true) return false;
   const query = typeof state.query === 'string' ? state.query.trim() : '';
@@ -2776,12 +2779,18 @@ function treeSearchMiss(state) {
  * @param {{moved: string[], conflicts: {to: string}[], target: string}|null} plan - what the move produced.
  * @returns {{done: number, target: string, blocked?: string}|null} the summary.
  */
-function describeMoveResult(plan) {
+export function describeMoveResult(
+  plan: {
+    moved?: string[];
+    conflicts?: Array<{ to?: string }>;
+    target?: string;
+  } | null,
+): { done: number; target: string; blocked?: string } | null {
   if (plan === null || plan === undefined) return null;
   const moved = Array.isArray(plan.moved) ? plan.moved.filter((path) => typeof path === 'string' && path !== '') : [];
   const target = typeof plan.target === 'string' ? plan.target : '';
   const blocked = Array.isArray(plan.conflicts) && plan.conflicts.length > 0 ? plan.conflicts[0]?.to : undefined;
-  const summary = { done: moved.length, target };
+  const summary: { done: number; target: string; blocked?: string } = { done: moved.length, target };
   if (typeof blocked === 'string' && blocked !== '') summary.blocked = blocked;
   return summary;
 }
@@ -2799,7 +2808,7 @@ function describeMoveResult(plan) {
  * @param {Set<string>} existing - every path that currently exists, including directories.
  * @returns {{moves: object[], conflicts: object[], intoSelf: string[], unchanged: string[]}} the plan.
  */
-function planMoves(sources, targetDirectory, existing) {
+export function planMoves(sources, targetDirectory, existing) {
   const taken = existing instanceof Set ? existing : new Set();
   const target = typeof targetDirectory === 'string' ? targetDirectory : '';
   const plan = { moves: [], conflicts: [], intoSelf: [], unchanged: [] };
@@ -2849,7 +2858,7 @@ function planMoves(sources, targetDirectory, existing) {
  * @param {string} query - typed search text.
  * @returns {Array<{text: string, match: boolean}>} runs to render in order.
  */
-function highlightParts(name, query) {
+export function highlightParts(name, query) {
   const text = typeof name === 'string' ? name : '';
   const needle = typeof query === 'string' ? query.trim() : '';
   if (text === '') return [];
@@ -2879,10 +2888,10 @@ function highlightParts(name, query) {
  * @param {string} query - case-insensitive substring of the entry name.
  * @returns {object[]} rows to render; the root row is always kept.
  */
-function filterTreeRows(rows, query) {
+export function filterTreeRows(rows: ProjectTreeRow[], query: string): ProjectTreeRow[] {
   const needle = query.trim().toLowerCase();
   if (needle === '') return rows;
-  const keep = new Set();
+  const keep = new Set<string>();
   for (const row of rows) {
     if (row.path === '' || row.name.toLowerCase().includes(needle)) keep.add(row.path);
   }
@@ -2915,7 +2924,13 @@ function filterTreeRows(rows, query) {
  * @param {Record<string, string[]>|null} [manualOrder=null] - saved sibling order.
  * @returns {object[]} flattened tree rows, including the root.
  */
-function searchEntryRows(matches, projectName, compactDirectories = false, sortMode = 'name', manualOrder = null) {
+export function searchEntryRows(
+  matches,
+  projectName,
+  compactDirectories = false,
+  sortMode = 'name',
+  manualOrder = null,
+) {
   const nodes = new Map();
   for (const match of Array.isArray(matches) ? matches : []) {
     if (match === null || typeof match !== 'object' || typeof match.path !== 'string' || match.path === '') continue;

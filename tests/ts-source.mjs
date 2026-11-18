@@ -159,11 +159,52 @@ export function loadTypeScriptFunction(source, name) {
   return new Function(`${code}\nreturn ${name};`)();
 }
 
-/** Compile a whole TypeScript module that only contains local declarations. */
+/** Remove statement-level module syntax before executing source in test scope. */
+function stripModuleSyntax(source) {
+  try {
+    const ast = parse(source, {
+      sourceType: 'module',
+      plugins: ['typescript', 'jsx'],
+    });
+    let localSource = source;
+    const ranges = [];
+    for (const statement of ast.program.body) {
+      if (statement.type === 'ImportDeclaration' || statement.type === 'ExportAllDeclaration') {
+        ranges.push([statement.start, statement.end]);
+        continue;
+      }
+      if (statement.type === 'ExportNamedDeclaration') {
+        if (statement.declaration === null) {
+          ranges.push([statement.start, statement.end]);
+        } else {
+          ranges.push([statement.start, statement.declaration.start]);
+        }
+        continue;
+      }
+      if (statement.type === 'ExportDefaultDeclaration') {
+        ranges.push([statement.start, statement.declaration.start]);
+      }
+    }
+    for (const [start, end] of ranges.sort((left, right) => right[0] - left[0])) {
+      localSource = `${localSource.slice(0, start)}${localSource.slice(end)}`;
+    }
+    return localSource;
+  } catch {
+    return source.replace(/^import[\s\S]*?;\n/gm, '');
+  }
+}
+
+/**
+ * Behavior-test execution helper for merged-scope source modules.
+ *
+ * Import correctness is not inferred from this execution: it is checked
+ * directly against the TS/TSX source AST by
+ * scripts/check-client-source-imports.mjs.
+ */
 export function transpileTypeScriptSource(source) {
-  const localSource = source
+  const localSource = stripModuleSyntax(source)
     .replace(/^export\s+(?=(?:(?:async\s+)?function|const|let|var|class)\b)/gm, '')
-    .replace(/^export\s*\{\s*\};\s*$/gm, '');
+    .replace(/^export\s*\{[^}]*\};\s*$/gm, '');
   const result = transformSync(localSource, {
     filename: 'module.ts',
     plugins: [['@babel/plugin-transform-typescript', { isTSX: false, allExtensions: true }]],

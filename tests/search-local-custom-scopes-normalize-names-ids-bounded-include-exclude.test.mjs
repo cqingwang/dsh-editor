@@ -219,7 +219,7 @@ test('Edit Scopes dialog edits local names, include and exclude patterns', () =>
   assert.match(editor, /findScopeExport/);
   assert.match(editor, /data-dsh-find-scope-transfer/);
   assert.match(editor, /inspectIdeaScopeXml\(value\.content\)/);
-  assert.match(editor, /callFs\(\{ op: 'write', path, content: transfer\.xml, force: true, create: true \}\)/);
+  assert.match(editor, /callFs(?:<[^>]+>)?\(\{ op: 'write', path, content: transfer\.xml, force: true, create: true \}\)/);
   assert.match(editor, /normalizeCustomFindScopes\(drafts\)/);
   assert.match(editor, /onSave\(normalized, selectedId\)/);
   const findTool = source.slice(

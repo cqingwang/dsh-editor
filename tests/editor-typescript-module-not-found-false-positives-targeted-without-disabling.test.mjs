@@ -2,25 +2,15 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+import { loadTypeScriptFunction, transpileTypeScriptFunction } from './ts-source.mjs';
 
-function extractFunction(name) {
-  const start = source.indexOf(`    function ${name}(`);
-  assert.notEqual(start, -1, `${name} is missing`);
-  const bodyStart = source.indexOf('{', start);
-  let depth = 0;
-  for (let index = bodyStart; index < source.length; index += 1) {
-    if (source[index] === '{') depth += 1;
-    if (source[index] === '}') depth -= 1;
-    if (depth === 0) return source.slice(start, index + 1);
-  }
-  assert.fail(`${name} has no closing brace`);
-}
+const source = await readFile(new URL('../src/client/editor-core.ts', import.meta.url), 'utf8');
+const compilerOptions = JSON.parse(
+  await readFile(new URL('../tsconfig.client.json', import.meta.url), 'utf8'),
+).compilerOptions;
+const configureMonacoLanguageDiagnostics = loadTypeScriptFunction(source, 'configureMonacoLanguageDiagnostics');
 
 test('TypeScript module-not-found false positives are targeted without disabling semantics', () => {
-  const configure = new Function(
-    `${extractFunction('configureMonacoLanguageDiagnostics')}; return configureMonacoLanguageDiagnostics;`,
-  )();
   const calls = [];
   const defaults = (kind) => ({
     setDiagnosticsOptions: (options) => calls.push({ kind, type: 'diagnostics', options }),
@@ -31,12 +21,14 @@ test('TypeScript module-not-found false positives are targeted without disabling
       typescript: {
         ModuleResolutionKind: { NodeJs: 2 },
         ModuleKind: { ESNext: 99 },
+        ScriptTarget: { ESNext: 99 },
+        JsxEmit: { ReactJSX: 4 },
         typescriptDefaults: defaults('typescript'),
         javascriptDefaults: defaults('javascript'),
       },
     },
   };
-  assert.equal(configure(monaco), true);
+  assert.equal(configureMonacoLanguageDiagnostics(monaco, compilerOptions), true);
   for (const kind of ['typescript', 'javascript']) {
     const diagnostics = calls.find((entry) => entry.kind === kind && entry.type === 'diagnostics');
     assert.deepEqual(diagnostics.options.diagnosticCodesToIgnore, [2307, 2792]);
@@ -45,14 +37,67 @@ test('TypeScript module-not-found false positives are targeted without disabling
     const compiler = calls.find((entry) => entry.kind === kind && entry.type === 'compiler');
     assert.equal(compiler.options.moduleResolution, 2);
     assert.equal(compiler.options.module, 99);
+    assert.equal(compiler.options.target, 99);
+    assert.deepEqual(compiler.options.lib, ['ES2022', 'DOM', 'DOM.Iterable']);
+    assert.equal(compiler.options.jsx, 4);
+    assert.equal(compiler.options.jsxImportSource, 'react');
+    assert.equal(compiler.options.downlevelIteration, true);
   }
 });
 
-test('Monaco loader applies the diagnostic configuration before resolving', () => {
-  const loader = source.slice(source.indexOf('function loadMonaco()'), source.indexOf('/** The label and color used by one file-type badge. */'));
-  assert.match(loader, /configureMonacoLanguageDiagnostics\(window\.monaco\)/);
+test('the build injects the same TypeScript options read from tsconfig.client.json', async () => {
+  const bundle = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+  const injected = {
+    target: compilerOptions.target,
+    lib: compilerOptions.lib.map((name) => name.toLowerCase()),
+    jsx: compilerOptions.jsx,
+    jsxImportSource: compilerOptions.jsxImportSource,
+    downlevelIteration: compilerOptions.downlevelIteration,
+    allowSyntheticDefaultImports: compilerOptions.allowSyntheticDefaultImports,
+    resolveJsonModule: compilerOptions.resolveJsonModule,
+  };
+  assert.ok(bundle.includes(`globalThis.__dshEditorTypeScriptConfig = ${JSON.stringify(injected)};`));
+});
+
+test('Monaco loader waits for the TypeScript contribution before resolving', () => {
+  const loader = source.slice(
+    source.indexOf('function loadMonaco()'),
+    source.indexOf('/** The label and color used by one file-type badge. */'),
+  );
+  assert.match(loader, /configureMonacoLanguageWhenReady\(window\.monaco\)/);
+  assert.doesNotMatch(loader, /'vs\/language\/typescript\/tsMode'/);
   assert.ok(
-    loader.indexOf('configureMonacoLanguageDiagnostics(window.monaco)')
-      < loader.indexOf('resolve(window.monaco)'),
+    loader.indexOf('configureMonacoLanguageWhenReady(window.monaco)') < loader.indexOf('resolve(window.monaco)'),
   );
 });
+
+test('Monaco configuration retries until the TS language service is available', async () => {
+  const configureWhenReady = new Function(
+    'window',
+    `${transpileTypeScriptFunction(source, 'configureMonacoLanguageDiagnostics')}
+     ${transpileTypeScriptFunction(source, 'configureMonacoLanguageWhenReady')}
+     return configureMonacoLanguageWhenReady;`,
+  )({ setTimeout });
+  let checks = 0;
+  const monaco = {
+    get languages() {
+      checks += 1;
+      if (checks < 2) return {};
+      if (checks === 2) return { typescript: {} };
+      return { typescript: typescriptNamespace() };
+    },
+  };
+  assert.equal(await configureWhenReady(monaco, compilerOptions, 3, 0), true);
+  assert.equal(checks, 3);
+});
+
+function typescriptNamespace() {
+  return {
+    ModuleResolutionKind: { NodeJs: 2 },
+    ModuleKind: { ESNext: 99 },
+    ScriptTarget: { ESNext: 99 },
+    JsxEmit: { ReactJSX: 4 },
+    typescriptDefaults: { setDiagnosticsOptions() {}, setCompilerOptions() {} },
+    javascriptDefaults: { setDiagnosticsOptions() {}, setCompilerOptions() {} },
+  };
+}

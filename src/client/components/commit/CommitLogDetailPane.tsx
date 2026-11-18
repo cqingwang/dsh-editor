@@ -1,21 +1,12 @@
 import React from 'react';
 import { styles } from '../../ui/styles';
+import { dirname } from '../editor/editor-path-model';
+import { gitStatusInfo } from '../ui/git-status-model';
+import { basename } from '../../editor-core';
+import { formatCommitDate } from '../../find-tool';
+import type { CommitLogDetail } from './CommitLog';
 
 type Translate = (key: string, params?: Record<string, unknown>) => string;
-
-interface CommitLogFile {
-  path: string;
-  status: string;
-}
-
-interface CommitLogDetail {
-  hash: string;
-  subject: string;
-  author: string;
-  date: string;
-  body: string;
-  files: CommitLogFile[];
-}
 
 interface CommitLogDetailPaneProps {
   t: Translate;

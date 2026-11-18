@@ -27,7 +27,7 @@ test('Project single click can open a replaceable preview tab', () => {
   assert.match(panel, /else if \(singleClickOpen === true\) onOpenPreview\(row\.path\);/);
 
   const workspace = workspaceSource;
-  assert.match(workspace, /const openFile = React\.useCallback\([\s\S]*?\(path, options = \{\}\)/);
+  assert.match(workspace, /const openFile = React\.useCallback\([\s\S]*?\(path(?::\s*[^,]+)?, options(?::\s*[^=]+)? = \{\}\)/);
   assert.match(workspace, /const wantsPreview = options\.preview === true && previewTabEnabled;/);
   assert.match(workspace, /onOpenPreview=\{\(path\) => void openFile\(path, \{ preview: true \}\)\}/);
 });

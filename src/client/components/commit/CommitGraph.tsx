@@ -2,21 +2,27 @@ import React from 'react';
 import { styles } from '../../ui/styles';
 import { commitGraphPlaceholder } from './commit-graph-state-model';
 import { CommitGraphFoldBar } from './CommitGraphFoldBar';
-import { CommitGraphRow } from './CommitGraphRow';
+import { CommitGraphRow, type CommitGraphRun } from './CommitGraphRow';
+import { assignGraphLanes, linearRun, scrollGraphRowIntoView } from '../../find-tool';
 
 type Translate = (key: string, params?: Record<string, unknown>) => string;
 
 export interface CommitGraphEntryData {
-  hash?: string;
+  hash: string;
   parents?: string[];
+  refs?: string[];
   subject?: string;
+  author?: string;
+  date?: string;
   [key: string]: unknown;
 }
 
 export interface CommitGraphPayload {
   entries?: CommitGraphEntryData[];
   head?: string | null;
-  branchList?: unknown[];
+  branch?: string;
+  at?: string;
+  branchList?: string[];
   tagList?: Array<{ name?: unknown; hash?: unknown }>;
   [key: string]: unknown;
 }
@@ -24,7 +30,9 @@ export interface CommitGraphPayload {
 export interface CommitGraphMenuPayload {
   x: number;
   y: number;
-  entry: CommitGraphEntryData;
+  entry?: CommitGraphEntryData;
+  commit: CommitGraphEntryData;
+  selectionHashes?: string[];
 }
 
 export interface CommitGraphProps {
@@ -88,7 +96,7 @@ function CommitGraphView({
     : entries.map((entry) => ({
         hashes: [entry.hash],
         lane: laneOf.get(entry.hash) ?? 0,
-        merge: entry.parents.length > 1,
+        merge: (entry.parents ?? []).length > 1,
         first: entry,
       }));
   return (
@@ -116,7 +124,7 @@ function CommitGraphView({
             key={entry.hash}
             t={t}
             entry={entry}
-            run={run}
+            run={run as CommitGraphRun}
             lane={lane}
             active={active}
             isMerge={isMerge}

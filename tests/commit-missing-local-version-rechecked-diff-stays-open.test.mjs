@@ -13,7 +13,7 @@ function diffPreview() {
 
 test('a missing local version is rechecked while its diff stays open', () => {
   const diff = diffPreview();
-  assert.match(diff, /callFs\(\{\s+op: 'exists',\s+paths: \[target\.path\],\s+\}\)/u);
+  assert.match(diff, /callFs(?:<[^>]+>)?\(\{\s+op: 'exists',\s+paths: \[target\.path\],\s+\}\)/u);
   assert.match(diff, /window\.setInterval\(checkLocalPath, delay\)/);
   assert.match(diff, /window\.addEventListener\('focus', checkLocalPath\)/);
   assert.match(diff, /window\.clearInterval\(timer\)/);

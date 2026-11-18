@@ -1,5 +1,13 @@
 /* editor-core.ts: dsh-editor file API, Monaco and path utility module. Generated into lib/client.js by scripts/build-client.mjs. */
 import type * as Monaco from 'monaco-editor';
+import { languageFor } from './components/editor/editor-language-model';
+import { dirname } from './components/editor/editor-path-model';
+import { EDITOR_CODE_FONT_SIZE, EDITOR_CODE_LINE_HEIGHT, EDITOR_UI_FONT } from './components/editor/editor-style-model';
+import { navigationPathForModel } from './code-navigation';
+import { ideaControlKeyModifier, isMacPlatform } from './foundation';
+import { flattenDictionary, interpolateMessage } from './locales';
+import { findUsagesSearchTarget } from './commit';
+import { editorFindSelectionScope } from './terminal';
 
 interface LocaleDictionaryTree {
   [key: string]: string | LocaleDictionaryTree;
@@ -19,7 +27,57 @@ interface FileApiRequestOptions {
 
 interface FileApiResult {
   response: Response;
-  data: unknown;
+  data: {
+    ok?: boolean;
+    error?: { message?: string };
+    value?: Record<string, unknown>;
+  };
+}
+
+interface EditorActionHandlers {
+  onSave?: () => void;
+  onSaveAll?: () => void;
+  onFind?: () => void;
+  onSearchText?: () => void;
+  onGotoLine?: () => void;
+  onGoToDefinition?: (editor: Monaco.editor.ICodeEditor, position: Monaco.Position) => void;
+  onNavigateBack?: () => void;
+  onNavigateForward?: () => void;
+  onFindUsages?: (editor: Monaco.editor.ICodeEditor) => void;
+  onFindUsagesInFile?: (editor: Monaco.editor.ICodeEditor) => void;
+  onFindInFiles?: (editor: Monaco.editor.ICodeEditor) => void;
+  onReplaceInFiles?: (editor: Monaco.editor.ICodeEditor) => void;
+  onReplace?: (editor: Monaco.editor.ICodeEditor) => void;
+  onIncrementalSearch?: (editor: Monaco.editor.ICodeEditor) => void;
+  onFindInSelection?: (editor: Monaco.editor.ICodeEditor) => void;
+  onReplaceInSelection?: (editor: Monaco.editor.ICodeEditor) => void;
+  onCloseTab?: () => void;
+  onSendHarnessReference?: (editor: Monaco.editor.ICodeEditor) => void;
+  textSearchLabel?: string;
+  findUsagesLabel?: string;
+  findUsagesInFileLabel?: string;
+  highlightUsagesInFileLabel?: string;
+  findWordAtCaretLabel?: string;
+  previousWordOccurrenceLabel?: string;
+  replaceLabel?: string;
+  incrementalSearchLabel?: string;
+  findInSelectionLabel?: string;
+  replaceInSelectionLabel?: string;
+  findInFilesLabel?: string;
+  replaceInFilesLabel?: string;
+  selectAllOccurrencesLabel?: string;
+  selectNextOccurrenceLabel?: string;
+  unselectPreviousOccurrenceLabel?: string;
+  searchWebLabel?: string;
+  gotoLineLabel?: string;
+  goToDefinitionLabel?: string;
+  navigationBackLabel?: string;
+  navigationForwardLabel?: string;
+  sendHarnessReferenceLabel?: string;
+}
+
+interface MonacoContextMenuContribution extends Monaco.editor.IEditorContribution {
+  _getMenuActions?: (...args: unknown[]) => Array<{ id?: string }>;
 }
 
 interface WorkspaceTreeEntry {
@@ -60,7 +118,7 @@ type MonacoApi = typeof Monaco;
 type MonacoEditor = Monaco.editor.IStandaloneCodeEditor;
 type MonacoTextModel = Monaco.editor.ITextModel;
 
-function translate(
+export function translate(
   bind: (key: string) => string,
   dictionaries: { zh: LocaleDictionaryTree; en: LocaleDictionaryTree },
 ): (key: string, params?: Record<string, unknown>) => string {
@@ -77,7 +135,7 @@ function translate(
 }
 
 /** Read the current Session id from the conversation body. */
-function currentSessionId(): string {
+export function currentSessionId(): string {
   const body = document.querySelector('[data-conversation-region="chat"]');
   return body?.getAttribute('data-conversation-session') ?? '';
 }
@@ -92,7 +150,7 @@ function currentSessionId(): string {
  * empty "Workspace" tree.
  * @returns {string} workspace id, or an empty string for session scope.
  */
-function currentEditorWorkspaceId(): string {
+export function currentEditorWorkspaceId(): string {
   const activeHost = document.querySelector(
     '[data-dsh-editor-host]:not([data-dsh-editor-host-idle]) [data-dsh-editor-workspace]',
   );
@@ -109,7 +167,7 @@ function currentEditorWorkspaceId(): string {
  * @param {object|null} editor - Monaco editor instance.
  * @returns {string} selected text, or an empty string.
  */
-function selectedEditorFindQuery(editor: MonacoEditor | null | undefined): string {
+export function selectedEditorFindQuery(editor: MonacoEditor | null | undefined): string {
   const model = editor?.getModel?.() ?? null;
   const selection = editor?.getSelection?.() ?? null;
   if (model === null || selection === null || typeof selection.isEmpty !== 'function' || selection.isEmpty()) return '';
@@ -121,7 +179,7 @@ function selectedEditorFindQuery(editor: MonacoEditor | null | undefined): strin
  * @param {object|null} editor - Monaco editor instance.
  * @returns {{path: string, line: number, column: number, endLine: number|null, endColumn: number|null}|null} reference location.
  */
-function harnessEditorLocation(editor: MonacoEditor | null | undefined): HarnessEditorLocation | null {
+export function harnessEditorLocation(editor: MonacoEditor | null | undefined): HarnessEditorLocation | null {
   const model = editor?.getModel?.() ?? null;
   const path = navigationPathForModel(model);
   if (path === '') return null;
@@ -156,7 +214,7 @@ function harnessEditorLocation(editor: MonacoEditor | null | undefined): Harness
  * The host derives the same `workspace:<id>` key for API calls.
  * @returns {string} workspace or session scope, or '' before either exists.
  */
-function currentTerminalScope(): string {
+export function currentTerminalScope(): string {
   const workspaceId = currentEditorWorkspaceId();
   if (workspaceId !== '') return `workspace:${workspaceId}`;
   return currentSessionId();
@@ -170,7 +228,7 @@ function currentTerminalScope(): string {
  * @param {string} operation - requested operation.
  * @returns {boolean} whether the host explicitly rejected the operation.
  */
-function fileApiMissingOperation(data: unknown, operation: string): boolean {
+function fileApiMissingOperation(data: FileApiResult['data'], operation: string): boolean {
   const message = String(data?.error?.message ?? '');
   return (
     data?.ok === false && message.toLowerCase().includes('unknown operation') && message.includes(`"${operation}"`)
@@ -184,7 +242,7 @@ function fileApiMissingOperation(data: unknown, operation: string): boolean {
  * @param {Function} t - locale translator.
  * @returns {string} user-facing search failure.
  */
-function searchTextFailureMessage(
+export function searchTextFailureMessage(
   failure: unknown,
   t: (key: string, params?: Record<string, unknown>) => string,
 ): string {
@@ -221,10 +279,10 @@ async function requestFileApi(
  * @param {{signal?: AbortSignal}} [options] - transport cancellation.
  * @returns {Promise<object>} host operation value.
  */
-async function callFs(
+export async function callFs<T = Record<string, unknown>>(
   payload: Record<string, unknown>,
   options: FileApiRequestOptions = {},
-): Promise<Record<string, unknown>> {
+): Promise<T> {
   let { response, data } = await requestFileApi(payload, options);
   if (payload?.op === 'searchText' && fileApiMissingOperation(data, 'searchText')) {
     /* Host hot-reload can briefly expose an older operation table. One
@@ -235,14 +293,14 @@ async function callFs(
   }
   if (!response.ok) throw new Error(`file API HTTP ${response.status}`);
   if (data?.ok !== true) throw new Error(data?.error?.message ?? 'file API failed');
-  return data.value;
+  return data.value as T;
 }
 
 /** Call the host git API. */
-async function callGit(
+export async function callGit<T = Record<string, unknown>>(
   payload: Record<string, unknown>,
   options: FileApiRequestOptions = {},
-): Promise<Record<string, unknown>> {
+): Promise<T> {
   const sessionId = currentSessionId();
   const workspaceId = currentEditorWorkspaceId();
   if (sessionId === '' && workspaceId === '') throw new Error('no active Session or workspace');
@@ -265,7 +323,7 @@ async function callGit(
     if (!response.ok) throw new Error(`git API HTTP ${response.status}`);
     const data = await response.json();
     if (data?.ok !== true) throw new Error(data?.error?.message ?? 'git API failed');
-    return data.value;
+    return data.value as T;
   } catch (error) {
     if (timedOut) throw new Error('git request timed out after 20 seconds');
     throw error;
@@ -276,7 +334,7 @@ async function callGit(
 }
 
 /** Pick a Monaco theme from the page's color scheme. */
-function detectTheme(): 'vs-dark' | 'vs' {
+export function detectTheme(): 'vs-dark' | 'vs' {
   const root = document.documentElement;
   const explicit = root.dataset.theme ?? root.dataset.colorScheme ?? '';
   if (/dark/i.test(explicit)) return 'vs-dark';
@@ -299,7 +357,10 @@ let codeEditorGroupSequence = 0;
  */
 function filterMonacoContextMenuActions(editor: MonacoEditor, hiddenActionIds: string[]): () => void {
   const hidden = new Set(hiddenActionIds);
-  const controller = editor?.getContribution?.('editor.contrib.contextmenu') ?? null;
+  const controller = editor?.getContribution?.('editor.contrib.contextmenu') as
+    | MonacoContextMenuContribution
+    | null
+    | undefined;
   const original = controller?._getMenuActions;
   if (typeof original !== 'function') return () => {};
   const filtered = function (...args) {
@@ -328,12 +389,12 @@ function filterMonacoContextMenuActions(editor: MonacoEditor, hiddenActionIds: s
  * @param {{onSave?: Function, onFind?: Function, onSearchText?: Function, onFindUsages?: Function, onFindUsagesInFile?: Function, onFindInFiles?: Function, onReplaceInFiles?: Function, onReplace?: Function, onIncrementalSearch?: Function, onFindInSelection?: Function, onReplaceInSelection?: Function, textSearchLabel?: string, findUsagesLabel?: string, findUsagesInFileLabel?: string, highlightUsagesInFileLabel?: string, findWordAtCaretLabel?: string, previousWordOccurrenceLabel?: string, replaceLabel?: string, incrementalSearchLabel?: string, findInSelectionLabel?: string, replaceInSelectionLabel?: string, findInFilesLabel?: string, replaceInFilesLabel?: string, selectAllOccurrencesLabel?: string, selectNextOccurrenceLabel?: string, unselectPreviousOccurrenceLabel?: string, searchWebLabel?: string, onSaveAll?: Function, onGotoLine?: Function, gotoLineLabel?: string, onGoToDefinition?: Function, goToDefinitionLabel?: string, onNavigateBack?: Function, onNavigateForward?: Function, navigationBackLabel?: string, navigationForwardLabel?: string, onCloseTab?: Function}} handlers - shortcut actions.
  * @returns {{editor: object, dispose: Function}} editor group controller.
  */
-function createCodeEditorGroup(
+export function createCodeEditorGroup(
   monaco: MonacoApi,
   container: HTMLElement,
-  handlers: Record<string, unknown>,
+  handlers: EditorActionHandlers,
 ): MonacoEditorGroup {
-  const actionsHandlers = handlers ?? {};
+  const actionsHandlers: EditorActionHandlers = handlers;
   const groupId = ++codeEditorGroupSequence;
   const findUsagesPrecondition = `dshEditorFindUsagesAvailable${groupId}`;
   const findSelectionPrecondition = `dshEditorFindSelectionAvailable${groupId}`;
@@ -364,8 +425,8 @@ function createCodeEditorGroup(
     find: { addExtraSpaceOnTop: false, autoFindInSelection: 'never', seedSearchStringFromSelection: 'never' },
     fontFamily: EDITOR_UI_FONT,
   });
-  const findUsagesContextKey = editor.createContextKey?.(findUsagesPrecondition, false) ?? null;
-  const findSelectionContextKey = editor.createContextKey?.(findSelectionPrecondition, false) ?? null;
+  const findUsagesContextKey = editor.createContextKey<boolean>(findUsagesPrecondition, false);
+  const findSelectionContextKey = editor.createContextKey<boolean>(findSelectionPrecondition, false);
   const restoreContextMenuActions = filterMonacoContextMenuActions(editor, ['editor.action.quickCommand']);
   const updateFindUsagesAvailability = () => {
     const queryAvailable = findUsagesSearchTarget(editor).query !== '';
@@ -598,7 +659,7 @@ function createCodeEditorGroup(
  * @param {string} content - initial content when the model must be created.
  * @returns {object} Monaco text model.
  */
-function ensureEditorModel(
+export function ensureEditorModel(
   monaco: MonacoApi,
   models: Map<string, MonacoTextModel>,
   path: string,
@@ -609,6 +670,9 @@ function ensureEditorModel(
   const uri = monaco.Uri.parse(`file:///${path.split('/').map(encodeURIComponent).join('/')}`);
   const model = monaco.editor.createModel(content, safeLanguage(monaco, path), uri);
   models.set(path, model);
+  /* Reassert shared defaults when a new TS/TSX model appears; this also
+     repairs a worker initialized before the lazy language contribution. */
+  if (/\.[cm]?tsx?$/iu.test(path)) void configureMonacoLanguageWhenReady(monaco);
   return model;
 }
 
@@ -621,7 +685,7 @@ function ensureEditorModel(
  * @param {object} monaco - Monaco global namespace.
  * @returns {string} registered theme name.
  */
-function ensureDiffTheme(monaco: MonacoApi): string {
+export function ensureDiffTheme(monaco: MonacoApi): string {
   const base = detectTheme();
   const id = base === 'vs-dark' ? 'dsh-editor-diff-dark' : 'dsh-editor-diff-light';
   monaco.editor.defineTheme(id, {
@@ -664,13 +728,13 @@ function ensureDiffTheme(monaco: MonacoApi): string {
  * @param {string} path - workspace-relative path.
  * @returns {string} the parent path with a trailing slash, or ''.
  */
-function parentDirLabel(path: string): string {
+export function parentDirLabel(path: string): string {
   const parent = dirname(path);
   return parent === '' ? '' : `${parent}/`;
 }
 
 /** Basename of a workspace-relative path. */
-function basename(path: string): string {
+export function basename(path: string): string {
   const index = path.lastIndexOf('/');
   return index < 0 ? path : path.slice(index + 1);
 }
@@ -681,7 +745,7 @@ function basename(path: string): string {
  * @param {string} path - workspace-relative path.
  * @returns {string[]} ancestor directories, excluding the path itself.
  */
-function ancestorsOf(path: string): string[] {
+export function ancestorsOf(path: string): string[] {
   if (typeof path !== 'string' || path === '') return [];
   const parts = path.split('/');
   const ancestors = [];
@@ -690,9 +754,9 @@ function ancestorsOf(path: string): string[] {
 }
 
 /** Project 首次打开与目录点击默认预取的目录层数。 */
-const PROJECT_PREFETCH_DEPTH = 1;
+export const PROJECT_PREFETCH_DEPTH = 1;
 /** 单次预取最多读取的目录数，防止异常宽树拖垮 UI。 */
-const PROJECT_PREFETCH_VISIT_LIMIT = 200;
+export const PROJECT_PREFETCH_VISIT_LIMIT = 200;
 
 /**
  * 按可选深度递归展开目录路径，使用 IDEA 风格的有界 BFS。
@@ -706,7 +770,7 @@ const PROJECT_PREFETCH_VISIT_LIMIT = 200;
  * @param {number} [maxDepth=Infinity] - 最多展开的目录层数。
  * @returns {Promise<{expanded: Set<string>, children: Record<string, object[]>, visited: number, truncated: boolean}>} 更新后的缓存。
  */
-async function expandDirectorySubtrees(
+export async function expandDirectorySubtrees(
   startPaths: string[],
   current: DirectoryTreeState,
   listDirectory: (path: string) => Promise<WorkspaceTreeEntry[]>,
@@ -763,7 +827,7 @@ async function expandDirectorySubtrees(
  * @param {number} [maxDepth=1] - 最多预取的目录层数。
  * @returns {Promise<{children: Record<string, object[]>, visited: number, truncated: boolean}>} 预取结果。
  */
-async function prefetchDirectorySubtrees(
+export async function prefetchDirectorySubtrees(
   startPaths: string[],
   current: DirectoryTreeState,
   listDirectory: (path: string) => Promise<WorkspaceTreeEntry[]>,
@@ -811,7 +875,7 @@ async function prefetchDirectorySubtrees(
  * @param {Array<[string, string]>} entries - old/new roots in operation order.
  * @returns {string} the mapped path, or the original value.
  */
-function remapPathAfterMove(path: string, entries: Array<[string, string]>): string {
+export function remapPathAfterMove(path: string, entries: Array<[string, string]>): string {
   if (typeof path !== 'string') return path;
   for (const entry of Array.isArray(entries) ? entries : []) {
     const [from, to] = Array.isArray(entry) ? entry : [];
@@ -833,7 +897,7 @@ function remapPathAfterMove(path: string, entries: Array<[string, string]>): str
  * @param {string} home - the user's home directory, for the `~` form.
  * @returns {{name: string, path: string}} the label parts.
  */
-function splitRootLabel(root: string, home: string): RootLabel {
+export function splitRootLabel(root: string, home: string): RootLabel {
   const absolute = typeof root === 'string' ? root : '';
   const trimmed = absolute.length > 1 && absolute.endsWith('/') ? absolute.slice(0, -1) : absolute;
   const name = trimmed === '' ? '' : trimmed.slice(trimmed.lastIndexOf('/') + 1);
@@ -848,7 +912,7 @@ function abbreviatePath(path: string, home: string): string {
 }
 
 /** Return a language id only when Monaco knows it. */
-function safeLanguage(monaco: MonacoApi, path: string): string {
+export function safeLanguage(monaco: MonacoApi, path: string): string {
   const language = languageFor(path);
   return monaco.languages.getLanguages().some((entry) => entry.id === language) ? language : 'plaintext';
 }
@@ -859,7 +923,7 @@ function safeLanguage(monaco: MonacoApi, path: string): string {
  * @param {Date} [date=new Date()] - timestamp to encode.
  * @returns {string} filesystem-safe `.patch` filename.
  */
-function patchDownloadName(date = new Date()): string {
+export function patchDownloadName(date = new Date()): string {
   const value = date instanceof Date ? date : new Date();
   const pad = (part) => String(part).padStart(2, '0');
   return `dsh-editor-changes-${value.getFullYear()}${pad(value.getMonth() + 1)}${pad(value.getDate())}-${pad(value.getHours())}${pad(value.getMinutes())}${pad(value.getSeconds())}.patch`;
@@ -877,7 +941,7 @@ function patchDownloadName(date = new Date()): string {
  * @param {string} subject - commit subject.
  * @returns {string} filesystem-safe `.patch` filename.
  */
-function commitPatchDownloadName(hash: string, subject: string): string {
+export function commitPatchDownloadName(hash: string, subject: string): string {
   const shortHash =
     String(hash ?? '')
       .trim()
@@ -902,7 +966,7 @@ function commitPatchDownloadName(hash: string, subject: string): string {
  * @param {string} downloadName - browser download filename.
  * @returns {void}
  */
-function downloadPatchBlob(patch: string, downloadName: string): void {
+export function downloadPatchBlob(patch: string, downloadName: string): void {
   const blob = new Blob([patch], { type: 'text/x-patch;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement('a');
@@ -922,6 +986,22 @@ let monacoPromise: Promise<MonacoApi> | null = null;
 /* Monotonic suffix for diff model URIs; see DiffPreview's model swap. */
 let diffLoadSerial = 0;
 
+interface MonacoTypeScriptRuntimeConfig {
+  target?: string;
+  lib?: string[];
+  jsx?: string;
+  jsxImportSource?: string;
+  downlevelIteration?: boolean;
+  allowSyntheticDefaultImports?: boolean;
+  resolveJsonModule?: boolean;
+}
+
+/** Allocate a new Monaco model URI generation for one diff load. */
+export function nextDiffLoadSerial(): number {
+  diffLoadSerial += 1;
+  return diffLoadSerial;
+}
+
 /**
  * 修正 Monaco TS/JS worker 与插件 workspace 导航模型之间的诊断差异。
  *
@@ -932,24 +1012,58 @@ let diffLoadSerial = 0;
  * @param {object} monaco - Monaco 全局命名空间。
  * @returns {boolean} 是否找到 TypeScript language defaults。
  */
-function configureMonacoLanguageDiagnostics(monaco: MonacoApi): boolean {
+function configureMonacoLanguageDiagnostics(
+  monaco: MonacoApi,
+  config: MonacoTypeScriptRuntimeConfig = globalThis.__dshEditorTypeScriptConfig ?? {},
+): boolean {
   const typescript = monaco?.languages?.typescript;
   if (typescript === undefined || typescript === null) return false;
+  const typescriptDefaults = typescript.typescriptDefaults;
+  const javascriptDefaults = typescript.javascriptDefaults;
+  if (
+    typeof typescriptDefaults?.setDiagnosticsOptions !== 'function' ||
+    typeof typescriptDefaults?.setCompilerOptions !== 'function' ||
+    typeof javascriptDefaults?.setDiagnosticsOptions !== 'function' ||
+    typeof javascriptDefaults?.setCompilerOptions !== 'function'
+  ) {
+    return false;
+  }
   const diagnosticsOptions = {
     noSemanticValidation: false,
     noSyntaxValidation: false,
     diagnosticCodesToIgnore: [2307, 2792],
   };
+  const scriptTargets = typescript.ScriptTarget as unknown as Record<string, number> | undefined;
+  const jsxModes = typescript.JsxEmit as unknown as Record<string, number> | undefined;
+  const target = String(config.target ?? 'ESNext');
+  const jsx = String(config.jsx ?? 'react-jsx');
   const compilerOptions = {
+    /* Monaco has no Bundler resolution enum; NodeJs keeps extensionless imports usable. */
     moduleResolution: typescript.ModuleResolutionKind?.NodeJs ?? 2,
     module: typescript.ModuleKind?.ESNext ?? 99,
-    allowSyntheticDefaultImports: true,
-    resolveJsonModule: true,
+    target: scriptTargets?.[target === 'ES2022' ? 'ESNext' : target] ?? 99,
+    lib: Array.isArray(config.lib) ? config.lib : undefined,
+    jsx:
+      jsx === 'react-jsx'
+        ? (jsxModes?.ReactJSX ?? 4)
+        : jsx === 'react-jsxdev'
+          ? (jsxModes?.ReactJSXDev ?? 5)
+          : jsx === 'react'
+            ? (jsxModes?.React ?? 2)
+            : jsx === 'react-native'
+              ? (jsxModes?.ReactNative ?? 3)
+              : jsx === 'preserve'
+                ? (jsxModes?.Preserve ?? 1)
+                : (jsxModes?.None ?? 0),
+    jsxImportSource: config.jsxImportSource,
+    downlevelIteration: config.downlevelIteration === true,
+    allowSyntheticDefaultImports: config.allowSyntheticDefaultImports === true,
+    resolveJsonModule: config.resolveJsonModule === true,
   };
-  typescript.typescriptDefaults?.setDiagnosticsOptions(diagnosticsOptions);
-  typescript.javascriptDefaults?.setDiagnosticsOptions(diagnosticsOptions);
-  typescript.typescriptDefaults?.setCompilerOptions(compilerOptions);
-  typescript.javascriptDefaults?.setCompilerOptions({
+  typescriptDefaults.setDiagnosticsOptions(diagnosticsOptions);
+  javascriptDefaults.setDiagnosticsOptions(diagnosticsOptions);
+  typescriptDefaults.setCompilerOptions(compilerOptions);
+  javascriptDefaults.setCompilerOptions({
     ...compilerOptions,
     allowJs: true,
     checkJs: false,
@@ -957,11 +1071,46 @@ function configureMonacoLanguageDiagnostics(monaco: MonacoApi): boolean {
   return true;
 }
 
+/**
+ * Apply TypeScript defaults once Monaco's lazy TS contribution is registered.
+ *
+ * `editor.main` can expose the editor namespace before
+ * `languages.typescript` exists. Returning early there permanently cached an
+ * unconfigured worker, which surfaced Set/JSX/lib diagnostics in real files.
+ * @param monaco - Monaco global namespace.
+ * @param config - shared compiler options.
+ * @param attempts - maximum availability checks.
+ * @param delay - milliseconds between checks.
+ * @returns whether the TypeScript defaults accepted the configuration.
+ */
+function configureMonacoLanguageWhenReady(
+  monaco: MonacoApi,
+  config: MonacoTypeScriptRuntimeConfig = globalThis.__dshEditorTypeScriptConfig ?? {},
+  attempts = 40,
+  delay = 25,
+): Promise<boolean> {
+  return new Promise((resolve) => {
+    let remaining = Math.max(1, attempts);
+    const attempt = () => {
+      if (configureMonacoLanguageDiagnostics(monaco, config)) {
+        resolve(true);
+        return;
+      }
+      remaining -= 1;
+      if (remaining <= 0) {
+        resolve(false);
+        return;
+      }
+      window.setTimeout(attempt, delay);
+    };
+    attempt();
+  });
+}
+
 /** Load Monaco's AMD build through the host asset bridge. */
-function loadMonaco(): Promise<MonacoApi> {
+export function loadMonaco(): Promise<MonacoApi> {
   if (window.monaco?.editor !== undefined) {
-    configureMonacoLanguageDiagnostics(window.monaco);
-    return Promise.resolve(window.monaco);
+    return configureMonacoLanguageWhenReady(window.monaco).then(() => window.monaco);
   }
   if (monacoPromise !== null) return monacoPromise;
   monacoPromise = new Promise((resolve, reject) => {
@@ -982,8 +1131,7 @@ function loadMonaco(): Promise<MonacoApi> {
         amdRequire(
           ['vs/editor/editor.main'],
           () => {
-            configureMonacoLanguageDiagnostics(window.monaco);
-            resolve(window.monaco);
+            void configureMonacoLanguageWhenReady(window.monaco).then(() => resolve(window.monaco), reject);
           },
           reject,
         );

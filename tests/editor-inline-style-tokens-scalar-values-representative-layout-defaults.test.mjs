@@ -16,7 +16,7 @@ function loadStyles(source) {
 test('inline style tokens keep scalar values and representative layout defaults', () => {
   const styles = loadStyles(typescriptSource);
 
-  assert.equal(Object.keys(styles).length, 355);
+  assert.equal(Object.keys(styles).length, 356);
   assert.equal(styles.root.display, 'flex');
   assert.equal(styles.root.fontFamily, 'font-under-test');
   assert.equal(styles.treeRow.height, 24);

@@ -15,13 +15,13 @@ export interface EditorDiffAreaProps {
   onRestored?: (...args: unknown[]) => void;
   onStatus?: (...args: unknown[]) => void;
   onNotice?: (...args: unknown[]) => void;
-  onNavigate?: (...args: unknown[]) => void;
+  onNavigate?: (target: DiffTarget) => void;
   filePosition?: DiffTextPosition | null;
   onPreviousFile?: () => void;
   onNextFile?: () => void;
   onOpenLocal?: (path: string) => void;
-  undoRef?: React.MutableRefObject<unknown>;
-  redoRef?: React.MutableRefObject<unknown>;
+  undoRef?: React.MutableRefObject<unknown[]>;
+  redoRef?: React.MutableRefObject<unknown[]>;
   viewStatesRef?: React.MutableRefObject<Map<string, Record<string, unknown>>>;
   searchInChangesRef?: React.MutableRefObject<(() => void) | null> | null;
 }

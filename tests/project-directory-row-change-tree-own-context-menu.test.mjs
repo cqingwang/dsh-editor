@@ -5,7 +5,8 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = (readFileSync(join(root, 'src/client/components/commit/CommitPanel.tsx'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
+const workspaceSource = readFileSync(join(root, 'src/client/editor-workspace.tsx'), 'utf8');
+const source = `${readFileSync(join(root, 'src/client/components/commit/CommitPanel.tsx'), 'utf8')}\n${workspaceSource}`;
 
 test('a directory row in the change tree has its own context menu', () => {
   const start = source.indexOf("if (row.kind === 'directory') {");
@@ -33,6 +34,7 @@ test('the directory menu stages, unstages and rolls back the subtree', () => {
 });
 
 test('the directory menu is wired into the panel', () => {
-  assert.match(source, /setMenu\(payload\.directory === undefined \? buildChangeMenu\(payload\) : buildChangeDirMenu\(payload\)\)/);
-  assert.match(source, /const buildChangeDirMenu = React.useCallback\(/);
+  assert.match(workspaceSource, /onContextMenu=\{\(payload\) => \{[\s\S]*?payload\.directory !== undefined[\s\S]*?buildChangeDirMenu\(/);
+  assert.match(workspaceSource, /else if \(payload\.change !== undefined\)[\s\S]*?buildChangeMenu\(/);
+  assert.match(workspaceSource, /const buildChangeDirMenu = React\.useCallback\(/);
 });

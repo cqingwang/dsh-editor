@@ -8,22 +8,14 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 import { gitCombinedDiff } from '../lib/index.js';
+import { loadTypeScriptFunction } from './ts-source.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = (readFileSync(join(root, 'src/client/components/diff/DiffPreview.tsx'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
-
-function extractFunction(name) {
-  const start = source.indexOf(`function ${name}(`);
-  assert.notEqual(start, -1, `${name} is missing`);
-  const bodyStart = source.indexOf('{', start);
-  let depth = 0;
-  for (let index = bodyStart; index < source.length; index += 1) {
-    if (source[index] === '{') depth += 1;
-    if (source[index] === '}') depth -= 1;
-    if (depth === 0) return source.slice(start, index + 1);
-  }
-  assert.fail(`${name} has no closing brace`);
-}
+const diffSource = readFileSync(join(root, 'src/client/components/diff/DiffPreview.tsx'), 'utf8');
+const combinedSource = readFileSync(join(root, 'src/client/diff.ts'), 'utf8');
+const localesSource = readFileSync(join(root, 'src/client/locales.ts'), 'utf8');
+const source = `${diffSource}\n${combinedSource}\n${localesSource}`;
+const combinedFileHiddenRange = loadTypeScriptFunction(combinedSource, 'combinedFileHiddenRange');
 
 async function fixture() {
   const dir = await mkdtemp(join(tmpdir(), 'dsh-editor-r318-'));
@@ -59,17 +51,19 @@ test('combined file metadata identifies both sides of each collapsible block', a
 });
 
 test('combinedFileHiddenRange preserves the heading and targets only its content', () => {
-  const fn = new Function(`${extractFunction('combinedFileHiddenRange')}; return combinedFileHiddenRange;`)();
   const file = { line: 10, endLine: 14, originalLine: 5, originalEndLine: 8 };
-  assert.deepEqual(fn(file, 'modified'), { startLineNumber: 11, endLineNumber: 14 });
-  assert.deepEqual(fn(file, 'original'), { startLineNumber: 6, endLineNumber: 8 });
-  assert.equal(fn({ line: 2, endLine: 2 }, 'modified'), null);
-  assert.equal(fn(null, 'modified'), null);
+  assert.deepEqual(combinedFileHiddenRange(file, 'modified'), { startLineNumber: 11, endLineNumber: 14 });
+  assert.deepEqual(combinedFileHiddenRange(file, 'original'), { startLineNumber: 6, endLineNumber: 8 });
+  assert.equal(combinedFileHiddenRange({ line: 2, endLine: 2 }, 'modified'), null);
+  assert.equal(combinedFileHiddenRange(null, 'modified'), null);
 });
 
 test('DiffPreview applies collapsed state as non-destructive hidden areas', () => {
   const diff = source.slice(source.indexOf('function DiffPreview('), source.indexOf('export { DiffPreview };'));
-  assert.match(diff, /const \[collapsedCombinedFiles, setCollapsedCombinedFiles\] = React\.useState\(\(\) => new Set\(\)\)/);
+  assert.match(
+    diff,
+    /const \[collapsedCombinedFiles, setCollapsedCombinedFiles\] = React\.useState(?:<[^()]*>)?\(\(\) => new Set\(\)\)/,
+  );
   assert.match(diff, /const toggleCombinedFileCollapse = React\.useCallback\(/);
   assert.match(diff, /getModifiedEditor\(\)\.setHiddenAreas\(/);
   assert.match(diff, /getOriginalEditor\(\)\.setHiddenAreas\(/);

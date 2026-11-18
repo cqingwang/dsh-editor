@@ -57,7 +57,7 @@ test('the branch popup reads the list on open and confirms before a dirty checko
   assert.match(client, /op: 'branches'/);
   /* A checkout under unsaved edits must ask first, like IDEA. */
   assert.match(client, /if \(dirty && !window\.confirm\(t\('editor\.checkoutDirty'\)\)\) return;/);
-  assert.match(client, /op: 'checkout', branch: name/);
+  assert.match(client, /op: 'checkout',\s*branch: name/);
   assert.match(client, /setCommitNotice\(t\('editor\.checkoutDone', \{ name \}\)\)/);
   /* Handlers are declared after the callbacks they depend on (see static-order test). */
   assert.ok(client.indexOf('const openBranchMenu = React.useCallback(') > client.indexOf('const refreshTree = React.useCallback('));

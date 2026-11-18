@@ -102,7 +102,7 @@ test('editor workspace reuses the extracted Commit Log file menu builder', async
   const build = await read('scripts/build-client.mjs');
   const client = await read('lib/client.js');
 
-  assert.match(workspace, /declare const commitFileMenu:/u);
+  assert.match(workspace, /import \{ commitFileMenu \} from '\.\/components\/commit\/file-menu';/u);
   assert.match(workspace, /commitFileMenu\(\{/u);
   assert.match(workspace, /absoluteClipboardPath: shellQuote\(root === '' \? path : `\$\{root\}\/\$\{path\}`\)/u);
   assert.doesNotMatch(workspace, /id: 'openRepositoryVersion'/u);

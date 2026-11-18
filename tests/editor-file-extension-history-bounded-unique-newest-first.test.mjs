@@ -36,7 +36,7 @@ test('Find in Files File extension control exposes recent masks and clear', () =
     source.indexOf('const FindToolWindow = FindToolWindowView;'),
   );
   assert.match(findTool, /const \[fileMaskHistory, setFileMaskHistory\] = React\.useState\(readFileMaskHistory\)/);
-  assert.match(findTool, /const \[fileMaskMenu, setFileMaskMenu\] = React\.useState\(null\)/);
+  assert.match(findTool, /const \[fileMaskMenu, setFileMaskMenu\] = React\.useState(?:<[^>]+>)?\(null\)/);
   assert.match(findTool, /const acceptFileMask = \(value\) =>/);
   assert.match(findTool, /writeFileMaskHistory\(next\)/);
   assert.match(findTool, /id: 'clearFileMask'/);

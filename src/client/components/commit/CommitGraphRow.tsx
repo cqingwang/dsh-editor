@@ -2,10 +2,11 @@ import React from 'react';
 import { styles } from '../../ui/styles';
 import { Icon } from '../ui/Icon';
 import type { CommitGraphEntryData, CommitGraphMenuPayload } from './CommitGraph';
+import { formatCommitDate } from '../../find-tool';
 
 type Translate = (key: string, params?: Record<string, unknown>) => string;
 
-interface CommitGraphRun {
+export interface CommitGraphRun {
   hashes: string[];
   first: CommitGraphEntryData;
 }
@@ -150,7 +151,7 @@ function CommitGraphRow({
           {
             /* IDEA's graph filters by clicking a ref badge; the badge names the
                scope it applies, so clicking `main` shows main's history. */
-            entry.refs.map((ref) => (
+            (entry.refs ?? []).map((ref) => (
               <button
                 key={ref}
                 type='button'

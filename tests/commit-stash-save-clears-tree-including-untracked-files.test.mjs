@@ -76,7 +76,7 @@ test('the commit toolbar offers stash and the panel shows template chips', () =>
   assert.match(client, /const openStashMenu = React\.useCallback\(/);
   /* The sub-action field is `action`: `op` already names the route operation. */
   /* Round 68 added apply/drop refs, so the request now carries an optional ref. */
-  assert.match(client, /callGit\(\{\s+op: 'stash',\s+action: operation,\s+\.\.\.\(ref === undefined \? \{\} : \{ ref \}\),\s+\}\)/);
+  assert.match(client, /callGit(?:<[^>]+>)?\(\{\s+op: 'stash',\s+action: operation,\s+\.\.\.\(ref === undefined \? \{\} : \{ ref \}\),\s+\}\)/);
   assert.doesNotMatch(client, /op2/);
   assert.match(client, /const COMMIT_TEMPLATES = \['feat', 'fix', 'refactor', 'docs', 'test', 'chore', 'perf', 'style'\];/);
   assert.match(client, /templates=\{COMMIT_TEMPLATES\}/);

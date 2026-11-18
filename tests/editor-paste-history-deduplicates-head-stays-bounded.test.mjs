@@ -57,7 +57,7 @@ test('Terminal exposes Paste from History through the screen menu', () => {
   assert.match(source, /terminalPasteHistory: '从历史粘贴…',/);
   assert.match(source, /terminalPasteHistory: 'Paste from History…',/);
   assert.match(source, /id: 'pasteHistory',\s+label: t\('editor\.terminalPasteHistory'\)/);
-  assert.match(source, /const \[pasteHistory, setPasteHistory\] = React\.useState\(\[\]\);/);
+  assert.match(source, /const \[pasteHistory, setPasteHistory\] = React\.useState(?:<[^>]+>)?\(\[\]\);/);
   assert.match(source, /pushPasteHistory\(current, text\)/);
   assert.match(source, /onPasted\?\.\(text\)/);
 });

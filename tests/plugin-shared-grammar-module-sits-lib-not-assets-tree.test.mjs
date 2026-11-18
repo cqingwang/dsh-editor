@@ -27,7 +27,7 @@ test('the host serves it from lib without widening what is exposed', () => {
   assert.match(host, /const SHARED_ROOT = fileURLToPath\(new URL\('\.\/', import\.meta\.url\)\);/);
   assert.match(host, /const SHARED_FILES = \['link-parser\.mjs'\];/);
   /* The browser keeps one stable URL whatever the file moves to. */
-  assert.match(read('lib/client.js'), /import\('\/api\/dsh-editor\/shared\/link-parser\.mjs'\)/);
+  assert.ok(read('src/client/find-tool.ts').includes("importRuntimeModule('/api/dsh-editor/shared/link-parser.mjs')"));
   /* The bridge resolves the name under the root and refuses escapes. */
   assert.match(host, /assetFileResponse\(SHARED_ROOT, fileName, request\)/);
 });

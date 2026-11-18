@@ -42,7 +42,7 @@ test('Project toolbar declares IDEA create, navigation and window groups', () =>
 
 test('PanelToolbar preserves semantic groups in its overflow menu', () => {
   assert.match(panelToolbarSource, /items: groupCompactActions\(hidden\)\.map/);
-  assert.match(panelToolbarSource, /id: action\.id,[\s\S]*?run: \(\) => action\.onClick\(\)/);
+  assert.match(panelToolbarSource, /id: action\.id,[\s\S]*?run: \(\) => action\.onClick\?\.\(\)/);
 });
 
 test('ContextMenu exposes null entries as menu separators', () => {

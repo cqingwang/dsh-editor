@@ -3,6 +3,7 @@ import { styles } from '../../ui/styles';
 import { Icon } from '../ui/Icon';
 import { ToolbarButton } from '../ui/ToolbarButton';
 import { TerminalScreen } from './TerminalScreen';
+import type { TerminalEmulator } from '../../find-tool';
 
 type Translate = (key: string, params?: Record<string, unknown>) => string;
 
@@ -40,7 +41,7 @@ function EditorTerminalTab({
   onReturnToDock,
   getCwd,
 }: EditorTerminalTabProps) {
-  const [emulator, setEmulator] = React.useState<unknown | null>(null);
+  const [emulator, setEmulator] = React.useState<TerminalEmulator | null>(null);
   return (
     <div
       style={styles.editorTerminalPane}

@@ -155,7 +155,7 @@ test('editor workspace reuses the extracted Commit Log menu builder', async () =
   const build = await read('scripts/build-client.mjs');
   const client = await read('lib/client.js');
 
-  assert.match(workspace, /declare const commitLogMenu:/u);
+  assert.match(workspace, /import \{ commitLogMenu \} from '\.\/components\/commit\/log-menu';/u);
   assert.match(workspace, /commitLogMenu\(\{/u);
   assert.doesNotMatch(workspace, /id: 'compareRevisions'/u);
   assert.doesNotMatch(workspace, /id: 'goToParentCommit'/u);

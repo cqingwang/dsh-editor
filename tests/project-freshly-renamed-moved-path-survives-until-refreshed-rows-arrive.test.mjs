@@ -2,27 +2,16 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+import { transpileTypeScriptFunction } from './ts-source.mjs';
 
-function extract(name) {
-  const marker = `    function ${name}(`;
-  const start = source.indexOf(marker);
-  assert.notEqual(start, -1, `${name} should exist`);
-  let index = source.indexOf('{', start);
-  let depth = 0;
-  for (; index < source.length; index += 1) {
-    if (source[index] === '{') depth += 1;
-    else if (source[index] === '}') {
-      depth -= 1;
-      if (depth === 0) return source.slice(start, index + 1);
-    }
-  }
-  assert.fail(`${name} has no closing brace`);
-}
-
+const terminalSource = await readFile(new URL('../src/client/terminal.ts', import.meta.url), 'utf8');
+const pathSource = await readFile(new URL('../src/client/components/editor/editor-path-model.ts', import.meta.url), 'utf8');
+const dirname = new Function(`${transpileTypeScriptFunction(pathSource, 'dirname')}; return dirname;`)();
 const projectSelectionAfterRowsChange = new Function(
-  `${extract('dirname')}\n${extract('projectSelectionAfterRowsChange')}\nreturn projectSelectionAfterRowsChange;`,
-)();
+  'dirname',
+  `${transpileTypeScriptFunction(terminalSource, 'projectSelectionAfterRowsChange')}
+   return projectSelectionAfterRowsChange;`,
+)(dirname);
 
 test('a freshly renamed or moved path survives until the refreshed rows arrive', () => {
   assert.equal(

@@ -43,7 +43,7 @@ test('a path stops being new once it disappears from the listing', () => {
 });
 
 test('the tree tints a newly appeared file', () => {
-  assert.match(source, /const \[newPaths, setNewPaths\] = React\.useState\(/);
+  assert.match(source, /const \[newPaths, setNewPaths\] = React\.useState(?:<[^()]*>)?\(/);
   assert.match(
     source,
     /newPaths\?\.has\?\.\(row\.path\)[\s\S]*?color: '#1a7f37'/s,

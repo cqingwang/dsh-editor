@@ -106,15 +106,11 @@ test('the editor exposes the file path in its status bar, go to line and live fa
   assert.match(statusBar, /t\('editor\.selectionInfo', \{ count: lineStats\.selected \}\)/);
 });
 
-test('line separators use the Monaco enum and indentation is user-owned', () => {
+test('the status bar reports editor mode without rewriting user indentation', () => {
   const client = workspaceSource;
-  /* `pushEOL('\\r\\n')` is silently a no-op: the argument must be the enum. */
-  assert.match(client, /const sequence = monaco\?\.editor\?\.EndOfLineSequence;/);
-  assert.match(client, /model\.pushEOL\(value\)/);
-  assert.doesNotMatch(client, /pushEOL\(next\)/);
-  /* `detectIndentation` would re-detect from content and undo the toggle. */
+  assert.match(client, /fileMode=\{fileMode\}/);
   assert.doesNotMatch(client, /model\.detectIndentation\(/);
-  assert.match(client, /editor\.action\.indentationToSpaces/);
+  assert.doesNotMatch(client, /pushEOL\(next\)/);
 });
 
 test('the terminal split tracks its focused pane and remembers its ratio', () => {

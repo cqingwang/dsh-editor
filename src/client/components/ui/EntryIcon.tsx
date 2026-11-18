@@ -1,13 +1,7 @@
 import React from 'react';
 import { fileBadge } from './file-badge';
 import { Icon } from './Icon';
-
-declare const primitives:
-  | {
-      FileTypeIcon?: React.ComponentType<{ path: string; size: number }>;
-    }
-  | null
-  | undefined;
+import { primitives } from '../../foundation';
 
 export interface EntryIconEntry {
   path: string;

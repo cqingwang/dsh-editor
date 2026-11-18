@@ -94,8 +94,7 @@ test('editor workspace reuses the extracted stash and shelve menu builders', asy
   const build = await read('scripts/build-client.mjs');
   const client = await read('lib/client.js');
 
-  assert.match(workspace, /declare const stashMenu:/u);
-  assert.match(workspace, /declare const shelveMenu:/u);
+  assert.match(workspace, /import \{ shelveMenu, stashMenu, type ShelfEntry \} from '\.\/components\/commit\/stash-shelve-menu';/u);
   assert.match(workspace, /stashMenu\(\{/u);
   assert.match(workspace, /shelveMenu\(\{/u);
   assert.match(workspace, /onRunStash: \(operation, ref\) => void runStash\(operation, ref\)/u);

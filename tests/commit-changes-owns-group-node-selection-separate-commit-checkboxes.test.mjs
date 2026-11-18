@@ -11,7 +11,7 @@ const source =
   readFileSync(join(root, 'src/client/components/commit/CommitPanel.tsx'), 'utf8');
 
 test('Changes owns a group-node selection separate from commit checkboxes', () => {
-  assert.match(source, /const \[\s+selectedGroup,\s+setSelectedGroup,\s+\] = React\.useState\(null\);/u);
+  assert.match(source, /const \[\s+selectedGroup,\s+setSelectedGroup,\s+\] = React\.useState(?:<[^>]+>)?\(null\);/u);
   const parentStart = source.indexOf('const chooseGroup = React.useCallback(');
   const parent = source.slice(parentStart, source.indexOf('}, []);', parentStart) + 8);
   assert.match(parent, /setSelectedGroup\(group\)/);

@@ -20,9 +20,9 @@ test('toolbar overflow preserves active state and a visible current marker', () 
 test('menu entries expose toggle state with menuitemcheckbox semantics', () => {
   const menu = source;
   assert.match(menu, /role=\{typeof item\.active === 'boolean' \? 'menuitemcheckbox' : 'menuitem'\}/);
-  assert.match(menu, /aria-checked=\{typeof item\.active === 'boolean' \? String\(item\.active\) : undefined\}/);
+  assert.match(menu, /aria-checked=\{typeof item\.active === 'boolean' \? item\.active : undefined\}/);
   assert.match(menu, /role=\{typeof child\.active === 'boolean' \? 'menuitemcheckbox' : 'menuitem'\}/);
-  assert.match(menu, /aria-checked=\{typeof child\.active === 'boolean' \? String\(child\.active\) : undefined\}/);
+  assert.match(menu, /aria-checked=\{typeof child\.active === 'boolean' \? child\.active : undefined\}/);
 });
 
 test('keyboard menu traversal targets all actionable menu roles', () => {

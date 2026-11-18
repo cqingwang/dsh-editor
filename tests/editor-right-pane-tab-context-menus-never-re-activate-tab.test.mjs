@@ -4,31 +4,16 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
+import { loadTypeScriptFunction } from './ts-source.mjs';
+
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
+const findToolSource = readFileSync(join(root, 'src/client/find-tool.ts'), 'utf8');
 const source = [
-  readFileSync(join(root, 'src/client/find-tool.ts'), 'utf8'),
+  findToolSource,
   readFileSync(join(root, 'src/client/components/terminal/TerminalPanel.tsx'), 'utf8'),
 ].join('\n');
 
-function extractFunction(name) {
-  const start = source.indexOf(`function ${name}(`);
-  assert.notEqual(start, -1, `${name} is missing`);
-  let depth = 0;
-  for (let index = source.indexOf('{', start); index < source.length; index += 1) {
-    if (source[index] === '{') depth += 1;
-    else if (source[index] === '}') {
-      depth -= 1;
-      if (depth === 0) return source.slice(start, index + 1);
-    }
-  }
-  assert.fail(`${name} has no closing brace`);
-}
-
-const terminalTabContextFocus = new Function(
-  `${extractFunction('terminalTabContextFocus')
-    .replace('(terminalId: string, _activeId: string | null, splitId: string | null): string', '(terminalId, _activeId, splitId)')
-    .replace('}: string {', '} {')}; return terminalTabContextFocus;`,
-)();
+const terminalTabContextFocus = loadTypeScriptFunction(findToolSource, 'terminalTabContextFocus');
 
 test('right-pane tab context menus never re-activate that tab in the left pane', () => {
   assert.deepEqual(terminalTabContextFocus('t2', 't1', 't2'), { pane: 'right', activate: false });

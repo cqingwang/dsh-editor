@@ -1,14 +1,11 @@
 import React from 'react';
 import { AnnotatePreview } from '../diff/AnnotatePreview';
+import type { AnnotateLine } from '../diff/AnnotatePreview';
 
 type Translate = (key: string, params?: Record<string, unknown>) => string;
 
 interface AnnotateTarget {
   path?: string;
-  [key: string]: unknown;
-}
-
-interface AnnotateLine {
   [key: string]: unknown;
 }
 

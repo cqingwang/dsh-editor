@@ -1,4 +1,8 @@
 /* find-tool.ts: dsh-editor Find, terminal and graph helper module. Generated into lib/client.js by scripts/build-client.mjs. */
+
+import { normalizeFindScopePatterns } from './commit';
+import { basename, callFs } from './editor-core';
+import { callTerminal } from './terminal';
 interface FindOccurrence {
   rowKey?: string;
   [key: string]: unknown;
@@ -20,7 +24,7 @@ interface FuzzyMatchOptions {
 
 interface CommitGraphEntry {
   hash: string;
-  parents: string[];
+  parents?: string[];
   [key: string]: unknown;
 }
 
@@ -44,7 +48,11 @@ interface TerminalBlockRange {
 interface TerminalTabIdentity {
   id?: string;
   path?: string;
-  [key: string]: unknown;
+  state?: string;
+  cwd?: string;
+  title?: string;
+  exitCode?: number | null;
+  shell?: string;
 }
 
 interface TerminalMenuAction {
@@ -52,12 +60,11 @@ interface TerminalMenuAction {
   label: string;
   disabled?: boolean;
   run?: () => unknown;
+  items?: TerminalMenuAction[];
+  restoreFocus?: boolean;
+  shortcut?: string;
+  danger?: boolean;
   [key: string]: unknown;
-}
-
-interface TerminalTabOverflow {
-  visible: TerminalTabIdentity[];
-  hidden: TerminalTabIdentity[];
 }
 
 interface TerminalBufferLine {
@@ -72,22 +79,72 @@ interface TerminalBuffer {
   getLine?: (row: number) => TerminalBufferLine | undefined;
 }
 
-interface TerminalEmulator {
+export interface TerminalEmulator {
   buffer: { active: TerminalBuffer };
+  cols: number;
   rows: number;
+  options: { fontSize?: number; theme?: unknown };
+  parser?: {
+    registerOscHandler: (code: number, handler: (payload: string) => boolean) => { dispose: () => void };
+  };
+  clear: () => void;
+  clearSelection: () => void;
+  dispose: () => void;
   focus: () => void;
+  getSelection: () => string;
+  getSelectionPosition: () => { start: { x: number; y: number }; end: { x: number; y: number } } | undefined;
+  input: (data: string, shouldFocus?: boolean) => void;
+  loadAddon: (addon: { fit?: () => void }) => void;
+  onData: (handler: (data: string) => void) => { dispose: () => void };
+  onTitleChange: (handler: (title: string) => void) => { dispose: () => void };
+  open: (node: HTMLElement) => void;
+  registerLinkProvider: (provider: TerminalLinkProvider) => { dispose: () => void };
+  reset: () => void;
+  scrollLines: (count: number) => void;
+  scrollPages: (count: number) => void;
   select: (column: number, row: number, length: number) => void;
+  selectAll: () => void;
+  selectLines: (start: number, end: number) => void;
   scrollToLine: (line: number) => void;
+  write: (data: string) => void;
 }
 
 interface TerminalConstructor {
   new (...args: unknown[]): TerminalEmulator;
 }
 
+interface XtermBundle {
+  Terminal: TerminalConstructor;
+  FitAddon: new () => { fit: () => void };
+}
+
+let xtermPromise: Promise<XtermBundle> | null = null;
+
 interface TerminalLinkProvider {
-  provideLinks: (...args: unknown[]) => unknown;
+  provideLinks: (line: number, callback: (links: unknown[] | undefined) => void) => void;
   dispose: () => void;
 }
+
+interface TerminalLinkParser {
+  parseTerminalLinks: (text: string) => Array<{
+    kind: string;
+    path: string;
+    text: string;
+    start: number;
+    end: number;
+    line?: number;
+    column?: number;
+  }>;
+  resolveTerminalPath: (cwd: string, path: string) => string;
+}
+
+const importRuntimeModule = (specifier: string): Promise<unknown> => import(specifier);
+
+export type TerminalStreamEvent =
+  | { type: 'snapshot'; data: string }
+  | { type: 'data'; data: string }
+  | { type: 'exit'; code: number | null }
+  | { type: 'error'; message: string };
 
 interface CommitGraphBadge {
   name?: unknown;
@@ -113,7 +170,11 @@ interface TerminalMenuInput {
   onSplitRight?: () => void;
   onMoveToEditor?: () => void;
   onSwitchFocusToEditor?: () => void;
-  [key: string]: unknown;
+  onClipboardError?: (message: string) => void;
+  onPastedText?: (text: string) => void;
+  pasteHistory?: string[];
+  onPasteHistory?: (text: string) => void;
+  selectionPosition?: unknown;
 }
 
 interface TerminalTabMenuActions {
@@ -149,7 +210,7 @@ interface TerminalTabMenuActions {
  * @param {number} fallbackIndex - prior active row index.
  * @returns {number} row index to select.
  */
-function findToolReplaceAdvanceIndex(
+export function findToolReplaceAdvanceIndex(
   occurrences: FindOccurrence[],
   replacedRowKey: string,
   fallbackIndex: number,
@@ -172,7 +233,7 @@ function findToolReplaceAdvanceIndex(
  * @param {KeyboardEvent|object} event - current keydown.
  * @returns {'case'|'words'|'regex'|'clear'|null} action to clear.
  */
-function findSearchOptionShortcutAction(
+export function findSearchOptionShortcutAction(
   event: FindShortcutEvent | null | undefined,
 ): 'case' | 'words' | 'regex' | 'clear' | null {
   if (event === null || typeof event !== 'object' || event.isComposing === true) return null;
@@ -193,7 +254,7 @@ function findSearchOptionShortcutAction(
 }
 
 /** Create one browser-local Scope identity without requiring crypto.randomUUID. */
-function newFindScopeId(): string {
+export function newFindScopeId(): string {
   return `scope-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
@@ -204,7 +265,7 @@ function newFindScopeId(): string {
  * detached copy so Cancel cannot mutate the active Find scope list.
  */
 
-const FIND_POPUP_RESIZE_DIRECTIONS = ['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'];
+export const FIND_POPUP_RESIZE_DIRECTIONS = ['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'];
 
 /* FindToolWindow migrated to components/search/FindToolWindow.tsx. */
 /**
@@ -214,7 +275,7 @@ const FIND_POPUP_RESIZE_DIRECTIONS = ['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'
  * @param {boolean} [caseSensitive=false] - preserve case.
  * @returns {number} zero-based offset, or -1.
  */
-function wholeWordIndex(value: string, needle: string, caseSensitive = false): number {
+export function wholeWordIndex(value: string, needle: string, caseSensitive = false): number {
   if (typeof value !== 'string' || typeof needle !== 'string' || needle === '') return -1;
   const escaped = needle.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
   const expression = new RegExp(`(?:^|[^\\p{L}\\p{N}_])(${escaped})(?=$|[^\\p{L}\\p{N}_])`, caseSensitive ? 'u' : 'iu');
@@ -229,7 +290,7 @@ function wholeWordIndex(value: string, needle: string, caseSensitive = false): n
  * @param {unknown} value - extension-list input.
  * @returns {string} canonical comma-separated masks.
  */
-function normalizeFileExtensionFilter(value: unknown): string {
+export function normalizeFileExtensionFilter(value: unknown): string {
   const text = typeof value === 'string' ? value.trim() : '';
   if (text === '') return '';
   return text
@@ -255,7 +316,7 @@ function normalizeFileExtensionFilter(value: unknown): string {
  * @param {unknown} filter - extension/mask list.
  * @returns {boolean} whether the path participates in the search.
  */
-function fileExtensionFilterMatches(path: string, filter: unknown): boolean {
+export function fileExtensionFilterMatches(path: string, filter: unknown): boolean {
   const masks = normalizeFileExtensionFilter(filter).split(',').filter(Boolean);
   if (masks.length === 0) return true;
   let hasPositive = false;
@@ -326,7 +387,7 @@ function findScopeGlobMatches(path: string, rawPattern: unknown): boolean {
 }
 
 /** Include globs are ORed; any exclude glob wins. */
-function findScopePatternsMatch(path: string, includePatterns: unknown, excludePatterns: unknown): boolean {
+export function findScopePatternsMatch(path: string, includePatterns: unknown, excludePatterns: unknown): boolean {
   if (typeof path !== 'string' || path === '') return false;
   const includes = normalizeFindScopePatterns(includePatterns);
   const excludes = normalizeFindScopePatterns(excludePatterns);
@@ -341,7 +402,7 @@ function findScopePatternsMatch(path: string, includePatterns: unknown, excludeP
  * @param {{caseSensitive?: boolean, wholeWords?: boolean}} [options] - match options.
  * @returns {number} score.
  */
-function fuzzyScore(path: string, query: string, options?: FuzzyMatchOptions): number {
+export function fuzzyScore(path: string, query: string, options?: FuzzyMatchOptions): number {
   options = options ?? {};
   if (query === '') return 0;
   const caseSensitive = options?.caseSensitive === true;
@@ -384,7 +445,7 @@ function fuzzyScore(path: string, query: string, options?: FuzzyMatchOptions): n
  * @param {Map<string, number>} laneOf - lane per commit from assignGraphLanes.
  * @returns {Array<{hashes: string[], lane: number, merge: boolean, first: object}>} runs.
  */
-function linearRun(entries: CommitGraphEntry[], laneOf: Map<string, number>): CommitGraphRun[] {
+export function linearRun(entries: CommitGraphEntry[], laneOf: Map<string, number>): CommitGraphRun[] {
   const runs: CommitGraphRun[] = [];
   for (const entry of entries) {
     const lane = laneOf.get(entry.hash) ?? 0;
@@ -400,7 +461,7 @@ function linearRun(entries: CommitGraphEntry[], laneOf: Map<string, number>): Co
   return runs;
 }
 
-function assignGraphLanes(entries: CommitGraphEntry[]): CommitGraphLanes {
+export function assignGraphLanes(entries: CommitGraphEntry[]): CommitGraphLanes {
   const laneOf = new Map<string, number>();
   let laneCount = 0;
   /* Pass 1: every commit inherits its lane from its first child, so a branch's
@@ -408,12 +469,13 @@ function assignGraphLanes(entries: CommitGraphEntry[]): CommitGraphLanes {
   for (const entry of entries) {
     if (!laneOf.has(entry.hash)) laneOf.set(entry.hash, laneCount++);
     const lane = laneOf.get(entry.hash);
-    const first = entry.parents[0];
+    const parents = entry.parents ?? [];
+    const first = parents[0];
     if (first !== undefined && !laneOf.has(first)) laneOf.set(first, lane);
   }
   /* Pass 2: merge parents that pass 1 never reached open a forked lane. */
   for (const entry of entries) {
-    for (const parent of entry.parents.slice(1)) {
+    for (const parent of (entry.parents ?? []).slice(1)) {
       if (!laneOf.has(parent)) laneOf.set(parent, laneCount++);
     }
   }
@@ -430,7 +492,10 @@ function assignGraphLanes(entries: CommitGraphEntry[]): CommitGraphLanes {
  * @param {boolean} folded - whether linear runs are collapsed.
  * @returns {object[]} entries represented by visible graph rows.
  */
-function graphDisplayEntries(entries: CommitGraphEntry[] | null | undefined, folded: boolean): CommitGraphEntry[] {
+export function graphDisplayEntries(
+  entries: CommitGraphEntry[] | null | undefined,
+  folded: boolean,
+): CommitGraphEntry[] {
   const list = Array.isArray(entries) ? entries : [];
   if (folded !== true) return list;
   return linearRun(list, assignGraphLanes(list).laneOf).map((run) => run.first);
@@ -457,7 +522,7 @@ function graphDisplayEntries(entries: CommitGraphEntry[] | null | undefined, fol
  * @param {object|null} graph - the loaded graph payload.
  * @returns {{branch: string, at: string}} scope for the next request.
  */
-function refScopeOf(ref: string, graph: CommitGraphReferenceData | null): { branch: string; at: string } {
+export function refScopeOf(ref: string, graph: CommitGraphReferenceData | null): { branch: string; at: string } {
   const value = typeof ref === 'string' ? ref.trim() : '';
   if (value === '') return { branch: '', at: '' };
   if (value.startsWith('tag: ')) {
@@ -465,7 +530,7 @@ function refScopeOf(ref: string, graph: CommitGraphReferenceData | null): { bran
     const tag = (graph?.tagList ?? []).find((entry) => entry.name === name);
     /* An unknown tag is not a scope: better to stay put than to walk "" and
            look like the filter did nothing. */
-    return tag === undefined ? { branch: '', at: '' } : { branch: '', at: tag.hash };
+    return tag === undefined || typeof tag.hash !== 'string' ? { branch: '', at: '' } : { branch: '', at: tag.hash };
   }
   const known = (graph?.branchList ?? []).includes(value);
   return known ? { branch: value, at: '' } : { branch: '', at: '' };
@@ -478,7 +543,7 @@ function refScopeOf(ref: string, graph: CommitGraphReferenceData | null): { bran
  * @param {HTMLElement|null} node - the active row.
  * @returns {void}
  */
-function scrollGraphRowIntoView(node: HTMLElement | null | undefined): void {
+export function scrollGraphRowIntoView(node: HTMLElement | null | undefined): void {
   node?.scrollIntoView?.({ block: 'nearest' });
 }
 
@@ -493,7 +558,7 @@ function scrollGraphRowIntoView(node: HTMLElement | null | undefined): void {
  * @param {'next'|'previous'|'first'|'last'|'current'} action - movement.
  * @returns {string|null} hash to select.
  */
-function flatLogTarget(
+export function flatLogTarget(
   commits: Array<{ hash?: string }> | null | undefined,
   selected: string | null,
   action: 'next' | 'previous' | 'first' | 'last' | 'current',
@@ -522,7 +587,7 @@ function flatLogTarget(
  * @param {string|null} selected - commit currently shown in details.
  * @returns {object|null} commit for the context menu.
  */
-function graphLogMenuTarget(
+export function graphLogMenuTarget(
   entries: CommitGraphEntry[] | null | undefined,
   cursor: string | null,
   selected: string | null,
@@ -549,7 +614,7 @@ function graphLogMenuTarget(
  * @param {string} hash - commit whose relations are requested.
  * @returns {{parents: object[], children: object[]}} loaded relation targets.
  */
-function commitRelationTargets(
+export function commitRelationTargets(
   entries: CommitGraphEntry[],
   hash: string,
 ): { parents: CommitGraphEntry[]; children: CommitGraphEntry[] } {
@@ -581,7 +646,7 @@ function commitRelationTargets(
  * @param {'parents'|'children'} relation - direction to follow.
  * @returns {object|null} target commit, if one is currently loaded.
  */
-function commitRelationTarget(
+export function commitRelationTarget(
   entries: CommitGraphEntry[],
   hash: string | null,
   relation: 'parents' | 'children',
@@ -601,7 +666,7 @@ function commitRelationTarget(
  * @param {object[]} entries - loaded commits in display order.
  * @returns {string[]|null} newer, older; or null when not exactly two loaded commits.
  */
-function orderedRevisionPair(selected: string[], entries: Array<{ hash?: string }>): string[] | null {
+export function orderedRevisionPair(selected: string[], entries: Array<{ hash?: string }>): string[] | null {
   const selectedSet = new Set(
     (Array.isArray(selected) ? selected : []).filter((value) => typeof value === 'string' && value !== ''),
   );
@@ -629,7 +694,7 @@ function orderedRevisionPair(selected: string[], entries: Array<{ hash?: string 
  * @param {string} [localLabel='local'] - label for the right side.
  * @returns {Array<{path: string, revision: string, heading: string}>} diff entries.
  */
-function commitLocalDiffEntries(
+export function commitLocalDiffEntries(
   detail: { files?: Array<{ path?: string }> } | null,
   hash: string,
   localLabel = 'local',
@@ -648,9 +713,10 @@ function commitLocalDiffEntries(
 /* CommitLog migrated to components/commit/CommitLog.tsx. */
 
 /** Compact absolute time for the log rows. */
-function formatCommitDate(value: unknown): string {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
+export function formatCommitDate(value: unknown): string {
+  const candidate = typeof value === 'string' || typeof value === 'number' ? value : '';
+  const date = new Date(candidate);
+  if (Number.isNaN(date.getTime())) return String(value ?? '');
   const pad = (number) => String(number).padStart(2, '0');
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
@@ -662,18 +728,21 @@ function formatCommitDate(value: unknown): string {
  * AMD `define`, which would otherwise capture a UMD xterm bundle.
  * @returns {Promise<{Terminal: Function, FitAddon: Function}>} constructors.
  */
-function loadXterm(): Promise<{
+export function loadXterm(): Promise<{
   Terminal: TerminalConstructor;
-  FitAddon: new () => { fit?: () => void };
+  FitAddon: new () => { fit: () => void };
 }> {
   if (xtermPromise !== null) return xtermPromise;
-  xtermPromise = (async () => {
+  xtermPromise = (async (): Promise<XtermBundle> => {
     injectStylesheet('/api/dsh-editor/xterm/xterm.css', 'dsh-editor-xterm-css');
-    const [xterm, fitAddon] = await Promise.all([
-      import('/api/dsh-editor/xterm/xterm.mjs'),
-      import('/api/dsh-editor/xterm/addon-fit.mjs'),
-    ]);
-    return { Terminal: xterm.Terminal, FitAddon: fitAddon.FitAddon };
+    const [xterm, fitAddon] = (await Promise.all([
+      importRuntimeModule('/api/dsh-editor/xterm/xterm.mjs'),
+      importRuntimeModule('/api/dsh-editor/xterm/addon-fit.mjs'),
+    ])) as [{ Terminal: unknown }, { FitAddon: unknown }];
+    return {
+      Terminal: xterm.Terminal as TerminalConstructor,
+      FitAddon: fitAddon.FitAddon as new () => { fit: () => void },
+    };
   })();
   return xtermPromise;
 }
@@ -688,9 +757,6 @@ function injectStylesheet(href: string, id: string): void {
   document.head.appendChild(link);
 }
 
-/** Contract of one running terminal view returned by the host terminal API. */
-const TERMINAL_POLL_MS = 16;
-
 /**
  * Read one SSE response body in chunks and hand each frame to a parser.
  * @param {Response} response - streaming response.
@@ -698,9 +764,9 @@ const TERMINAL_POLL_MS = 16;
  * @param {AbortSignal} signal - request lifetime.
  * @returns {Promise<void>} resolves when the stream ends.
  */
-async function readEventStream(
+export async function readEventStream(
   response: Response,
-  onEvent: (event: unknown) => void,
+  onEvent: (event: TerminalStreamEvent) => void,
   signal: AbortSignal,
 ): Promise<void> {
   if (response.body === null) return;
@@ -742,10 +808,12 @@ async function readEventStream(
  * It ships as ESM and is imported dynamically for the same reason as xterm:
  * Monaco claims the global AMD `define`, so a static script tag would be captured.
  */
-let linkParserPromise = null;
-function loadLinkParser(): Promise<unknown> {
+let linkParserPromise: Promise<TerminalLinkParser | null> | null = null;
+function loadLinkParser(): Promise<TerminalLinkParser | null> {
   if (linkParserPromise === null) {
-    linkParserPromise = import('/api/dsh-editor/shared/link-parser.mjs').catch(() => null);
+    linkParserPromise = importRuntimeModule('/api/dsh-editor/shared/link-parser.mjs')
+      .then((module) => module as TerminalLinkParser)
+      .catch(() => null);
   }
   return linkParserPromise;
 }
@@ -759,7 +827,7 @@ function loadLinkParser(): Promise<unknown> {
  * @param {() => string} getCwd - current shell working directory.
  * @returns {{provideLinks: Function, dispose: Function}} provider handle.
  */
-function createTerminalLinkProvider(emulator: TerminalEmulator, getCwd: () => string): TerminalLinkProvider {
+export function createTerminalLinkProvider(emulator: TerminalEmulator, getCwd: () => string): TerminalLinkProvider {
   /* Existence cache: terminal lines are re-scanned while scrolling. */
   const cache = new Map();
   const pending = new Set();
@@ -775,7 +843,10 @@ function createTerminalLinkProvider(emulator: TerminalEmulator, getCwd: () => st
     if (unknown.length > 0) {
       for (const candidate of unknown) pending.add(candidate);
       try {
-        const value = await callFs({ op: 'exists', paths: unknown });
+        const value = await callFs<Array<{ requested: string; exists?: boolean; kind?: string; path?: string }>>({
+          op: 'exists',
+          paths: unknown,
+        });
         for (const entry of value ?? []) cache.set(entry.requested, entry);
       } catch {
         /* an unreachable host simply leaves the link unconfirmed */
@@ -876,7 +947,7 @@ function openTerminalTarget(target: { path?: string; line?: number | null; colum
  * @param {number} limit - safety ceiling for huge scrollbacks.
  * @returns {Array<{row: number, column: number}>} hits in buffer order.
  */
-function terminalMatches(
+export function terminalMatches(
   emulator: TerminalEmulator,
   needle: string,
   limit = 2000,
@@ -903,7 +974,7 @@ function terminalMatches(
  * @param {string} needle - query.
  * @returns {number} occurrences.
  */
-function countTerminalMatches(emulator: TerminalEmulator, needle: string): number {
+export function countTerminalMatches(emulator: TerminalEmulator, needle: string): number {
   return terminalMatches(emulator, needle).length;
 }
 
@@ -919,7 +990,7 @@ function countTerminalMatches(emulator: TerminalEmulator, needle: string): numbe
  * @param {number} direction - +1 next, -1 previous.
  * @returns {void}
  */
-function moveTerminalSelection(
+export function moveTerminalSelection(
   emulator: TerminalEmulator | null,
   find: { query: string; index: number; total: number },
   setFind: (value: { query: string; index: number; total: number }) => void,
@@ -946,7 +1017,7 @@ function moveTerminalSelection(
  * @param {boolean} hasSelection - whether the focused terminal has text selected.
  * @returns {'newTab'|'copy'|'paste'|null} direct terminal action.
  */
-function directTerminalShortcut(
+export function directTerminalShortcut(
   event: FindShortcutEvent,
   hasSelection: boolean,
 ): 'newTab' | 'copy' | 'copyBlock' | 'paste' | null {
@@ -965,7 +1036,7 @@ function directTerminalShortcut(
  * @param {number} [cursorY] - current cursor row.
  * @returns {number|null} first visual row occupied by the prompt.
  */
-function terminalPromptStartRow(buffer: TerminalBuffer | null, cursorY = buffer?.cursorY): number | null {
+export function terminalPromptStartRow(buffer: TerminalBuffer | null, cursorY = buffer?.cursorY): number | null {
   if (buffer === null || buffer === undefined || !Number.isInteger(cursorY)) return null;
   let row = cursorY;
   while (row > 0 && buffer.getLine?.(row)?.isWrapped === true) row -= 1;
@@ -981,7 +1052,7 @@ function terminalPromptStartRow(buffer: TerminalBuffer | null, cursorY = buffer?
  * @param {number} [cursorX] - current cursor column.
  * @returns {{row: number, column: number, length: number}|null} xterm range.
  */
-function terminalPromptSelection(
+export function terminalPromptSelection(
   buffer: TerminalBuffer | null,
   cursorY = buffer?.cursorY,
   cursorX = buffer?.cursorX,
@@ -999,7 +1070,7 @@ function terminalPromptSelection(
  * @param {number} [cursorY] - current cursor row.
  * @returns {{start: number, end: number}|null} inclusive buffer rows.
  */
-function terminalLastBlockSelection(
+export function terminalLastBlockSelection(
   buffer: TerminalBuffer | null,
   cursorY = buffer?.cursorY,
 ): TerminalBlockRange | null {
@@ -1061,7 +1132,7 @@ function terminalBlockRangeAt(buffer: TerminalBuffer | null, row: number): Termi
  * @param {{start?: {y?: number}, end?: {y?: number}}|null} position - xterm selection.
  * @returns {{start: number, end: number}|null} selected block span.
  */
-function terminalSelectionBlockRange(
+export function terminalSelectionBlockRange(
   buffer: TerminalBuffer | null,
   position: { start?: { y?: number }; end?: { y?: number } } | null,
 ): TerminalBlockRange | null {
@@ -1087,7 +1158,7 @@ function terminalSelectionBlockRange(
  * @param {number} [maxRow] - inclusive final searchable row.
  * @returns {{start: number, end: number}|null} adjacent block.
  */
-function terminalAdjacentBlockRange(
+export function terminalAdjacentBlockRange(
   buffer: TerminalBuffer | null,
   range: TerminalBlockRange | null,
   direction: number,
@@ -1120,7 +1191,7 @@ function terminalAdjacentBlockRange(
  * @param {number} [maxRow] - inclusive final searchable row.
  * @returns {{start: number, end: number}|null} expanded range.
  */
-function terminalExpandBlockRange(
+export function terminalExpandBlockRange(
   buffer: TerminalBuffer | null,
   range: TerminalBlockRange | null,
   direction: number,
@@ -1140,7 +1211,7 @@ function terminalExpandBlockRange(
  * @param {boolean} findOpen - whether Terminal Find owns the current context.
  * @returns {'selectAbove'|'selectBelow'|'expandAbove'|'expandBelow'|null} action.
  */
-function terminalBlockKeyboardAction(
+export function terminalBlockKeyboardAction(
   event: FindShortcutEvent,
   hasSelection: boolean,
   findOpen: boolean,
@@ -1163,7 +1234,7 @@ function terminalBlockKeyboardAction(
  * @param {Function} input.onCreate - open a new terminal.
  * @returns {object|null} menu model.
  */
-function terminalMenuModel(input: TerminalMenuInput): TerminalMenuAction[] {
+export function terminalMenuModel(input: TerminalMenuInput): { items: TerminalMenuAction[] } | null {
   const {
     t,
     emulator,
@@ -1437,11 +1508,11 @@ function terminalMenuModel(input: TerminalMenuInput): TerminalMenuAction[] {
  * @param {'left'|'right'} direction - movement direction.
  * @returns {string|null} neighbour id, or null at the strip boundary.
  */
-function terminalMoveTarget(
+export function terminalMoveTarget(
   terminals: TerminalTabIdentity[],
   id: string,
-  direction: number,
-): TerminalTabIdentity | null {
+  direction: 'left' | 'right',
+): string | null {
   const list = Array.isArray(terminals) ? terminals : [];
   const index = list.findIndex((terminal) => terminal?.id === id);
   if (index < 0) return null;
@@ -1461,7 +1532,11 @@ function terminalMoveTarget(
  * @param {string|null} splitId - terminal shown in the right pane.
  * @returns {{pane: 'left'|'right', activate: boolean}} pane focus decision.
  */
-function terminalTabContextFocus(terminalId: string, _activeId: string | null, splitId: string | null): string {
+export function terminalTabContextFocus(
+  terminalId: string,
+  _activeId: string | null,
+  splitId: string | null,
+): { pane: 'left' | 'right'; activate: boolean } {
   const splitTerminal = splitId !== null && terminalId === splitId;
   return {
     pane: splitTerminal ? 'right' : 'left',
@@ -1476,7 +1551,7 @@ function terminalTabContextFocus(terminalId: string, _activeId: string | null, s
  * @param {{rename: Function, close: Function, closeOthers: Function, duplicate: Function}} actions - callbacks.
  * @returns {object[]} menu items.
  */
-function terminalTabMenu(
+export function terminalTabMenu(
   t: (key: string, params?: Record<string, unknown>) => string,
   terminal: TerminalTabIdentity,
   actions: TerminalTabMenuActions,
@@ -1561,7 +1636,7 @@ function terminalTabMenu(
  * @param {object|null} active - active terminal.
  * @returns {Promise<void>} resolves once the text reached the PTY or was refused.
  */
-function pushPasteHistory(history: unknown, text: unknown): string[] {
+export function pushPasteHistory(history: unknown, text: unknown): string[] {
   const value = typeof text === 'string' ? text : '';
   const current = Array.isArray(history) ? history : [];
   if (value === '') return current;
@@ -1574,7 +1649,7 @@ function pasteHistoryPreview(text: unknown, limit = 60): string {
   return `${normalized.slice(0, Math.max(0, limit - 1))}…`;
 }
 
-async function writeTerminalText(
+export async function writeTerminalText(
   emulator: TerminalEmulator,
   active: TerminalTabIdentity | null,
   text: unknown,
@@ -1590,7 +1665,7 @@ async function writeTerminalText(
   return true;
 }
 
-async function pasteIntoTerminal(
+export async function pasteIntoTerminal(
   emulator: TerminalEmulator,
   active: TerminalTabIdentity | null,
   t: (key: string, params?: Record<string, unknown>) => string,
@@ -1621,7 +1696,7 @@ async function pasteIntoTerminal(
  * @param {number} [reserve=30] - width kept for the `»` button itself.
  * @returns {number} how many leading tabs to render; `count` when all fit.
  */
-function visibleTabCount(width: number, count: number, reserve = 30): number {
+export function visibleTabCount(width: number, count: number, reserve = 30): number {
   if (!Number.isFinite(width) || width <= 0) return count;
   if (!Number.isFinite(count) || count <= 0) return 0;
   /* 92px is IDEA's practical minimum for a legible "zsh — project" label. */
@@ -1642,12 +1717,13 @@ function visibleTabCount(width: number, count: number, reserve = 30): number {
  * @param {string|null} activeId - the currently focused terminal's id.
  * @returns {{visible: object[], hidden: object[]}} strip and overflow tabs.
  */
-function overflowTabs(
-  items: TerminalTabIdentity[],
+export function overflowTabs<T>(
+  items: T[],
   visibleCount: number,
   activeId: string | null,
-  idOf: (item: TerminalTabIdentity) => string | undefined = (item) => item?.id,
-): TerminalTabOverflow {
+  idOf: (item: T) => string | undefined = (item) =>
+    typeof item === 'string' ? item : (item as TerminalTabIdentity | null | undefined)?.id,
+): { visible: T[]; hidden: T[] } {
   const list = Array.isArray(items) ? items : [];
   const keep = Math.max(0, Math.min(visibleCount, list.length));
   const visible = list.slice(0, keep);
@@ -1676,13 +1752,14 @@ function overflowTabs(
  * @param {(item: object|string) => string} [idOf] - tab identity.
  * @returns {object[]|string[]} reordered list, or the same list for a no-op.
  */
-function reorderTabPaths(
-  items: TerminalTabIdentity[],
+export function reorderTabPaths<T>(
+  items: T[],
   sourceId: string,
   targetId: string,
   after = false,
-  idOf: (item: TerminalTabIdentity) => string | undefined = (item) => item?.id,
-): TerminalTabIdentity[] {
+  idOf: (item: T) => string | undefined = (item) =>
+    typeof item === 'string' ? item : (item as TerminalTabIdentity | null | undefined)?.id,
+): T[] {
   const list = Array.isArray(items) ? items : [];
   if (typeof sourceId !== 'string' || typeof targetId !== 'string' || sourceId === targetId) return list;
   const from = list.findIndex((item) => idOf(item) === sourceId);

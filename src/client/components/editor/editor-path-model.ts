@@ -1,5 +1,5 @@
-declare function currentSessionId(): string;
-declare function currentEditorWorkspaceId(): string;
+import { currentEditorWorkspaceId, currentSessionId } from '../../editor-core';
+export { currentEditorWorkspaceId, currentSessionId };
 
 export interface MarkdownAssetRevisions {
   global?: number;

@@ -10,7 +10,7 @@ test('EditorMount is a reusable TSX root composition', async () => {
 
   assert.match(component, /export interface EditorMountProps/u);
   assert.match(component, /function EditorMount\(/u);
-  assert.match(component, /workspaceComponent: React\.ComponentType<Record<string, unknown>>/u);
+  assert.match(component, /workspaceComponent: React\.ComponentType<\{[\s\S]*?\}>/u);
   assert.match(component, /<EditorErrorBoundary/u);
   assert.match(component, /<Workspace/u);
   assert.match(component, /initialHarnessCollapsed=\{initialHarnessCollapsed\}/u);

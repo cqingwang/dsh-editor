@@ -4,6 +4,53 @@ import { ContextMenu } from '../ui/Menu';
 import { Icon } from '../ui/Icon';
 import { ToolbarButton } from '../ui/ToolbarButton';
 import { TerminalScreen } from './TerminalScreen';
+import { callFs, currentTerminalScope } from '../../editor-core';
+import {
+  countTerminalMatches,
+  directTerminalShortcut,
+  moveTerminalSelection,
+  overflowTabs,
+  pasteIntoTerminal,
+  pushPasteHistory,
+  terminalAdjacentBlockRange,
+  terminalBlockKeyboardAction,
+  terminalExpandBlockRange,
+  terminalLastBlockSelection,
+  terminalMenuModel,
+  terminalMoveTarget,
+  terminalPromptSelection,
+  terminalPromptStartRow,
+  terminalSelectionBlockRange,
+  terminalTabContextFocus,
+  terminalTabMenu,
+  visibleTabCount,
+  writeTerminalText,
+} from '../../find-tool';
+import { snapSplitPercent } from '../../injected-css';
+import {
+  callTerminal,
+  clearTerminalLiveBuffer,
+  forgetTerminalLiveBuffer,
+  hostErrorText,
+  persistTerminalRestoreSnapshots,
+  readClosedTerminals,
+  readEditorTerminals,
+  readmeInDirectory,
+  readStoredNumber,
+  readTerminalColors,
+  readTerminalProfile,
+  readTerminalRestoreSnapshots,
+  reconcileTerminalDockState,
+  seedTerminalRestoreBuffer,
+  storeFontSize,
+  TERMINAL_COLORS,
+  terminalActiveAfterClose,
+  terminalFontSize,
+  writeEditorTerminals,
+  writeTerminalColors,
+  writeTerminalRestoreSnapshots,
+} from '../../terminal';
+import { MeasuringScreen } from './MeasuringScreen';
 
 type Translate = (key: string, params?: Record<string, unknown>) => string;
 
@@ -159,7 +206,6 @@ function TerminalPanel({
       window.setTimeout(() => finish(measuredRef.current), timeout);
     });
   }, []);
-  const [shells, setShells] = React.useState([]);
   const [shellMenu, setShellMenu] = React.useState(null);
   const [fontSize, setFontSize] = React.useState(() => readStoredNumber('dsh-editor.terminal.fontSize', 12));
   const [renaming, setRenaming] = React.useState(null);
@@ -243,7 +289,12 @@ function TerminalPanel({
           showHidden: false,
           sort: 'name',
         });
-        const names = (listing.entries ?? []).filter((entry) => entry.kind !== 'directory').map((entry) => entry.name);
+        const entries = Array.isArray(listing.entries)
+          ? (listing.entries as Array<{ kind?: unknown; name?: unknown }>)
+          : [];
+        const names = entries
+          .filter((entry) => entry.kind !== 'directory' && typeof entry.name === 'string')
+          .map((entry) => String(entry.name));
         const path = readmeInDirectory(names, relative);
         setReadmePaths((current) => ({
           ...current,
@@ -535,7 +586,11 @@ function TerminalPanel({
     [t],
   );
   const createTerminal = React.useCallback(
-    async (shellPath, directory, restoreSnapshot = '') => {
+    async (
+      shellPath: string | undefined = undefined,
+      directory: string | undefined = undefined,
+      restoreSnapshot = '',
+    ) => {
       setBusy(true);
       setError(null);
       try {
@@ -638,11 +693,11 @@ function TerminalPanel({
     const onReturn = (event) => {
       const id = event.detail?.id;
       if (typeof id !== 'string' || id === '') return;
-      setEditorIds((current) => current.filter((entry) => entry !== id));
+      returnTerminalToDock({ id });
     };
     window.addEventListener('dsh-editor-return-terminal', onReturn);
     return () => window.removeEventListener('dsh-editor-return-terminal', onReturn);
-  }, []);
+  }, [returnTerminalToDock]);
 
   /* The first terminal starts automatically, the way IDEA opens a shell tab. */
   React.useEffect(() => {
@@ -694,7 +749,6 @@ function TerminalPanel({
         op: 'shells',
       });
       const entries = value.shells ?? [];
-      setShells(entries);
       setShellMenu({
         x: rect?.left ?? 240,
         y: (rect?.bottom ?? 200) + 4,

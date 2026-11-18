@@ -6,6 +6,8 @@ import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const source = readFileSync(join(root, 'lib/client.js'), 'utf8');
+const workspaceSource = readFileSync(join(root, 'src/client/editor-workspace.tsx'), 'utf8');
+const foundationSource = readFileSync(join(root, 'src/client/foundation.ts'), 'utf8');
 
 function commitDiffWiring() {
   const start = source.indexOf('onSelectDiff: (target) => {');
@@ -62,10 +64,19 @@ test('a non-null diff target reasserts the Commit tool window', () => {
 });
 
 test('the selected tool window survives an EditorWorkspace remount', () => {
-  const declaration = source.indexOf("let lastEditorActivity = 'project';");
-  const workspace = source.indexOf('function EditorWorkspace(');
+  const declaration = foundationSource.indexOf("let lastEditorActivity = 'project';");
+  const workspace = workspaceSource.indexOf('function EditorWorkspace(');
   assert.ok(declaration >= 0, 'activity persistence declaration is missing');
-  assert.ok(workspace > declaration, 'activity persistence must be in an outer module scope');
-  assert.match(source, /const \[activity, setActivity\] = React\.useState\(\(\) => lastEditorActivity\);/);
-  assert.match(source, /React\.useEffect\(\(\) => \{\s+lastEditorActivity = activity;\s+\}, \[activity\]\);/);
+  assert.ok(
+    foundationSource.indexOf('export function readLastEditorActivity()') > declaration,
+    'activity persistence getter must live beside its module state',
+  );
+  assert.ok(workspace > 0, 'EditorWorkspace is missing');
+  assert.match(foundationSource, /export function readLastEditorActivity\(\)(?::\s*[^{]+)? \{/);
+  assert.match(foundationSource, /export function writeLastEditorActivity\(activity:[^)]+\)(?::\s*[^{]+)? \{/);
+  assert.match(
+    workspaceSource,
+    /const \[activity, setActivity\] = React\.useState(?:<[^>]+>)?\(\s*\(\) =>\s*readLastEditorActivity\(\)[\s\S]{0,80}?\);/,
+  );
+  assert.match(workspaceSource, /writeLastEditorActivity\(activity\);/);
 });

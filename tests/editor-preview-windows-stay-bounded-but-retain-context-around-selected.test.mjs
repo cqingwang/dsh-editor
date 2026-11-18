@@ -41,7 +41,7 @@ test('Search Everywhere Preview reads the selected file and renders a highlighte
   assert.match(dialog, /t\('editor\.searchPreview'\)/);
   assert.match(
     dialog,
-    /callFs\(\s+\{\s+op: 'read',\s+path: activeResult\.path,\s+\},\s+\{\s+signal: previewAbort\.signal,\s+\},\s+\)/u,
+    /callFs(?:<[^>]+>)?\(\s+\{\s+op: 'read',\s+path: activeResult\.path,\s+\},\s+\{\s+signal: previewAbort\.signal,\s+\},\s+\)/u,
   );
   assert.match(dialog, /searchEverywherePreviewWindow\(/);
   assert.match(dialog, /'data-dsh-search-preview': ''/);
@@ -51,7 +51,7 @@ test('Search Everywhere Preview reads the selected file and renders a highlighte
 test('All-page filters can toggle files, text and actions without closing the menu', () => {
   const dialog = source.slice(source.indexOf('function SearchEverywhere('), source.lastIndexOf('function QuickOpen('));
   assert.match(dialog, /const \[searchFilters, setSearchFilters\] = React\.useState/);
-  assert.match(dialog, /const \[filterMenu, setFilterMenu\] = React\.useState\(null\)/);
+  assert.match(dialog, /const \[filterMenu, setFilterMenu\] = React\.useState(?:<[^>]+>)?\(null\)/);
   assert.match(dialog, /t\('editor\.searchFilter'\)/);
   assert.match(dialog, /searchFilters\.files/);
   assert.match(dialog, /searchFilters\.text/);

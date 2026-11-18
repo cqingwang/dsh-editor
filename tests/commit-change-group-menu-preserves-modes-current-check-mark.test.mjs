@@ -128,8 +128,8 @@ test('editor workspace reuses the extracted Commit menu model', async () => {
   const build = await read('scripts/build-client.mjs');
   const client = await read('lib/client.js');
 
-  assert.match(workspace, /declare const changesViewOptionsMenu:/u);
-  assert.match(workspace, /declare const commitOptionsMenu:/u);
+  assert.match(workspace, /changesViewOptionsMenu,\s+commitOptionsMenu\b/u);
+  assert.match(workspace, /from '\.\/components\/commit\/commit-options-menu'/u);
   assert.match(workspace, /changesViewOptionsMenu\(\{/u);
   assert.match(workspace, /commitOptionsMenu\(\{/u);
   assert.doesNotMatch(workspace, /owner: 'changes-view-options'/u);

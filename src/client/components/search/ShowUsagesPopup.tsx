@@ -3,6 +3,14 @@ import { styles } from '../../ui/styles';
 import { ContextMenu } from '../ui/Menu';
 import { Icon } from '../ui/Icon';
 import { ToolbarButton } from '../ui/ToolbarButton';
+import {
+  filterUsageMatches,
+  normalizeUsageMatchIndex,
+  searchEverywhereOptionId,
+  searchResultContextItems,
+  usageMatchRowKey,
+} from '../../commit';
+import { basename } from '../../editor-core';
 
 type Translate = (key: string, params?: Record<string, unknown>) => string;
 

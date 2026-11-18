@@ -30,7 +30,7 @@ test('Changes rows track a range selection separately from commit checkboxes', (
 test('Shift and Command/Ctrl clicks extend or toggle the visible row range', () => {
   const body = workspace();
   const choose = body.slice(body.indexOf('const chooseChange = React.useCallback('), body.indexOf('const chosenChanges = React.useCallback('));
-  assert.match(choose, /const rows = node === null \? \[\] : \[\.\.\.node\.querySelectorAll\('\[data-dsh-change-path\]'\)\]/);
+  assert.match(choose, /const rows = node === null \? \[\] : \[\.\.\.node\.querySelectorAll(?:<[^>]+>)?\('\[data-dsh-change-path\]'\)\]/);
   assert.match(choose, /if \(options\.shift === true\)/);
   assert.match(choose, /const start = Math\.min\(anchorIndex, targetIndex\)/);
   assert.match(choose, /rows\.slice\(start, end \+ 1\)\.map\(keyOf\)/);

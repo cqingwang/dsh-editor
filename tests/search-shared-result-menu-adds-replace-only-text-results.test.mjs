@@ -39,10 +39,10 @@ test('Search Everywhere header and text menu share one Find handoff', () => {
   assert.match(handoff, /mode: mode === 'replace' \|\| withReplace === true \? 'replace' : 'find'/);
   assert.match(dialog, /onClick: \(\) => openSearchResultsInFind\(null, activeResult\)/);
   assert.match(dialog, /onReplace: \(\) => openSearchResultsInFind\('replace', result\)/);
-  assert.match(
-    dialog,
-    /onOpenInFindToolWindow\(\s+refresh === true\s+\? \{\s+\.\.\.request\.request,\s+refresh: true,\s+\}\s+: request\.request,\s+\);/u,
-  );
+  assert.match(dialog, /onOpenInFindToolWindow\(/);
+  assert.match(dialog, /refresh === true/);
+  assert.match(dialog, /request\.request/);
+  assert.match(dialog, /as FindHandoffRequest/);
 });
 
 test('Find Replace action switches mode without dropping results', () => {

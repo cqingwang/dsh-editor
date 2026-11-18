@@ -11,7 +11,7 @@ test('CommitGraph is a reusable TSX commit component', async () => {
 
   assert.match(component, /export interface CommitGraphProps/u);
   assert.match(component, /function CommitGraphView\(/u);
-  assert.match(component, /import \{ CommitGraphRow \} from '\.\/CommitGraphRow'/u);
+  assert.match(component, /import \{ CommitGraphRow(?:, type CommitGraphRun)? \} from '\.\/CommitGraphRow'/u);
   assert.match(component, /<CommitGraphRow/u);
   assert.match(row, /data-dsh-graph-hash=\{entry\.hash\}/u);
   assert.match(row, /aria-haspopup='menu'/u);

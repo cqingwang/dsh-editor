@@ -78,7 +78,7 @@ test('Commit Log exposes Compare with Local through the combined diff model', as
   assert.match(menu, /id: 'compareWithLocalCommit'/);
   assert.match(menu, /label: t\('editor\.compareWithLocalCommitAction'\)/);
   assert.match(menu, /run: \(\) => onCompareWithLocal\(commit\.hash\)/);
-  assert.match(action, /callGit\(\{ op: 'show', hash \}\)/);
+  assert.match(action, /callGit(?:<[^>]+>)?\(\{ op: 'show', hash \}\)/);
   assert.match(action, /commitLocalDiffEntries\(detail, hash, t\('editor\.currentVersion'\)\)/);
   assert.match(action, /setDiffTarget\(\{\s*combined: true,\s*entries,\s*commitWithLocal: hash,\s*staged: false,/);
   assert.match(action, /setDiffActive\(true\)/);

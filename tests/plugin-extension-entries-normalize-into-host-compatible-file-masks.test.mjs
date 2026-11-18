@@ -60,8 +60,11 @@ test('case and whole-word filters are shared by path and Action matching', () =>
 
 test('Search Everywhere applies the shared filters to Actions and Files', () => {
   assert.match(source, /rankSearchActions\(actions, effectiveQuery, recentCommands, \{[\s\S]*?caseSensitive: state\.caseSensitive === true,[\s\S]*?wholeWords: state\.wholeWords === true,/);
-  assert.match(source, /\.filter\(\(path\) => fileExtensionFilterMatches\(path, state\.fileMask\)\)/);
-  assert.match(source, /fuzzyScore\(path, effectiveQuery, \{[\s\S]*?caseSensitive: state\.caseSensitive === true,[\s\S]*?wholeWords: state\.wholeWords === true,/);
+  assert.match(source, /\.filter\(\(file\) => fileExtensionFilterMatches\(file\.path, state\.fileMask\)\)/);
+  assert.match(
+    source,
+    /fuzzyScore\((?:file\.)?path, effectiveQuery, \{[\s\S]*?caseSensitive: state\.caseSensitive === true,[\s\S]*?wholeWords: state\.wholeWords === true,/,
+  );
 });
 
 test('the three common filters live in a right-aligned toolbar group', () => {

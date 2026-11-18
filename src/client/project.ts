@@ -1,4 +1,8 @@
 /* project.ts: dsh-editor Project upload and drop module. Generated into lib/client.js by scripts/build-client.mjs. */
+import { dirname } from './components/editor/editor-path-model';
+import { currentEditorWorkspaceId, currentSessionId } from './components/editor/editor-path-model';
+import { basename } from './editor-core';
+
 interface ProjectTreeRow {
   path?: string;
   kind?: string;
@@ -13,7 +17,6 @@ interface ProjectTreeChildren {
 interface ProjectUploadFailure extends Error {
   code?: string;
   path?: string;
-  name?: string;
   status?: number;
   limit?: number;
   currentOffset?: number;
@@ -27,9 +30,23 @@ interface ProjectUploadRequestOptions {
   signal?: AbortSignal;
 }
 
-interface ProjectDropHandles {
-  entries?: unknown[];
+export interface ProjectDropHandles {
+  entries?: DroppedFileSystemEntry[];
   files?: File[];
+}
+
+interface DroppedFileSystemEntry {
+  name: string;
+  isFile: boolean;
+  isDirectory: boolean;
+  file?: (success: (file: File) => void, error?: (failure: unknown) => void) => void;
+  createReader?: () => FileSystemDirectoryReader;
+}
+
+interface WorkspaceUploadValue {
+  uploadId?: string;
+  offset?: number;
+  [key: string]: unknown;
 }
 
 interface ProjectDropFile {
@@ -60,7 +77,7 @@ interface ProjectUploadProgressView {
   fileTotal: number;
 }
 
-interface ProjectUploadBusyState {
+export interface ProjectUploadBusyState {
   current: boolean;
   cancelRequested?: boolean;
   cancelController?: AbortController | null;
@@ -100,7 +117,7 @@ interface ProjectUploadInput {
  * @param {number} limit - maximum number of implicit levels.
  * @returns {string[]} clicked path followed by every single-directory child.
  */
-function compactDirectoryExpansionPaths(path: string, children: ProjectTreeChildren, limit = 64): string[] {
+export function compactDirectoryExpansionPaths(path: string, children: ProjectTreeChildren, limit = 64): string[] {
   const expandedPaths = [path];
   let listing = Array.isArray(children[path]) ? children[path] : null;
   let guard = 0;
@@ -129,7 +146,7 @@ const WORKSPACE_UPLOAD_RETRY_DELAYS = [0, 1000, 2000, 4000, 8000];
  * @param {DataTransfer|null|undefined} dataTransfer - current drag payload.
  * @returns {boolean} whether the drag carries files.
  */
-function dataTransferIncludesFiles(dataTransfer: DataTransfer | null | undefined): boolean {
+export function dataTransferIncludesFiles(dataTransfer: DataTransfer | null | undefined): boolean {
   try {
     return Array.from(dataTransfer?.types ?? []).some((type) => String(type).toLowerCase() === 'files');
   } catch {
@@ -138,13 +155,13 @@ function dataTransferIncludesFiles(dataTransfer: DataTransfer | null | undefined
 }
 
 /** Resolve an OS drop on any tree row to its containing project directory. */
-function projectExternalDropDirectory(row: ProjectTreeRow): string {
+export function projectExternalDropDirectory(row: ProjectTreeRow): string {
   const path = typeof row?.path === 'string' ? row.path : '';
   return row?.kind === 'directory' || row?.root === true ? path : dirname(path);
 }
 
 /** Resolve a toolbar drop from the selected tree row, or the root. */
-function projectToolbarDropDirectory(rows: ProjectTreeRow[], selectedPath: string | null): string {
+export function projectToolbarDropDirectory(rows: ProjectTreeRow[], selectedPath: string | null): string {
   const row = Array.isArray(rows) ? (rows.find((entry) => entry?.path === selectedPath) ?? null) : null;
   return row === null ? '' : projectExternalDropDirectory(row);
 }
@@ -175,8 +192,8 @@ function finishEditorFileDrag(event) {
 }
 
 /** Install global fallbacks for drags that end outside the workspace. */
-function bindEditorFileDragCleanup() {
-  const clearFileDrag = (event) => {
+export function bindEditorFileDragCleanup() {
+  const clearFileDrag = (event?: Event) => {
     const target = event?.target instanceof Element ? event.target : null;
     if (event?.type === 'drop' && target?.closest?.('[data-dsh-editor-workspace]') !== null) {
       window.setTimeout(() => {
@@ -194,7 +211,7 @@ function bindEditorFileDragCleanup() {
     clearFileDrag();
   };
 }
-const editorFileDragProps = {
+export const editorFileDragProps = {
   onDragEnter: beginEditorFileDrag,
   onDragLeave: endEditorFileDrag,
   onDragOver: allowEditorFileDragOver,
@@ -264,7 +281,7 @@ function uploadDropFailureMessage(
  * @param {number} total - declared total bytes.
  * @returns {number} 0–100.
  */
-function uploadProgressPercent(loaded: number, total: number): number {
+export function uploadProgressPercent(loaded: number, total: number): number {
   if (!Number.isFinite(loaded) || !Number.isFinite(total) || total <= 0) return 0;
   return Math.max(0, Math.min(100, Math.floor((loaded / total) * 100)));
 }
@@ -274,7 +291,7 @@ function uploadProgressPercent(loaded: number, total: number): number {
  * @param {number} value - byte count.
  * @returns {string} compact binary unit.
  */
-function formatUploadBytes(value: number): string {
+export function formatUploadBytes(value: number): string {
   const bytes = Math.max(0, Number(value) || 0);
   if (bytes >= 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GiB`;
   if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
@@ -291,7 +308,7 @@ function formatUploadBytes(value: number): string {
 async function requestWorkspaceUpload(
   action: string,
   options: ProjectUploadRequestOptions = {},
-): Promise<Record<string, unknown>> {
+): Promise<WorkspaceUploadValue> {
   const sessionId = currentSessionId();
   const workspaceId = currentEditorWorkspaceId();
   if (sessionId === '' && workspaceId === '') throw new Error('no active Session or workspace');
@@ -321,7 +338,7 @@ async function requestWorkspaceUpload(
  * @returns {boolean} true when retrying may succeed.
  */
 function uploadFailureIsRetryable(failure: unknown): boolean {
-  const status = Number(failure?.status);
+  const status = Number((failure as ProjectUploadFailure | null | undefined)?.status);
   return !Number.isInteger(status) || status < 400 || status >= 500;
 }
 
@@ -351,9 +368,9 @@ async function waitForWorkspaceUploadRetry(
   if (shouldCancel() || signal?.aborted) throw uploadCancelledFailure();
   const milliseconds = Math.max(0, Number(delay) || 0);
   if (milliseconds === 0) return;
-  await new Promise((resolve, reject) => {
+  await new Promise<void>((resolve, reject) => {
     let settled = false;
-    const finish = (failure) => {
+    const finish = (failure?: unknown) => {
       if (settled) return;
       settled = true;
       window.clearTimeout(timer);
@@ -407,15 +424,16 @@ async function uploadWorkspaceFile(
   onProgress: ((progress: ProjectUploadProgressEvent) => void) | undefined,
   shouldCancel: () => boolean,
   signal?: AbortSignal | null,
-): Promise<unknown> {
+): Promise<WorkspaceUploadValue> {
   if (shouldCancel()) throw uploadCancelledFailure();
   const started = await requestWorkspaceUpload('start', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ path, size: file.size }),
   });
-  const uploadId = started.uploadId;
-  let offset = Number.isSafeInteger(started.offset) ? started.offset : 0;
+  const uploadId = typeof started.uploadId === 'string' ? started.uploadId : '';
+  if (uploadId === '') throw new Error('upload API did not return uploadId');
+  let offset = Number.isSafeInteger(started.offset) ? Number(started.offset) : 0;
   onProgress?.({ loaded: offset, total: file.size });
   try {
     while (offset < file.size) {
@@ -433,13 +451,14 @@ async function uploadWorkspaceFile(
             body: chunk,
             signal,
           });
-          offset = value.offset;
+          offset = Number.isSafeInteger(value.offset) ? Number(value.offset) : offset;
           onProgress?.({ loaded: offset, total: file.size });
           break;
         } catch (failure) {
           if (shouldCancel() || signal?.aborted) throw uploadCancelledFailure();
-          if (failure?.code === 'dsh-editor/upload-offset' && Number.isSafeInteger(failure.currentOffset)) {
-            offset = failure.currentOffset;
+          const uploadFailure = failure as ProjectUploadFailure;
+          if (uploadFailure.code === 'dsh-editor/upload-offset' && Number.isSafeInteger(uploadFailure.currentOffset)) {
+            offset = Number(uploadFailure.currentOffset);
             break;
           }
           if (retries >= WORKSPACE_UPLOAD_RETRY_DELAYS.length || !uploadFailureIsRetryable(failure)) throw failure;
@@ -476,15 +495,12 @@ async function uploadWorkspaceFile(
  * @param {DataTransfer|null|undefined} dataTransfer - dropped payload.
  * @returns {{entries: object[], files: File[]}} stable drop handles.
  */
-function captureDroppedWorkspaceHandles(dataTransfer: DataTransfer | null | undefined): {
-  entries: unknown[];
-  files: File[];
-} {
-  const entries: unknown[] = [];
+export function captureDroppedWorkspaceHandles(dataTransfer: DataTransfer | null | undefined): ProjectDropHandles {
+  const entries: DroppedFileSystemEntry[] = [];
   for (const item of Array.from(dataTransfer?.items ?? [])) {
     if (item?.kind !== 'file' || typeof item.webkitGetAsEntry !== 'function') continue;
     const entry = item.webkitGetAsEntry();
-    if (entry !== null && typeof entry === 'object') entries.push(entry);
+    if (entry !== null && typeof entry === 'object') entries.push(entry as DroppedFileSystemEntry);
   }
   return {
     entries,
@@ -497,10 +513,10 @@ function captureDroppedWorkspaceHandles(dataTransfer: DataTransfer | null | unde
  * @param {object} reader - FileSystemDirectoryReader.
  * @returns {Promise<object[]>} all child entries.
  */
-async function readDroppedDirectoryEntries(reader: FileSystemDirectoryReader): Promise<unknown[]> {
-  const entries: unknown[] = [];
+async function readDroppedDirectoryEntries(reader: FileSystemDirectoryReader): Promise<DroppedFileSystemEntry[]> {
+  const entries: DroppedFileSystemEntry[] = [];
   while (true) {
-    const batch = await new Promise((resolve, reject) => reader.readEntries(resolve, reject));
+    const batch = await new Promise<DroppedFileSystemEntry[]>((resolve, reject) => reader.readEntries(resolve, reject));
     if (batch.length === 0) return entries;
     entries.push(...batch);
     if (entries.length > WORKSPACE_DROP_MAX_ITEMS) {
@@ -523,7 +539,7 @@ async function readDroppedDirectoryEntries(reader: FileSystemDirectoryReader): P
  * @returns {Promise<void>} resolves after the subtree is enumerated.
  */
 async function collectDroppedWorkspaceEntry(
-  entry: FileSystemEntry,
+  entry: DroppedFileSystemEntry,
   parent: string,
   depth: number,
   output: Map<string, ProjectDropEntry>,
@@ -546,6 +562,7 @@ async function collectDroppedWorkspaceEntry(
   if (entry.isDirectory === true) {
     assertBudget();
     output.set(`directory:${path}`, { path, kind: 'directory' });
+    if (typeof entry.createReader !== 'function') return;
     const reader = entry.createReader();
     const children = await readDroppedDirectoryEntries(reader);
     for (const child of children) {
@@ -558,7 +575,7 @@ async function collectDroppedWorkspaceEntry(
   if (typeof entry.file !== 'function') {
     throw workspaceDropFailure('dsh-editor/upload-unreadable', 'a dropped file cannot be read', { path });
   }
-  const file = await new Promise((resolve, reject) => entry.file(resolve, reject));
+  const file = await new Promise<File>((resolve, reject) => entry.file?.(resolve, reject));
   output.set(`file:${path}`, { path, kind: 'file', file });
 }
 
@@ -620,7 +637,7 @@ async function collectDroppedWorkspaceEntries(handles: ProjectDropHandles): Prom
  * @param {object} input - captured handles, target path, file API and UI sinks.
  * @returns {Promise<void>} resolves after the operation is surfaced.
  */
-async function uploadWorkspaceDropToProject(input: ProjectUploadInput): Promise<void> {
+export async function uploadWorkspaceDropToProject(input: ProjectUploadInput): Promise<void> {
   const {
     handles,
     targetDirectory,
@@ -682,7 +699,7 @@ async function uploadWorkspaceDropToProject(input: ProjectUploadInput): Promise<
     const totalBytes = collected.files.reduce((sum, entry) => sum + entry.file.size, 0);
     let completedBytes = 0;
     for (let index = 0; index < collected.files.length; index += 1) {
-      if (uploadBusyRef.cancelRequested === true) throw uploadCancelledFailure();
+      if (uploadBusyRef.cancelRequested) throw uploadCancelledFailure();
       const entry = collected.files[index];
       const publish = (loaded: number) => {
         setUploadProgress({
@@ -717,7 +734,8 @@ async function uploadWorkspaceDropToProject(input: ProjectUploadInput): Promise<
         foldersFirst,
         showExcluded: showExcludedFiles,
       });
-      setChildren((current) => ({ ...current, [targetDirectory]: listing.entries ?? [] }));
+      const entries = Array.isArray(listing.entries) ? (listing.entries as ProjectTreeRow[]) : [];
+      setChildren((current) => ({ ...current, [targetDirectory]: entries }));
     } else {
       const listing = await callFs({
         op: 'list',
@@ -727,7 +745,7 @@ async function uploadWorkspaceDropToProject(input: ProjectUploadInput): Promise<
         foldersFirst,
         showExcluded: showExcludedFiles,
       });
-      setEntries(listing.entries ?? []);
+      setEntries(Array.isArray(listing.entries) ? (listing.entries as ProjectTreeRow[]) : []);
     }
     const topLevelPaths = [...new Set(collected.entries.map((entry) => destinationOf(entry.path.split('/')[0])))];
     const primary = topLevelPaths[topLevelPaths.length - 1] ?? null;

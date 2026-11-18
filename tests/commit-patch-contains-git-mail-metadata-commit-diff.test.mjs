@@ -93,7 +93,7 @@ test('Commit Log exposes Create Patch from Commit through the host route', async
   assert.match(menu, /run: \(\) => onCreateCommitPatch\(commit\.hash\)/);
   assert.match(locales, /createPatchFromCommitAction: '从提交创建补丁…'/);
   assert.match(locales, /createPatchFromCommitAction: 'Create Patch from Commit…'/);
-  assert.match(client, /callGit\(\{ op: 'commitPatch', hash \}\)/);
+  assert.match(client, /callGit(?:<[^()]*>)?\(\s*\{\s*op: 'commitPatch',\s*hash,?\s*\}\s*\)/);
   assert.match(core, /anchor\.download = downloadName/);
   assert.match(host, /async function gitCommitPatch\(/);
   assert.match(host, /'format-patch',\s*'-1',\s*'--stdout',\s*'--binary',\s*'--no-signature',\s*'--no-color'/);

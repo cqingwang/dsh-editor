@@ -112,7 +112,7 @@ test('the log pages in on scroll and shows its end', () => {
 
 test('project tree filters in place on ⌘F and keeps ancestors of a hit', () => {
   const client = read('src/client/components/project/ProjectPanel.tsx') + '\n' + read('src/client/terminal.ts');
-  assert.match(client, /function filterTreeRows\(rows, query\) \{/);
+  assert.match(client, /function filterTreeRows\(rows(?::\s*[^,]+)?, query(?::\s*[^)]+)?\)(?::\s*[^\{]+)? \{/);
   assert.match(client, /for \(const path of \[\.\.\.keep\]\) \{/);
   assert.match(client, /const localRows = React\.useMemo\(\(\) => filterTreeRows\(rows, search\), \[rows, search\]\);/);
   assert.match(client, /searchEntryRows\(searchEntries, projectName, compactDirectories, sortMode, manualOrder\)/);

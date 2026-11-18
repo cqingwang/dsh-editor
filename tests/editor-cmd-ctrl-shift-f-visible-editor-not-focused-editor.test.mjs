@@ -40,7 +40,11 @@ test('Cmd/Ctrl+Shift+F uses the visible Editor, not focused Editor controls', ()
   assert.equal(visible({ querySelector: () => null }), null);
 
   assert.equal(typeof visible(documentRef), 'object');
-  const shortcut = source.slice(source.indexOf("if (key === 'f' && event.shiftKey)"), source.indexOf("const host = document.querySelector('[data-dsh-editor-workspace]');", source.indexOf("if (key === 'f' && event.shiftKey)")));
+  const shortcutStart = source.indexOf("if (key === 'f' && event.shiftKey)");
+  const shortcut = source.slice(
+    shortcutStart,
+    source.indexOf('\n      const host = document.querySelector', shortcutStart),
+  );
   assert.match(shortcut, /visibleEditorWorkspace\(document\) === null/);
   assert.match(shortcut, /openFindInFilesFromShortcut\(\)/);
   assert.doesNotMatch(shortcut, /host\.contains\(document\.activeElement\)/);

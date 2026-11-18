@@ -2,6 +2,14 @@ import React from 'react';
 import { styles } from '../../ui/styles';
 import { Icon } from '../ui/Icon';
 import { ToolbarButton } from '../ui/ToolbarButton';
+import {
+  inspectIdeaScopeXml,
+  normalizeCustomFindScopes,
+  normalizeScopeXmlTransferPath,
+  serializeIdeaScopeXml,
+} from '../../commit';
+import { callFs } from '../../editor-core';
+import { newFindScopeId } from '../../find-tool';
 
 type Translate = (key: string, params?: Record<string, unknown>) => string;
 

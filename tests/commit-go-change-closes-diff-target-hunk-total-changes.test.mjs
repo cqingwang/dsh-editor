@@ -13,7 +13,7 @@ function diffPreview() {
 
 test('Go To Change closes when the diff target or hunk total changes', () => {
   const diff = diffPreview();
-  assert.match(diff, /const \[hunkMenu, setHunkMenu\] = React\.useState\(null\)/);
+  assert.match(diff, /const \[hunkMenu, setHunkMenu\] = React\.useState(?:<[^>]+>)?\(null\)/);
   assert.match(diff, /React\.useEffect\(\(\) => \{\n\s+setHunkMenu\(null\);\n\s+\}, \[target, hunks\.total\]\);/);
   assert.match(diff, /hunkMenu === null \? null : \(\s*<ContextMenu/u);
 });

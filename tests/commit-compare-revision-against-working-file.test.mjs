@@ -80,7 +80,7 @@ test('the tree offers compare-with-revision through the commit log, not a free-f
   /* A picker avoids turning a typo into an "invalid commit id" after two round trips.
      Round 49 replaced the 20-row submenu with a searchable dialog, so the page is
      larger — the point (choose from real commits, never type a hash) is unchanged. */
-  assert.match(client, /const value = await callGit\(\{ op: 'log', limit: 100 \}\);/);
+  assert.match(client, /const value = await callGit(?:<[^>]+>)?\(\{ op: 'log', limit: 100 \}\);/);
   assert.match(
     client,
     /if \(typeof hash === 'string' && hash !== ''\) setDiffTarget\(\{ path, revision: hash, staged: false \}\)/,

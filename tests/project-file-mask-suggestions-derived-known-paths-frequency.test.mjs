@@ -83,7 +83,7 @@ test('suggestions reuse known workspace paths without another filesystem walk', 
   assert.match(source, /const fileMaskSuggestions = suggestFileMasks\(/);
   assert.doesNotMatch(
     source.slice(source.indexOf('const fileMaskSuggestions = suggestFileMasks('), source.indexOf('const openFileMaskMenu = (event) =>')),
-    /callFs\(\{ op: 'files'/,
+    /callFs(?:<[^>]+>)?\(\{ op: 'files'/,
   );
 });
 

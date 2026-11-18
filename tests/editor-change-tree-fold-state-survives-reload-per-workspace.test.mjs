@@ -15,7 +15,7 @@ test('the change-tree fold state survives a reload, per workspace', () => {
      means re-collapsing the same three groups all day. The key carries the root
      because two workspaces do not share a changelist shape. */
   assert.match(source, /dsh-editor\.collapsedGroups:\$\{/);
-  assert.match(source, /function readCollapsedGroups\(root\)/);
+  assert.match(source, /function readCollapsedGroups\(root(?::\s*[^)]+)?\)/);
   assert.match(source, /function writeCollapsedGroups\(root, collapsed\)/);
   const start = source.indexOf('const toggleCollapsedGroup = React.useCallback(');
   assert.notEqual(start, -1);
@@ -35,7 +35,10 @@ test('a malformed stored value degrades to "nothing collapsed"', () => {
 
 test('the fold state is restored once the workspace root is known', () => {
   /* The key includes the root, so it cannot be read during the first render. */
-  assert.match(source, /const \[\s*collapsedGroups,\s*setCollapsedGroups,\s*\] = React\.useState\(\(\) => new Set\(\)\);/);
+  assert.match(
+    source,
+    /const \[\s*collapsedGroups,\s*setCollapsedGroups,\s*\] = React\.useState(?:<[^()]*>)?\(\(\) => new Set\(\)\);/,
+  );
   assert.match(source, /if \(\s+collapsedRestoredFor\.current !== \(value\.root \?\? ''\)\s+\) \{/);
   assert.match(source, /setCollapsedGroups\(readCollapsedGroups\(value\.root \?\? ''\)\);/);
 });

@@ -1,3 +1,4 @@
+import { VIEW_LABEL } from './foundation';
 export type LocaleTree = {
   [key: string]: string | LocaleTree;
 };
@@ -1739,7 +1740,7 @@ export function flattenDictionary(source: LocaleTree, prefix = '', target: Local
   for (const [key, value] of Object.entries(source)) {
     const fullKey = prefix === '' ? key : `${prefix}.${key}`;
     if (value !== null && typeof value === 'object' && !Array.isArray(value)) flattenDictionary(value, fullKey, target);
-    else target[fullKey] = value;
+    else if (typeof value === 'string') target[fullKey] = value;
   }
   return target;
 }
@@ -1785,12 +1786,12 @@ const englishMessages: LocaleDictionary = flattenDictionary(en);
  * product terms (`Commit`, `Rollback`, `Shelve Silently`). Keep the
  * translation scoped to this tool window instead of changing shared labels.
  */
-const commitEnglish: TranslateFunction = (key, params) => {
+export const commitEnglish: TranslateFunction = (key, params) => {
   const text = englishMessages[key] ?? key;
   return interpolateMessage(text, params);
 };
 
 /** Services the browser half needs. */
-const inject: string[] = ['locale'];
+export const inject: string[] = ['locale'];
 
 /** File extensions mapped to Monaco language ids. */

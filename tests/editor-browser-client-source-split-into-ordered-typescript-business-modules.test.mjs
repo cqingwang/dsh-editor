@@ -25,15 +25,22 @@ const moduleOrder = [
 
 test('The browser client source is split into ordered TypeScript business modules', async () => {
   const files = (await readdir(partsDir))
-    .filter((name) => name.endsWith('.ts') || name.endsWith('.tsx'))
+    .filter((name) => (name.endsWith('.ts') || name.endsWith('.tsx')) && !name.endsWith('.d.ts'))
     .sort();
   assert.deepEqual(files, [...moduleOrder].sort());
   for (const name of moduleOrder) {
     assert.doesNotMatch(name, /^\d+-/u, `${name} must not use a numeric filename prefix`);
     const source = await readFile(join(partsDir, name), 'utf8');
-    assert.doesNotMatch(source, /^\s*import\s+(?!type\b)/mu, `${name} must not require a runtime module loader`);
     assert.ok(source.trim().length > 0, `${name} must not be empty`);
   }
+});
+
+test('Source modules import every exported symbol they consume from another module', () => {
+  const output = execFileSync(process.execPath, ['scripts/check-client-source-imports.mjs'], {
+    cwd: root,
+    encoding: 'utf8',
+  });
+  assert.match(output, /client-source-imports: \d+ source modules verified/u);
 });
 
 test('The generated client contains every business module in order', async () => {

@@ -38,7 +38,7 @@ test('Search Everywhere exposes roving tab semantics and tab keyboard navigation
   assert.match(dialog, /ref: searchTabListRef/);
   assert.match(dialog, /tabIndex: effectiveTab === tab\.id \? 0 : -1/);
   assert.match(dialog, /'data-dsh-search-tab-id': tab\.id/);
-  assert.match(dialog, /onKeyDown: \(event\) => handleSearchTabKeyDown\(event, tab\)/);
+  assert.match(dialog, /onKeyDown: \(event\) => handleSearchTabKeyDown\(event\)/);
   assert.match(dialog, /const handleSearchTabKeyDown =/);
   assert.match(dialog, /searchEverywhereTabTarget\(tabs, effectiveTab, event\.key\)/);
 });

@@ -106,7 +106,7 @@ test('open tabs follow a moved directory, not just a moved file', () => {
 test('a commit switches to the log and marks the new row', () => {
   assert.match(
     workspaceSource,
-    /const \[\s*highlightedCommit,\s*setHighlightedCommit,\s*\] = React\.useState\(null\);/,
+    /const \[\s*highlightedCommit,\s*setHighlightedCommit,\s*\] = React\.useState(?:<[^>]+>)?\(null\);/,
   );
   assert.match(source, /setHighlightedCommit\(head\);/);
   assert.match(source, /setCommitMode\('log'\);/);

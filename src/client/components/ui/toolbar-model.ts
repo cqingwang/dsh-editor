@@ -1,8 +1,17 @@
+import type { MouseEvent } from 'react';
+
 export interface ToolbarActionLike {
   id: string;
+  icon?: string;
+  label?: string;
   active?: boolean;
   pinned?: boolean;
   group?: string;
+  disabled?: boolean;
+  onClick?: (event?: MouseEvent<HTMLElement>) => void;
+  ariaKeyShortcuts?: string;
+  ariaHasPopup?: boolean | 'menu' | 'dialog' | 'listbox' | 'tree' | 'grid';
+  ariaExpanded?: boolean;
 }
 
 export function panelToolbarFit(

@@ -111,7 +111,7 @@ test('Commit Options exposes both IDEA Apply Patch entry points through one requ
   assert.ok(source.includes("applyPatch: 'Apply Patch…'"));
   assert.ok(source.includes("applyPatchFromClipboard: 'Apply Patch from Clipboard…'"));
   assert.match(source, /const applyPatchText = React\.useCallback\(/);
-  assert.match(source, /op: 'applyPatch', patch/);
+  assert.match(source, /op: 'applyPatch',\s*patch/);
   assert.match(source, /id: 'applyPatchFile'/);
   assert.match(source, /id: 'applyPatchClipboard'/);
   assert.match(source, /input\.accept = '\.patch,\.diff,text\/plain'/);

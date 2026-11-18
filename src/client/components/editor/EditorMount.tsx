@@ -4,7 +4,14 @@ import { EditorErrorBoundary } from './EditorErrorBoundary';
 type Translate = (key: string, params?: Record<string, unknown>) => string;
 
 export interface EditorMountProps {
-  workspaceComponent: React.ComponentType<Record<string, unknown>>;
+  workspaceComponent: React.ComponentType<{
+    t: Translate;
+    workspaceId: string;
+    initialHarnessCollapsed: boolean;
+    onToggleHarness?: (() => boolean | void) | null;
+    onCloseEditor?: (() => void) | null;
+    onInsertHarnessReference?: ((request: Record<string, unknown>) => Promise<boolean> | boolean) | null;
+  }>;
   t: Translate;
   workspaceId: string;
   initialHarnessCollapsed: boolean;

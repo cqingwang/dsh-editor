@@ -41,7 +41,7 @@ test('the ProjectPanel wiring carries the directory preference', () => {
     projectPanelSource.indexOf('const visibleRows = React.useMemo'),
   );
   assert.match(panel, /openDirectoriesSingleClick,/);
-  assert.match(panel, /onToggleOpenDirectoriesSingleClick,/);
+  assert.match(projectPanelSource, /onToggleOpenDirectoriesSingleClick: \(\) => void;/);
   assert.match(workspaceSource, /openDirectoriesSingleClick=\{openDirectoriesSingleClick\}/);
   assert.match(
     workspaceSource,

@@ -13,7 +13,7 @@ function diffPreview() {
 
 test('the diff toolbar measures itself and collapses secondary actions when very narrow', () => {
   const diff = diffPreview();
-  assert.match(diff, /const \[diffDirectActionCount, setDiffDirectActionCount\] = React\.useState\(null\);/);
+  assert.match(diff, /const \[diffDirectActionCount, setDiffDirectActionCount\] = React\.useState(?:<[^>]+>)?\(null\);/);
   assert.match(diff, /const diffToolbarRef = React\.useRef\(null\);/);
   assert.match(diff, /new ResizeObserver\(measure\)/);
   assert.match(diff, /diffDirectActionCountForWidth\(width, fixedWidth, diffToolbarActions\)/);

@@ -1,5 +1,7 @@
 import React from 'react';
 import { styles } from '../../ui/styles';
+import { dirname } from '../editor/editor-path-model';
+import type { CommitGraphMenuPayload, CommitGraphPayload } from './CommitGraph';
 import { CommitGraph } from './CommitGraph';
 import { commitLogFlatKeyIntent } from './commit-log-flat-controller';
 import { commitLogGraphCursor, commitLogGraphKeyIntent, commitLogGraphMove } from './commit-log-graph-controller';
@@ -12,24 +14,45 @@ import { CommitLogDetailPane } from './CommitLogDetailPane';
 import { CommitLogFlatRow } from './CommitLogFlatRow';
 import { CommitLogListState } from './CommitLogListState';
 import { CommitLogToolbar } from './CommitLogToolbar';
+import { callFs } from '../../editor-core';
+import {
+  commitRelationTarget,
+  flatLogTarget,
+  graphDisplayEntries,
+  graphLogMenuTarget,
+  scrollGraphRowIntoView,
+} from '../../find-tool';
+import { bindShiftWheelScroll } from '../../injected-css';
 
 type Translate = (key: string, params?: Record<string, unknown>) => string;
 
 export interface CommitLogEntry {
   hash: string;
-  subject?: string;
-  author?: string;
+  parents: string[];
+  refs: string[];
+  subject: string;
+  author: string;
+  date: string;
   [key: string]: unknown;
 }
 
 export interface CommitLogDetail {
-  hash?: string;
-  files?: Array<{ path?: string; [key: string]: unknown }>;
+  hash: string;
+  subject: string;
+  author: string;
+  date: string;
+  body: string;
+  files: CommitLogFile[];
   [key: string]: unknown;
 }
 
+export interface CommitLogFile {
+  path: string;
+  status: string;
+}
+
 interface CommitLogScrollRefs {
-  [key: string]: React.RefObject<HTMLElement | null> | undefined;
+  [key: string]: React.MutableRefObject<HTMLElement | null> | undefined;
 }
 
 type CommitLogCallback = (...args: unknown[]) => void;
@@ -42,7 +65,7 @@ export interface CommitLogProps {
   detail: CommitLogDetail | null;
   onRefresh: () => void;
   onShow: (hash: string) => void;
-  onOpenFile?: CommitLogCallback;
+  onOpenFile?: (path: string) => void;
   onEditSource?: (path: string) => void;
   onShowCommitDiff?: (target: { hash: string; path: string }) => void;
   historyPath?: string | null;
@@ -51,10 +74,10 @@ export interface CommitLogProps {
   onAuthor?: (value: string) => void;
   onLoadMore?: () => void;
   exhausted?: boolean;
-  onContextMenu?: (payload: Record<string, unknown>) => void;
+  onContextMenu?: (payload: CommitGraphMenuPayload) => void;
   onDirectoryMenu?: CommitLogCallback;
   highlighted?: string | null;
-  graph?: import('./CommitGraph').CommitGraphPayload | null;
+  graph?: CommitGraphPayload | null;
   onLoadGraph?: (branch: string, at: string) => void;
   onGraphBranch?: (branch: string) => void;
   onGraphRef?: (ref: string) => void;
@@ -75,7 +98,6 @@ function CommitLogView({
   detail,
   onRefresh,
   onShow,
-  onOpenFile,
   onEditSource,
   onShowCommitDiff,
   historyPath,
@@ -85,7 +107,6 @@ function CommitLogView({
   onLoadMore,
   exhausted,
   onContextMenu,
-  onDirectoryMenu,
   highlighted,
   graph,
   onLoadGraph,

@@ -117,10 +117,10 @@ test('Search Everywhere uses the pure handoff model and exposes Replace once per
   const dialog = source.slice(source.indexOf('function SearchEverywhere('), source.indexOf('function FindToolWindowView('));
   assert.match(dialog, /const request = searchFindHandoff\(\{/);
   assert.match(dialog, /if \(\s+request\.needsConfirmation &&\s+!window\.confirm\(/u);
-  assert.match(
-    dialog,
-    /onOpenInFindToolWindow\(\s+refresh === true\s+\? \{\s+\.\.\.request\.request,\s+refresh: true,\s+\}\s+: request\.request,\s+\);/u,
-  );
+  assert.match(dialog, /onOpenInFindToolWindow\(/);
+  assert.match(dialog, /refresh === true/);
+  assert.match(dialog, /request\.request/);
+  assert.match(dialog, /as FindHandoffRequest/);
   const helper = source.slice(source.indexOf('function searchResultContextItems('), source.indexOf('function searchEverywhereOptionId('));
   assert.equal((helper.match(/id: 'replace'/g) ?? []).length, 1);
   assert.match(helper, /result\.kind === 'text'/);

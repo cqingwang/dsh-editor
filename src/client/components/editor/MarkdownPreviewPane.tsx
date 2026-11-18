@@ -1,24 +1,9 @@
 import React from 'react';
 import { styles } from '../../ui/styles';
+import { primitives } from '../../foundation';
+import { markdownWorkspaceImageUrl, resolveMarkdownLink } from './editor-path-model';
 
 type Translate = (key: string, params?: Record<string, unknown>) => string;
-type MarkdownPrimitive = React.ComponentType<Record<string, unknown>>;
-
-declare const primitives:
-  | {
-      MarkdownText?: MarkdownPrimitive;
-      MarkdownDelegateProvider?: MarkdownPrimitive;
-    }
-  | null
-  | undefined;
-declare function markdownWorkspaceImageUrl(
-  basePath: string,
-  target: string,
-  workspaceRoot: string,
-  imageVersions: MarkdownAssetRevisions | null,
-): string | undefined;
-declare function resolveMarkdownLink(basePath: string, target: string): string | null;
-
 export interface MarkdownAssetRevisions {
   global: number;
   directories: Record<string, number>;

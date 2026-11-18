@@ -20,7 +20,7 @@ function slice(from, to) {
 test('the terminal screen reclaims focus whenever it becomes visible', () => {
   const screen = screenSource;
   assert.match(screen, /const \[visible, setVisible\] = React\.useState\(false\);/);
-  assert.match(screen, /const setHostNode = React\.useCallback\(\(node\) =>/);
+  assert.match(screen, /const setHostNode = React\.useCallback\(\(node(?:\s*:\s*[^)]+)?\) =>/);
   assert.match(screen, /node\.getBoundingClientRect\(\)/);
   assert.match(screen, /node\.offsetParent !== null/);
   assert.match(screen, /if \(!ready\) return;[\s\S]*?emulatorRef\.current\?\.focus\(\);[\s\S]*?\}, \[ready, visible, focusGeneration\]\);/);

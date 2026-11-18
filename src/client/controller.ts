@@ -1,4 +1,34 @@
 /* controller.ts: dsh-editor DOM host and Harness reference module. Generated into lib/client.js by scripts/build-client.mjs. */
+import { isMonacoCancellation, recordDiagnosticAction, reportEditorDiagnostic } from './foundation';
+import { en, flattenDictionary, inject, zh } from './locales';
+import { createRoot } from 'react-dom/client';
+import { EditorMount } from './components/editor/EditorMount';
+import { basename, translate } from './editor-core';
+import {
+  CHAT_WIDTH_DEFAULT,
+  chatLayoutWidth,
+  clampChatPercent,
+  EditorWorkspace,
+  readChatWidth,
+  writeChatWidth,
+} from './editor-workspace';
+import { editorActionRing, NS, VIEW_LABEL } from './foundation';
+import {
+  installStyles,
+  isNearBottom,
+  isWorkspaceMenu,
+  jumpBadgeLabel,
+  jumpBadgeVisible,
+  maintenanceDelay,
+  menuArrowTarget,
+  pickMenuIcon,
+  sidebarNeedsCollapse,
+  wheelScrollTop,
+} from './injected-css';
+import React from 'react';
+
+export { inject };
+
 interface HarnessReferenceRequest {
   path?: string;
   root?: string;
@@ -37,7 +67,14 @@ interface HarnessReferenceRuntime {
   document?: Document | null;
 }
 
-type ControllerContext = import('@deepseek-ai/cordis').Context;
+interface LocaleService {
+  bind: (namespace: string) => (key: string) => string;
+  register: (namespace: string, dictionaries: { zh: Record<string, string>; en: Record<string, string> }) => unknown;
+}
+
+type ControllerContext = import('@deepseek-ai/cordis').Context & {
+  locale: LocaleService;
+};
 
 /**
  * Render a workspace path in the DSH file-mention grammar.
@@ -117,7 +154,7 @@ function harnessReferencePlan(request: HarnessReferenceRequest = {}): HarnessRef
  */
 function focusHarnessComposer(documentRef: Document | null | undefined): HTMLElement | null {
   const composer =
-    documentRef?.querySelector?.(
+    documentRef?.querySelector?.<HTMLElement>(
       '[data-conversation-region="composer"] [data-composer-input], [data-conversation-region="composer"] [contenteditable="true"]',
     ) ?? null;
   if (composer === null || typeof composer.focus !== 'function') return null;
@@ -562,7 +599,6 @@ function createController(ctx: ControllerContext): void {
     if (tablist === null || tablist === undefined) return;
     const tab = tablist.querySelector('button[role="tab"]');
     if (tab === null) return;
-    const style = window.getComputedStyle(tab);
     /* A tab's own box is 35px tall with `margin-top: -10px`: it overhangs the
            25px strip on purpose (that is what makes the whole tab a hit target).
            Adopting either the box or the margin would make our button overhang the
@@ -964,7 +1000,7 @@ function createController(ctx: ControllerContext): void {
       /* The right column must always be the original Chat view, not Trajectory or another View. */
       const tablist = findTablist();
       if (tablist !== null) {
-        const chatTab = [...tablist.querySelectorAll('button[role="tab"]')][0];
+        const chatTab = [...tablist.querySelectorAll<HTMLElement>('button[role="tab"]')][0];
         if (chatTab !== undefined && chatTab.getAttribute('aria-selected') !== 'true') chatTab.click();
       }
     }
@@ -1177,7 +1213,7 @@ function createController(ctx: ControllerContext): void {
   }
 
   /* A click on any real View tab leaves the editor split and lets that View render normally. */
-  function onTabClick(event) {
+  function onTabClick(event: Event) {
     const target = event.target;
     if (!(target instanceof Element)) return;
     /* Tool-window tabs inside our own host also carry role="tab"; they must not close the split. */
@@ -1197,7 +1233,7 @@ function createController(ctx: ControllerContext): void {
    * @param {Event} event - pointer, click, or key event.
    * @returns {void}
    */
-  function rememberWorkspaceRow(event) {
+  function rememberWorkspaceRow(event: Event) {
     const target = event.target instanceof Element ? event.target : document.activeElement;
     if (!(target instanceof Element)) return;
     const row = target.closest('[data-row-key^="workspace:"]');
@@ -1330,17 +1366,16 @@ function createController(ctx: ControllerContext): void {
 /**
  * @param {import('@deepseek-ai/cordis').Context} ctx - client root context.
  */
-function apply(ctx: ControllerContext): void {
+export function apply(ctx: ControllerContext): void {
   try {
     installStyles();
-    ctx.effect(
-      () =>
-        ctx.locale.register(NS, {
-          zh: flattenDictionary(zh),
-          en: flattenDictionary(en),
-        }),
-      'dsh-editor: dictionaries',
-    );
+    ctx.effect(() => {
+      ctx.locale.register(NS, {
+        zh: flattenDictionary(zh),
+        en: flattenDictionary(en),
+      });
+      return () => {};
+    }, 'dsh-editor: dictionaries');
     createController(ctx);
   } catch (error) {
     console.error('dsh-editor: apply failed', error);

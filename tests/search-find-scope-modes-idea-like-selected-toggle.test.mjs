@@ -4,18 +4,21 @@ import test from 'node:test';
 
 const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
 
-test('Find scope modes use IDEA-like underline for the active mode', () => {
-  const idleStart = source.indexOf('findToolScopeButton: {');
+test('Find scope modes use IDEA-like selected background for the active mode', () => {
+  const inlineStylesStart = source.indexOf('/* ─────────────────────── inline-styles.ts');
+  assert.ok(inlineStylesStart >= 0);
+  const idleStart = source.indexOf('findToolScopeButton: {', inlineStylesStart);
   const activeStart = source.indexOf('findToolScopeButtonActive: {', idleStart);
   const activeEnd = source.indexOf('\n      },', activeStart);
   assert.ok(idleStart >= 0 && activeStart > idleStart && activeEnd > activeStart);
   const idle = source.slice(idleStart, activeStart);
   const active = source.slice(activeStart, activeEnd);
 
-  assert.match(idle, /borderBottom: '2px solid transparent'/u);
-  assert.match(active, /background: 'transparent'/u);
+  assert.match(idle, /background: 'transparent'/u);
+  assert.doesNotMatch(idle, /borderBottom/u);
+  assert.match(active, /background: 'var\(--dsw-alias-interactive-bg-hover\)'/u);
   assert.match(active, /fontWeight: 600/u);
-  assert.match(active, /borderBottomColor: 'var\(--dsw-alias-state-business-primary\)'/u);
+  assert.doesNotMatch(active, /borderBottom/u);
 });
 
 test('Find scope modes keep pressed semantics independent of visual styling', () => {

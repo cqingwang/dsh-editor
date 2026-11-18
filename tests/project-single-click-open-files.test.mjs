@@ -37,8 +37,8 @@ test('the ProjectPanel wiring carries the preference and no stale terminal-origi
     projectPanelSource.indexOf('const visibleRows = React.useMemo'),
   );
   assert.match(panel, /singleClickOpen,/);
-  assert.match(panel, /onToggleSingleClickOpen,/);
   assert.doesNotMatch(panel, /const rememberTerminalOrigin = \(\) => \{/);
+  assert.match(projectPanelSource, /onToggleSingleClickOpen: \(\) => void;/);
   assert.match(workspaceSource, /singleClickOpen=\{singleClickOpen\}/);
   assert.match(workspaceSource, /onToggleSingleClickOpen=\{\(\) => toggleSingleClickOpen\(\)\}/);
 });

@@ -2,8 +2,7 @@ import React from 'react';
 import { styles } from '../../ui/styles';
 import { PathLabel } from '../ui/PathLabel';
 import { ToolbarButton } from '../ui/ToolbarButton';
-
-declare function formatCommitDate(date: unknown): string;
+import { formatCommitDate } from '../../find-tool';
 
 type Translate = (key: string, params?: Record<string, unknown>) => string;
 

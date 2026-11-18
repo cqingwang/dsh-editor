@@ -1,6 +1,8 @@
 /* Shared inline styles for reusable UI primitives. */
 export const EDITOR_UI_FONT: string = '"Trebuchet MS", "PingFang SC", "Microsoft YaHei UI", sans-serif';
-export const styles = {
+import type { CSSProperties } from 'react';
+
+export const styles: Record<string, CSSProperties> = {
   root: {
     display: 'flex',
     flexDirection: 'column',
@@ -710,9 +712,8 @@ export const styles = {
   findToolScopeButton: {
     flex: 'none',
     height: 24,
-    padding: '0 4px',
+    padding: '0 6px',
     border: 'none',
-    borderBottom: '2px solid transparent',
     borderRadius: 4,
     background: 'transparent',
     color: 'var(--dsw-alias-label-secondary)',
@@ -721,10 +722,9 @@ export const styles = {
     cursor: 'pointer',
   },
   findToolScopeButtonActive: {
-    background: 'transparent',
+    background: 'var(--dsw-alias-interactive-bg-hover)',
     color: 'var(--dsw-alias-label-primary)',
     fontWeight: 600,
-    borderBottomColor: 'var(--dsw-alias-state-business-primary)',
   },
   findToolScopeSelect: {
     flex: '1 1 160px',
@@ -822,6 +822,10 @@ export const styles = {
     minHeight: 0,
     overflow: 'auto',
     padding: '3px 0',
+  },
+  findToolListEmpty: {
+    display: 'flex',
+    flexDirection: 'column',
   },
   findToolPopupMessage: {
     display: 'flex',

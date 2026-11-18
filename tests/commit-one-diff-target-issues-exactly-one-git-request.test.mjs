@@ -21,9 +21,9 @@ function diffKeyboardHandler() {
 }
 
 test('one diff target issues exactly one git request', () => {
-  const requests = source.match(/callGit\(request, \{\s+signal: diffAbort\.signal,\s+\}\)/g) ?? [];
+  const requests = source.match(/callGit(?:<[^>]+>)?\(request, \{\s+signal: diffAbort\.signal,\s+\}\)/g) ?? [];
   assert.equal(requests.length, 1);
-  assert.match(diffPreview(), /callGit\(request, \{\s+signal: diffAbort\.signal,\s+\}\)\s+\.then\(\(value\) => \{/u);
+  assert.match(diffPreview(), /callGit(?:<[^>]+>)?\(request, \{\s+signal: diffAbort\.signal,\s+\}\)\s+\.then\(\(value\) => \{/u);
 });
 
 test('read-only diffs never claim the block undo or redo shortcuts', () => {

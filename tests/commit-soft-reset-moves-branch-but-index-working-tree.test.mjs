@@ -76,7 +76,7 @@ test('Commit Log exposes reset modes with Hard protected by dirty-tab confirmati
   assert.match(reset, /openFilesRef\.current\.filter\(\(file\) => file\.dirty === true\)\.length/);
   assert.match(reset, /editor\.resetHardConfirm/);
   assert.match(reset, /editor\.resetConfirm/);
-  assert.match(reset, /callGit\(\{ op: 'resetBranch', hash, mode \}\)/);
+  assert.match(reset, /callGit(?:<[^()]*>)?\(\s*\{\s*op: 'resetBranch',\s*hash,\s*mode,?\s*\}\s*\)/);
   assert.match(reset, /if \(mode === 'hard'\) \{[\s\S]*?reloadFile\(file\.path\)/);
 });
 

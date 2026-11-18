@@ -5,7 +5,7 @@ interface ShelfMenuPosition {
   y: number;
 }
 
-interface ShelfEntry {
+export interface ShelfEntry {
   ref: string;
   subject: string;
 }

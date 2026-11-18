@@ -1,7 +1,6 @@
 import React from 'react';
 import { ImagePreviewPane } from './ImagePreviewPane';
-
-declare function imagePreviewUrl(path: string, version: number | null | undefined): string;
+import { imagePreviewUrl } from './editor-path-model';
 
 type Translate = (key: string, params?: Record<string, unknown>) => string;
 

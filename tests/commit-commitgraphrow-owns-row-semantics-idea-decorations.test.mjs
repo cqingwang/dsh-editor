@@ -31,8 +31,8 @@ test('CommitGraph delegates each graph row to CommitGraphRow', async () => {
   const build = await read('scripts/build-client.mjs');
   const client = await read('lib/client.js');
 
-  assert.match(graph, /import \{ CommitGraphRow \} from '\.\/CommitGraphRow'/u);
-  assert.match(graph, /<CommitGraphRow[\s\S]*?entry=\{entry\}[\s\S]*?run=\{run\}/u);
+  assert.match(graph, /import \{ CommitGraphRow(?:, type CommitGraphRun)? \} from '\.\/CommitGraphRow'/u);
+  assert.match(graph, /<CommitGraphRow[\s\S]*?entry=\{entry\}[\s\S]*?run=\{run(?:\s+as\s+[^}]+)?\}/u);
   assert.match(graph, /rowRef=\{active \? scrollGraphRowIntoView : undefined\}/u);
   assert.match(graph, /onPickRef=\{onPickRef\}/u);
   assert.doesNotMatch(graph, /data-dsh-graph-hash=\{entry\.hash\}/u);

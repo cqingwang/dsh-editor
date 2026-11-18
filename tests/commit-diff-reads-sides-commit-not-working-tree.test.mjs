@@ -106,7 +106,7 @@ test('the editor silently adopts a clean external edit and prompts on a dirty on
     /const clean = paths\.filter\(\s+\(path\) => openFilesRef\.current\.find\(\(file\) => file\.path === path\)\?\.dirty !== true,\s+\);/,
   );
   /* Programmatic replacement must not fake unsaved work. */
-  assert.match(client, /const silentReloadRef =\s+React\.useRef\(new Set\(\)\);/);
+  assert.match(client, /const silentReloadRef\s*=\s*React\.useRef(?:<[^()]*>)?\(new Set\(\)\);/);
   assert.match(client, /silentReloadRef\.current\.has\(activePath\)\s+\)\s+return;/);
   assert.match(client, /t\('editor\.externalChanged'\)/);
   assert.match(client, /const dismissExternal = React\.useCallback\(/);

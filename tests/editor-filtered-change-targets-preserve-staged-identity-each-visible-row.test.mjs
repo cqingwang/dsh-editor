@@ -66,7 +66,7 @@ test('change-filter arrows stay inside the visible target set and cycle', () => 
 test('the Changes filter selects a visible row and keeps arrow navigation in the box', () => {
   const panel = source.slice(source.indexOf('function CommitPanel('), source.indexOf('function CommitLogView('));
   assert.match(panel, /const filteredTargets = React\.useMemo\(\(\) => changeFilterTargets\(visibleGroups\),/u);
-  assert.match(panel, /const target = cycleChangeTarget\(filteredTargets, selectedChange, direction\)/);
+  assert.match(panel, /const currentTarget[\s\S]*?const target = cycleChangeTarget\(filteredTargets, currentTarget, direction\)/);
   assert.match(panel, /event\.key === 'ArrowDown'/);
   assert.match(panel, /event\.key === 'ArrowUp'/);
   assert.match(panel, /onSelectChange\?\.\(\{\s+path: target\.path,\s+staged: target\.staged,\s+\}\)/u);

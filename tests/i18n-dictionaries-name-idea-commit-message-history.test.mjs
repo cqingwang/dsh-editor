@@ -25,7 +25,7 @@ test('both dictionaries name IDEA Commit Message History', () => {
 
 test('the Commit composer exposes a disabled-aware history button', () => {
   const panel = commitPanel();
-  assert.match(panel, /const \[historyMenu, setHistoryMenu\] = React\.useState\(null\)/);
+  assert.match(panel, /const \[historyMenu, setHistoryMenu\] = React\.useState(?:<[^>]+>)?\(null\)/);
   assert.match(panel, /icon: 'history'/);
   assert.match(panel, /label: t\('editor\.commitMessageHistory'\)/);
   assert.match(panel, /disabled: history\.length === 0/);

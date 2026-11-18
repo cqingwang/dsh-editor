@@ -16,7 +16,7 @@ test('a superseded Search Everywhere file-list request is aborted', () => {
   assert.match(request, /searchEverywhereFilesAbortRef\.current\?\.abort\(\)/u);
   assert.match(request, /const searchAbort = new AbortController\(\);/u);
   assert.match(request, /searchEverywhereFilesAbortRef\.current = searchAbort/u);
-  assert.match(request, /callFs\(\s*\{ op: 'files', includeExcluded: includeNonProject === true \},\s*\{ signal: searchAbort\.signal \},?\s*\)/u);
+  assert.match(request, /callFs(?:<[^>]+>)?\(\s*\{ op: 'files', includeExcluded: includeNonProject === true \},\s*\{ signal: searchAbort\.signal \},?\s*\)/u);
   assert.match(request, /failure\?\.name === 'AbortError'[\s\S]*?return;/u);
 });
 

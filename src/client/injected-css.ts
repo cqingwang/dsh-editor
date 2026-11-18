@@ -1,4 +1,6 @@
 /* injected-css.ts: dsh-editor client styles and shared surface helpers. Generated into lib/client.js by scripts/build-client.mjs. */
+
+import { basename } from './editor-core';
 interface TreeLoadingState {
   loading: boolean;
   rowCount: number;
@@ -74,7 +76,7 @@ interface ReferenceMenuItem {
 
 type MenuArrowKey = 'ArrowDown' | 'ArrowUp';
 
-function installStyles(): void {
+export function installStyles(): void {
   const id = 'dsh-editor-styles';
   if (document.getElementById(id) !== null) return;
   const style = document.createElement('style');
@@ -600,7 +602,7 @@ function installStyles(): void {
  * @param {{loading: boolean, rowCount: number}|null} state - current state.
  * @returns {boolean} true only for the very first load.
  */
-function shouldShowTreeLoading(state: TreeLoadingState | null | undefined): boolean {
+export function shouldShowTreeLoading(state: TreeLoadingState | null | undefined): boolean {
   if (state === null || state === undefined) return false;
   return state.loading === true && Number(state.rowCount) === 0;
 }
@@ -615,7 +617,7 @@ function shouldShowTreeLoading(state: TreeLoadingState | null | undefined): bool
  * @param {string[]|null} labels - the menu's item labels, trimmed.
  * @returns {boolean} true for the workspace menu.
  */
-function isWorkspaceMenu(labels: string[] | null | undefined): boolean {
+export function isWorkspaceMenu(labels: string[] | null | undefined): boolean {
   if (!Array.isArray(labels) || labels.length === 0) return false;
   const has = (pattern) => labels.some((label) => pattern.test(label));
   return has(/^重命名$|^Rename$/u) && has(/^删除工作区$|^Delete workspace$/u);
@@ -631,7 +633,7 @@ function isWorkspaceMenu(labels: string[] | null | undefined): boolean {
  * @param {{remembered: number|null, max: number}|null} state - saved offset and the new maximum.
  * @returns {number|null} the offset to apply, or null to leave the scroller alone.
  */
-function restoreScrollTop(state: ScrollRestoreState | null | undefined): number | null {
+export function restoreScrollTop(state: ScrollRestoreState | null | undefined): number | null {
   if (state === null || state === undefined) return null;
   const remembered = state.remembered;
   const max = Number(state.max);
@@ -650,7 +652,7 @@ function restoreScrollTop(state: ScrollRestoreState | null | undefined): number 
  * @param {number} count - messages that arrived while scrolled away.
  * @returns {string} the badge text.
  */
-function jumpBadgeLabel(count: number): string {
+export function jumpBadgeLabel(count: number): string {
   const value = Number(count);
   if (!Number.isFinite(value) || value <= 0) return '↓';
   if (value > 99) return '↓ 99+';
@@ -668,7 +670,7 @@ function jumpBadgeLabel(count: number): string {
  * @param {number} [minimum=80] - minimum spacing in milliseconds.
  * @returns {number} non-negative timeout delay.
  */
-function maintenanceDelay(lastAt: number, now: number, minimum = 80): number {
+export function maintenanceDelay(lastAt: number, now: number, minimum = 80): number {
   const previous = Number(lastAt);
   const current = Number(now);
   const spacing = Number(minimum);
@@ -687,7 +689,7 @@ function maintenanceDelay(lastAt: number, now: number, minimum = 80): number {
  * @param {boolean} focusInsideTerminal - whether the active element is inside the terminal.
  * @returns {{open: boolean, restoreFocus: boolean}} the requested dock transition.
  */
-function terminalShortcutAction(open: boolean, focusInsideTerminal: boolean): TerminalShortcutState {
+export function terminalShortcutAction(open: boolean, focusInsideTerminal: boolean): TerminalShortcutState {
   if (open) return { open: false, restoreFocus: focusInsideTerminal === true };
   return { open: true, restoreFocus: false };
 }
@@ -701,7 +703,7 @@ function terminalShortcutAction(open: boolean, focusInsideTerminal: boolean): Te
  * @param {number} value - the dragged percentage.
  * @returns {number} the snapped, clamped percentage.
  */
-function snapSplitPercent(value: number): number {
+export function snapSplitPercent(value: number): number {
   const percent = Number(value);
   if (!Number.isFinite(percent)) return 50;
   const clamped = Math.max(20, Math.min(80, percent));
@@ -717,7 +719,7 @@ function snapSplitPercent(value: number): number {
  * @param {{scrollTop: number, max: number, hasNew: boolean}|null} state - scroll position and whether anything new arrived.
  * @returns {boolean} true when the badge belongs on screen.
  */
-function jumpBadgeVisible(state: JumpBadgeState | null | undefined): boolean {
+export function jumpBadgeVisible(state: JumpBadgeState | null | undefined): boolean {
   if (state === null || state === undefined) return false;
   const top = Number(state.scrollTop);
   const max = Number(state.max);
@@ -737,7 +739,7 @@ function jumpBadgeVisible(state: JumpBadgeState | null | undefined): boolean {
  * @param {{scrollTop: number, max: number}|null} state - offset and maximum offset.
  * @returns {boolean} true when the view is at (or within a few px of) the bottom.
  */
-function isNearBottom(state: ScrollMetrics | null | undefined): boolean {
+export function isNearBottom(state: ScrollMetrics | null | undefined): boolean {
   if (state === null || state === undefined) return true;
   const top = Number(state.scrollTop);
   const max = Number(state.max);
@@ -755,7 +757,7 @@ function isNearBottom(state: ScrollMetrics | null | undefined): boolean {
  * @param {{scrollTop: number, deltaY: number, max: number}|null} state - current offset, wheel delta, maximum offset.
  * @returns {number|null} the clamped offset, or null when nothing is known.
  */
-function wheelScrollTop(state: WheelScrollState | null | undefined): number | null {
+export function wheelScrollTop(state: WheelScrollState | null | undefined): number | null {
   if (state === null || state === undefined) return null;
   const current = Number(state.scrollTop);
   const delta = Number(state.deltaY);
@@ -817,10 +819,11 @@ function applyShiftWheelScroll(event: ShiftWheelEvent): void {
  * @param {HTMLElement|null|undefined} node - horizontal scroll surface.
  * @returns {Function} cleanup callback.
  */
-function bindShiftWheelScroll(node: HTMLElement | null | undefined): () => void {
+export function bindShiftWheelScroll(node: HTMLElement | null | undefined): () => void {
   if (!(node instanceof HTMLElement)) return () => {};
-  node.addEventListener('wheel', applyShiftWheelScroll, { passive: false });
-  return () => node.removeEventListener('wheel', applyShiftWheelScroll);
+  const listener = applyShiftWheelScroll as unknown as EventListener;
+  node.addEventListener('wheel', listener, { passive: false });
+  return () => node.removeEventListener('wheel', listener);
 }
 
 /**
@@ -852,7 +855,7 @@ function pathWithLine(path: string, caret: EditorCaret | null | undefined, isAct
  * @param {string} value - the raw path.
  * @returns {string} the same path, quoted only when needed.
  */
-function shellQuote(value: string): string {
+export function shellQuote(value: string): string {
   const path = typeof value === 'string' ? value : '';
   if (path === '') return "''";
   if (!/[\s'"$`\\!*?()\[\]{}<>|&;]/.test(path)) return path;
@@ -868,7 +871,7 @@ function shellQuote(value: string): string {
  * @param {{entries: object[], root: string, t: Function, editor: object|null, editorPath: string|null, writeText: Function}} options - copy context.
  * @returns {Array<object|null>} ContextMenu-compatible submenu items.
  */
-function copyReferenceMenuItems({
+export function copyReferenceMenuItems({
   entries,
   root,
   t,
@@ -949,7 +952,7 @@ function copyReferenceMenuItems({
  * @param {number} selfIndex - index of the injected row in DOM order.
  * @returns {number|null} index to focus, or null to leave the key to the host.
  */
-function menuArrowTarget(activeIndex: number, key: MenuArrowKey, selfIndex: number): number | null {
+export function menuArrowTarget(activeIndex: number, key: MenuArrowKey, selfIndex: number): number | null {
   const active = Number(activeIndex);
   const self = Number(selfIndex);
   if (!Number.isFinite(active) || !Number.isFinite(self) || self < 0) return null;
@@ -975,12 +978,12 @@ function menuArrowTarget(activeIndex: number, key: MenuArrowKey, selfIndex: numb
  * @param {number} width - measured sidebar column width.
  * @returns {boolean} true only for a finite, expanded width.
  */
-function sidebarNeedsCollapse(width: number): boolean {
+export function sidebarNeedsCollapse(width: number): boolean {
   const measured = Number(width);
   return Number.isFinite(measured) && measured > 96;
 }
 
-function pickMenuIcon(
+export function pickMenuIcon(
   preferred: string[] | null | undefined,
   available: Set<string> | null | undefined,
 ): string | null {

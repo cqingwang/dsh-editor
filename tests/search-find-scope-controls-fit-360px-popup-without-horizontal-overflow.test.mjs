@@ -12,7 +12,7 @@ test('Find Scope controls fit the 360px popup without horizontal overflow', () =
   const button = source.slice(buttonStart, selectStart);
 
   assert.match(group, /gap: 3/u);
-  assert.match(button, /padding: '0 4px'/u);
+  assert.match(button, /padding: '0 6px'/u);
   assert.match(source.slice(selectStart), /minWidth: 96/u);
 });
 

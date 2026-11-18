@@ -2,12 +2,15 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
+import { loadTypeScriptFunction } from './ts-source.mjs';
+
+const commitSource = await readFile(new URL('../src/client/commit.ts', import.meta.url), 'utf8');
 const source =
   (await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8')) +
   '\n' +
   (await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8')) +
   '\n' +
-  (await readFile(new URL('../src/client/commit.ts', import.meta.url), 'utf8')) +
+  commitSource +
   '\n' +
   (await readFile(new URL('../src/client/locales.ts', import.meta.url), 'utf8'));
 const findTool = source.slice(
@@ -41,7 +44,7 @@ test('Directory scope provides a workspace-relative path editor', () => {
   assert.match(findTool, /findToolScopeDirectoryInput/);
   assert.match(findTool, /findScopeDirectoryPlaceholder/);
   assert.match(findTool, /findSelectDirectory/);
-  assert.match(findTool, /callFs\(\{\s+op: 'directories',\s+\}\)/u);
+  assert.match(findTool, /callFs(?:<[^>]+>)?\(\{\s+op: 'directories',\s+\}\)/u);
   assert.match(findTool, /<MoveToPicker/);
   assert.match(source, /findScopeDirectoryPlaceholder: '工作区相对目录，例如 src'/);
   assert.match(source, /findScopeDirectoryPlaceholder: 'Workspace-relative directory, for example src'/);
@@ -50,25 +53,9 @@ test('Directory scope provides a workspace-relative path editor', () => {
 });
 
 test('Directory scope treats the workspace root as an open prefix', () => {
-  const scope = new Function(
-    `${extractFunction('findToolPathMatchesScope')}; return findToolPathMatchesScope;`,
-  )();
+  const scope = loadTypeScriptFunction(commitSource, 'findToolPathMatchesScope');
   assert.equal(scope('src/app.ts', 'directory', { directory: '' }), true);
   assert.equal(scope('src/app.ts', 'directory', { directory: '.' }), true);
   assert.equal(scope('src/app.ts', 'directory', { directory: './src/' }), true);
   assert.equal(scope('docs/a.md', 'directory', { directory: './src/' }), false);
 });
-
-function extractFunction(name) {
-  const start = source.indexOf(`function ${name}(`);
-  assert.notEqual(start, -1, `${name} is missing`);
-  const bodyStart = source.indexOf(') {', start) + 2;
-  assert.ok(bodyStart > 1, `${name} has no function body`);
-  let depth = 0;
-  for (let index = bodyStart; index < source.length; index += 1) {
-    if (source[index] === '{') depth += 1;
-    if (source[index] === '}') depth -= 1;
-    if (depth === 0) return source.slice(start, index + 1);
-  }
-  assert.fail(`${name} has no closing brace`);
-}

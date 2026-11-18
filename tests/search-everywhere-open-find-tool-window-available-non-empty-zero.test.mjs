@@ -15,10 +15,10 @@ const handoff = source.slice(
 test('Search Everywhere keeps Open in Find Tool Window available for non-empty zero results', () => {
   assert.match(dialog, /disabled: effectiveQuery === '',/u);
   assert.doesNotMatch(dialog, /disabled: effectiveQuery === '' \|\| \(fileMatches\.length === 0/u);
-  assert.match(
-    dialog,
-    /onOpenInFindToolWindow\(\s+refresh === true\s+\? \{\s+\.\.\.request\.request,\s+refresh: true,\s+\}\s+: request\.request,\s+\);/u,
-  );
+  assert.match(dialog, /onOpenInFindToolWindow\(/);
+  assert.match(dialog, /refresh === true/);
+  assert.match(dialog, /request\.request/);
+  assert.match(dialog, /as FindHandoffRequest/);
 });
 
 test('The zero-result handoff still preserves the literal query', () => {

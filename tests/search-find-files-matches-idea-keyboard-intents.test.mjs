@@ -37,8 +37,8 @@ test('Persistent Find exposes Rerun without a second search model', () => {
 });
 
 test('Directory scope uses the complete workspace directory picker', () => {
-  assert.match(findTool, /const \[directoryPicker, setDirectoryPicker\] = React\.useState\(null\)/);
-  assert.match(findTool, /callFs\(\{\s+op: 'directories',\s+\}\)/u);
+  assert.match(findTool, /const \[directoryPicker, setDirectoryPicker\] = React\.useState(?:<[^>]+>)?\(null\)/);
+  assert.match(findTool, /callFs(?:<[^>]+>)?\(\{\s+op: 'directories',\s+\}\)/u);
   assert.match(findTool, /<MoveToPicker/);
   assert.match(findTool, /title=\{t\('editor\.findSelectDirectory'\)\}/u);
   assert.match(findTool, /placeholder=\{t\('editor\.findSelectDirectoryPlaceholder'\)\}/u);

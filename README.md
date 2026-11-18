@@ -353,7 +353,7 @@ Editor **不再插入“对话 / 轨迹 / 上下文”标签行**；没有 View 
 - 文件 API：宿主侧提供 `/api/dsh-editor/fs`，按会话 `cwd` 做路径越界校验，支持 `list` / `read` / `write`。
 - **运行时库是 `dependencies`，不再随包复制**：`monaco-editor@0.52.2`、`@xterm/xterm@6.0.0`、`@xterm/addon-fit@0.11.0` 从 `node_modules` 读取。宿主侧按文件注册精确的 `/api/dsh-editor/monaco/vs/*` 与 `/api/dsh-editor/xterm/*` 路由，路径由 `createRequire(import.meta.url).resolve(...)` 解析——profile 会把插件装进自己的树（pnpm 甚至隔离到 `.pnpm/<pkg>@file+.../node_modules/`），所以 `../node_modules` 是错的基准。包体积从 ~15 MB 降到 ~200 KB；升级 Monaco/xterm 只需改 `package.json` 再装依赖。
 - Search Everywhere 搜索快捷键与 IDEA 对齐：`PageDown / ⌘↓` 跳到下一个结果组，`PageUp / ⌘↑` 跳到上一个结果组（macOS 默认 keymap；其他平台为 `Ctrl+↓ / Ctrl+↑`）；`Show Search History` 显示 IDEA 默认的 `⌥↓`。组顺序按 `Recent searches / Actions / Files / Text` 的真实可见相邻关系计算，进入相邻组时落到首个启用行并跳过 disabled Action，不越过列表首尾。`⌘R / Ctrl+R` 保留当前文本结果的 query、options 和 active row 后进入 Replace；`⇧⌘R` 打开空白 Replace in Files；`⌘F` 先关闭弹框再打开当前 Monaco Find，`⇧⌘F` 打开 Find in Files 浮层并聚焦其查询框；`⌘G / ⇧⌘G` 步进当前编辑器 Find，`F3 / ⇧F3`（macOS 另有 `⌃L / ⌃⇧L`）复用同一步进路径；命中后把焦点还给编辑器。Actions 页的 `Incremental Search` 复用当前编辑器 Find：有选区或光标标识符时以其为初始 query，否则打开空查询；执行后关闭 Search Everywhere、清除旧 scope 并聚焦 Find 输入。`Select All Occurrences / Add Selection for Next Occurrence / Unselect Occurrence` 复用 Monaco multiple-caret 命令；macOS 使用 IDEA keymap 的 `⌃⌘G / ⌃G / ⌃⇧G`。正文右键不再列出 `Command Palette / Incremental Search / Search in Selection Only / Replace in Selection Only`；前三项对应的快捷键与 Search Everywhere 入口保留，selection-only 的行为改为 `⌘F / ⌘R` 根据实时选区自动启用。其余高频搜索项继续在正文右键中提供。Actions 页与空白 Find/Replace in Files 都先聚焦内容 query；只有带 selection/symbol 的 Replace Selection in Files 或从结果菜单选择 Replace 时才聚焦 replacement input。编辑器 Replace 同样聚焦 replacement input，Incremental Search 聚焦 query；replacement input 的 Enter 复用单处 Replace，Escape 关闭 Find。in-file usage search 复用编辑器 Find，highlight 复用 Monaco word-highlight，word occurrence 复用 Monaco selection-match 命令。Action 行把视觉快捷键同步映射为 `aria-keyshortcuts`，例如 `⌘R → Meta+R`、`⇧⌘R → Shift+Meta+R`，方向键会规范化为 `ArrowUp / ArrowDown / ArrowLeft / ArrowRight`。`Find in Path`、`Replace in Path` 作为 Find/Replace in Files 的搜索同义词；`Search Web`、`Find Word at Caret`、`Select Next Occurrence`、`Unselect Previous Occurrence`、`Structural Search`、`Structural Replace` 作为 IDEA 旧文案/本地插件文案的 `keywords`，仍能命中同一动作。`Browser Search` 以 `noopener,noreferrer` 在新标签搜索选区或光标标识符。`Search Structurally… / Replace Structurally…` 作为 IDEA 入口保留在 Actions 中；由于 Monaco 没有 language AST，两项显式 disabled 并显示原因。动作过滤词不会被当成内容 query，Search Everywhere 关闭后也不会留下 Project speed search 抢占输入焦点。Replace All 已通过真实宿主写入闭环：确认框、5 处/3 文件替换、结果刷新、打开文件重载和 Git 状态均同步。
-- Find in Files 的 Scope 与 IDEA 2026.2 对齐到当前可真实实现的范围：`Project Files`、`Project Files Excluding Git-ignored`、`Project Files Tracked by Git`、`Recently Viewed Files`、`Open Files`、`Current File`、`Changed Files`。Git 两项由宿主在 200 条结果上限之前用 `git ls-files` 限定候选集；tracked 只含索引文件，excluding ignored 还包含未被 `.gitignore` 排除的 untracked 文件。workspace 是仓库子目录时按 Git prefix 归一化路径。Recently Viewed Files 复用每 workspace 的 30 条 MRU；dirty Monaco buffer 只合并宿主确认属于当前 Git scope 的路径，Preview、Replace 与 Replace All 继续共用同一 scoped result 集。当前 `In Project / Directory / Scope` 模式显示主文字色、600 字重与 accent 下划线，选中态不再只依赖接近背景色的弱高亮。360px 最小宽度下压缩 Scope 模式间距、按钮横向 padding 和 Scope 下拉最小宽度，使 `Edit Scopes…` 的 `…` 入口保持完整可见且 Scope 行无横向溢出。Scope 输入沿用 180ms 防抖，只提交最后一次 query；新 generation 加载期间保留上一轮结果和 Source Preview，标题计数显示 Loading，列表不插入会推挤结果的占位行；Replace / Replace All 在新结果返回前禁用，避免对旧 scope 行执行写入。查询文本变化时沿用 IDEA 的清空旧结果语义，但在 180ms 去抖和宿主响应返回前立即显示 Loading，不提前播报 `No matches` 或 `Nothing found`；连续输入仍只提交最后一次 `searchText`。查询 generation 被替换时，在途 `searchText` fetch 会通过 AbortSignal 取消，旧请求不能覆盖当前结果，也不再继续占用连接和 workspace 扫描资源；requestId + workspace root 校验仍作为第二道防线。搜索失败时继续保留上一轮结果与 Preview，可见 `role="alert"` 以 `Search failed: …` 作为唯一错误播报，Replace / Replace All 同步禁用；切回可搜索范围后错误清除并恢复操作。错误文本使用 `overflow-wrap:anywhere` / `word-break:break-word`，360px 最小弹框下无空格长路径或 host 错误也不会把整个 Find 弹框横向撑开。libraries、scratches、language class hierarchy 因缺少对应索引模型仍不伪造入口。
+- Find in Files 的 Scope 与 IDEA 2026.2 对齐到当前可真实实现的范围：`Project Files`、`Project Files Excluding Git-ignored`、`Project Files Tracked by Git`、`Recently Viewed Files`、`Open Files`、`Current File`、`Changed Files`。Git 两项由宿主在 200 条结果上限之前用 `git ls-files` 限定候选集；tracked 只含索引文件，excluding ignored 还包含未被 `.gitignore` 排除的 untracked 文件。workspace 是仓库子目录时按 Git prefix 归一化路径。Recently Viewed Files 复用每 workspace 的 30 条 MRU；dirty Monaco buffer 只合并宿主确认属于当前 Git scope 的路径，Preview、Replace 与 Replace All 继续共用同一 scoped result 集。当前 `In Project / Directory / Scope` 模式使用 IDEA 的灰色圆角 selected 背景与主文字色，不再使用自创的 accent 下划线；空查询与零结果提示在结果区垂直居中。360px 最小宽度下压缩 Scope 模式间距、按钮横向 padding 和 Scope 下拉最小宽度，使 `Edit Scopes…` 的 `…` 入口保持完整可见且 Scope 行无横向溢出。Scope 输入沿用 180ms 防抖，只提交最后一次 query；新 generation 加载期间保留上一轮结果和 Source Preview，标题计数显示 Loading，列表不插入会推挤结果的占位行；Replace / Replace All 在新结果返回前禁用，避免对旧 scope 行执行写入。查询文本变化时沿用 IDEA 的清空旧结果语义，但在 180ms 去抖和宿主响应返回前立即显示 Loading，不提前播报 `No matches` 或 `Nothing found`；连续输入仍只提交最后一次 `searchText`。查询 generation 被替换时，在途 `searchText` fetch 会通过 AbortSignal 取消，旧请求不能覆盖当前结果，也不再继续占用连接和 workspace 扫描资源；requestId + workspace root 校验仍作为第二道防线。搜索失败时继续保留上一轮结果与 Preview，可见 `role="alert"` 以 `Search failed: …` 作为唯一错误播报，Replace / Replace All 同步禁用；切回可搜索范围后错误清除并恢复操作。错误文本使用 `overflow-wrap:anywhere` / `word-break:break-word`，360px 最小弹框下无空格长路径或 host 错误也不会把整个 Find 弹框横向撑开。libraries、scratches、language class hierarchy 因缺少对应索引模型仍不伪造入口。
 - Find in Files 的 File mask 下拉现在同时保留最近使用值，并从 active/open/recent/changed 及当前搜索结果中生成按出现频率排序的 `*.ext` 建议；点击建议会启用 mask 并走与手输 mask 相同的搜索/替换路径。Git Scope 在当前 workspace 不是 Git 仓库时保持可见但 disabled；Recently Viewed、Open Files、Current File、Changed Files 在缺少 MRU、打开文件、活动文件或变更集时同样 disabled，已持久化的不可用 Scope 安全回退 Project Files。弹框底部的 `Open in Find Window / Replace All / Replace` 使用独立的 24px 白底细边框动作面，启用时不再与禁用态混淆；Replace 同时暴露 `Enter` 的 `aria-keyshortcuts`。Replace / Replace All 禁用时通过 title 与 `aria-description` 说明具体原因：无匹配、搜索加载中、替换进行中或尚未选择文本匹配。
 - `Cmd/Ctrl+Shift+F` 现在不会再被 Project speed search 截获：Project 的 `Cmd/Ctrl+F` 只处理无 Shift 手势。Find 弹框内的 Search History、Replace History、Filter 与 File mask 菜单会限制在弹框可命中区域内；长历史在弹框内部滚动，不再绘制到弹框外后把点击穿透给聊天页面。
 - Search Everywhere 与 Find in Files 的文本结果预览会在布局阶段立即把 active match 滚到预览区垂直中心，并在下一帧按最终尺寸复核，避免内容切换时先显示顶部再跳动；短文件也不会再从第 1 行开始展示。dirty 结果保存后会由磁盘命中接替且不重复，Preview 同步切换到磁盘内容。双击、Enter 或 Open in Right Split 打开文本结果时继续复用 `openFileAtLocation()` / `revealLineInCenter()`，Monaco caret、选中行和可视中心都落在实际命中行列。
@@ -454,6 +454,7 @@ TSX 使用 Prettier 统一格式；`singleAttributePerLine` 强制 JSX 属性按
 npm run build:client
 npm run check:client-build
 npm run lint:client-types
+npm run check:client-source-imports
 npm run format:client-components
 npm run check:format:client-components
 ```
@@ -464,9 +465,23 @@ npm run check:format:client-components
 是否最新，不触发测试。
 
 生产代码默认使用 TS/TSX。只有无类型语义、由运行时或第三方接口强约束的纯 JS
-适配/脚本才允许 `.js/.jsx`，并应在工程记忆中记录例外理由。客户端代码使用
-ESLint + TypeScript parser 做静态检查，`@typescript-eslint/no-explicit-any`
-为错误级；禁止用新的显式 `any` 绕过类型定义。
+适配/脚本才允许 `.js/.jsx`，并应在工程记忆中记录例外理由。根目录
+`tsconfig.json` 继承客户端编译配置，确保编辑器语言服务与命令行使用同一套
+Node/React/DOM 类型；共享客户端配置直接声明 `jsx: react-jsx`。Harness 内置 Monaco
+TS worker 不单独维护第二份配置：构建器从 `tsconfig.client.json` 读取
+target/lib/jsx 等字段并注入 `__dshEditorTypeScriptConfig`，
+`configureMonacoLanguageDiagnostics()` 只负责转换为 Monaco 枚举。因此 TSX、
+`String.replaceAll` 和 `NodeListOf` 迭代等诊断与主线 tsc 保持一致。加载器会
+等待 `editor.main` 延迟注册的 TypeScript defaults，并在创建 TS/TSX model 时
+再次确认配置；lib 名称注入 worker 前统一规范为小写。不能并行加载独立
+`tsMode.js`，否则会触发 `vs/editor/editor.api` 的 AMD 同步依赖错误。客户端
+代码使用 ESLint + TypeScript parser 做静态检查：
+`no-undef`、`@typescript-eslint/no-unused-vars`、
+`@typescript-eslint/no-explicit-any` 均为错误级；禁止用新的显式 `any`、
+`@ts-ignore` 或 `eslint-disable` 绕过诊断。`lint:client-types` 还会运行
+`check:client-source-imports`，直接解析 TS/TSX 源码 AST，检查跨模块导出符号
+是否缺失 import；类型、import 和回归单元测试都以源码为准，不读取
+`lib/client.js` 反证源码正确。
 
 修改任何 `src/client/*.ts` / `*.tsx` 后必须重新构建 `lib/client.js`；
 `editor-browser-client-source-split-into-ordered-typescript-business-modules`
@@ -474,8 +489,10 @@ ESLint + TypeScript parser 做静态检查，`@typescript-eslint/no-explicit-any
 
 浏览器业务模块迁移已经完成：13 个 manifest 模块全部为 TS/TSX，生产源码中
 不再保留旧 JavaScript 文件或备份。历史 legacy fixture 和
-`tests/client-source-oracle.mjs` 已全部退役；相关契约测试迁回对应 TS/TSX
-模块、纯函数模型、locales/styles 或当前生成的 `lib/client.js` 产物。
+`tests/client-source-oracle.mjs` 已全部退役；行为回归通过
+`tests/ts-source.mjs` 从 TS/TSX 提取并执行源码，import 完整性由源码 AST
+门禁独立验证。只有“生成产物是否最新、模块顺序、打包形状”这类构建集成测试
+可以读取 `lib/client.js`，不能用它判断源码类型、import 或业务行为是否正确。
 fixture budget 会阻止任何新的 `.legacy.js` 重新进入测试树。
 
 新增、拆分或重命名的单元测试统一使用

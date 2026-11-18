@@ -39,7 +39,7 @@ test('saving a dirty model writes live content and clears dirty with the new mti
   assert.match(savePath, /mtime: file\?\.mtime \?\? undefined,\s+force,/u);
   assert.match(
     savePath,
-    /entry\.path === path\s+\? \{[\s\S]*?content: model\.getValue\(\),[\s\S]*?dirty: false,[\s\S]*?mtime: value\.mtime \?\? entry\.mtime,/u,
+    /entry\.path === path\s+\? \{[\s\S]*?content: model\.getValue\(\),[\s\S]*?dirty: false,[\s\S]*?mtime: typeof value\.mtime === 'number' \? value\.mtime : entry\.mtime,/u,
   );
 });
 
@@ -91,7 +91,7 @@ test('402-line files retain the final match inside the bounded preview window', 
 });
 
 test('all text-result open paths retain line-centered navigation', () => {
-  assert.match(source, /const openFileAtLocation = React\.useCallback\(\s*\(path, line, column, options = \{\}\) =>/u);
+  assert.match(source, /const openFileAtLocation = React\.useCallback\(\s*\([\s\S]*?path[\s\S]*?\) =>/u);
   assert.match(source, /pendingReveal\.current = \{ path, line, column \}/u);
   assert.match(source, /revealLines\(path, line, column\)/u);
   assert.match(source, /editor\.revealLineInCenter\(safeLine\)/u);

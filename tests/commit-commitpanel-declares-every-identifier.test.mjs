@@ -37,7 +37,7 @@ test('CommitPanel declares every identifier it renders', () => {
 
 test('EditorWorkspace passes the highlighted commit into CommitPanel', () => {
   const workspace = bodyOf('EditorWorkspace');
-  assert.match(workspace, /const \[\s*highlightedCommit,\s*setHighlightedCommit,\s*\] = React\.useState\(null\);/);
+  assert.match(workspace, /const \[\s*highlightedCommit,\s*setHighlightedCommit,\s*\] = React\.useState(?:<[^>]+>)?\(null\);/);
   /* The value has to cross the component boundary, or the log tab throws on render. */
   const callStart = workspace.indexOf('<CommitPanel');
   assert.notEqual(callStart, -1, 'CommitPanel call is missing');

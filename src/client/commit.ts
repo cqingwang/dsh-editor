@@ -1,5 +1,10 @@
 /* commit.ts: dsh-editor Search/Find model and storage helpers. Generated into lib/client.js by scripts/build-client.mjs. */
 import type * as Monaco from 'monaco-editor';
+import { dirname } from './components/editor/editor-path-model';
+import { basename, safeLanguage } from './editor-core';
+import { findScopePatternsMatch, fuzzyScore, wholeWordIndex } from './find-tool';
+import { editorReplaceAll } from './terminal';
+import React from 'react';
 
 interface SearchPreviewWindow {
   start: number;
@@ -48,39 +53,36 @@ interface FindToolFileGroup {
   matches: FindMatchLike[];
 }
 
-interface SearchOptions {
-  caseSensitive?: boolean;
-  wholeWords?: boolean;
-  regex?: boolean;
-  fileMask?: string;
-  includeNonProject?: boolean;
-  preserveCase?: boolean;
+interface FindToolPathScopeOptions {
+  directory?: string;
+  recursive?: boolean;
+  customScope?: { includePatterns?: unknown; excludePatterns?: unknown } | null;
+  preset?: string;
+  allowedPaths?: Set<string> | string[] | null;
 }
 
-interface FindPopupGeometry {
-  x?: number;
-  y?: number;
-  width?: number;
-  height?: number;
-  [key: string]: unknown;
+interface FindScopePresetContext {
+  gitAvailable?: boolean;
+  recentFileCount?: number;
+  openFileCount?: number;
+  currentFileAvailable?: boolean;
+  changedFileCount?: number;
 }
 
-interface SearchActionLike {
-  id?: string;
-  label?: string;
-  description?: string;
-  keywords?: string[];
-  category?: string;
-  shortcut?: string;
-  disabled?: boolean;
-  disabledReason?: string;
-  [key: string]: unknown;
+interface ReplaceFailure extends Error {
+  rollbackFailures?: Array<{ path: string; message: string }>;
 }
 
-interface SearchEverywhereFilters {
-  files: boolean;
-  text: boolean;
-  actions: boolean;
+interface SearchResultContextOptions {
+  t: (key: string, params?: Record<string, unknown>) => string;
+  result: { kind: string; path: string; line?: number; column?: number };
+  onCloseMenu: () => void;
+  onOpenEditor: () => void;
+  onOpenInRightSplit: () => void;
+  onReplace?: () => void;
+  onRevealResult: () => void;
+  onNotify: (message: string) => void;
+  onShowInfo?: () => void;
 }
 
 /**
@@ -94,7 +96,7 @@ interface SearchEverywhereFilters {
  * @param {number} [maximum=401] - maximum rendered lines.
  * @returns {{start: number, end: number, truncatedBefore: boolean, truncatedAfter: boolean}} window.
  */
-function searchEverywherePreviewWindow(content: string, line: number, maximum = 401): SearchPreviewWindow {
+export function searchEverywherePreviewWindow(content: string, line: number, maximum = 401): SearchPreviewWindow {
   const lines = String(content ?? '').split(/\r?\n/u);
   const total = lines.length;
   const limit = Math.max(1, Math.floor(Number(maximum) || 401));
@@ -142,7 +144,7 @@ function previewLineScrollTop(metrics: PreviewLineMetrics = {}): number {
  * @param {HTMLElement|null} lineNode - active preview line.
  * @returns {boolean} whether the container was scrolled.
  */
-function centerPreviewLineInContainer(container: HTMLElement | null, lineNode: HTMLElement | null): boolean {
+export function centerPreviewLineInContainer(container: HTMLElement | null, lineNode: HTMLElement | null): boolean {
   if (container === null || lineNode === null) return false;
   if (typeof container.getBoundingClientRect !== 'function' || typeof lineNode.getBoundingClientRect !== 'function')
     return false;
@@ -164,7 +166,7 @@ function centerPreviewLineInContainer(container: HTMLElement | null, lineNode: H
  * @param {string} content - complete text.
  * @returns {number[]} zero-based line-start offsets.
  */
-function findToolTextLineStarts(content: string): number[] {
+export function findToolTextLineStarts(content: string): number[] {
   const text = typeof content === 'string' ? content : '';
   const starts = [0];
   for (let index = 0; index < text.length; index += 1) {
@@ -184,7 +186,11 @@ function findToolTextLineStarts(content: string): number[] {
  * @param {Array<{offset: number, length: number}>} matches - Find matches.
  * @returns {Array<{text: string, match: boolean}>} ordered line parts.
  */
-function findToolPreviewLineParts(lineText: string, lineStart: number, matches: FindMatchRange[]): PreviewLinePart[] {
+export function findToolPreviewLineParts(
+  lineText: string,
+  lineStart: number,
+  matches: FindMatchRange[],
+): PreviewLinePart[] {
   const text = typeof lineText === 'string' ? lineText : '';
   if (text === '') return [];
   const startOffset = Math.max(0, Math.floor(Number(lineStart) || 0));
@@ -242,7 +248,7 @@ function codePreviewLanguage(monaco: typeof Monaco, path: string): string {
  * @param {string} path - previewed file path.
  * @returns {string[]|null} one sanitized HTML fragment per line, or null while unavailable.
  */
-function useCodePreviewColorizedLines(lines: string[], path: string): string[] | null {
+export function useCodePreviewColorizedLines(lines: string[], path: string): string[] | null {
   const text = Array.isArray(lines) ? lines.join('\n') : '';
   const key = `${path ?? ''}\u0000${text}`;
   const [entry, setEntry] = React.useState({ key: '', lines: null });
@@ -280,7 +286,9 @@ function useCodePreviewColorizedLines(lines: string[], path: string): string[] |
  * @param {Array<{text: string, match: boolean}>|null} parts - line parts.
  * @returns {Array<{start: number, end: number}>} non-overlapping ranges.
  */
-function codePreviewMatchRanges(parts: PreviewLinePart[] | null | undefined): CodePreviewRange[] {
+export function codePreviewMatchRanges(
+  parts: Array<{ text: string; match?: boolean }> | null | undefined,
+): CodePreviewRange[] {
   const ranges: CodePreviewRange[] = [];
   let offset = 0;
   for (const part of Array.isArray(parts) ? parts : []) {
@@ -298,7 +306,7 @@ function codePreviewMatchRanges(parts: PreviewLinePart[] | null | undefined): Co
  * @param {Array<{start: number, end: number}>} ranges - character ranges.
  * @returns {void}
  */
-function markCodePreviewMatches(root: HTMLElement, ranges: CodePreviewRange[]): void {
+export function markCodePreviewMatches(root: HTMLElement, ranges: CodePreviewRange[]): void {
   for (const range of ranges) {
     const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
     const nodes = [];
@@ -353,7 +361,7 @@ function groupFindMatches(matches: FindMatchLike[]): FindToolFileGroup[] {
 }
 
 /** Normalize the two grouping structures DSH can truthfully provide. */
-function normalizeFindGroupBy(value: unknown): 'file' | 'directory' {
+export function normalizeFindGroupBy(value: unknown): 'file' | 'directory' {
   return value === 'directory' ? 'directory' : 'file';
 }
 
@@ -379,7 +387,7 @@ function orderFindToolGroups(groups: FindToolFileGroup[], groupBy: string): Find
  * not enter the keyboard occurrence sequence; file rows keep ownership of
  * every occurrence and replacement target.
  */
-function findToolDisplayGroups(groups, groupBy) {
+export function findToolDisplayGroups(groups, groupBy) {
   const ordered = orderFindToolGroups(groups, groupBy);
   if (normalizeFindGroupBy(groupBy) !== 'directory') {
     return ordered.map((group) => ({ ...group, kind: 'file' }));
@@ -415,7 +423,7 @@ function findToolDisplayGroups(groups, groupBy) {
  * @param {Set<string>} collapsedPaths - text files whose rows are folded.
  * @returns {{groups: object[], rows: object[]}} grouped results and visible rows.
  */
-function findToolVisibleRows(files, matches, collapsedPaths, groupBy = 'file') {
+export function findToolVisibleRows(files, matches, collapsedPaths, groupBy = 'file') {
   const groups = orderFindToolGroups(groupFindMatches(matches), groupBy);
   const collapsed = collapsedPaths instanceof Set ? collapsedPaths : new Set();
   const fileRows = (Array.isArray(files) ? files : []).map((file) => ({
@@ -447,7 +455,7 @@ function findToolVisibleRows(files, matches, collapsedPaths, groupBy = 'file') {
  * @param {number} index - request index in the complete option sequence.
  * @returns {{kind: 'file'|'text', path: string, rowKey: string, index: number}|null} target.
  */
-function findToolHandoffTarget(files, matches, index, groupBy = 'file') {
+export function findToolHandoffTarget(files, matches, index, groupBy = 'file') {
   const rows = findToolVisibleRows(files, matches, new Set(), groupBy).rows;
   if (rows.length === 0) return null;
   const position = Math.max(0, Math.min(rows.length - 1, Number(index) || 0));
@@ -466,7 +474,7 @@ function findToolHandoffTarget(files, matches, index, groupBy = 'file') {
  * @param {string} rowKey - file/text result identity.
  * @returns {string} id used by aria-activedescendant.
  */
-function findToolOptionId(rowKey) {
+export function findToolOptionId(rowKey) {
   return `dsh-editor-find-option-${encodeURIComponent(String(rowKey ?? ''))}`;
 }
 
@@ -475,7 +483,7 @@ function findToolOptionId(rowKey) {
  * @param {string} path - workspace file path.
  * @returns {string} group container id.
  */
-function findToolGroupId(path) {
+export function findToolGroupId(path) {
   return `dsh-editor-find-group-${encodeURIComponent(String(path ?? ''))}`;
 }
 
@@ -486,7 +494,7 @@ function findToolGroupId(path) {
  * @param {string} key - keyboard key.
  * @returns {string|null} target group path, or null when unavailable.
  */
-function findToolGroupTarget(groups, currentPath, key) {
+export function findToolGroupTarget(groups, currentPath, key) {
   const paths = (Array.isArray(groups) ? groups : [])
     .map((group) => group?.path)
     .filter((path) => typeof path === 'string' && path !== '');
@@ -506,7 +514,7 @@ function findToolGroupTarget(groups, currentPath, key) {
  * @param {'ArrowUp'|'ArrowDown'} key - movement direction.
  * @returns {{kind: 'group', path: string}|null} owning/next group or null.
  */
-function findToolGroupBoundaryTarget(groups, rowKey, key) {
+export function findToolGroupBoundaryTarget(groups, rowKey, key) {
   const list = Array.isArray(groups) ? groups : [];
   for (let groupIndex = 0; groupIndex < list.length; groupIndex += 1) {
     const group = list[groupIndex];
@@ -529,7 +537,7 @@ function findToolGroupBoundaryTarget(groups, rowKey, key) {
  * @param {number} position - focused row index.
  * @returns {string|null} next text group path, or null.
  */
-function findToolNextTextGroupPath(occurrences, position) {
+export function findToolNextTextGroupPath(occurrences, position) {
   if (!Array.isArray(occurrences) || !Number.isFinite(position)) return null;
   const next = occurrences[position + 1];
   if (next?.kind !== 'text' || typeof next.path !== 'string' || next.path === '') return null;
@@ -545,7 +553,7 @@ function findToolNextTextGroupPath(occurrences, position) {
  * @param {{directory?: string, recursive?: boolean, preset?: 'projectFiles'|'openFiles'|'changedFiles'|'currentFile'|'recentlyViewedFiles'|'gitTrackedFiles'|'gitNonIgnoredFiles', allowedPaths?: Set<string>|string[]}} options - scope data.
  * @returns {boolean} whether the path participates.
  */
-function findToolPathMatchesScope(path, mode, options = {}) {
+export function findToolPathMatchesScope(path: string, mode: string, options: FindToolPathScopeOptions = {}): boolean {
   if (typeof path !== 'string' || path === '') return false;
   if (mode === 'directory') {
     const rawDirectory = typeof options.directory === 'string' ? options.directory.trim() : '';
@@ -585,7 +593,7 @@ function findToolPathMatchesScope(path, mode, options = {}) {
  * @param {{gitAvailable?: boolean, recentFileCount?: number, openFileCount?: number, currentFileAvailable?: boolean, changedFileCount?: number}} context - availability.
  * @returns {boolean} true when the preset can produce a real result set.
  */
-function findSearchScopePresetAvailable(preset, context = {}) {
+export function findSearchScopePresetAvailable(preset: string, context: FindScopePresetContext = {}): boolean {
   if (preset === 'gitTrackedFiles' || preset === 'gitNonIgnoredFiles') {
     return context?.gitAvailable === true;
   }
@@ -611,7 +619,7 @@ function findSearchScopePresetAvailable(preset, context = {}) {
  * @param {unknown} entry - stored query.
  * @returns {string} trimmed replayable query.
  */
-function normalizeRecentSearchEntry(entry) {
+export function normalizeRecentSearchEntry(entry) {
   return typeof entry === 'string' ? entry.trim() : '';
 }
 
@@ -634,7 +642,7 @@ function rememberRecentSearchHistory(history, query = '', limit = 20) {
  * @param {unknown} entry - stored or newly entered query.
  * @returns {string} exact query, including IDEA's replayable empty entry.
  */
-function normalizeFindQueryHistoryEntry(entry) {
+export function normalizeFindQueryHistoryEntry(entry) {
   return typeof entry === 'string' ? entry : '';
 }
 
@@ -665,7 +673,7 @@ function rememberFindQueryHistory(history, query, limit = 20) {
  * @param {number} [limit=200] - confirmation threshold.
  * @returns {boolean} whether the user should confirm before opening Find.
  */
-function searchEverywhereRequiresResultConfirmation(files, matches, limit = 200) {
+export function searchEverywhereRequiresResultConfirmation(files, matches, limit = 200) {
   const total = (Array.isArray(files) ? files.length : 0) + (Array.isArray(matches) ? matches.length : 0);
   return total > Math.max(0, Number(limit) || 200);
 }
@@ -680,7 +688,7 @@ function searchEverywhereRequiresResultConfirmation(files, matches, limit = 200)
  * @param {object|null} editor - active Monaco editor.
  * @returns {{query: string, reason: 'editor'|'symbol'|null}} search request.
  */
-function findUsagesSearchTarget(editor) {
+export function findUsagesSearchTarget(editor) {
   const model = editor?.getModel?.() ?? null;
   if (model === null) return { query: '', reason: 'editor' };
   const normalize = (value) => {
@@ -706,7 +714,7 @@ function findUsagesSearchTarget(editor) {
  * @param {object} options - query, result sets, mode and persisted search options.
  * @returns {{needsConfirmation: boolean, total: number, request: object}} handoff request.
  */
-function searchFindHandoff({
+export function searchFindHandoff({
   query,
   files,
   matches,
@@ -772,7 +780,7 @@ function searchFindHandoff({
  * @param {unknown} query - raw Find query.
  * @returns {string} exact query string.
  */
-function findToolContentQuery(query) {
+export function findToolContentQuery(query) {
   return typeof query === 'string' ? query : '';
 }
 
@@ -784,7 +792,7 @@ function findToolContentQuery(query) {
  * @param {unknown} query - raw Find query.
  * @returns {boolean} whether the query has at least one character.
  */
-function hasFindToolContentQuery(query) {
+export function hasFindToolContentQuery(query) {
   return findToolContentQuery(query).length > 0;
 }
 
@@ -799,7 +807,7 @@ function hasFindToolContentQuery(query) {
  * @param {unknown} query - next raw query text.
  * @returns {object|null} next Find state.
  */
-function findToolQueryTransition(current, query) {
+export function findToolQueryTransition(current, query) {
   if (current === null || typeof current !== 'object') return current;
   const nextQuery = findToolContentQuery(query);
   return {
@@ -827,7 +835,7 @@ function findToolQueryTransition(current, query) {
  * @param {unknown} tab - requested provider tab.
  * @returns {object|null} next state.
  */
-function searchEverywhereTabTransition(current, tab) {
+export function searchEverywhereTabTransition(current, tab) {
   if (current === null || typeof current !== 'object') return current;
   const nextTab = tab === 'files' || tab === 'text' || tab === 'actions' ? tab : 'all';
   const textCapable = nextTab === 'all' || nextTab === 'text';
@@ -847,7 +855,7 @@ function searchEverywhereTabTransition(current, tab) {
  * @param {number} files - visible file group count.
  * @returns {string} localized result summary.
  */
-function findToolResultSummary(t, matches, files) {
+export function findToolResultSummary(t, matches, files) {
   if (matches === 1 && files === 1) return t('editor.findToolSummaryOne');
   if (files === 1) return t('editor.findToolSummaryOneFile', { matches });
   return t('editor.findToolSummary', { matches, files });
@@ -865,7 +873,7 @@ function findToolResultSummary(t, matches, files) {
  * @param {string} currentRoot - current workspace root.
  * @returns {boolean} whether the response still belongs to the live surface.
  */
-function findToolRequestIsCurrent(requestId, requestRoot, currentRequestId, currentRoot) {
+export function findToolRequestIsCurrent(requestId, requestRoot, currentRequestId, currentRoot) {
   return requestId === currentRequestId && requestRoot === currentRoot;
 }
 
@@ -879,7 +887,7 @@ function findToolRequestIsCurrent(requestId, requestRoot, currentRequestId, curr
  * @param {string} key - keyboard event key.
  * @returns {'project'|'directory'|'scope'|null} next mode, or null.
  */
-function findToolScopeModeTarget(current, key) {
+export function findToolScopeModeTarget(current, key) {
   const modes = ['project', 'directory', 'scope'];
   if (key === 'Home') return modes[0];
   if (key === 'End') return modes[modes.length - 1];
@@ -899,7 +907,7 @@ function findToolScopeModeTarget(current, key) {
  * @param {Array<{path: string, model: object, text: string, count: number}>} plans - dirty plans.
  * @returns {{contents: Map<string, string>, paths: string[], count: number}} committed state.
  */
-function commitFindToolDirtyPlans(plans) {
+export function commitFindToolDirtyPlans(plans) {
   const attempted = [];
   const contents = new Map();
   const paths = [];
@@ -930,8 +938,8 @@ function commitFindToolDirtyPlans(plans) {
       count += Math.max(0, Number(plan.count) || 0);
     }
   } catch (failure) {
-    const primary = failure instanceof Error ? failure : new Error(String(failure));
-    const rollbackFailures = [];
+    const primary = (failure instanceof Error ? failure : new Error(String(failure))) as ReplaceFailure;
+    const rollbackFailures: Array<{ path: string; message: string }> = [];
     for (const entry of [...attempted].reverse()) {
       if (entry.model.getValue?.() === entry.original) continue;
       try {
@@ -984,7 +992,7 @@ function commitFindToolDirtyPlans(plans) {
  *   errorMessage: string|null
  * }} replacement plan.
  */
-function planWorkspaceReplacements(matches, openFiles, models, query, replacement, options) {
+export function planWorkspaceReplacements(matches, openFiles, models, query, replacement, options) {
   const dirtyFiles = new Map(
     (Array.isArray(openFiles) ? openFiles : [])
       .filter((file) => file?.dirty === true && typeof file.path === 'string')
@@ -1038,7 +1046,7 @@ function planWorkspaceReplacements(matches, openFiles, models, query, replacemen
   };
 }
 
-function claimReplaceAttempt(guard, stateBusy = false) {
+export function claimReplaceAttempt(guard, stateBusy = false) {
   if (stateBusy === true || guard === null || typeof guard !== 'object') return false;
   if (guard.current === true) return false;
   guard.current = true;
@@ -1050,7 +1058,7 @@ function claimReplaceAttempt(guard, stateBusy = false) {
  * @param {{current: boolean}|null} guard - synchronous write guard.
  * @returns {void}
  */
-function releaseReplaceAttempt(guard) {
+export function releaseReplaceAttempt(guard) {
   if (guard !== null && typeof guard === 'object') guard.current = false;
 }
 
@@ -1062,7 +1070,7 @@ function releaseReplaceAttempt(guard) {
  * @param {'single'|'all'} plainEnter - action for unmodified Enter.
  * @returns {'single'|'all'|null} resolved replace intent.
  */
-function replaceInputAction(event, plainEnter) {
+export function replaceInputAction(event, plainEnter) {
   if (event === null || typeof event !== 'object' || event.key !== 'Enter') return null;
   if (event.isComposing === true) return null;
   const accelerated = event.metaKey === true || event.ctrlKey === true;
@@ -1084,7 +1092,7 @@ function replaceInputAction(event, plainEnter) {
  * @param {string} message - replacement failure text.
  * @returns {object|null} settled Find state.
  */
-function replaceFailureState(current, requestGeneration, message) {
+export function replaceFailureState(current, requestGeneration, message) {
   if (current === null) return current;
   const currentGeneration = Number(current.searchGeneration) || 0;
   const currentRequest = Number(requestGeneration) || 0;
@@ -1116,7 +1124,7 @@ function replaceHistoryTextBytes(value) {
  * and every older operation are discarded instead of keeping an undoable
  * newest item over budget.
  */
-function boundedReplaceHistory(history, operation, limit = 20, maxBytes = 16 * 1024 * 1024) {
+export function boundedReplaceHistory(history, operation, limit = 20, maxBytes = 16 * 1024 * 1024) {
   const next = [...(Array.isArray(history) ? history : []), operation].slice(-Math.max(1, limit));
   const byteLimit = Math.max(0, Number(maxBytes) || 0);
   let totalBytes = 0;
@@ -1142,7 +1150,7 @@ function boundedReplaceHistory(history, operation, limit = 20, maxBytes = 16 * 1
  * @param {number} [limit=20] - maximum retained entries.
  * @returns {string[]} normalized newest-first history.
  */
-function rememberSearchHistory(history, query, limit = 20) {
+export function rememberSearchHistory(history, query, limit = 20) {
   const entries = Array.isArray(history)
     ? history.filter((entry) => typeof entry === 'string' && entry.trim() !== '').map((entry) => entry.trim())
     : [];
@@ -1160,7 +1168,7 @@ function rememberSearchHistory(history, query, limit = 20) {
  * @param {unknown} entry - stored or newly entered replacement.
  * @returns {string} exact replacement, including the empty deletion value.
  */
-function normalizeReplacementHistoryEntry(entry) {
+export function normalizeReplacementHistoryEntry(entry) {
   return typeof entry === 'string' ? entry : '';
 }
 
@@ -1187,7 +1195,7 @@ function rememberReplacementHistory(history, replacement, limit = 20) {
  * @param {number} [limit=12] - maximum retained IDs.
  * @returns {string[]} normalized newest-first action IDs.
  */
-function rememberCommandHistory(history, id, limit = 12) {
+export function rememberCommandHistory(history, id, limit = 12) {
   const entries = Array.isArray(history)
     ? history.filter((entry) => typeof entry === 'string' && entry.trim() !== '').map((entry) => entry.trim())
     : [];
@@ -1202,7 +1210,7 @@ function rememberCommandHistory(history, id, limit = 12) {
 const COMMAND_HISTORY_KEY = 'dsh-editor.search.commandHistory';
 
 /** Read recent executed action IDs. */
-function readCommandHistory() {
+export function readCommandHistory() {
   try {
     return rememberCommandHistory(JSON.parse(window.localStorage.getItem(COMMAND_HISTORY_KEY) ?? '[]'), '', 12);
   } catch {
@@ -1211,7 +1219,7 @@ function readCommandHistory() {
 }
 
 /** Persist recent executed action IDs. */
-function writeCommandHistory(history) {
+export function writeCommandHistory(history) {
   try {
     window.localStorage.setItem(COMMAND_HISTORY_KEY, JSON.stringify(rememberCommandHistory(history, '', 12)));
   } catch {
@@ -1267,7 +1275,7 @@ const SEARCH_EVERYWHERE_ACTION_CATEGORY_KEYS = new Map([
  * @param {Function} t - locale translator.
  * @returns {string} localized category.
  */
-function searchEverywhereActionCategory(id, t) {
+export function searchEverywhereActionCategory(id, t) {
   const key = SEARCH_EVERYWHERE_ACTION_CATEGORY_KEYS.get(id);
   return typeof key === 'string' ? t(key) : null;
 }
@@ -1282,7 +1290,7 @@ function searchEverywhereActionCategory(id, t) {
  * @param {{caseSensitive?: boolean, wholeWords?: boolean}} [options] - shared search filters.
  * @returns {object[]} ranked actions.
  */
-function rankSearchActions(actions, query, recentCommands, options) {
+export function rankSearchActions(actions, query, recentCommands, options) {
   options = options ?? {};
   const needle = typeof query === 'string' ? query.trim() : '';
   const caseSensitive = options?.caseSensitive === true;
@@ -1363,7 +1371,7 @@ function rankSearchActions(actions, query, recentCommands, options) {
  * @param {number} direction - +1 next, -1 previous.
  * @returns {number|null} next enabled index, or null when all rows are disabled.
  */
-function nextEnabledSearchResultIndex(results, current, direction) {
+export function nextEnabledSearchResultIndex(results, current, direction) {
   const rows = Array.isArray(results) ? results : [];
   if (rows.length === 0) return null;
   const step = Number(direction) < 0 ? -1 : 1;
@@ -1396,7 +1404,7 @@ function searchEverywhereResultGroupKey(result) {
  * @param {boolean} mac - whether IDEA's macOS keymap applies.
  * @returns {1|-1|0} next group, previous group, or no group action.
  */
-function searchEverywhereGroupNavigationDirection(event, mac) {
+export function searchEverywhereGroupNavigationDirection(event, mac) {
   if (event?.altKey === true || event?.shiftKey === true) return 0;
   if (event?.key === 'PageDown') return 1;
   if (event?.key === 'PageUp') return -1;
@@ -1419,7 +1427,7 @@ function searchEverywhereGroupNavigationDirection(event, mac) {
  * @param {number} direction - +1 next group, -1 previous group.
  * @returns {number|null} first enabled row in the adjacent group.
  */
-function searchEverywhereGroupTargetIndex(results, current, direction) {
+export function searchEverywhereGroupTargetIndex(results, current, direction) {
   const rows = Array.isArray(results) ? results : [];
   if (rows.length === 0) return null;
   const active = Math.max(0, Math.min(rows.length - 1, Math.floor(Number(current) || 0)));
@@ -1457,7 +1465,7 @@ function searchEverywhereGroupTargetIndex(results, current, direction) {
  * @param {unknown} index - state index from the previous row set.
  * @returns {number} valid visible index.
  */
-function normalizeSearchResultIndex(results, index) {
+export function normalizeSearchResultIndex(results, index) {
   const rows = Array.isArray(results) ? results : [];
   if (rows.length === 0) return 0;
   const clamped = Math.max(0, Math.min(rows.length - 1, Math.floor(Number(index) || 0)));
@@ -1470,7 +1478,7 @@ function normalizeSearchResultIndex(results, index) {
  * @param {{path?: string, line?: number, column?: number}} match - text match.
  * @returns {string} listbox option key.
  */
-function usageMatchRowKey(match) {
+export function usageMatchRowKey(match) {
   return `usage:${match?.path ?? ''}:${match?.line ?? 1}:${match?.column ?? 1}`;
 }
 
@@ -1481,7 +1489,7 @@ function usageMatchRowKey(match) {
  * @param {unknown} value - local filter text.
  * @returns {object[]} matching rows.
  */
-function filterUsageMatches(matches, value) {
+export function filterUsageMatches(matches, value) {
   const rows = Array.isArray(matches) ? matches : [];
   const query = typeof value === 'string' ? value.trim().toLowerCase() : '';
   if (query === '') return rows;
@@ -1502,7 +1510,7 @@ function filterUsageMatches(matches, value) {
  * @param {unknown} index - previous selection.
  * @returns {number} valid zero-based index, or zero for an empty list.
  */
-function normalizeUsageMatchIndex(matches, index) {
+export function normalizeUsageMatchIndex(matches, index) {
   const rows = Array.isArray(matches) ? matches : [];
   if (rows.length === 0) return 0;
   return Math.max(0, Math.min(rows.length - 1, Math.floor(Number(index) || 0)));
@@ -1517,7 +1525,7 @@ function normalizeUsageMatchIndex(matches, index) {
  * @param {boolean} commandMode - whether slash command mode is active.
  * @returns {'recent'|'actions'|null} section to render before this row.
  */
-function searchEverywhereSection(result, previous, query, tab, commandMode) {
+export function searchEverywhereSection(result, previous, query, tab, commandMode) {
   if (!commandMode && !(tab === 'all' && query === '')) return null;
   const current = result?.history === true ? 'recent' : 'actions';
   const prior = previous === undefined || previous === null ? null : previous?.history === true ? 'recent' : 'actions';
@@ -1529,7 +1537,7 @@ function searchEverywhereSection(result, previous, query, tab, commandMode) {
  * @param {object} result - action row.
  * @returns {string} disabled reason or action metadata.
  */
-function searchEverywhereResultTooltip(result) {
+export function searchEverywhereResultTooltip(result) {
   if (result?.disabled === true) return result.disabledReason ?? '';
   return [result?.label, result?.description, result?.category, result?.shortcut]
     .filter((part) => typeof part === 'string' && part.trim() !== '')
@@ -1542,7 +1550,7 @@ function searchEverywhereResultTooltip(result) {
  * @param {Function} t - locale translator.
  * @returns {{kind: string, title: string, detail: string, meta: string}|null} item info.
  */
-function searchEverywhereItemInfo(result, t) {
+export function searchEverywhereItemInfo(result, t) {
   if (result === null || typeof result !== 'object') return null;
   if (result.kind === 'action') {
     return {
@@ -1578,7 +1586,7 @@ function searchEverywhereItemInfo(result, t) {
  * @param {unknown} shortcut - shortcut such as `⌘⇧O`.
  * @returns {string|undefined} normalized `aria-keyshortcuts` value.
  */
-function searchEverywhereAriaKeyShortcuts(shortcut) {
+export function searchEverywhereAriaKeyShortcuts(shortcut) {
   const text = typeof shortcut === 'string' ? shortcut.trim() : '';
   if (text === '') return undefined;
   const modifiers = [];
@@ -1614,7 +1622,7 @@ function searchEverywhereAriaKeyShortcuts(shortcut) {
  * @param {number} [height=80] - tooltip height.
  * @returns {{left: number, top: number}} fixed position.
  */
-function searchEverywhereTooltipPosition(x, y, viewportWidth, viewportHeight, width = 320, height = 80) {
+export function searchEverywhereTooltipPosition(x, y, viewportWidth, viewportHeight, width = 320, height = 80) {
   const left = Math.max(4, Math.min(Number(x) || 0, viewportWidth - width - 4));
   const preferredTop = (Number(y) || 0) + 4;
   const top = preferredTop + height > viewportHeight ? (Number(y) || 0) - height : preferredTop;
@@ -1628,7 +1636,7 @@ function searchEverywhereTooltipPosition(x, y, viewportWidth, viewportHeight, wi
  * @param {Function} t - locale lookup.
  * @returns {void}
  */
-function copySearchResultText(text, onNotify, t) {
+export function copySearchResultText(text, onNotify, t) {
   let pending;
   try {
     pending = navigator.clipboard?.writeText(text);
@@ -1650,7 +1658,7 @@ function copySearchResultText(text, onNotify, t) {
  * @param {object} options - localized labels and surface callbacks.
  * @returns {Array<object|null>} menu items with separators.
  */
-function searchResultContextItems({
+export function searchResultContextItems({
   t,
   result,
   onCloseMenu,
@@ -1660,7 +1668,7 @@ function searchResultContextItems({
   onRevealResult,
   onNotify,
   onShowInfo,
-}) {
+}: SearchResultContextOptions) {
   if (result?.kind !== 'file' && result?.kind !== 'text') return [];
   const copyLocation = result.kind === 'text' ? `${result.path}:${result.line}:${result.column}` : result.path;
   return [
@@ -1738,7 +1746,7 @@ function searchResultContextItems({
  * @param {string} rowKey - Search Everywhere's stable result identity.
  * @returns {string} DOM id suitable for aria-activedescendant.
  */
-function searchEverywhereOptionId(rowKey) {
+export function searchEverywhereOptionId(rowKey) {
   return `dsh-editor-search-option-${encodeURIComponent(String(rowKey ?? ''))}`;
 }
 
@@ -1749,7 +1757,7 @@ function searchEverywhereOptionId(rowKey) {
  * @param {string} key - keyboard key.
  * @returns {string|null} target tab id, or null when the key is unrelated.
  */
-function searchEverywhereTabTarget(tabs, currentId, key) {
+export function searchEverywhereTabTarget(tabs, currentId, key) {
   if (!Array.isArray(tabs) || tabs.length === 0) return null;
   if (key === 'Home') return tabs[0].id;
   if (key === 'End') return tabs[tabs.length - 1].id;
@@ -1810,7 +1818,7 @@ function rememberFileMaskHistory(history, value = '', limit = 10) {
  * @param {number} [limit=12] - maximum suggestions.
  * @returns {string[]} IDEA-style `*.ext` suggestions.
  */
-function suggestFileMasks(paths, history = [], limit = 12) {
+export function suggestFileMasks(paths, history = [], limit = 12) {
   const counts = new Map();
   for (const value of Array.isArray(paths) ? paths : []) {
     if (typeof value !== 'string' || value === '') continue;
@@ -1846,7 +1854,7 @@ function suggestFileMasks(paths, history = [], limit = 12) {
  * @param {number} [width=220] - reserved menu width.
  * @returns {number} clamped dialog-local left coordinate.
  */
-function findToolMenuLeft(preferredLeft, surfaceLeft, surfaceRight, width = 220) {
+export function findToolMenuLeft(preferredLeft, surfaceLeft, surfaceRight, width = 220) {
   const left = Number(preferredLeft);
   const boundaryLeft = Number(surfaceLeft);
   const right = Number(surfaceRight);
@@ -1867,7 +1875,7 @@ function findToolMenuLeft(preferredLeft, surfaceLeft, surfaceRight, width = 220)
  * @param {number} surfaceBottom - owning dialog's bottom edge.
  * @returns {number} clamped dialog-local top.
  */
-function findToolMenuTop(preferredTop, surfaceTop, surfaceBottom) {
+export function findToolMenuTop(preferredTop, surfaceTop, surfaceBottom) {
   const top = Number(preferredTop);
   const boundaryTop = Number(surfaceTop);
   const boundaryBottom = Number(surfaceBottom);
@@ -1885,7 +1893,7 @@ function findToolMenuTop(preferredTop, surfaceTop, surfaceBottom) {
  * @param {number} localTop - menu's dialog-local top.
  * @returns {number} maximum rendered height.
  */
-function findToolMenuMaxHeight(surfaceTop, surfaceBottom, localTop) {
+export function findToolMenuMaxHeight(surfaceTop, surfaceBottom, localTop) {
   const top = Number(surfaceTop);
   const bottom = Number(surfaceBottom);
   const y = Number(localTop);
@@ -1896,7 +1904,7 @@ function findToolMenuMaxHeight(surfaceTop, surfaceBottom, localTop) {
 }
 
 /** Read recent File extension masks from browser storage. */
-function readFileMaskHistory() {
+export function readFileMaskHistory() {
   try {
     return rememberFileMaskHistory(
       JSON.parse(window.localStorage.getItem(FILE_MASK_HISTORY_STORAGE_KEY) ?? '[]'),
@@ -1909,7 +1917,7 @@ function readFileMaskHistory() {
 }
 
 /** Persist one File extension mask after it is accepted by the user. */
-function writeFileMaskHistory(value) {
+export function writeFileMaskHistory(value) {
   const next = rememberFileMaskHistory(readFileMaskHistory(), value, 10);
   try {
     window.localStorage.setItem(FILE_MASK_HISTORY_STORAGE_KEY, JSON.stringify(next));
@@ -1924,7 +1932,7 @@ function writeFileMaskHistory(value) {
  * @param {unknown} value - parsed storage value or option-bearing state.
  * @returns {{caseSensitive: boolean, wholeWords: boolean, regex: boolean, preserveCase: boolean, includeExcluded: boolean, fileMask: string, contextFilter?: string}} normalized options.
  */
-function normalizeSearchOptions(value) {
+export function normalizeSearchOptions(value) {
   const source = value !== null && typeof value === 'object' && !Array.isArray(value) ? value : {};
   const regex = source.regex === true;
   const includeExcluded =
@@ -1949,7 +1957,7 @@ function normalizeSearchOptions(value) {
  * Read the last valid search options for this browser.
  * @returns {{caseSensitive: boolean, wholeWords: boolean, regex: boolean, preserveCase: boolean, includeExcluded: boolean, fileMask: string, contextFilter?: string}} stored or default options.
  */
-function readSearchOptions() {
+export function readSearchOptions() {
   try {
     return normalizeSearchOptions(JSON.parse(window.localStorage.getItem(SEARCH_OPTIONS_STORAGE_KEY) ?? '{}'));
   } catch {
@@ -1962,7 +1970,7 @@ function readSearchOptions() {
  * @param {object} options - Search Everywhere or Find state.
  * @returns {void}
  */
-function writeSearchOptions(options) {
+export function writeSearchOptions(options) {
   try {
     window.localStorage.setItem(SEARCH_OPTIONS_STORAGE_KEY, JSON.stringify(normalizeSearchOptions(options)));
   } catch {
@@ -2028,7 +2036,7 @@ const LEGACY_FIND_POPUP_DEFAULT_HEIGHT = 536;
  * @param {number} viewportHeight - current viewport height.
  * @returns {{x: number, y: number, width: number, height: number}} safe geometry.
  */
-function clampFindPopupGeometry(value, viewportWidth, viewportHeight) {
+export function clampFindPopupGeometry(value, viewportWidth, viewportHeight) {
   const source = value !== null && typeof value === 'object' ? value : {};
   const viewportW = Math.max(1, Number(viewportWidth) || 1);
   const viewportH = Math.max(1, Number(viewportHeight) || 1);
@@ -2065,7 +2073,7 @@ function clampFindPopupGeometry(value, viewportWidth, viewportHeight) {
 }
 
 /** Move the Find popup by a pointer delta and clamp it to the viewport. */
-function moveFindPopupGeometry(start, deltaX, deltaY, viewportWidth, viewportHeight) {
+export function moveFindPopupGeometry(start, deltaX, deltaY, viewportWidth, viewportHeight) {
   const geometry = clampFindPopupGeometry(start, viewportWidth, viewportHeight);
   return clampFindPopupGeometry(
     {
@@ -2079,7 +2087,7 @@ function moveFindPopupGeometry(start, deltaX, deltaY, viewportWidth, viewportHei
 }
 
 /** Resize the Find popup from one edge/corner without crossing minimum size. */
-function resizeFindPopupGeometry(start, deltaX, deltaY, direction, viewportWidth, viewportHeight) {
+export function resizeFindPopupGeometry(start, deltaX, deltaY, direction, viewportWidth, viewportHeight) {
   const geometry = clampFindPopupGeometry(start, viewportWidth, viewportHeight);
   const viewportW = Math.max(1, Number(viewportWidth) || 1);
   const viewportH = Math.max(1, Number(viewportHeight) || 1);
@@ -2110,7 +2118,7 @@ function resizeFindPopupGeometry(start, deltaX, deltaY, direction, viewportWidth
 }
 
 /** Read the last movable Find popup geometry. */
-function readFindPopupGeometry(viewportWidth = window.innerWidth, viewportHeight = window.innerHeight) {
+export function readFindPopupGeometry(viewportWidth = window.innerWidth, viewportHeight = window.innerHeight) {
   try {
     const saved = JSON.parse(window.localStorage.getItem(FIND_POPUP_GEOMETRY_STORAGE_KEY) ?? '{}');
     const legacyDefault =
@@ -2118,18 +2126,14 @@ function readFindPopupGeometry(viewportWidth = window.innerWidth, viewportHeight
       typeof saved === 'object' &&
       Number(saved.width) === LEGACY_FIND_POPUP_DEFAULT_WIDTH &&
       Number(saved.height) === LEGACY_FIND_POPUP_DEFAULT_HEIGHT;
-    return clampFindPopupGeometry(
-      legacyDefault ? {} : saved,
-      viewportWidth,
-      viewportHeight,
-    );
+    return clampFindPopupGeometry(legacyDefault ? {} : saved, viewportWidth, viewportHeight);
   } catch {
     return clampFindPopupGeometry({}, viewportWidth, viewportHeight);
   }
 }
 
 /** Persist the completed movable Find popup geometry. */
-function writeFindPopupGeometry(geometry) {
+export function writeFindPopupGeometry(geometry) {
   try {
     window.localStorage.setItem(
       FIND_POPUP_GEOMETRY_STORAGE_KEY,
@@ -2150,7 +2154,7 @@ function findDirectoryRecursiveStorageKey(root) {
  * @param {string} root - workspace root.
  * @returns {boolean} true unless this workspace explicitly disabled it.
  */
-function readFindDirectoryRecursive(root) {
+export function readFindDirectoryRecursive(root) {
   try {
     return window.localStorage.getItem(findDirectoryRecursiveStorageKey(root)) !== '0';
   } catch {
@@ -2164,7 +2168,7 @@ function readFindDirectoryRecursive(root) {
  * @param {unknown} recursive - requested toggle value.
  * @returns {boolean} normalized value.
  */
-function writeFindDirectoryRecursive(root, recursive) {
+export function writeFindDirectoryRecursive(root, recursive) {
   const normalized = recursive !== false;
   try {
     window.localStorage.setItem(findDirectoryRecursiveStorageKey(root), normalized ? '1' : '0');
@@ -2179,7 +2183,7 @@ function writeFindDirectoryRecursive(root, recursive) {
  * @param {string} root - workspace root.
  * @returns {{mode: 'project'|'directory'|'scope', preset: 'projectFiles'|'openFiles'|'changedFiles'|'currentFile', directory: string}} stored scope.
  */
-function readFindScope(root) {
+export function readFindScope(root) {
   try {
     return normalizeFindSearchScope(JSON.parse(window.localStorage.getItem(findScopeStorageKey(root)) ?? '{}'));
   } catch {
@@ -2193,7 +2197,7 @@ function readFindScope(root) {
  * @param {object} scope - scope request.
  * @returns {object} normalized persisted scope.
  */
-function writeFindScope(root, scope) {
+export function writeFindScope(root, scope) {
   const normalized = normalizeFindSearchScope(scope);
   try {
     window.localStorage.setItem(findScopeStorageKey(root), JSON.stringify(normalized));
@@ -2210,7 +2214,7 @@ function writeFindScope(root, scope) {
  * @param {unknown} value - array or newline/comma separated text.
  * @returns {string[]} unique trimmed patterns.
  */
-function normalizeFindScopePatterns(value) {
+export function normalizeFindScopePatterns(value) {
   const entries = Array.isArray(value) ? value : typeof value === 'string' ? value.split(/[\n,]/u) : [];
   return [
     ...new Set(
@@ -2227,7 +2231,7 @@ function normalizeFindScopePatterns(value) {
  * @param {unknown} value - stored scope list.
  * @returns {Array<{id: string, name: string, includePatterns: string[], excludePatterns: string[]}>} bounded scopes.
  */
-function normalizeCustomFindScopes(value) {
+export function normalizeCustomFindScopes(value) {
   const source = Array.isArray(value) ? value : [];
   const seen = new Set();
   const scopes = [];
@@ -2257,7 +2261,7 @@ function customFindScopesStorageKey(root) {
 }
 
 /** Read bounded local custom Scopes for one workspace. */
-function readCustomFindScopes(root) {
+export function readCustomFindScopes(root) {
   try {
     return normalizeCustomFindScopes(
       JSON.parse(window.localStorage.getItem(customFindScopesStorageKey(root)) ?? '[]'),
@@ -2268,7 +2272,7 @@ function readCustomFindScopes(root) {
 }
 
 /** Persist bounded local custom Scopes for one workspace. */
-function writeCustomFindScopes(root, value) {
+export function writeCustomFindScopes(root, value) {
   const normalized = normalizeCustomFindScopes(value);
   try {
     window.localStorage.setItem(
@@ -2331,7 +2335,7 @@ function ideaScopeTermToPattern(term) {
  * Unsupported package/language expressions are skipped instead of being
  * silently reinterpreted as different file scopes.
  */
-function parseIdeaScopeXml(text) {
+export function parseIdeaScopeXml(text) {
   const source = typeof text === 'string' ? text.slice(0, 256 * 1024) : '';
   const scopes = [];
   for (const tag of source.matchAll(/<scope\b([^>]*)\/?>/giu)) {
@@ -2368,7 +2372,7 @@ function parseIdeaScopeXml(text) {
 }
 
 /** Serialize shared Scopes to the simple IDEA file-scope XML subset we import. */
-function serializeIdeaScopeXml(value) {
+export function serializeIdeaScopeXml(value) {
   const scopes = normalizeCustomFindScopes(value).filter((scope) => scope.shared === true);
   const lines = ['<component name="DependencyValidationManager">'];
   for (const scope of scopes) {
@@ -2386,7 +2390,7 @@ function serializeIdeaScopeXml(value) {
 }
 
 /** Normalize one explicit workspace-relative IDEA scope XML transfer path. */
-function normalizeScopeXmlTransferPath(value) {
+export function normalizeScopeXmlTransferPath(value) {
   const raw = typeof value === 'string' ? value.trim().replaceAll('\\', '/') : '';
   const path = raw.replace(/^\.\/+/u, '').replace(/\/+$/u, '');
   if (
@@ -2401,7 +2405,7 @@ function normalizeScopeXmlTransferPath(value) {
 }
 
 /** Parse one scope XML file and report how many scope tags were unsupported. */
-function inspectIdeaScopeXml(value) {
+export function inspectIdeaScopeXml(value) {
   const source = typeof value === 'string' ? value.slice(0, 256 * 1024) : '';
   const total = [...source.matchAll(/<scope\b/giu)].length;
   const scopes = parseIdeaScopeXml(source);
@@ -2417,7 +2421,7 @@ function inspectIdeaScopeXml(value) {
  * @param {string} root - workspace root.
  * @returns {string[]} recent queries, newest first.
  */
-function readSearchHistory(root) {
+export function readSearchHistory(root) {
   try {
     const parsed = JSON.parse(window.localStorage.getItem(searchHistoryStorageKey(root)) ?? '[]');
     return rememberRecentSearchHistory(parsed, '', 20);
@@ -2432,7 +2436,7 @@ function readSearchHistory(root) {
  * @param {string[]} history - recent queries.
  * @returns {void}
  */
-function writeSearchHistory(root, history) {
+export function writeSearchHistory(root, history) {
   try {
     window.localStorage.setItem(
       searchHistoryStorageKey(root),
@@ -2448,7 +2452,7 @@ function writeSearchHistory(root, history) {
  * @param {string} root - workspace root.
  * @returns {string[]} exact recent queries.
  */
-function readFindQueryHistory(root) {
+export function readFindQueryHistory(root) {
   try {
     const parsed = JSON.parse(window.localStorage.getItem(findQueryHistoryStorageKey(root)) ?? '[]');
     return rememberFindQueryHistory(parsed, undefined, 20);
@@ -2480,7 +2484,7 @@ function findUsagesHistoryStorageKey(root) {
 }
 
 /** Read recent Find Usages queries for one workspace. */
-function readFindUsagesHistory(root) {
+export function readFindUsagesHistory(root) {
   try {
     const parsed = JSON.parse(window.localStorage.getItem(findUsagesHistoryStorageKey(root)) ?? '[]');
     return rememberSearchHistory(parsed, '', 20);
@@ -2502,7 +2506,7 @@ function writeFindUsagesHistory(root, history) {
 }
 
 /** Record one successful Find Usages query. */
-function rememberWorkspaceFindUsagesQuery(root, query) {
+export function rememberWorkspaceFindUsagesQuery(root, query) {
   if (typeof root !== 'string' || root === '' || typeof query !== 'string' || query.trim() === '') return null;
   const next = rememberSearchHistory(readFindUsagesHistory(root), query, 20);
   writeFindUsagesHistory(root, next);
@@ -2519,7 +2523,7 @@ function replaceHistoryStorageKey(root) {
  * @param {string} root - workspace root.
  * @returns {string[]} recent replacements, newest first.
  */
-function readReplaceHistory(root) {
+export function readReplaceHistory(root) {
   try {
     const parsed = JSON.parse(window.localStorage.getItem(replaceHistoryStorageKey(root)) ?? '[]');
     return rememberReplacementHistory(parsed, undefined, 20);
@@ -2551,7 +2555,7 @@ function writeReplaceHistory(root, history) {
  * @param {string} query - search query.
  * @returns {string[]|null} normalized history, or null without workspace/query.
  */
-function rememberWorkspaceSearchQuery(root, query) {
+export function rememberWorkspaceSearchQuery(root, query) {
   if (typeof root !== 'string' || root === '' || typeof query !== 'string' || query.trim() === '') return null;
   const normalizedQuery = normalizeRecentSearchEntry(query);
   if (normalizedQuery === '') return null;
@@ -2566,7 +2570,7 @@ function rememberWorkspaceSearchQuery(root, query) {
  * @param {string} query - exact query text.
  * @returns {string[]|null} exact history, or null without workspace/query.
  */
-function rememberWorkspaceFindQuery(root, query) {
+export function rememberWorkspaceFindQuery(root, query) {
   if (typeof root !== 'string' || root === '' || typeof query !== 'string') return null;
   const next = rememberFindQueryHistory(readFindQueryHistory(root), query, 20);
   writeFindQueryHistory(root, next);
@@ -2579,7 +2583,7 @@ function rememberWorkspaceFindQuery(root, query) {
  * @param {string} replacement - replacement text.
  * @returns {string[]|null} exact history, or null without workspace/replacement.
  */
-function rememberWorkspaceReplacement(root, replacement) {
+export function rememberWorkspaceReplacement(root, replacement) {
   if (typeof root !== 'string' || root === '' || typeof replacement !== 'string') return null;
   const next = rememberReplacementHistory(readReplaceHistory(root), replacement, 20);
   writeReplaceHistory(root, next);
@@ -2590,7 +2594,7 @@ function rememberWorkspaceReplacement(root, replacement) {
  * IDEA's empty Search Everywhere state resets only the provider filter.
  * @returns {{files: boolean, text: boolean, actions: boolean}} all providers enabled.
  */
-function defaultSearchEverywhereFilters() {
+export function defaultSearchEverywhereFilters() {
   return { files: true, text: true, actions: true };
 }
 
@@ -2598,7 +2602,7 @@ function defaultSearchEverywhereFilters() {
  * @param {object|null} filters - current provider visibility filters.
  * @returns {boolean} whether at least one provider is hidden.
  */
-function searchEverywhereFiltersNeedReset(filters) {
+export function searchEverywhereFiltersNeedReset(filters) {
   return filters?.files === false || filters?.text === false || filters?.actions === false;
 }
 
@@ -2607,7 +2611,7 @@ function searchEverywhereFiltersNeedReset(filters) {
  * @param {object} options - active tab, query, result count and loading state.
  * @returns {boolean} whether the Find in Files fallback is actionable.
  */
-function searchEverywhereOffersFindInFiles({ tab, query, resultCount, loading }) {
+export function searchEverywhereOffersFindInFiles({ tab, query, resultCount, loading }) {
   return tab === 'files' && typeof query === 'string' && query.trim() !== '' && resultCount === 0 && loading !== true;
 }
 
@@ -2616,7 +2620,7 @@ function searchEverywhereOffersFindInFiles({ tab, query, resultCount, loading })
  * @param {object} options - current text-search options.
  * @returns {string[]} stable IDEA-order option ids.
  */
-function searchEverywhereActiveOptionIds({ caseSensitive, wholeWords, regex, fileMask }) {
+export function searchEverywhereActiveOptionIds({ caseSensitive, wholeWords, regex, fileMask }) {
   const ids = [];
   if (caseSensitive === true) ids.push('case');
   if (wholeWords === true) ids.push('words');
@@ -2630,7 +2634,7 @@ function searchEverywhereActiveOptionIds({ caseSensitive, wholeWords, regex, fil
  * @param {object} options - tab, query state and active text-search options.
  * @returns {boolean} whether Clear all options is actionable.
  */
-function searchEverywhereOffersClearOptions({
+export function searchEverywhereOffersClearOptions({
   tab,
   query,
   resultCount,
@@ -2658,7 +2662,7 @@ function searchEverywhereOffersClearOptions({
  * @param {object} options - tab, query state and current scope.
  * @returns {boolean} whether the scope-expansion action is actionable.
  */
-function searchEverywhereOffersScopeExpansion({ tab, query, resultCount, loading, includeNonProject }) {
+export function searchEverywhereOffersScopeExpansion({ tab, query, resultCount, loading, includeNonProject }) {
   const normalizedQuery = typeof query === 'string' ? query.trim() : '';
   const minimumQueryLength = tab === 'text' ? 2 : 1;
   return (

@@ -1,8 +1,36 @@
 import React from 'react';
 import { styles } from '../../ui/styles';
 import { Icon } from './Icon';
+import { ContextMenu } from './Menu';
 import { ToolbarButton } from './ToolbarButton';
-import { groupCompactActions, panelToolbarFit, selectCompactActions, toolbarActionActive } from './toolbar-model';
+import {
+  groupCompactActions,
+  panelToolbarFit,
+  selectCompactActions,
+  toolbarActionActive,
+  type ToolbarActionLike,
+} from './toolbar-model';
+
+interface PanelToolbarProps {
+  icon?: string;
+  title?: React.ReactNode;
+  titleAction?: React.ReactNode;
+  titleActionStyle?: React.CSSProperties | null;
+  left?: ToolbarActionLike[];
+  right?: ToolbarActionLike[];
+  badge?: React.ReactNode;
+  t: (key: string, params?: Record<string, unknown>) => string;
+  onBadge?: (position: { x: number; y: number }) => void;
+  badgeHasPopup?: boolean | 'menu' | 'dialog' | 'listbox' | 'tree' | 'grid';
+  badgeExpanded?: boolean;
+  ariaLabel?: string;
+  dropActive?: boolean;
+  onDragEnter?: React.DragEventHandler<HTMLDivElement>;
+  onDragLeave?: React.DragEventHandler<HTMLDivElement>;
+  onDragOver?: React.DragEventHandler<HTMLDivElement>;
+  onDrop?: React.DragEventHandler<HTMLDivElement>;
+}
+
 function PanelToolbar({
   icon,
   title,
@@ -21,7 +49,7 @@ function PanelToolbar({
   onDragLeave,
   onDragOver,
   onDrop,
-}) {
+}: PanelToolbarProps) {
   const ref = React.useRef(null);
   const titleRef = React.useRef(null);
   const badgeRef = React.useRef(null);
@@ -69,7 +97,7 @@ function PanelToolbar({
     ...left.filter((action) => directLeft.includes(action) === false),
     ...right.slice(0, right.length - fits.right),
   ];
-  const openOverflowMenu = (rect) => {
+  const openOverflowMenu = (rect: DOMRect) => {
     setMenu({
       x: Math.max(4, rect.right - 188),
       y: rect.bottom + 4,
@@ -82,13 +110,13 @@ function PanelToolbar({
               shortcut: action.active === true ? '✓' : '',
               disabled: action.disabled === true,
               active: typeof action.active === 'boolean' ? action.active : undefined,
-              run: () => action.onClick(),
+              run: () => action.onClick?.(),
               ariaKeyShortcuts: action.ariaKeyShortcuts,
             },
       ),
     });
   };
-  const renderAction = (action) => (
+  const renderAction = (action: ToolbarActionLike) => (
     <ToolbarButton
       key={action.id}
       icon={action.icon}

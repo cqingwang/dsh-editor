@@ -29,7 +29,7 @@ test('selection-only Find and Replace remain executable without context-menu dup
 
 test('selection-only precondition requires both a symbol query and non-empty selection', () => {
   assert.match(group, /const findSelectionPrecondition = `dshEditorFindSelectionAvailable\$\{groupId\}`/);
-  assert.match(group, /editor\.createContextKey\?\.\(findSelectionPrecondition, false\)/);
+  assert.match(group, /editor\.createContextKey(?:<[^()]*>)?\(findSelectionPrecondition, false\)/);
   assert.match(group, /queryAvailable && editorFindSelectionScope\(editor\) !== null/);
 });
 

@@ -66,7 +66,7 @@ test('the persistent Find replace bar exposes an IDEA Preserve case toggle', () 
   );
   assert.match(searchEverywhere, /id: 'preserveCase'/);
   assert.match(searchEverywhere, /\.\.\.\(state\.withReplace === true\s*\? \[/);
-  assert.match(findWindow, /id='preserveCase'/);
+  assert.match(findWindow, /icon='preserveCase'/);
   assert.match(findWindow, /label=\{t\('editor\.searchPreserveCase'\)\}/);
   assert.match(findWindow, /active=\{state\.preserveCase === true\}/);
   assert.match(findWindow, /onClick=\{onTogglePreserveCase\}/);

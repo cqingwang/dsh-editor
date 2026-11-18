@@ -34,7 +34,7 @@ export interface EditorFindBarProps {
   historyValues: string[];
   onFindChange: (value: string) => void;
   onReplaceChange: (value: string) => void;
-  onOpenHistory: (event: React.MouseEvent<HTMLElement>, kind: 'query' | 'replace') => void;
+  onOpenHistory: (event: React.SyntheticEvent<HTMLElement>, kind: 'query' | 'replace') => void;
   onSelectHistory: (value: string) => void;
   onCloseHistory: () => void;
   onJump: (direction: number) => void;
@@ -164,7 +164,7 @@ function EditorFindBar({
           value={state.replace}
           onChange={(event) => onReplaceChange(event.target.value)}
           onKeyDown={(event) => {
-            if (event.isComposing === true) return;
+            if (event.nativeEvent.isComposing === true) return;
             if (event.altKey === true && event.key === 'ArrowDown') {
               onOpenHistory(event, 'replace');
             } else if (event.key === 'Enter') {

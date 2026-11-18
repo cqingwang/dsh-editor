@@ -21,7 +21,7 @@ test('a block restore is undoable from the diff toolbar and ⌘Z', () => {
   const client = readClient();
   /* Monaco clears its model undo stack when the native revert edits the model;
      the plugin therefore keeps an explicit inverse. */
-  assert.match(client, /const restoreUndoRef = undoRef \?\? React\.useRef\(\[\]\);/);
+  assert.match(client, /const restoreUndoRef = undoRef \?\? React\.useRef(?:<[^>]+>)?\(\[\]\);/);
   assert.match(client, /const undoRestore = React\.useCallback\(\(\) => \{/);
   assert.match(client, /restoreUndoRef\.current\.pop\(\)/);
   assert.match(
@@ -30,7 +30,7 @@ test('a block restore is undoable from the diff toolbar and ⌘Z', () => {
   );
   assert.match(iconSource, /case 'undo':/);
   assert.match(client, /icon: 'undo',\s+label: t\('editor\.diffUndoRestore'\)/u);
-  assert.match(client, /const \[undoNotice, setUndoNotice\] = React\.useState\(null\);/);
+  assert.match(client, /const \[undoNotice, setUndoNotice\] = React\.useState(?:<[^>]+>)?\(null\);/);
   assert.match(client, /undoNotice \?\? t\(target\?\.staged === true \? 'editor\.diffRestoreHintStaged' : 'editor\.diffRestoreHint'\)/);
   assert.match(client, /event\.key\.toLowerCase\(\) === 'z'/);
   assert.match(client, /undoRestore\(\);/);
@@ -76,7 +76,7 @@ test('restore feedback and undo affordances are bilingual', () => {
 
 test('redo restores the last undone block and clears on a new restore', () => {
   const client = readClient();
-  assert.match(client, /const restoreRedoRef = redoRef \?\? React\.useRef\(\[\]\);/);
+  assert.match(client, /const restoreRedoRef = redoRef \?\? React\.useRef(?:<[^>]+>)?\(\[\]\);/);
   assert.match(client, /const redoRestore = React\.useCallback\(\(\) => \{/);
   assert.match(client, /restoreRedoRef\.current\.push\(entry\);/);
   assert.match(client, /restoreRedoRef\.current = \[\];/);
@@ -181,12 +181,12 @@ test('restore history survives switching between diff targets', () => {
   const client = readClient();
   /* The model effect no longer clears the stacks; the refs live in the
      workspace so IDEA's global undo/redo behaves the same across files. */
-  assert.match(client, /const diffUndoRef = React\.useRef\(\[\]\);/);
-  assert.match(client, /const diffRedoRef = React\.useRef\(\[\]\);/);
+  assert.match(client, /const diffUndoRef = React\.useRef(?:<[^>]+>)?\(\[\]\);/);
+  assert.match(client, /const diffRedoRef = React\.useRef(?:<[^>]+>)?\(\[\]\);/);
   assert.match(client, /undoRef: diffUndoRef,/);
   assert.match(client, /redoRef: diffRedoRef,/);
-  assert.match(client, /undoRef \?\? React\.useRef\(\[\]\)/);
-  assert.match(client, /redoRef \?\? React\.useRef\(\[\]\)/);
+  assert.match(client, /undoRef \?\? React\.useRef(?:<[^>]+>)?\(\[\]\)/);
+  assert.match(client, /redoRef \?\? React\.useRef(?:<[^>]+>)?\(\[\]\)/);
   /* Loading a different model must not reset history; a NEW restore still
      clears redo, which is standard editor semantics. */
   const modelSwap = client.slice(

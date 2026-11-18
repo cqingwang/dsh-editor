@@ -65,10 +65,10 @@ test('Commit file menu opens a read-only repository version preview', async () =
   assert.match(menu, /label: t\('editor\.openRepositoryVersionAction'\)/);
   assert.match(menu, /disabled: !revisionAvailable,[\s\S]*?run: \(\) => \{[\s\S]*?if \(revisionAvailable\) onOpenRepositoryVersion\(\{ hash: revisionHash, path \}\)/);
   assert.match(client, /const openRepositoryVersion = React\.useCallback/);
-  assert.match(client, /callGit\(\{ op: 'repositoryVersion', hash, path \}\)/);
+  assert.match(client, /callGit(?:<[^>]+>)?\(\{ op: 'repositoryVersion', hash, path \}\)/);
   assert.match(
     client,
-    /repositoryVersion: \{\s+hash: value\.hash,\s+content: value\.content,\s+binary: value\.binary === true,\s+\}/,
+    /repositoryVersion: \{[\s\S]*?hash: typeof value\.hash === 'string' \? value\.hash : '',[\s\S]*?content: typeof value\.content === 'string' \? value\.content : '',[\s\S]*?binary: value\.binary === true,[\s\S]*?\}/,
   );
   assert.match(repositoryVersionPreview, /function RepositoryVersionPreview\(/);
   assert.match(repositoryVersionPreview, /readOnly: true/);

@@ -44,7 +44,7 @@ test('the log failure banner offers a retry and suppresses the empty state', () 
     read('src/client/editor-workspace.tsx'),
     read('src/client/components/commit/CommitLogListState.tsx'),
   ].join('\n');
-  assert.match(client, /const \[logError, setLogError\] =\s+React\.useState\(null\);/);
+  assert.match(client, /const \[logError, setLogError\] =\s+React\.useState(?:<[^>]+>)?\(null\);/);
   assert.match(client, /t\('editor\.logFailed', \{\s+message: logFailure,\s+\}\)/);
   assert.match(client, /t\('editor\.logRetry'\)/);
   /* "No commits" is a statement about the repository; only say it after a

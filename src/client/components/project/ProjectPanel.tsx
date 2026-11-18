@@ -1,28 +1,144 @@
 import React from 'react';
 import { styles } from '../../ui/styles';
+import { EntryIcon } from '../ui/EntryIcon';
 import { Icon } from '../ui/Icon';
+import { ContextMenu } from '../ui/Menu';
 import { PanelToolbar } from '../ui/PanelToolbar';
 import { TreeMessage } from '../ui/TreeMessage';
 import { projectContextMenuRowAfterKeyboard } from './project-selection-model';
+import { copySearchResultText } from '../../commit';
+import { basename, callFs, splitRootLabel } from '../../editor-core';
+import { bindShiftWheelScroll, shouldShowTreeLoading } from '../../injected-css';
+import {
+  captureDroppedWorkspaceHandles,
+  dataTransferIncludesFiles,
+  formatUploadBytes,
+  projectExternalDropDirectory,
+  projectToolbarDropDirectory,
+  uploadProgressPercent,
+} from '../../project';
+import {
+  branchLabel,
+  directoryTint,
+  filterTreeRows,
+  guideKind,
+  highlightParts,
+  projectCanExpandSelection,
+  projectTreePosition,
+  projectViewDefinitions,
+  revealInTree,
+  searchEntryRows,
+  speedSearchHitRows,
+  speedSearchTarget,
+  treeNameColor,
+  treeSearchMiss,
+} from '../../terminal';
+import type { ProjectDropHandles } from '../../project';
+
 type Translate = (key: string, params?: Record<string, unknown>) => string;
 type ProjectRow = Record<string, unknown> & {
   path: string;
   kind?: string;
 };
+type ProjectCallback = (...args: unknown[]) => void;
+interface ProjectPanelGit {
+  changes?: Array<{ path?: string; status?: string; staged?: boolean }>;
+  [key: string]: unknown;
+}
+interface UploadProgress {
+  name: string;
+  index: number;
+  count: number;
+  loaded: number;
+  total: number;
+}
+interface CreateState {
+  kind?: 'file' | 'directory';
+  parent?: string;
+  value?: string;
+  template?: boolean;
+}
+interface RenameState {
+  path: string;
+  value: string;
+}
 export interface ProjectPanelProps {
   t: Translate;
   root: string;
+  home: string;
+  entries: ProjectRow[];
+  children: Record<string, ProjectRow[]>;
+  expanded: Set<string>;
   rows: ProjectRow[];
   projectRows: ProjectRow[];
+  projectView: string;
+  onProjectViewChange: (view: string) => void;
+  filteredView?: boolean;
+  supportsExpansion?: boolean;
+  emptyMessage?: string | null;
+  selectedPath: string | null;
   selection: Set<string>;
-  [key: string]: unknown;
+  hasActiveFile: boolean;
+  git: ProjectPanelGit | null;
+  loading: boolean;
+  error: string | null;
+  createState: CreateState | null;
+  onToggle: ProjectCallback;
+  onOpen: ProjectCallback;
+  onOpenEditSource: ProjectCallback;
+  onOpenPreview: (path: string) => void;
+  onSelect: ProjectCallback;
+  onOpenCreateMenu: (event?: React.MouseEvent<HTMLElement>) => void;
+  onOpenOptions: (event?: React.MouseEvent<HTMLElement>) => void;
+  optionsOpen: boolean;
+  onCreateChange: (value: string) => void;
+  onCreateCommit: ProjectCallback;
+  onCreateCancel: () => void;
+  onReveal: ProjectCallback;
+  onExpandSelected: () => void;
+  onExpandAll: () => void;
+  canCollapseAll: boolean;
+  onCollapseAll: () => void;
+  onNotify: (message: string) => void;
+  onRefresh: () => void;
+  onHide: () => void;
+  rowRefs: React.RefObject<Map<string, HTMLElement>>;
+  treeRef: React.RefObject<HTMLDivElement | null>;
+  onTreeKeyDown: React.KeyboardEventHandler<HTMLDivElement>;
+  onContextMenu: (payload: { row: ProjectRow; x: number; y: number }) => void;
+  onRootContextMenu: (payload: { x: number; y: number }) => void;
+  rootContextMenuOpen: boolean;
+  onDrop: (sources: string[], destination: string) => void;
+  onUpload: (handles: ProjectDropHandles, targetDirectory: string) => void;
+  onCancelUpload: () => void;
+  uploadBusy: boolean;
+  uploadProgress: UploadProgress | null;
+  showHidden: boolean;
+  sortMode: string;
+  manualOrder: Record<string, string[]>;
+  onManualReorder: (sources: string[], destination: string, edge: 'before' | 'after') => void;
+  foldersFirst: boolean;
+  showExcludedFiles: boolean;
+  onCycleSort: () => void;
+  onToggleHidden: () => void;
+  singleClickOpen: boolean;
+  onToggleSingleClickOpen: () => void;
+  openDirectoriesSingleClick: boolean;
+  onToggleOpenDirectoriesSingleClick: () => void;
+  compactDirectories: boolean;
+  onCreateParent: ProjectCallback;
+  onCreateTemplate: ProjectCallback;
+  renameState: RenameState | null;
+  onRenameChange: (value: string) => void;
+  onRenameCommit: () => void;
+  onRenameCancel: () => void;
+  deletedPaths: Set<string>;
+  newPaths: Set<string>;
 }
 function ProjectPanel({
   t,
   root,
   home,
-  entries,
-  children,
   expanded,
   rows,
   projectRows,
@@ -51,11 +167,9 @@ function ProjectPanel({
   onCreateCancel,
   onReveal,
   onExpandSelected,
-  onExpandAll,
   canCollapseAll,
   onCollapseAll,
   onNotify,
-  onRefresh,
   onHide,
   rowRefs,
   treeRef,
@@ -74,12 +188,8 @@ function ProjectPanel({
   onManualReorder,
   foldersFirst,
   showExcludedFiles,
-  onCycleSort,
-  onToggleHidden,
   singleClickOpen,
-  onToggleSingleClickOpen,
   openDirectoriesSingleClick,
-  onToggleOpenDirectoriesSingleClick,
   compactDirectories,
   onCreateParent,
   onCreateTemplate,
@@ -269,8 +379,6 @@ function ProjectPanel({
     });
   };
   const gitChanges = new Map((git?.changes ?? []).map((change) => [change.path, change.status]));
-  /* A directory inherits the strongest status among its descendants (IDEA aggregates colours). */
-  const directoryChanged = (path) => (git?.changes ?? []).some((change) => change.path.startsWith(`${path}/`));
   /**
    * Aggregate one directory's git state from everything below it.
    *
@@ -692,7 +800,7 @@ function ProjectPanel({
           } else if (sortMode !== 'manual') setRootDropActive(true);
         }}
         onDragLeave={(event) => {
-          if (event.currentTarget.contains(event.relatedTarget)) return;
+          if (event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget)) return;
           setRootDropActive(false);
           setExternalDropPath(null);
         }}
@@ -890,7 +998,7 @@ function ProjectPanel({
                 event.dataTransfer.dropEffect = 'move';
               }}
               onDragLeave={(event) => {
-                if (event.currentTarget.contains(event.relatedTarget)) return;
+                if (event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget)) return;
                 if (manualDrop?.path === row.path) setManualDrop(null);
                 if (externalDropPath !== null) setExternalDropPath(null);
               }}

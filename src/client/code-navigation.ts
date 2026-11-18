@@ -93,10 +93,14 @@ export function navigationPathForModel(model: { uri?: { path?: unknown } } | nul
 
 /** 把一处编辑位置收敛为历史栈可保存的纯数据。 */
 export function normalizeNavigationLocation(location: unknown): NavigationLocation | null {
-  const path = normalizeNavigationPath(location?.path);
+  const candidate =
+    location !== null && typeof location === 'object'
+      ? (location as { path?: unknown; line?: unknown; column?: unknown })
+      : {};
+  const path = normalizeNavigationPath(candidate.path);
   if (path === '') return null;
-  const line = Math.max(1, Math.floor(Number(location?.line) || 1));
-  const column = Math.max(1, Math.floor(Number(location?.column) || 1));
+  const line = Math.max(1, Math.floor(Number(candidate.line) || 1));
+  const column = Math.max(1, Math.floor(Number(candidate.column) || 1));
   return { path, line, column };
 }
 

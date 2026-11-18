@@ -2,29 +2,83 @@ import React from 'react';
 import { styles } from '../../ui/styles';
 import { CodePreviewCode } from '../commit/CodePreviewCode';
 import { MoveToPicker } from '../commit/MoveToPicker';
+import { dirname } from '../editor/editor-path-model';
 import { CompactActionBar } from '../ui/CompactActionBar';
 import { EntryIcon } from '../ui/EntryIcon';
 import { Icon } from '../ui/Icon';
 import { ContextMenu } from '../ui/Menu';
 import { ToolbarButton } from '../ui/ToolbarButton';
+import type { ToolbarActionLike } from '../ui/toolbar-model';
 import { FindScopeEditor } from './FindScopeEditor';
+import {
+  centerPreviewLineInContainer,
+  findSearchScopePresetAvailable,
+  findToolDisplayGroups,
+  findToolGroupBoundaryTarget,
+  findToolGroupId,
+  findToolGroupTarget,
+  findToolHandoffTarget,
+  findToolMenuLeft,
+  findToolMenuMaxHeight,
+  findToolMenuTop,
+  findToolNextTextGroupPath,
+  findToolOptionId,
+  findToolPathMatchesScope,
+  findToolPreviewLineParts,
+  findToolResultSummary,
+  findToolScopeModeTarget,
+  findToolTextLineStarts,
+  findToolVisibleRows,
+  hasFindToolContentQuery,
+  normalizeCustomFindScopes,
+  normalizeFindGroupBy,
+  readFileMaskHistory,
+  replaceInputAction,
+  searchEverywhereActiveOptionIds,
+  searchEverywherePreviewWindow,
+  searchEverywhereRequiresResultConfirmation,
+  searchResultContextItems,
+  suggestFileMasks,
+  useCodePreviewColorizedLines,
+  writeFileMaskHistory,
+} from '../../commit';
+import { basename, callFs } from '../../editor-core';
+import {
+  FIND_POPUP_RESIZE_DIRECTIONS,
+  findSearchOptionShortcutAction,
+  findToolReplaceAdvanceIndex,
+} from '../../find-tool';
+import { editorFindResult, highlightParts, normalizeTextSearchContextFilter, readStoredText } from '../../terminal';
+
 type Translate = (key: string, params?: Record<string, unknown>) => string;
 
 interface FindToolWindowState {
   query: string;
   replace: string;
   mode?: 'find' | 'replace';
+  index?: number;
   files?: SearchFileResult[];
   matches?: SearchTextResult[];
+  fileMask?: string;
+  caseSensitive?: boolean;
+  wholeWords?: boolean;
+  regex?: boolean;
+  preserveCase?: boolean;
+  includeExcluded?: boolean;
+  searchGeneration?: number;
+  loadedGeneration?: number;
+  replaceAdvanceRowKey?: string | null;
   [key: string]: unknown;
 }
 
 interface SearchFileResult {
+  kind?: 'file';
   path: string;
   [key: string]: unknown;
 }
 
 interface SearchTextResult {
+  kind?: 'text';
   path: string;
   line: number;
   column: number;
@@ -34,6 +88,8 @@ interface SearchTextResult {
 interface FindCustomScope {
   id: string;
   name?: string;
+  includePatterns?: unknown;
+  excludePatterns?: unknown;
   [key: string]: unknown;
 }
 
@@ -70,7 +126,7 @@ export interface FindToolWindowProps {
   onUndoLastReplace?: () => void;
   canRedoLastReplace?: boolean;
   onRedoLastReplace?: () => void;
-  onOpenInRightSplit: (path: string, position: { line: number; column: number } | null) => void;
+  onOpenInRightSplit: (path: string, position: { path?: string; line: number; column: number } | null) => void;
   onRevealResult: (path: string) => void;
   onNotify: (message: string) => void;
   onReplaceMode: () => void;
@@ -1064,138 +1120,140 @@ function FindToolWindowView({
       });
     }
   };
-  const toolbarActions = [
-    ...(floating
-      ? []
-      : [
-          {
-            id: 'rerun',
-            icon: 'refresh',
-            label: t('editor.findRerun'),
-            disabled: !hasFindToolContentQuery(query) || state.loading === true,
-            onClick: rerunFindSearch,
-            group: 'navigate',
-            pinned: true,
-          },
-        ]),
-    {
-      id: 'undoReplace',
-      icon: 'undo',
-      label: t('editor.findUndoLastReplace'),
-      disabled: canUndoLastReplace !== true || state.replaceBusy === true,
-      onClick: onUndoLastReplace,
-      group: 'replace',
-      pinned: floating === true,
-    },
-    {
-      id: 'redoReplace',
-      icon: 'redo',
-      label: t('editor.findRedoLastReplace'),
-      disabled: canRedoLastReplace !== true || state.replaceBusy === true,
-      onClick: onRedoLastReplace,
-      group: 'replace',
-      pinned: floating === true,
-    },
-    {
-      id: 'previous',
-      icon: 'chevronUp',
-      label: t('editor.previousOccurrence'),
-      disabled: occurrences.length === 0,
-      onClick: () => onMove(-1, occurrences.length),
-      group: 'navigate',
-    },
-    {
-      id: 'next',
-      icon: 'chevronDown',
-      label: t('editor.nextOccurrence'),
-      disabled: occurrences.length === 0,
-      onClick: () => onMove(1, occurrences.length),
-      group: 'navigate',
-    },
-    ...(floating
-      ? []
-      : [
-          {
-            id: 'settings',
-            icon: 'settings',
-            label: t('editor.findSettings'),
-            onClick: onOpenSettings,
-            group: 'configure',
-            pinned: true,
-          },
-          {
-            id: 'groupBy',
-            icon: 'groupBy',
-            label: t('editor.findGroupByMenu'),
-            active: groupByMenu !== null,
-            onClick: openGroupByMenu,
-            ariaHasPopup: 'menu',
-            ariaExpanded: groupByMenu !== null,
-            group: 'filter',
-            pinned: true,
-          },
-        ]),
-    {
-      id: 'expand',
-      icon: 'expand',
-      label: t('editor.expandAll'),
-      disabled: collapsedFiles.size === 0,
-      onClick: () => setCollapsedFiles(new Set()),
-      group: 'result',
-    },
-    {
-      id: 'collapse',
-      icon: 'collapse',
-      label: t('editor.collapseAll'),
-      disabled: groups.length === 0 || collapsedFiles.size >= groups.length,
-      onClick: () => setCollapsedFiles(new Set(groups.map((group) => group.path))),
-      group: 'result',
-    },
-    {
-      id: 'preview',
-      icon: 'preview',
-      label: t('editor.findToolPreviewSource'),
-      active: previewOpen,
-      onClick: () => setPreviewOpen((value) => !value),
-      group: 'result',
-      pinned: !floating,
-    },
-    {
-      id: 'filterSearch',
-      icon: 'filter',
-      label: t('editor.findFilterResults'),
-      active: filterMenu !== null,
-      onClick: openFilterMenu,
-      ariaHasPopup: 'menu',
-      ariaExpanded: filterMenu !== null,
-      group: 'filter',
-      pinned: true,
-    },
-    {
-      id: 'pin',
-      icon: 'pin',
-      label: pinned ? t('editor.findUnpinWindow') : t('editor.findPinWindow'),
-      active: pinned,
-      onClick: togglePinned,
-      group: 'window',
-      pinned: true,
-    },
-    {
-      id: 'include',
-      icon: 'project',
-      label: t('editor.includeNonProjectItems'),
-      active: state.includeExcluded === true,
-      onClick: onToggleIncludeExcluded,
-      group: 'search',
-    },
-    {
-      id: 'hide',
-      icon: 'close',
-      label: t('editor.findToolHide'),
-      onClick: onClose,
-      group: 'close',
-    },
-  ].filter((action) => floating || action.id !== 'pin');
+  const toolbarActions = (
+    [
+      ...(floating
+        ? []
+        : [
+            {
+              id: 'rerun',
+              icon: 'refresh',
+              label: t('editor.findRerun'),
+              disabled: !hasFindToolContentQuery(query) || state.loading === true,
+              onClick: rerunFindSearch,
+              group: 'navigate',
+              pinned: true,
+            },
+          ]),
+      {
+        id: 'undoReplace',
+        icon: 'undo',
+        label: t('editor.findUndoLastReplace'),
+        disabled: canUndoLastReplace !== true || state.replaceBusy === true,
+        onClick: onUndoLastReplace,
+        group: 'replace',
+        pinned: floating === true,
+      },
+      {
+        id: 'redoReplace',
+        icon: 'redo',
+        label: t('editor.findRedoLastReplace'),
+        disabled: canRedoLastReplace !== true || state.replaceBusy === true,
+        onClick: onRedoLastReplace,
+        group: 'replace',
+        pinned: floating === true,
+      },
+      {
+        id: 'previous',
+        icon: 'chevronUp',
+        label: t('editor.previousOccurrence'),
+        disabled: occurrences.length === 0,
+        onClick: () => onMove(-1, occurrences.length),
+        group: 'navigate',
+      },
+      {
+        id: 'next',
+        icon: 'chevronDown',
+        label: t('editor.nextOccurrence'),
+        disabled: occurrences.length === 0,
+        onClick: () => onMove(1, occurrences.length),
+        group: 'navigate',
+      },
+      ...(floating
+        ? []
+        : [
+            {
+              id: 'settings',
+              icon: 'settings',
+              label: t('editor.findSettings'),
+              onClick: onOpenSettings,
+              group: 'configure',
+              pinned: true,
+            },
+            {
+              id: 'groupBy',
+              icon: 'groupBy',
+              label: t('editor.findGroupByMenu'),
+              active: groupByMenu !== null,
+              onClick: openGroupByMenu,
+              ariaHasPopup: 'menu',
+              ariaExpanded: groupByMenu !== null,
+              group: 'filter',
+              pinned: true,
+            },
+          ]),
+      {
+        id: 'expand',
+        icon: 'expand',
+        label: t('editor.expandAll'),
+        disabled: collapsedFiles.size === 0,
+        onClick: () => setCollapsedFiles(new Set()),
+        group: 'result',
+      },
+      {
+        id: 'collapse',
+        icon: 'collapse',
+        label: t('editor.collapseAll'),
+        disabled: groups.length === 0 || collapsedFiles.size >= groups.length,
+        onClick: () => setCollapsedFiles(new Set(groups.map((group) => group.path))),
+        group: 'result',
+      },
+      {
+        id: 'preview',
+        icon: 'preview',
+        label: t('editor.findToolPreviewSource'),
+        active: previewOpen,
+        onClick: () => setPreviewOpen((value) => !value),
+        group: 'result',
+        pinned: !floating,
+      },
+      {
+        id: 'filterSearch',
+        icon: 'filter',
+        label: t('editor.findFilterResults'),
+        active: filterMenu !== null,
+        onClick: openFilterMenu,
+        ariaHasPopup: 'menu',
+        ariaExpanded: filterMenu !== null,
+        group: 'filter',
+        pinned: true,
+      },
+      {
+        id: 'pin',
+        icon: 'pin',
+        label: pinned ? t('editor.findUnpinWindow') : t('editor.findPinWindow'),
+        active: pinned,
+        onClick: togglePinned,
+        group: 'window',
+        pinned: true,
+      },
+      {
+        id: 'include',
+        icon: 'project',
+        label: t('editor.includeNonProjectItems'),
+        active: state.includeExcluded === true,
+        onClick: onToggleIncludeExcluded,
+        group: 'search',
+      },
+      {
+        id: 'hide',
+        icon: 'close',
+        label: t('editor.findToolHide'),
+        onClick: onClose,
+        group: 'close',
+      },
+    ] as unknown as ToolbarActionLike[]
+  ).filter((action) => floating || action.id !== 'pin');
   const popupHeaderActions = toolbarActions.filter(
     (action) =>
       action.id === 'filterSearch' ||
@@ -1298,7 +1356,7 @@ function FindToolWindowView({
         setPreviewState({
           loading: false,
           path: active.path,
-          content: value?.content ?? '',
+          content: typeof value?.content === 'string' ? value.content : '',
           line: active.line ?? 1,
           error: null,
         });
@@ -1383,8 +1441,8 @@ function FindToolWindowView({
         {part.text}
       </span>
     ));
-  const popupResizeHandleStyle = (direction) => {
-    const base = {
+  const popupResizeHandleStyle = (direction: string): React.CSSProperties => {
+    const base: React.CSSProperties = {
       position: 'absolute',
       zIndex: 20,
       touchAction: 'none',
@@ -1758,7 +1816,6 @@ function FindToolWindowView({
             <span>{t('editor.findNewLine')}</span>
           </label>
           <ToolbarButton
-            id='preserveCase'
             icon='preserveCase'
             label={t('editor.searchPreserveCase')}
             active={state.preserveCase === true}
@@ -1931,7 +1988,10 @@ function FindToolWindowView({
           <div
             ref={listRef}
             id={FIND_TOOL_LISTBOX_ID}
-            style={styles.findToolList}
+            style={{
+              ...styles.findToolList,
+              ...(occurrences.length === 0 ? styles.findToolListEmpty : null),
+            }}
             role='listbox'
             aria-label={t('editor.findInFilesAction')}
             aria-activedescendant={active === null ? undefined : findToolOptionId(active.rowKey)}
@@ -2452,7 +2512,7 @@ function FindToolWindowView({
           onSave={(nextScopes, nextSelectedId) => {
             const normalized =
               typeof onCustomScopesChange === 'function'
-                ? onCustomScopesChange(nextScopes)
+                ? onCustomScopesChange(nextScopes as unknown as FindCustomScope[])
                 : normalizeCustomFindScopes(nextScopes);
             const savedId = normalized.some((scope) => scope.id === nextSelectedId)
               ? nextSelectedId

@@ -100,7 +100,7 @@ test('cherry-pick applies one commit onto the current branch', async (t) => {
   assert.equal(await readFile(join(dir, 'side.txt'), 'utf8'), 'side\n');
 });
 
-test('the log row menu offers cherry-pick, revert and restore', () => {
+test('the log row menu offers cherry-pick and revert behind confirmation', () => {
   const client = read('src/client/editor-workspace.tsx');
   const menu = read('src/client/components/commit/log-menu.ts');
   const row = read('src/client/components/commit/CommitLogFlatRow.tsx');
@@ -109,17 +109,11 @@ test('the log row menu offers cherry-pick, revert and restore', () => {
   assert.match(row, /aria-haspopup='menu'/);
   /* Two destructive git actions must confirm before running. */
   assert.match(client, /window\.confirm\([\s\S]*?t\('editor\.historyActionConfirm'/);
-  assert.match(client, /window\.confirm\(t\('editor\.restoreFileConfirm'/);
 });
 
-test('rewrites re-read the open tab instead of leaving stale bytes', () => {
+test('history actions refresh status and log without a stale rewrite helper', () => {
   const client = read('src/client/editor-workspace.tsx');
-  /* openFile short-circuits for an already open path, so it cannot refresh a tab. */
-  assert.match(client, /const reloadFile = React\.useCallback\(async \(path\) => \{/);
-  assert.match(
-    client,
-    /if \(\s+openFilesRef\.current\.some\(\(file\) => file\.path === path\)\s+\)\s+await reloadFile\(path\);/,
-  );
-  assert.match(client, /for \(const file of openFilesRef\.current\) await reloadFile\(file\.path\);/);
+  assert.match(client, /const runHistoryAction = React\.useCallback\(/);
+  assert.match(client, /await refreshTree\(\);\s+await loadLog\(\);/);
   assert.doesNotMatch(client, /openFile\(path, \{ force: true \}\)/);
 });

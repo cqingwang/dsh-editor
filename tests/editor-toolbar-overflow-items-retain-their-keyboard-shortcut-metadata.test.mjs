@@ -6,9 +6,9 @@ import { compactActionBarSource, panelToolbarSource } from './ui-sources.mjs';
 const source = (await readFile(new URL('../src/client/components/ui/Menu.tsx', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
 
 test('toolbar overflow items retain their keyboard shortcut metadata', () => {
-  assert.match(panelToolbarSource, /run: \(\) => action\.onClick\(\),\s+ariaKeyShortcuts: action\.ariaKeyShortcuts,/);
+  assert.match(panelToolbarSource, /run: \(\) => action\.onClick\?\.\(\),\s+ariaKeyShortcuts: action\.ariaKeyShortcuts,/);
 
-  assert.match(compactActionBarSource, /run: \(\) => action\.onClick\(\),\s+ariaKeyShortcuts: action\.ariaKeyShortcuts,/);
+  assert.match(compactActionBarSource, /run: \(\) => action\.onClick\?\.\(\),\s+ariaKeyShortcuts: action\.ariaKeyShortcuts,/);
   assert.match(compactActionBarSource, /onClick=\{action\.onClick\}[\s\S]*?ariaKeyShortcuts=\{action\.ariaKeyShortcuts\}/);
 });
 

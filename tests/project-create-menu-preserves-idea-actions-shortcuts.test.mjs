@@ -126,8 +126,7 @@ test('editor workspace reuses the extracted Project menu model', async () => {
   const build = await read('scripts/build-client.mjs');
   const client = await read('lib/client.js');
 
-  assert.match(workspace, /declare const projectCreateMenu:/u);
-  assert.match(workspace, /declare const projectOptionsMenu:/u);
+  assert.match(workspace, /import \{ projectCreateMenu, projectOptionsMenu \} from '\.\/components\/project\/project-options-menu';/u);
   assert.match(workspace, /projectCreateMenu\(\{/u);
   assert.match(workspace, /projectOptionsMenu\(\{/u);
   const createHandler = workspace.slice(

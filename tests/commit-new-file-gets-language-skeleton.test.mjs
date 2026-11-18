@@ -59,7 +59,7 @@ test('creating a file writes the skeleton, and the toggle can suppress it', () =
   assert.match(create, /if \(\s+createState\.kind === 'file' &&\s+createState\.template !== false\s+\)/);
   assert.match(create, /const skeleton = templateFor\(name\);/);
   /* The file exists first: a template write failure must not mean "no file". */
-  assert.match(create, /await callFs\(\{ op: 'create', path, kind: createState\.kind \}\);/);
+  assert.match(create, /await callFs(?:<[^>]+>)?\(\{ op: 'create', path, kind: createState\.kind \}\);/);
   assert.match(create, /op: 'write',[\s\S]*?path,[\s\S]*?content: skeleton,[\s\S]*?force: true,[\s\S]*?create: true,/);
   /* Templates are ON by default, the way IDEA opens the dialog. */
   assert.match(source, /setCreateState\(\{\s+kind,\s+parent,\s+value: '',\s+template: true,\s+\}\);/);
@@ -74,7 +74,7 @@ test('the destination list comes from the host, not the expanded rows', () => {
     source.indexOf('const openMoveTo = React.useCallback('),
     source.indexOf("/* IDEA's project-tree context menu"),
   );
-  assert.match(open, /await callFs\(\{ op: 'directories' \}\)/);
+  assert.match(open, /await callFs(?:<[^>]+>)?\(\{ op: 'directories' \}\)/);
   assert.doesNotMatch(open, /rows\.filter/);
   /* The current parent is carried so the picker can mark "already there". */
   assert.match(open, /parent,/);

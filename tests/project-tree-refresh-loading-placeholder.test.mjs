@@ -48,6 +48,6 @@ test('a workspace switch shows the placeholder again', () => {
 });
 
 test('rowsRef mirrors the project tree rows for the loader', () => {
-  assert.match(workspaceSource, /const rowsRef = React\.useRef\(\[\]\);/);
+  assert.match(workspaceSource, /const rowsRef = React\.useRef(?:<[^>]+>)?\(\[\]\);/);
   assert.match(workspaceSource, /rowsRef\.current = projectRows;/);
 });

@@ -42,7 +42,7 @@ test('Diff local availability is cancelled and keyed by the current target path'
   const diff = diffPreview();
   const start = diff.indexOf("if (typeof target?.path !== 'string' || target.path === '') {");
   const block = diff.slice(start, diff.indexOf('const diffToolbarRef', start));
-  assert.match(block, /callFs\(\{\s+op: 'exists',\s+paths: \[target\.path\],\s+\}\)/u);
+  assert.match(block, /callFs(?:<[^>]+>)?\(\{\s+op: 'exists',\s+paths: \[target\.path\],\s+\}\)/u);
   assert.match(block, /if \(cancelled\) return;/);
   assert.match(block, /\}, \[target\?\.path\]\);/);
 });

@@ -1,5 +1,6 @@
 import React from 'react';
 import { styles } from '../../ui/styles';
+import { loadXterm } from '../../find-tool';
 
 export interface MeasuringScreenProps {
   fontSize: number;

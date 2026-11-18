@@ -1,66 +1,14 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
-import { transformSync } from 'esbuild';
+
+import { transpileTypeScriptFunction } from './ts-source.mjs';
 
 const source = [
   await readFile(new URL('../src/client/find-tool.ts', import.meta.url), 'utf8'),
   await readFile(new URL('../src/client/components/terminal/TerminalPanel.tsx', import.meta.url), 'utf8'),
   await readFile(new URL('../src/client/locales.ts', import.meta.url), 'utf8'),
 ].join('\n');
-
-function extractFunction(name) {
-  const start = source.indexOf(`function ${name}(`);
-  assert.notEqual(start, -1, `${name} is missing`);
-  let paramsDepth = 0;
-  let paramsEnd = -1;
-  for (let index = source.indexOf('(', start); index < source.length; index += 1) {
-    if (source[index] === '(') paramsDepth += 1;
-    if (source[index] === ')') {
-      paramsDepth -= 1;
-      if (paramsDepth === 0) {
-        paramsEnd = index;
-        break;
-      }
-    }
-  }
-  assert.notEqual(paramsEnd, -1, `${name} has no parameter list`);
-  const bodyStart = source.indexOf('{', paramsEnd);
-  assert.ok(bodyStart > 1, `${name} has no function body`);
-  let depth = 0;
-  for (let index = bodyStart; index < source.length; index += 1) {
-    const current = source[index];
-    const next = source[index + 1];
-    if (current === '/' && next === '/') {
-      index = source.indexOf('\n', index + 2);
-      if (index < 0) break;
-      continue;
-    }
-    if (current === '/' && next === '*') {
-      index = source.indexOf('*/', index + 2);
-      if (index < 0) break;
-      index += 1;
-      continue;
-    }
-    if (current === '\'' || current === '"' || current === '`') {
-      const quote = current;
-      index += 1;
-      while (index < source.length && source[index] !== quote) {
-        if (source[index] === '\\') index += 1;
-        index += 1;
-      }
-      continue;
-    }
-    if (current === '{') depth += 1;
-    if (current === '}') depth -= 1;
-    if (depth === 0) return source.slice(start, index + 1);
-  }
-  assert.fail(`${name} has no closing brace`);
-}
-
-function stripTypeScriptTypes(text) {
-  return transformSync(text, { loader: 'ts', format: 'esm', target: 'es2022' }).code;
-}
 
 function bufferWith(lines) {
   return {
@@ -74,9 +22,9 @@ function bufferWith(lines) {
 test('terminal block helpers find, move across, and expand contiguous non-empty ranges', () => {
   const factory = new Function(
     [
-      stripTypeScriptTypes(extractFunction('terminalBlockRangeAt')),
-      stripTypeScriptTypes(extractFunction('terminalAdjacentBlockRange')),
-      stripTypeScriptTypes(extractFunction('terminalExpandBlockRange')),
+      transpileTypeScriptFunction(source, 'terminalBlockRangeAt'),
+      transpileTypeScriptFunction(source, 'terminalAdjacentBlockRange'),
+      transpileTypeScriptFunction(source, 'terminalExpandBlockRange'),
       'return { terminalBlockRangeAt, terminalAdjacentBlockRange, terminalExpandBlockRange };',
     ].join('\n'),
   )();
@@ -90,12 +38,12 @@ test('terminal block helpers find, move across, and expand contiguous non-empty 
 test('Terminal menu wires block above/below and expansion through selectLines', () => {
   const factory = new Function(
     [
-      stripTypeScriptTypes(extractFunction('terminalPromptStartRow')),
-      stripTypeScriptTypes(extractFunction('terminalBlockRangeAt')),
-      stripTypeScriptTypes(extractFunction('terminalSelectionBlockRange')),
-      stripTypeScriptTypes(extractFunction('terminalAdjacentBlockRange')),
-      stripTypeScriptTypes(extractFunction('terminalExpandBlockRange')),
-      stripTypeScriptTypes(extractFunction('terminalMenuModel')),
+      transpileTypeScriptFunction(source, 'terminalPromptStartRow'),
+      transpileTypeScriptFunction(source, 'terminalBlockRangeAt'),
+      transpileTypeScriptFunction(source, 'terminalSelectionBlockRange'),
+      transpileTypeScriptFunction(source, 'terminalAdjacentBlockRange'),
+      transpileTypeScriptFunction(source, 'terminalExpandBlockRange'),
+      transpileTypeScriptFunction(source, 'terminalMenuModel'),
       'return terminalMenuModel;',
     ].join('\n'),
   )();

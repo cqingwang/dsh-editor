@@ -26,7 +26,10 @@ test('production browser modules are TypeScript-only', async () => {
   const names = await readdir(partsDir);
   const recursiveNames = await readdir(partsDir, { recursive: true });
   const shippingModules = names
-    .filter((name) => name.endsWith('.js') || name.endsWith('.ts') || name.endsWith('.tsx'))
+    .filter(
+      (name) =>
+        (name.endsWith('.js') || name.endsWith('.ts') || name.endsWith('.tsx')) && !name.endsWith('.d.ts'),
+    )
     .sort();
 
   assert.deepEqual(shippingModules, [...moduleOrder].sort());

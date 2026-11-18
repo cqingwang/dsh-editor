@@ -26,7 +26,7 @@ test('Search Everywhere receives the workspace replacement history', () => {
 
 test('Replace history opens from the field and the toolbar button with the same menu', () => {
   const dialog = searchEverywhere();
-  assert.match(dialog, /const \[replaceHistoryMenu, setReplaceHistoryMenu\] = React\.useState\(null\)/);
+  assert.match(dialog, /const \[replaceHistoryMenu, setReplaceHistoryMenu\] = React\.useState(?:<[^>]+>)?\(null\)/);
   assert.match(dialog, /const openReplaceHistoryMenu = \(event\) =>/);
   assert.match(dialog, /event\.altKey === true && event\.key === 'ArrowDown'/);
   assert.match(dialog, /icon: 'history'/);

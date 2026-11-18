@@ -8,6 +8,7 @@ import { loadTypeScriptModule } from './ts-source.mjs';
 const root = new URL('../', import.meta.url);
 const read = (path) => readFile(new URL(path, root), 'utf8');
 const editorCore = await read('src/client/editor-core.ts');
+const compilerOptions = JSON.parse(await read('tsconfig.client.json')).compilerOptions;
 const helpers = loadTypeScriptModule(editorCore, [
   'abbreviatePath',
   'ancestorsOf',
@@ -93,12 +94,14 @@ test('TypeScript editor-core configures Monaco diagnostics without removing synt
       typescript: {
         ModuleResolutionKind: { NodeJs: 2 },
         ModuleKind: { ESNext: 99 },
+        ScriptTarget: { ESNext: 99 },
+        JsxEmit: { ReactJSX: 4 },
         typescriptDefaults: defaults,
         javascriptDefaults: defaults,
       },
     },
   };
-  assert.equal(helpers.configureMonacoLanguageDiagnostics(monaco), true);
+  assert.equal(helpers.configureMonacoLanguageDiagnostics(monaco, compilerOptions), true);
   assert.equal(
     calls.some(
       ([kind, value]) =>
@@ -106,5 +109,11 @@ test('TypeScript editor-core configures Monaco diagnostics without removing synt
     ),
     true,
   );
+  const compiler = calls.find(([kind]) => kind === 'compiler')?.[1];
+  assert.equal(compiler.jsx, 4);
+  assert.equal(compiler.jsxImportSource, 'react');
+  assert.equal(compiler.target, 99);
+  assert.deepEqual(compiler.lib, ['ES2022', 'DOM', 'DOM.Iterable']);
+  assert.equal(compiler.downlevelIteration, true);
   assert.equal(helpers.configureMonacoLanguageDiagnostics({ languages: {} }), false);
 });

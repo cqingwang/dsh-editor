@@ -1,9 +1,13 @@
 /* diff.ts: dsh-editor Commit/Diff model module. Generated into lib/client.js by scripts/build-client.mjs. */
-interface DiffChange {
+import { dirname } from './components/editor/editor-path-model';
+import { basename } from './editor-core';
+
+export interface DiffChange {
   path: string;
   status: string;
-  stagedLines?: number;
-  unstagedLines?: number;
+  staged?: boolean;
+  stagedLines?: { additions: number; deletions: number; binary?: boolean };
+  unstagedLines?: { additions: number; deletions: number; binary?: boolean };
   [key: string]: unknown;
 }
 
@@ -13,9 +17,14 @@ interface DiffChangeBands {
   unversioned: DiffChange[];
 }
 
-interface DiffTarget {
+export interface DiffTarget {
   path: string;
-  staged: boolean;
+  staged?: boolean;
+  replaceSelection?: boolean;
+  shift?: boolean;
+  toggle?: boolean;
+  row?: HTMLElement;
+  [key: string]: unknown;
 }
 
 interface DiffFilePosition {
@@ -26,28 +35,34 @@ interface DiffFilePosition {
 interface DiffToolbarAction {
   id?: string;
   group?: string;
+  icon?: string;
+  label?: string;
+  disabled?: boolean;
+  active?: boolean;
+  run?: (...args: unknown[]) => void;
+  items?: DiffToolbarAction[];
   [key: string]: unknown;
 }
 
-interface DiffTreeFile {
-  path: string;
-  [key: string]: unknown;
-}
+export type DiffTreeFile = DiffChange;
 
-interface DiffTreeNode {
+export interface DiffTreeNode {
   name: string;
   path: string;
   directories: Map<string, DiffTreeNode>;
-  files: DiffTreeFile[];
+  files: DiffChange[];
 }
 
-interface DiffRow {
+export interface DiffRow {
   kind: 'directory' | 'file';
   path: string;
   name: string;
   depth: number;
+  parent?: string;
+  open?: boolean;
   collapseKey?: string;
   change?: DiffTreeFile;
+  changes?: DiffChange[];
 }
 
 interface DiffKeyboardEvent {
@@ -66,7 +81,7 @@ interface CombinedDiffFile {
   [key: string]: unknown;
 }
 
-function splitChanges(changes: DiffChange[]): DiffChangeBands {
+export function splitChanges(changes: DiffChange[]): DiffChangeBands {
   const staged = [];
   const unstaged = [];
   /* IDEA keeps brand-new files in their own "Unversioned Files" node. */
@@ -94,7 +109,7 @@ function splitChanges(changes: DiffChange[]): DiffChangeBands {
  * @param {boolean} [trackedOnly=false] - omit untracked files.
  * @returns {string[]} unique workspace-relative paths with working-side changes.
  */
-function stageAllTargets(changes: DiffChange[], trackedOnly = false): string[] {
+export function stageAllTargets(changes: DiffChange[], trackedOnly = false): string[] {
   const bands = splitChanges(Array.isArray(changes) ? changes : []);
   const rows = trackedOnly === true ? bands.unstaged : [...bands.unstaged, ...bands.unversioned];
   return [...new Set(rows.map((change) => change.path).filter((path) => typeof path === 'string' && path !== ''))];
@@ -110,7 +125,7 @@ function stageAllTargets(changes: DiffChange[], trackedOnly = false): string[] {
  * @param {boolean} staged - whether the current identity is the index side.
  * @returns {'staged'|'unstaged'|'unversioned'} display group.
  */
-function changeRowGroup(change: DiffChange | undefined, staged: boolean): 'staged' | 'unstaged' | 'unversioned' {
+export function changeRowGroup(change: DiffChange | undefined, staged: boolean): 'staged' | 'unstaged' | 'unversioned' {
   if (change?.status === '??') return 'unversioned';
   return staged === true ? 'staged' : 'unstaged';
 }
@@ -128,7 +143,7 @@ function changeRowGroup(change: DiffChange | undefined, staged: boolean): 'stage
  * @param {object[]} actions - ordered Diff actions.
  * @returns {number} number of leading actions that remain directly visible.
  */
-function diffDirectActionCountForWidth(width: number, fixedWidth: number, actions: DiffToolbarAction[]): number {
+export function diffDirectActionCountForWidth(width: number, fixedWidth: number, actions: DiffToolbarAction[]): number {
   const ordered = Array.isArray(actions)
     ? actions.filter((action) => action !== null && typeof action === 'object')
     : [];
@@ -160,7 +175,7 @@ function diffDirectActionCountForWidth(width: number, fixedWidth: number, action
  * @param {number} width - measured diff toolbar width.
  * @returns {'full'|'compact'|'hidden'} file navigation presentation.
  */
-function diffFileNavModeForWidth(width: number): 'full' | 'compact' | 'hidden' {
+export function diffFileNavModeForWidth(width: number): 'full' | 'compact' | 'hidden' {
   if (!Number.isFinite(width)) return 'full';
   if (width >= 224) return 'full';
   if (width >= 160) return 'compact';
@@ -176,7 +191,7 @@ function diffFileNavModeForWidth(width: number): 'full' | 'compact' | 'hidden' {
  * @param {number} width - measured diff toolbar width.
  * @returns {'paired'|'toggle'} presentation mode.
  */
-function diffViewModeControlForWidth(width: number): 'paired' | 'toggle' {
+export function diffViewModeControlForWidth(width: number): 'paired' | 'toggle' {
   if (!Number.isFinite(width)) return 'paired';
   return width >= 280 ? 'paired' : 'toggle';
 }
@@ -190,7 +205,7 @@ function diffViewModeControlForWidth(width: number): 'paired' | 'toggle' {
  * @param {boolean} included - whether the file is checked in Commit.
  * @returns {'none'|'all'|null} summary state.
  */
-function diffIncludedSummaryState(total: number, included: boolean): 'all' | 'none' | null {
+export function diffIncludedSummaryState(total: number, included: boolean): 'all' | 'none' | null {
   const count = Number(total);
   if (!Number.isFinite(count) || count <= 0) return null;
   return included === true ? 'all' : 'none';
@@ -201,7 +216,7 @@ function diffIncludedSummaryState(total: number, included: boolean): 'all' | 'no
  * @param {number} width - measured toolbar width.
  * @returns {boolean} true when the summary can be shown.
  */
-function diffSummaryVisibleForWidth(width: number): boolean {
+export function diffSummaryVisibleForWidth(width: number): boolean {
   return !Number.isFinite(width) || width >= 380;
 }
 
@@ -215,7 +230,7 @@ function diffSummaryVisibleForWidth(width: number): boolean {
  * @param {object[]} actions - ordered Diff toolbar actions.
  * @returns {Array<object|null>} actions plus group boundaries.
  */
-function groupDiffToolbarActions(actions: DiffToolbarAction[]): Array<DiffToolbarAction | null> {
+export function groupDiffToolbarActions(actions: DiffToolbarAction[]): Array<DiffToolbarAction | null> {
   const entries: Array<DiffToolbarAction | null> = [];
   let previousGroup: string | null = null;
   for (const action of Array.isArray(actions) ? actions : []) {
@@ -237,7 +252,7 @@ function groupDiffToolbarActions(actions: DiffToolbarAction[]): Array<DiffToolba
  * @param {{writable?: boolean, swapped?: boolean, locked?: boolean}|null} state - diff state.
  * @returns {boolean} true when the editable side is writable.
  */
-function diffEditingEnabled(
+export function diffEditingEnabled(
   state: { writable?: boolean; swapped?: boolean; locked?: boolean } | null | undefined,
 ): boolean {
   return state?.writable === true && state?.swapped !== true && state?.locked !== true;
@@ -254,7 +269,7 @@ function diffEditingEnabled(
  * @param {string} path - workspace-relative path.
  * @returns {boolean} true when the row still belongs to that namespace.
  */
-function listedInChangeBand(bands: DiffChangeBands | null | undefined, group: string, path: string): boolean {
+export function listedInChangeBand(bands: DiffChangeBands | null | undefined, group: string, path: string): boolean {
   if (bands === null || typeof bands !== 'object' || typeof path !== 'string') return false;
   const listed = Array.isArray(bands[group]) && bands[group].some((change) => change.path === path);
   if (listed) return true;
@@ -270,7 +285,7 @@ function listedInChangeBand(bands: DiffChangeBands | null | undefined, group: st
  * @param {number} line - one-based modified editor line.
  * @returns {number} zero-based file index, clamped to the surrounding files.
  */
-function combinedFileIndexAtLine(files: CombinedDiffFile[], line: number): number {
+export function combinedFileIndexAtLine(files: CombinedDiffFile[], line: number): number {
   const entries = Array.isArray(files) ? files : [];
   if (entries.length === 0) return 0;
   const target = Number.isFinite(Number(line)) ? Number(line) : 1;
@@ -291,7 +306,7 @@ function combinedFileIndexAtLine(files: CombinedDiffFile[], line: number): numbe
  * @param {'original'|'modified'} side - editor side.
  * @returns {{startLineNumber: number, endLineNumber: number}|null} hidden range.
  */
-function combinedFileHiddenRange(
+export function combinedFileHiddenRange(
   file: CombinedDiffFile | null | undefined,
   side: 'original' | 'modified',
 ): { startLineNumber: number; endLineNumber: number } | null {
@@ -312,7 +327,7 @@ function combinedFileHiddenRange(
  * @param {boolean} combined - whether the active target is a combined diff.
  * @returns {boolean} true only for the IDEA key binding in its valid surface.
  */
-function isCombinedFileCollapseShortcut(
+export function isCombinedFileCollapseShortcut(
   event: DiffKeyboardEvent | null | undefined,
   insideDiffPane: boolean,
   combined: boolean,
@@ -338,7 +353,7 @@ function isCombinedFileCollapseShortcut(
  * @param {boolean} popupOwnsEscape - whether a menu or Monaco popup is open.
  * @returns {boolean} true only for the unmodified idle-diff binding.
  */
-function isDiffCloseShortcut(
+export function isDiffCloseShortcut(
   event: DiffKeyboardEvent | null | undefined,
   insideDiffPane: boolean,
   popupOwnsEscape: boolean,
@@ -366,7 +381,7 @@ function isDiffCloseShortcut(
  * @param {boolean} hasActiveFile - whether Select Opened File is enabled.
  * @returns {'arm'|'reveal'|'clear'|'ignore'} chord action.
  */
-function selectOpenedChordAction(
+export function selectOpenedChordAction(
   event: DiffKeyboardEvent | null | undefined,
   armedAt: number,
   now: number,
@@ -412,7 +427,7 @@ function selectOpenedChordAction(
  * @param {'flat'|'module'|'directory'} [groupBy='directory'] - Commit tree grouping.
  * @returns {Array<{path: string, staged: boolean}>} navigable change identities.
  */
-function changeSequenceOf(changes: DiffChange[], groupBy = 'directory'): DiffTarget[] {
+export function changeSequenceOf(changes: DiffChange[], groupBy = 'directory'): DiffTarget[] {
   const bands = splitChanges(Array.isArray(changes) ? changes : []);
   const sequence = [];
   for (const group of ['staged', 'unstaged', 'unversioned']) {
@@ -431,7 +446,7 @@ function changeSequenceOf(changes: DiffChange[], groupBy = 'directory'): DiffTar
  * @param {{path?: string, staged?: boolean}|null} target - active diff target.
  * @returns {{index: number, total: number}|null} one-based position, or null.
  */
-function changePositionOf(
+export function changePositionOf(
   sequence: DiffTarget[],
   target: { path?: string; staged?: boolean } | null,
 ): DiffFilePosition | null {
@@ -454,7 +469,7 @@ function changePositionOf(
  * @param {string} query - typed text; empty means "everything".
  * @returns {object[]} matching changes, original order.
  */
-function filterChanges(changes: DiffChange[], query: string): DiffChange[] {
+export function filterChanges(changes: DiffChange[], query: string): DiffChange[] {
   const needle = typeof query === 'string' ? query.trim().toLowerCase() : '';
   if (needle === '') return Array.isArray(changes) ? changes : [];
   return (Array.isArray(changes) ? changes : []).filter(
@@ -472,7 +487,7 @@ function filterChanges(changes: DiffChange[], query: string): DiffChange[] {
  * @param {string} query - current Changes path filter.
  * @returns {Array<{path: string, staged: boolean}>} visible diff order.
  */
-function filterChangeSequence(sequence: DiffTarget[], query: string): DiffTarget[] {
+export function filterChangeSequence(sequence: DiffTarget[], query: string): DiffTarget[] {
   const entries = Array.isArray(sequence) ? sequence : [];
   const needle = typeof query === 'string' ? query.trim().toLowerCase() : '';
   if (needle === '') return entries;
@@ -489,7 +504,7 @@ function filterChangeSequence(sequence: DiffTarget[], query: string): DiffTarget
  * @param {Array<{id: string, changes: object[]}>} groups - filtered display groups.
  * @returns {Array<{path: string, staged: boolean}>} visible row identities.
  */
-function changeFilterTargets(groups: Array<{ id?: string; changes?: DiffChange[] }>): DiffTarget[] {
+export function changeFilterTargets(groups: Array<{ id?: string; changes?: DiffChange[] }>): DiffTarget[] {
   const targets: DiffTarget[] = [];
   for (const group of Array.isArray(groups) ? groups : []) {
     const staged = group?.id === 'staged';
@@ -511,7 +526,7 @@ function changeFilterTargets(groups: Array<{ id?: string; changes?: DiffChange[]
  * @param {'next'|'previous'} direction - navigation direction.
  * @returns {{path: string, staged: boolean}|null} next target.
  */
-function cycleChangeTarget(
+export function cycleChangeTarget(
   targets: DiffTarget[],
   current: DiffTarget | null,
   direction: 'next' | 'previous',
@@ -535,19 +550,19 @@ const CONFLICT_STATUS = /^(DD|AU|UD|UA|DU|AA|UU)$/u;
  * One second is IDEA's own feel: fast enough that `g` `r` reads as one
  * prefix, slow enough that a deliberate second search starts clean.
  */
-const TYPEAHEAD_RESET_MS = 1000;
+export const TYPEAHEAD_RESET_MS = 1000;
 
 /**
  * Whether one porcelain change is an unresolved conflict.
  * @param {object} change - change entry from the host.
  * @returns {boolean} true when the file needs a resolution.
  */
-function isConflict(change: { status?: unknown } | null | undefined): boolean {
+export function isConflict(change: { status?: unknown } | null | undefined): boolean {
   return typeof change?.status === 'string' && CONFLICT_STATUS.test(change.status);
 }
 
 /** Directory tree for one change group, sorted directories-first. */
-function changeTreeOf(changes: DiffChange[], depthLimit = Infinity): DiffTreeNode {
+export function changeTreeOf(changes: DiffChange[], depthLimit = Infinity): DiffTreeNode {
   const root: DiffTreeNode = { name: '', path: '', directories: new Map(), files: [] };
   /* `depthLimit` is IDEA's "Group by" choice: 0 is a single flat list, 1
          groups by module (the first path segment), Infinity by the whole path. */
@@ -581,7 +596,7 @@ function changeTreeOf(changes: DiffChange[], depthLimit = Infinity): DiffTreeNod
  * @param {string} mode - 'flat' | 'module' | 'directory'.
  * @returns {number} depth limit for {@link changeTreeOf}.
  */
-function groupingDepth(mode: string): number {
+export function groupingDepth(mode: string): number {
   if (mode === 'flat') return 0;
   if (mode === 'module') return 1;
   return Infinity;
@@ -614,7 +629,7 @@ function sortChangeTree(node: DiffTreeNode): DiffTreeNode {
  * @param {object[]} rows - accumulator.
  * @returns {object[]} visible rows.
  */
-function flattenChangeTree(
+export function flattenChangeTree(
   tree: DiffTreeNode,
   collapsed: Set<string>,
   group: string,
@@ -664,7 +679,7 @@ function flattenChangeTree(
  * @param {string} path - directory path the click landed on.
  * @returns {string[]} keys to flip, outermost first.
  */
-function collapseKeysOf(tree: DiffTreeNode | null, group: string, path: string): string[] {
+export function collapseKeysOf(tree: DiffTreeNode | null, group: string, path: string): string[] {
   const keys: string[] = [];
   if (tree === null || typeof tree !== 'object') return keys;
   const walk = (node) => {
@@ -695,7 +710,7 @@ function collapseKeysOf(tree: DiffTreeNode | null, group: string, path: string):
  * @param {string} path - workspace-relative changed file path.
  * @returns {string[]} group key first, then each directory ancestor.
  */
-function revealCollapseKeys(group: string, path: string): string[] {
+export function revealCollapseKeys(group: string, path: string): string[] {
   const keys = [`${group}:`];
   if (typeof path !== 'string' || path === '') return keys;
   const parts = path.split('/');

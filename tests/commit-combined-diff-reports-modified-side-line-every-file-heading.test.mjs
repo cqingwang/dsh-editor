@@ -67,7 +67,7 @@ test('combinedFileIndexAtLine clamps before, between and after file headings', (
 
 test('combined diff file navigation reuses the toolbar and keyboard path', () => {
   const diff = source.slice(source.indexOf('function DiffPreview('), source.indexOf('export { DiffPreview };'));
-  assert.match(diff, /const \[combinedFiles, setCombinedFiles\] = React\.useState\(\[\]\)/);
+  assert.match(diff, /const \[combinedFiles, setCombinedFiles\] = React\.useState(?:<[^>]+>)?\(\[\]\)/);
   assert.match(diff, /const \[combinedPosition, setCombinedPosition\] = React\.useState\(\{\s+index: 0,\s+total: 0,\s+\}\)/u);
   assert.match(diff, /const navigationPosition = target\?\.combined === true \? combinedPosition : filePosition;/);
   assert.match(diff, /const jumpToCombinedFile = React\.useCallback\(/);

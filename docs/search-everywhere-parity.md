@@ -283,7 +283,11 @@
   Transient popup 继续使用纵向结果/预览布局，不与 dock 分屏混用。
 - Scope mode 使用命名 `group` 与 roving tabIndex：只有当前模式进入
   Tab 顺序，`←/→` 在 Project/Directory/Scope 间循环，`Home/End`
-  跳首尾，并跳过 disabled Module；切换继续复用同一 scope 持久化与重搜路径。
+  跳首尾，并跳过 disabled Module；选中模式使用 IDEA 的灰色圆角
+  selected 背景，而不是 accent 下划线；切换继续复用同一 scope 持久化
+  与重搜路径。
+- Find 空查询和零结果状态把提示放在结果区垂直中部；有结果时恢复普通
+  列表布局，不改变结果行高度、滚动或键盘导航。
 - Source Preview 对当前 401 行窗口计算一次与 Find 同选项的 match：
   单行命中高亮实际字符，跨行 query 按行裁剪交集并合并重叠区间；
   零长度 regex、窗口外命中和普通文本不伪造高亮。

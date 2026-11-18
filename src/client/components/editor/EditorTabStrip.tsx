@@ -1,6 +1,7 @@
 import React from 'react';
 import { styles } from '../../ui/styles';
 import { MarkdownModeSwitch } from './MarkdownModeSwitch';
+import type { MarkdownMode } from './editor-document-model';
 
 type Translate = (key: string, params?: Record<string, unknown>) => string;
 
@@ -11,8 +12,8 @@ export interface EditorTabStripProps {
   openList: string;
   hiddenCount: number;
   markdownAvailable: boolean;
-  markdownMode: string;
-  onMarkdownMode: (mode: string) => void;
+  markdownMode: MarkdownMode;
+  onMarkdownMode: (mode: MarkdownMode) => void;
   onOverflow: (event: React.MouseEvent<HTMLButtonElement>) => void;
   children: React.ReactNode;
 }

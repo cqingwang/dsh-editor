@@ -1,5 +1,21 @@
 import React from 'react';
 import { styles } from '../../ui/styles';
+import {
+  createTerminalLinkProvider,
+  loadXterm,
+  readEventStream,
+  terminalMatches,
+  type TerminalEmulator,
+} from '../../find-tool';
+import {
+  appendTerminalLiveBuffer,
+  callTerminal,
+  cwdFromOsc7,
+  resetTerminalLiveBuffer,
+  takeTerminalRestoreBuffer,
+  terminalTheme,
+} from '../../terminal';
+import { currentEditorWorkspaceId, currentSessionId } from '../editor/editor-path-model';
 
 export interface TerminalFindState {
   query: string;
@@ -8,7 +24,7 @@ export interface TerminalFindState {
 
 export interface TerminalScreenProps {
   terminalId: string | null;
-  terminals: unknown[];
+  terminals?: unknown[];
   fontSize: number;
   find: TerminalFindState | null;
   onGrid?: (size: { cols: number; rows: number }) => void;
@@ -22,9 +38,22 @@ export interface TerminalScreenProps {
   focusGeneration?: number;
 }
 
+interface TerminalScreenHandlers {
+  onGrid?: (size: { cols: number; rows: number }) => void;
+  onError?: (message: string) => void;
+  onExit?: (code: number | null) => void;
+  onEmulator?: (emulator: TerminalEmulator | null) => void;
+  onInput?: (data: string) => void;
+  onTitle?: (title: string) => void;
+  onCwd?: (cwd: string) => void;
+}
+
+interface XtermFitAddon {
+  fit: () => void;
+}
+
 function TerminalScreen({
   terminalId,
-  terminals,
   fontSize,
   find,
   onGrid,
@@ -39,9 +68,9 @@ function TerminalScreen({
   getCwd,
   focusGeneration = 0,
 }: TerminalScreenProps) {
-  const hostRef = React.useRef(null);
-  const emulatorRef = React.useRef(null);
-  const fitRef = React.useRef(null);
+  const hostRef = React.useRef<HTMLDivElement | null>(null);
+  const emulatorRef = React.useRef<TerminalEmulator | null>(null);
+  const fitRef = React.useRef<XtermFitAddon | null>(null);
   const [ready, setReady] = React.useState(false);
   /* The dock is hidden by CSS rather than unmounted, so the terminal must
      reclaim the caret when it becomes visible again. */
@@ -50,7 +79,7 @@ function TerminalScreen({
     cols: 80,
     rows: 24,
   });
-  const handlersRef = React.useRef({});
+  const handlersRef = React.useRef<TerminalScreenHandlers>({});
   /* Every callback the emulator mount may call must be registered here; a new one
      that is passed in but not listed stays `undefined` and fails silently (round
      122: `onCwd` was missing, so OSC 7 never reached the terminal state). */
@@ -63,7 +92,7 @@ function TerminalScreen({
     onTitle,
     onCwd,
   };
-  const setHostNode = React.useCallback((node) => {
+  const setHostNode = React.useCallback((node: HTMLDivElement | null) => {
     hostRef.current?.__dshTerminalVisibilityObserver?.disconnect?.();
     hostRef.current = node;
     if (node === null) {

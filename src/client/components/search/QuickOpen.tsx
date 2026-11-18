@@ -2,13 +2,12 @@ import React from 'react';
 import { styles } from '../../ui/styles';
 import { EntryIcon } from '../ui/EntryIcon';
 import { GitStatusBadge } from '../ui/GitStatusBadge';
+import { basename } from '../../editor-core';
+import { dirname } from '../editor/editor-path-model';
+import { fuzzyScore } from '../../find-tool';
+import { badgeFor } from '../ui/git-change-model';
 
 type Translate = (key: string, params?: Record<string, unknown>) => string;
-
-declare function fuzzyScore(path: string, query: string): number;
-declare function badgeFor(path: string, changes: Map<string, string>): unknown;
-declare function basename(path: string): string;
-declare function dirname(path: string): string;
 
 export interface QuickOpenProps {
   t: Translate;

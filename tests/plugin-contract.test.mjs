@@ -74,13 +74,16 @@ test('host half mounts the terminal hub and its two exact routes', () => {
 });
 
 test('client half opens the terminal as a bottom dock with an ESM xterm import', () => {
-  const client = readClient();
-  assert.match(client, /import\('\/api\/dsh-editor\/xterm\/xterm\.mjs'\)/);
-  assert.match(client, /import\('\/api\/dsh-editor\/xterm\/addon-fit\.mjs'\)/);
-  assert.match(client, /styles\.dock/);
-  assert.match(client, /terminalGeneration/);
-  assert.match(client, /writeChain/);
-  assert.doesNotMatch(client, /terminalPlaceholder/);
+  const findTool = read('src/client/find-tool.ts');
+  const terminalPanel = read('src/client/components/terminal/TerminalPanel.tsx');
+  const workspace = read('src/client/editor-workspace.tsx');
+  const styles = read('src/client/ui/styles.ts');
+  assert.ok(findTool.includes("importRuntimeModule('/api/dsh-editor/xterm/xterm.mjs')"));
+  assert.ok(findTool.includes("importRuntimeModule('/api/dsh-editor/xterm/addon-fit.mjs')"));
+  assert.match(styles, /dock:\s*\{/);
+  assert.match(workspace, /terminalGeneration/);
+  assert.match(terminalPanel, /writeChain/);
+  assert.doesNotMatch(`${findTool}\n${terminalPanel}\n${workspace}\n${styles}`, /terminalPlaceholder/);
 });
 
 test('commit tool window splits staged and unstaged changes with an IDEA diff', () => {

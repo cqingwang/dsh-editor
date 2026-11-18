@@ -49,7 +49,7 @@ test('Find group ids are stable and encode path punctuation', () => {
 
 test('Find renders each text group with a keyboard-controlled roving header', () => {
   const panel = findTool();
-  assert.match(panel, /const \[focusedGroupPath, setFocusedGroupPath\] = React\.useState\(null\)/);
+  assert.match(panel, /const \[focusedGroupPath, setFocusedGroupPath\] = React\.useState(?:<[^>]+>)?\(null\)/);
   assert.match(panel, /const groupButtonRefs = React\.useRef\(new Map\(\)\)/);
   assert.match(panel, /role: 'group'/);
   assert.match(panel, /id: findToolGroupId\(group\.path\)/);

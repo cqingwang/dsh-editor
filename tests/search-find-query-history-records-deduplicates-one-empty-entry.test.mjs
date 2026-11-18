@@ -124,5 +124,5 @@ test('History replay returns keyboard ownership to the replayed field', () => {
   assert.match(searchEverywhere, /onReplaceChange\(value\);\s+window\.setTimeout\(\(\) => replaceInputRef\.current\?\.focus\?\.\(\), 0\)/u);
 
   assert.match(source, /'\[data-dsh-editor-find-input\]'\s+: '\[data-dsh-editor-find-replace-input\]'/u);
-  assert.match(source, /document\.querySelector\(selector\)\?\.focus\?\.\(\)/u);
+  assert.match(source, /document\.querySelector(?:<[^>]+>)?\(selector\)\?\.focus\?\.\(\)/u);
 });

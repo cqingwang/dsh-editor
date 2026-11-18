@@ -11,7 +11,7 @@ const inputStart = findBar.indexOf("data-dsh-editor-find-replace-input=''");
 const replacementInput = findBar.slice(inputStart, findBar.indexOf(') : null}', inputStart));
 
 test('editor replacement input submits the current Replace on Enter', () => {
-  assert.match(replacementInput, /if \(event\.isComposing === true\) return/);
+  assert.match(replacementInput, /if \(event\.nativeEvent\.isComposing === true\) return/);
   assert.match(replacementInput, /else if \(event\.key === 'Enter'\)/);
   assert.match(replacementInput, /event\.preventDefault\(\)/);
   assert.match(replacementInput, /event\.stopPropagation\(\)/);

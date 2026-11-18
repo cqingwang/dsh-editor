@@ -1,22 +1,85 @@
 import React from 'react';
+import type * as Monaco from 'monaco-editor';
 import { styles } from '../../ui/styles';
+import { EDITOR_CODE_FONT_SIZE, EDITOR_CODE_LINE_HEIGHT, EDITOR_UI_FONT } from '../editor/editor-style-model';
 import { ContextMenu } from '../ui/Menu';
+import { diffViewStateKey, transferDiffLine } from '../ui/diff-model';
 import { DiffViewModeControl } from '../ui/DiffViewModeControl';
 import { PathLabel } from '../ui/PathLabel';
 import { ToolbarButton } from '../ui/ToolbarButton';
+import { toolbarActionActive } from '../ui/toolbar-model';
+import {
+  combinedFileHiddenRange,
+  combinedFileIndexAtLine,
+  diffDirectActionCountForWidth,
+  diffEditingEnabled,
+  diffFileNavModeForWidth,
+  diffIncludedSummaryState,
+  diffSummaryVisibleForWidth,
+  diffViewModeControlForWidth,
+  groupDiffToolbarActions,
+  isCombinedFileCollapseShortcut,
+  isDiffCloseShortcut,
+} from '../../diff';
+import { callFs, callGit, ensureDiffTheme, nextDiffLoadSerial, safeLanguage } from '../../editor-core';
+import { hunkAt, lineChangeRangeMappings, readStoredText, restoreUndoStack, selectedCharChanges } from '../../terminal';
 
 type Translate = (key: string, params?: Record<string, unknown>) => string;
 type DiffCallback = (...args: unknown[]) => void;
+
+interface DiffCombinedFile {
+  path: string;
+  line?: number;
+  endLine?: number;
+  originalLine?: number;
+  originalEndLine?: number;
+  status?: string;
+  [key: string]: unknown;
+}
+
+interface DiffLoadResponse {
+  binary?: boolean;
+  missing?: boolean;
+  original?: string;
+  modified?: string;
+  files?: DiffCombinedFile[];
+}
+
+type DiffTextModel = Monaco.editor.ITextModel & {
+  __dshRestoreListener?: { dispose: () => void };
+  __dshFallbackUndo?: { dispose: () => void };
+};
 
 export interface DiffTextPosition {
   path?: string;
   line?: number;
   column?: number;
-  [key: string]: unknown;
+  index?: number;
+  total?: number;
 }
 
 export interface DiffTarget {
   path?: string;
+  staged?: boolean;
+  combined?: boolean;
+  entries?: Array<{ path?: string; staged?: boolean; status?: string }>;
+  commit?: string;
+  commitWithLocal?: string;
+  revision?: string;
+  revisionPair?: { left?: string; right?: string } | null;
+  clipboardText?: string;
+  label?: string;
+  shift?: boolean;
+  toggle?: boolean;
+  row?: HTMLElement;
+  repositoryVersion?: {
+    hash?: string;
+    path?: string;
+    localExists?: boolean;
+    localDirExists?: boolean;
+    content?: string;
+    binary?: boolean;
+  } | null;
   [key: string]: unknown;
 }
 
@@ -29,9 +92,9 @@ export interface DiffPreviewProps {
   onRestored?: DiffCallback;
   onStatus?: DiffCallback;
   onNotice?: DiffCallback;
-  onNavigate?: DiffCallback;
-  undoRef?: React.MutableRefObject<unknown>;
-  redoRef?: React.MutableRefObject<unknown>;
+  onNavigate?: (target: DiffTarget) => void;
+  undoRef?: React.MutableRefObject<unknown[]>;
+  redoRef?: React.MutableRefObject<unknown[]>;
   viewStatesRef?: React.MutableRefObject<Map<string, Record<string, unknown>>>;
   searchInChangesRef?: React.MutableRefObject<(() => void) | null> | null;
   filePosition?: DiffTextPosition | null;
@@ -113,13 +176,13 @@ function DiffPreview({
     index: 0,
     total: 0,
   });
-  const [combinedFiles, setCombinedFiles] = React.useState([]);
+  const [combinedFiles, setCombinedFiles] = React.useState<DiffCombinedFile[]>([]);
   const [combinedPosition, setCombinedPosition] = React.useState({
     index: 0,
     total: 0,
   });
-  const [collapsedCombinedFiles, setCollapsedCombinedFiles] = React.useState(() => new Set());
-  const combinedFilesRef = React.useRef([]);
+  const [collapsedCombinedFiles, setCollapsedCombinedFiles] = React.useState<Set<number>>(() => new Set());
+  const combinedFilesRef = React.useRef<DiffCombinedFile[]>([]);
   const [reloadGeneration, setReloadGeneration] = React.useState(0);
   /* When the modified side has a real selection Monaco also offers a native
      "Revert Selection" gutter button. Mirror that state in the toolbar so a
@@ -815,7 +878,7 @@ function DiffPreview({
     return () => {
       focusDisposables.forEach((disposable) => disposable.dispose?.());
       captureDiffViewState(diffViewKeyRef.current);
-      const models = diff.getModel();
+      const models = diff.getModel() as { original: DiffTextModel | null; modified: DiffTextModel | null } | null;
       /* Same ordering rule as the swap below: the widget must let go of the
          models before they are disposed, or Monaco logs a warning per model. */
       diff.setModel(null);
@@ -1000,7 +1063,7 @@ function DiffPreview({
                   staged: target.staged,
                 };
     const diffAbort = new AbortController();
-    callGit(request, {
+    callGit<DiffLoadResponse>(request, {
       signal: diffAbort.signal,
     })
       .then((value) => {
@@ -1011,7 +1074,7 @@ function DiffPreview({
           setState({
             binary: true,
             error: null,
-            missing: value.missing,
+            missing: value.missing === true,
           });
           return;
         }
@@ -1022,7 +1085,7 @@ function DiffPreview({
               ...file,
               line: Number(file.line),
             }));
-          combinedFilesRef.current = files;
+          combinedFilesRef.current = files as DiffCombinedFile[];
           setCombinedFiles(files);
           setCombinedPosition(
             files.length === 0
@@ -1050,17 +1113,17 @@ function DiffPreview({
          model is still being disposed makes Monaco reject the SECOND model
          (`ModelService: Cannot add model because it already exists`). */
         const modelPath = target.combined === true ? 'combined-diff.txt' : target.path;
-        const base = `file:///${modelPath.split('/').map(encodeURIComponent).join('/')}?load=${String(++diffLoadSerial)}`;
+        const base = `file:///${modelPath.split('/').map(encodeURIComponent).join('/')}?load=${String(nextDiffLoadSerial())}`;
         const original = monaco.editor.createModel(
-          value.original,
+          typeof value.original === 'string' ? value.original : '',
           safeLanguage(monaco, modelPath),
           monaco.Uri.parse(`${base}?side=original&${tag}`),
         );
         const modified = monaco.editor.createModel(
-          value.modified,
+          typeof value.modified === 'string' ? value.modified : '',
           safeLanguage(monaco, modelPath),
           monaco.Uri.parse(`${base}?side=modified&${tag}`),
-        );
+        ) as DiffTextModel;
         diffModelsRef.current = {
           original,
           modified,
@@ -1078,8 +1141,8 @@ function DiffPreview({
               : target.staged === true
                 ? 'index'
                 : 'worktree',
-          original: value.original,
-          modified: value.modified,
+          original: typeof value.original === 'string' ? value.original : '',
+          modified: typeof value.modified === 'string' ? value.modified : '',
         };
         const previous = diff.getModel();
         /* Detach BEFORE disposing: a model the widget still holds logs
@@ -1120,7 +1183,7 @@ function DiffPreview({
         setState({
           binary: false,
           error: null,
-          missing: value.missing,
+          missing: value.missing === true,
         });
         /* The widget computes the hunks asynchronously; `revealFirstDiff` waits
          for that pass, so reading `getLineChanges()` after it is safe. The
@@ -1416,7 +1479,7 @@ function DiffPreview({
    * @returns {void}
    */
   const openHunkMenu = React.useCallback(
-    (event) => {
+    (event?: React.SyntheticEvent<HTMLElement>) => {
       const changes = diffRef.current?.getLineChanges?.() ?? [];
       if (changes.length === 0) return;
       const rect = event?.currentTarget?.getBoundingClientRect?.();
@@ -1562,7 +1625,7 @@ function DiffPreview({
       ) {
         event.preventDefault();
         event.stopPropagation();
-        onOpenLocal(target);
+        onOpenLocal(target.path);
         return;
       }
       /* ⌘Z is IDEA's "take the block restore back". The diff surface owns
@@ -1797,7 +1860,7 @@ function DiffPreview({
             shortcut: 'F4',
             disabled: localPathAvailable === false,
             run: () => {
-              if (localPathAvailable !== false) onOpenLocal(target);
+              if (localPathAvailable !== false) onOpenLocal(target.path);
             },
           },
         ]

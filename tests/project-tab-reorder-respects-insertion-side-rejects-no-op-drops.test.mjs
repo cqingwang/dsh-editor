@@ -22,8 +22,8 @@ test('tab reorder respects the insertion side and rejects no-op drops', () => {
 });
 
 test('editor tabs expose IDE-style drag state and insertion side', () => {
-  assert.match(source, /const \[editorTabDrag, setEditorTabDrag\] = React\.useState\(null\)/);
-  assert.match(source, /const \[editorTabDrop, setEditorTabDrop\] = React\.useState\(null\)/);
+  assert.match(source, /const \[editorTabDrag, setEditorTabDrag\] = React\.useState(?:<[^>]+>)?\(null\)/);
+  assert.match(source, /const \[editorTabDrop, setEditorTabDrop\] = React\.useState(?:<[^>]+>)?\(null\)/);
   assert.match(source, /const editorTabDragRef = React\.useRef\(null\)/);
   assert.match(source, /const beginEditorTabDrag = React\.useCallback\(/);
   assert.match(source, /const dragOverEditorTab = React\.useCallback\(/);

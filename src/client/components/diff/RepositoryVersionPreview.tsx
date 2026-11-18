@@ -3,13 +3,8 @@ import type * as Monaco from 'monaco-editor';
 import { styles } from '../../ui/styles';
 import { PathLabel } from '../ui/PathLabel';
 import { ToolbarButton } from '../ui/ToolbarButton';
-
-declare const EDITOR_CODE_FONT_SIZE: number;
-declare const EDITOR_CODE_LINE_HEIGHT: number;
-declare const EDITOR_UI_FONT: string;
-declare function basename(path: string): string;
-declare function detectTheme(): string;
-declare function safeLanguage(monaco: typeof Monaco, path: string): string;
+import { EDITOR_CODE_FONT_SIZE, EDITOR_CODE_LINE_HEIGHT, EDITOR_UI_FONT } from '../editor/editor-style-model';
+import { basename, detectTheme, safeLanguage } from '../../editor-core';
 
 type Translate = (key: string, params?: Record<string, unknown>) => string;
 
