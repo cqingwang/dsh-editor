@@ -11,6 +11,17 @@ import { gitLog } from '../lib/index.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const read = (path) => readFileSync(join(root, path), 'utf8');
+const clientSource = () =>
+  [
+    read('src/client/editor-workspace.tsx'),
+    read('src/client/components/project/ProjectPanel.tsx'),
+    read('src/client/components/commit/CommitLog.tsx'),
+    read('src/client/components/commit/CommitLogListState.tsx'),
+    read('src/client/components/terminal/TerminalPanel.tsx'),
+    read('src/client/terminal.ts'),
+    read('src/client/find-tool.ts'),
+    read('src/client/locales.ts'),
+  ].join('\n');
 
 /** A repository with five commits alternating between two authors. */
 async function fixture() {
@@ -76,10 +87,10 @@ test('log clamps a bad skip to zero instead of failing', async (t) => {
 });
 
 test('commit asks before leaving unversioned files behind', () => {
-  const client = read('src/client/components/project/ProjectPanel.tsx') + '\n' + read('lib/client.js');
+  const client = clientSource();
   assert.match(
     client,
-    /const untrackedLeft = \(git\?\.changes \?\? \[\]\)\.filter\(\(change\) => change\.status === '\?\?' && !paths\.includes\(change\.path\)\);/,
+    /const untrackedLeft = \(\s*git\?\.changes \?\? \[\],?\s*\)\.filter\(\(change\) => change\.status === '\?\?' && !paths\.includes\(change\.path\)\);/,
   );
   assert.match(client, /!window\.confirm\(t\('editor\.commitUntracked', \{ count: untrackedLeft\.length \}\)\)/);
   /* The reminder must not block a commit that the user confirms. */
@@ -87,14 +98,14 @@ test('commit asks before leaving unversioned files behind', () => {
 });
 
 test('the log pages in on scroll and shows its end', () => {
-  const client = read('src/client/components/project/ProjectPanel.tsx') + '\n' + read('lib/client.js');
+  const client = clientSource();
   assert.match(client, /const LOG_PAGE = 60;/);
-  assert.match(client, /op: 'log', limit: LOG_PAGE, skip: commits\.length, author: logAuthorRef\.current/);
+  assert.match(client, /op: 'log',\s*limit: LOG_PAGE,\s*skip: commits\.length,\s*author: logAuthorRef\.current/);
   assert.match(client, /if \(page\.length < LOG_PAGE\) setLogExhausted\(true\);/);
-  assert.match(client, /onScroll: \(event\) => \{/);
+  assert.match(client, /onScroll=\{\(event\) => \{/);
   assert.match(client, /t\('editor\.logEnd'\)/);
   /* The flag is declared before loadLog, which resets it (TDZ). */
-  const stateAt = client.indexOf('const [logExhausted, setLogExhausted]');
+  const stateAt = client.indexOf('const [\n    logExhausted,');
   const loadAt = client.indexOf('const loadLog = React.useCallback');
   assert.ok(stateAt > 0 && stateAt < loadAt);
 });
@@ -122,28 +133,28 @@ test('a collapsed directory still shows the strongest descendant state', () => {
 });
 
 test('terminal clipboard shortcuts use the localized multi-line prompt', () => {
-  const client = read('src/client/components/project/ProjectPanel.tsx') + '\n' + read('lib/client.js');
+  const client = clientSource();
   assert.match(client, /t\('editor\.terminalPasteConfirm', \{ count: lines \}\)/);
   assert.match(client, /event\.key\.toLowerCase\(\) === 'c' \|\| event\.key\.toLowerCase\(\) === 'v'/);
-  assert.match(client, /async function pasteIntoTerminal\(\s*emulator,\s*active,\s*t,\s*onRefused,\s*onPasted\s*\)/u);
+  assert.match(client, /async function pasteIntoTerminal\([\s\S]{0,260}?onPasted\?:[\s\S]{0,80}?\): Promise<void>/u);
   /* A one-shot key handler reads the live translator through a ref. */
   assert.match(client, /const tRef = React\.useRef\(t\);/);
 });
 
 test('⌘F opens exactly one find surface, decided by focus', () => {
-  const client = read('src/client/components/project/ProjectPanel.tsx') + '\n' + read('lib/client.js');
+  const client = clientSource();
   /* The editor's own keybinding must not fire while another surface owns focus. */
   assert.match(client, /if \(document\.activeElement\?\.closest\('\.monaco-editor'\) == null\) return;/);
   /* The global find listener bows out for the terminal and for the Project tree. */
   assert.match(
     client,
-    /if \(event\.target instanceof Element && event\.target\.closest\('\[role="tree"\]'\) !== null\) return;/,
+    /if \(\s*event\.target instanceof Element &&\s*event\.target\.closest\('\[role="tree"\]'\) !== null\s*\)\s*return;/,
   );
   assert.match(client, /if \(document\.activeElement\?\.closest\('\[role="tree"\]'\) != null\) return;/);
 });
 
 test('a short first page already marks the history as ended', () => {
-  const client = read('src/client/components/project/ProjectPanel.tsx') + '\n' + read('lib/client.js');
+  const client = clientSource();
   /* Otherwise the "end of history" row never appears for small repositories. */
-  assert.match(client, /setLogExhausted\(firstPage\.length < LOG_PAGE\);/);
+  assert.match(client, /setLogExhausted\(\s*firstPage\.length < LOG_PAGE,?\s*\);/);
 });

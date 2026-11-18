@@ -2,7 +2,16 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) + '\n' + (await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8'));
+const workspaceSource = await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8');
+const commitSource = await readFile(new URL('../src/client/commit.ts', import.meta.url), 'utf8');
+const source =
+  workspaceSource +
+  '\n' +
+  (await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8')) +
+  '\n' +
+  commitSource +
+  '\n' +
+  (await readFile(new URL('../src/client/locales.ts', import.meta.url), 'utf8'));
 
 test('Find summary uses singular file wording independently of match count', () => {
   const helper = new Function(
@@ -29,10 +38,9 @@ test('Replace All success preserves query and replacement while clearing results
     source.indexOf('const replaceInFindTool = React.useCallback'),
     source.indexOf('const replaceFindToolOccurrence = React.useCallback'),
   );
-  const successState = replaceAll.slice(
-    replaceAll.lastIndexOf('setFindTool((current) => (current === null'),
-    replaceAll.lastIndexOf('} catch (failure)'),
-  );
+  const catchIndex = replaceAll.lastIndexOf('} catch (failure)');
+  const stateIndex = replaceAll.lastIndexOf('setFindTool(', catchIndex);
+  const successState = replaceAll.slice(stateIndex, catchIndex);
   assert.match(successState, /matches: \[\]/);
   assert.match(successState, /files: \[\]/);
   assert.match(successState, /replaceBusy: false/);
@@ -44,15 +52,15 @@ test('Replace All success preserves query and replacement while clearing results
 });
 
 function extractFunction(name) {
-  const start = source.indexOf(`function ${name}(`);
+  const start = commitSource.indexOf(`function ${name}(`);
   assert.notEqual(start, -1, `${name} is missing`);
-  const bodyStart = source.indexOf(') {', start) + 2;
+  const bodyStart = commitSource.indexOf(') {', start) + 2;
   assert.ok(bodyStart > 1, `${name} has no function body`);
   let depth = 0;
-  for (let index = bodyStart; index < source.length; index += 1) {
-    if (source[index] === '{') depth += 1;
-    if (source[index] === '}') depth -= 1;
-    if (depth === 0) return source.slice(start, index + 1);
+  for (let index = bodyStart; index < commitSource.length; index += 1) {
+    if (commitSource[index] === '{') depth += 1;
+    if (commitSource[index] === '}') depth -= 1;
+    if (depth === 0) return commitSource.slice(start, index + 1);
   }
   assert.fail(`${name} has no closing brace`);
 }

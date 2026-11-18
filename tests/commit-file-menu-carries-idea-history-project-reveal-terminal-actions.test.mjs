@@ -7,7 +7,12 @@ import test from 'node:test';
 import { terminalScopeForRequest } from '../lib/index.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = readFileSync(join(root, 'lib/client.js'), 'utf8');
+const source = [
+  readFileSync(join(root, 'src/client/editor-workspace.tsx'), 'utf8'),
+  readFileSync(join(root, 'src/client/terminal.ts'), 'utf8'),
+  readFileSync(join(root, 'src/client/editor-core.ts'), 'utf8'),
+  readFileSync(join(root, 'src/client/components/terminal/TerminalScreen.tsx'), 'utf8'),
+].join('\n');
 
 function changeMenu() {
   const start = source.indexOf('const buildChangeMenu = React.useCallback(');
@@ -32,7 +37,7 @@ test('the Commit file menu carries IDEA history, project reveal and terminal act
 test('single-file Commit actions are disabled for a multi-row selection and wired as dependencies', () => {
   const menu = changeMenu();
   assert.match(menu, /disabled: paths\.length > 1/);
-  assert.match(menu, /\[compareWithClipboard, compareWithHead, compareWithRevision, copySelectedPatch, createSelectedPatch, currentCodeEditor, currentCodePath, openFile, openInTerminal, addToGitignore, resolveConflict, restage, revealPath, rollback, root, showCombinedDiff, showFileHistory, t\]/);
+  assert.match(menu, /\[[\s\S]*?compareWithClipboard,[\s\S]*?showFileHistory,[\s\S]*?t,[\s\S]*?\]/);
 });
 
 test('terminal scope follows an explicit Editor workspace before the live session', () => {

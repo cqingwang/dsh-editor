@@ -2,24 +2,26 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = (await readFile(new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
-const actionsStart = source.indexOf('const searchEverywhereActions = React.useMemo');
-const actionsEnd = source.indexOf('/* Recompute match count', actionsStart);
-const actions = source.slice(actionsStart, actionsEnd);
+import { transpileTypeScriptFunction } from './ts-source.mjs';
+
+const searchEverywhereSource = await readFile(
+  new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url),
+  'utf8',
+);
+const findToolWindowSource = await readFile(
+  new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url),
+  'utf8',
+);
+const workspaceSource = await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8');
+const foundationSource = await readFile(new URL('../src/client/foundation.ts', import.meta.url), 'utf8');
+const source = [searchEverywhereSource, findToolWindowSource, workspaceSource, foundationSource].join('\n');
+const actions = workspaceSource.slice(
+  workspaceSource.indexOf('const searchEverywhereActions ='),
+  workspaceSource.indexOf('/* Recompute match count'),
+);
 
 function extractFunction(name) {
-  const start = source.indexOf(`function ${name}(`);
-  assert.notEqual(start, -1, `${name} is missing`);
-  const parametersEnd = source.indexOf(')', start);
-  const bodyStart = source.indexOf('{', parametersEnd);
-  assert.ok(parametersEnd > start && bodyStart > parametersEnd, `${name} has no function body`);
-  let depth = 0;
-  for (let index = bodyStart; index < source.length; index += 1) {
-    if (source[index] === '{') depth += 1;
-    if (source[index] === '}') depth -= 1;
-    if (depth === 0) return source.slice(start, index + 1);
-  }
-  assert.fail(`${name} has no closing brace`);
+  return transpileTypeScriptFunction(foundationSource, name);
 }
 
 test('Find Action shortcut follows IDEA default and macOS System Shortcuts keymaps', () => {

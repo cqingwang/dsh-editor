@@ -101,21 +101,25 @@ test('cherry-pick applies one commit onto the current branch', async (t) => {
 });
 
 test('the log row menu offers cherry-pick, revert and restore', () => {
-  const client = `${read('lib/client.js')}\n${read('src/client/editor-workspace.tsx')}\n${read('src/client/components/commit/CommitLogFlatRow.tsx')}`;
-  assert.match(client, /const buildLogMenu = React\.useCallback\(/);
-  assert.match(client, /run: \(\) => void runHistoryAction\('cherryPick', commit\.hash\)/);
-  assert.match(client, /run: \(\) => void runHistoryAction\('revert', commit\.hash\)/);
-  assert.match(client, /aria-haspopup='menu'/);
+  const client = read('src/client/editor-workspace.tsx');
+  const menu = read('src/client/components/commit/log-menu.ts');
+  const row = read('src/client/components/commit/CommitLogFlatRow.tsx');
+  assert.match(menu, /run: \(\) => onRunHistoryAction\('cherryPick', commit\.hash\)/);
+  assert.match(menu, /run: \(\) => onRunHistoryAction\('revert', commit\.hash\)/);
+  assert.match(row, /aria-haspopup='menu'/);
   /* Two destructive git actions must confirm before running. */
-  assert.match(client, /window\.confirm\(t\('editor\.historyActionConfirm'/);
+  assert.match(client, /window\.confirm\([\s\S]*?t\('editor\.historyActionConfirm'/);
   assert.match(client, /window\.confirm\(t\('editor\.restoreFileConfirm'/);
 });
 
 test('rewrites re-read the open tab instead of leaving stale bytes', () => {
-  const client = read('lib/client.js');
+  const client = read('src/client/editor-workspace.tsx');
   /* openFile short-circuits for an already open path, so it cannot refresh a tab. */
   assert.match(client, /const reloadFile = React\.useCallback\(async \(path\) => \{/);
-  assert.match(client, /if \(openFilesRef\.current\.some\(\(file\) => file\.path === path\)\) await reloadFile\(path\);/);
+  assert.match(
+    client,
+    /if \(\s+openFilesRef\.current\.some\(\(file\) => file\.path === path\)\s+\)\s+await reloadFile\(path\);/,
+  );
   assert.match(client, /for \(const file of openFilesRef\.current\) await reloadFile\(file\.path\);/);
   assert.doesNotMatch(client, /openFile\(path, \{ force: true \}\)/);
 });

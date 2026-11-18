@@ -1,4 +1,6 @@
 /* terminal.ts: dsh-editor terminal state, search context and project helper module. Generated into lib/client.js by scripts/build-client.mjs. */
+import type * as Monaco from 'monaco-editor';
+
 interface TerminalDescription {
   id: string;
   state?: string;
@@ -159,7 +161,9 @@ function terminalTheme(node: HTMLElement): {
  * @param {object|null} editor - active Monaco editor.
  * @returns {{start: number, end: number}|null} non-empty selection scope.
  */
-function editorFindSelectionScope(editor: any): EditorSelectionScope | null {
+function editorFindSelectionScope(
+  editor: Monaco.editor.IStandaloneCodeEditor | null | undefined,
+): EditorSelectionScope | null {
   const model = editor?.getModel?.() ?? null;
   const selection = editor?.getSelection?.() ?? null;
   if (model === null || selection === null || selection.isEmpty?.() !== false) return null;
@@ -176,7 +180,7 @@ function editorFindSelectionScope(editor: any): EditorSelectionScope | null {
  * @param {object|null} editor - active Monaco editor.
  * @returns {{scope: {start: number, end: number}|null, query: string|null}} request.
  */
-function editorFindKeyboardRequest(editor: any): {
+function editorFindKeyboardRequest(editor: Monaco.editor.IStandaloneCodeEditor | null | undefined): {
   scope: EditorSelectionScope | null;
   query: string | null;
 } {
@@ -739,7 +743,7 @@ function textSearchFileMatches(
   options: FindOptions,
   mtime: number | undefined,
   limit = 200,
-): { matches: any[]; truncated: boolean; error: string | null } {
+): { matches: unknown[]; truncated: boolean; error: string | null } {
   const result = editorFindResult(content, query, { ...options, path });
   if (result.error !== null) return { matches: [], truncated: false, error: result.error };
   const maximum = Math.max(1, Math.min(500, Number(limit) || 200));

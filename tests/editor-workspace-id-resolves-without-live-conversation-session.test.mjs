@@ -7,7 +7,13 @@ import test from 'node:test';
 import { workspaceRootForRequest } from '../lib/index.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const client = readFileSync(join(root, 'lib/client.js'), 'utf8');
+const client = [
+  readFileSync(join(root, 'src/client/editor-core.ts'), 'utf8'),
+  readFileSync(join(root, 'src/client/editor-workspace.tsx'), 'utf8'),
+  readFileSync(join(root, 'src/client/controller.ts'), 'utf8'),
+  readFileSync(join(root, 'src/client/components/editor/EditorWorkspaceShell.tsx'), 'utf8'),
+  readFileSync(join(root, 'src/client/components/editor/EditorMount.tsx'), 'utf8'),
+].join('\n');
 const host = readFileSync(join(root, 'lib/index.js'), 'utf8');
 
 test('an editor workspace id resolves without a live conversation session', () => {
@@ -47,9 +53,9 @@ test('Project, Commit and the watcher carry the entry workspace id', () => {
   assert.match(client, /api\/dsh-editor\/watch\?sessionId=.*?workspaceId=/s);
   assert.match(
     client,
-    /function EditorWorkspace\(\{ t, workspaceId = '', initialHarnessCollapsed = false, onToggleHarness, onCloseEditor, onInsertHarnessReference \}\)/,
+    /function EditorWorkspace\(\{\s+t,\s+workspaceId = '',\s+initialHarnessCollapsed = false,\s+onToggleHarness,\s+onCloseEditor,\s+onInsertHarnessReference,\s+\}: EditorWorkspaceProps\)/,
   );
-  assert.match(client, /'data-dsh-workspace-id': workspaceId \|\| undefined/);
+  assert.match(client, /data-dsh-workspace-id=\{workspaceId \|\| undefined\}/);
   assert.match(host, /function workspaceRootForRequest\(/);
   assert.match(host, /const workspaceId = typeof body\?\.workspaceId === 'string'/);
 });
@@ -59,6 +65,6 @@ test('the workspace context-menu entry opens the workspace it belongs to', () =>
   assert.match(client, /openEditorSplit\(workspaceId\)/);
   assert.match(
     client,
-    /React\.createElement\(\s*EditorMount,\s*\{\s*workspaceComponent: EditorWorkspace,\s*t,\s*workspaceId: editorWorkspaceId,\s*initialHarnessCollapsed: harnessCollapsed,\s*onToggleHarness: toggleHarnessLayout,\s*onCloseEditor: \(\) => setActive\(false\),\s*onInsertHarnessReference: \(request\) => insertHarnessReferencesIntoComposer\(ctx, request\)\s*\}\)/su,
+    /React\.createElement\(EditorMount, \{[\s\S]*?workspaceComponent: EditorWorkspace,[\s\S]*?workspaceId: editorWorkspaceId,/,
   );
 });

@@ -2,22 +2,19 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+import { transpileTypeScriptFunction } from './ts-source.mjs';
+
+const workspaceSource = await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8');
+const source = [
+  workspaceSource,
+  await readFile(new URL('../src/client/editor-core.ts', import.meta.url), 'utf8'),
+  await readFile(new URL('../src/client/foundation.ts', import.meta.url), 'utf8'),
+  await readFile(new URL('../src/client/commit.ts', import.meta.url), 'utf8'),
+  await readFile(new URL('../src/client/terminal.ts', import.meta.url), 'utf8'),
+].join('\n');
 
 function extractSource(name) {
-  const marker = `    function ${name}(`;
-  const start = source.indexOf(marker);
-  assert.notEqual(start, -1, `${name} should exist`);
-  let index = source.indexOf('{', start);
-  let depth = 0;
-  for (; index < source.length; index += 1) {
-    if (source[index] === '{') depth += 1;
-    else if (source[index] === '}') {
-      depth -= 1;
-      if (depth === 0) return source.slice(start, index + 1);
-    }
-  }
-  assert.fail(`unterminated ${name}`);
+  return transpileTypeScriptFunction(source, name);
 }
 
 function createGroupHarness() {
@@ -132,18 +129,18 @@ test('both editor groups hand the invoking editor to the shared Find Usages path
 test('per-editor context keys use the instance API and avoid the callback TDZ', () => {
   assert.match(source, /editor\.createContextKey\?\.\(findUsagesPrecondition, false\)/u);
   assert.doesNotMatch(source, /monaco\.editor\.createContextKey/u);
-  const runnerRef = source.indexOf('const findUsagesRunnerRef = React.useRef(null)');
-  const mainGroup = source.indexOf('const group = createCodeEditorGroup(monaco, containerRef.current');
-  const splitGroup = source.indexOf('const group = createCodeEditorGroup(monaco, splitContainerRef.current');
+  const runnerRef = workspaceSource.indexOf('const findUsagesRunnerRef =');
+  const mainGroup = workspaceSource.indexOf('const group = createCodeEditorGroup(monaco, containerRef.current');
+  const splitGroup = workspaceSource.indexOf('const group = createCodeEditorGroup(monaco, splitContainerRef.current');
   assert.ok(runnerRef > 0 && runnerRef < mainGroup && runnerRef < splitGroup);
   const mainEnd = source.indexOf('const editor = group.editor;', mainGroup);
   const splitEnd = source.indexOf('const editor = group.editor;', splitGroup);
   assert.doesNotMatch(
-    source.slice(mainGroup, mainEnd),
+    workspaceSource.slice(mainGroup, mainEnd),
     /openFindTool/u,
   );
   assert.doesNotMatch(
-    source.slice(splitGroup, splitEnd),
+    workspaceSource.slice(splitGroup, splitEnd),
     /openFindTool/u,
   );
 });

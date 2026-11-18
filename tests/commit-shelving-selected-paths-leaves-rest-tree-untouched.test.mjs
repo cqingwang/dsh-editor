@@ -10,7 +10,8 @@ import test from 'node:test';
 import { gitShelve } from '../lib/index.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = readFileSync(join(root, 'lib/client.js'), 'utf8');
+const source = readFileSync(join(root, 'src/client/editor-workspace.tsx'), 'utf8');
+const options = readFileSync(join(root, 'src/client/components/commit/commit-options-menu.ts'), 'utf8');
 const git = (cwd, ...args) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8' }).trim();
 
 async function fixture() {
@@ -80,24 +81,30 @@ test('an empty path selection is refused instead of shelving everything', async 
 });
 
 test('the Commit toolbar exposes Shelve and restores with the index-aware action', () => {
-  assert.match(source, /id: 'shelve',\n\s+label: t\('editor\.shelve'\),\n\s+run: \(\) => void openShelveMenu\(position\)/);
+  assert.match(options, /id: 'shelve',\n\s+label: t\('editor\.shelve'\),\n\s+run: onShelve/);
   const run = source.slice(source.indexOf('const runShelve = React.useCallback('), source.indexOf('const openStashMenu = React.useCallback('));
   assert.match(run, /op: 'shelve'/);
   assert.match(run, /action: operation/);
   assert.match(run, /Array\.isArray\(paths\) \? \{ paths \}/);
+  const menuSource = readFileSync(join(root, 'src/client/components/commit/stash-shelve-menu.ts'), 'utf8');
   const menu = source.slice(source.indexOf('const openShelveMenu = React.useCallback('), source.indexOf('/* Batch delete for the Project tool window'));
   assert.match(menu, /const selected = \[\.\.\.commitSelection\]/);
-  assert.match(menu, /runShelve\('save', undefined, selected\)/);
-  assert.match(menu, /runShelve\('apply', entry\.ref\)/);
-  assert.match(menu, /runShelve\('drop', entry\.ref\)/);
+  assert.match(menu, /onRunShelve: \(operation, ref, paths\) => void runShelve\(operation, ref, paths\)/);
+  assert.match(menuSource, /onRunShelve\('save', undefined, selectedPaths\)/);
+  assert.match(menuSource, /onRunShelve\('apply', entry\.ref\)/);
+  assert.match(menuSource, /onRunShelve\('drop', entry\.ref\)/);
 });
 
 test('the Commit Rollback action follows the whole visible selection', () => {
-  assert.match(source, /chosenChangeList = \[\]/);
-  assert.match(source, /chosenChangeList\.filter\(\(entry\) => entry\.staged !== true\)\.length > 1/);
-  assert.match(source, /onRollbackSelected\?\.\(chosenChangeList\)/);
-  assert.match(source, /chosenChangeList: chosenChanges\(selectedChange\),/);
-  const wiring = source.slice(source.indexOf('onRollbackSelected: (picked) => {'), source.indexOf('onStage: (paths) => void restage(paths, false)', source.indexOf('onRollbackSelected: (picked) => {')));
+  const panel = readFileSync(join(root, 'src/client/components/commit/CommitPanel.tsx'), 'utf8');
+  assert.match(panel, /chosenChangeList = \[\]/);
+  assert.match(panel, /chosenChangeList\.filter\(\(entry\) => entry\.staged !== true\)\.length > 1/);
+  assert.match(panel, /onRollbackSelected\?\.\(chosenChangeList\)/);
+  assert.match(source, /chosenChangeList=\{chosenChanges\(selectedChange\)\}/);
+  const wiring = source.slice(
+    source.indexOf('onRollbackSelected={(picked) => {'),
+    source.indexOf('onStage={(paths) => void restage(paths, false)', source.indexOf('onRollbackSelected={(picked) => {')),
+  );
   assert.match(wiring, /picked\.filter\(\(entry\) => entry\.staged !== true\)/);
   assert.match(wiring, /new Set\(/);
   assert.match(wiring, /void rollback\(working\)/);

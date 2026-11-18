@@ -6,18 +6,43 @@ import { CommitGraphRow } from './CommitGraphRow';
 
 type Translate = (key: string, params?: Record<string, unknown>) => string;
 
+export interface CommitGraphEntryData {
+  hash?: string;
+  parents?: string[];
+  subject?: string;
+  [key: string]: unknown;
+}
+
+export interface CommitGraphPayload {
+  entries?: CommitGraphEntryData[];
+  head?: string | null;
+  branchList?: unknown[];
+  tagList?: Array<{ name?: unknown; hash?: unknown }>;
+  [key: string]: unknown;
+}
+
+export interface CommitGraphMenuPayload {
+  x: number;
+  y: number;
+  entry: CommitGraphEntryData;
+}
+
 export interface CommitGraphProps {
   t: Translate;
-  graph: any;
+  graph: CommitGraphPayload | null;
   onShow?: (hash: string) => void;
   selected?: string | null;
   selectionHashes?: string[];
-  onRowClick?: (entry: any, event: any, options?: any) => void;
+  onRowClick?: (
+    entry: CommitGraphEntryData,
+    event: React.MouseEvent<HTMLElement>,
+    options?: Record<string, unknown>,
+  ) => void;
   onSelect?: (hash: string | null) => void;
   folded: boolean;
   onToggleFolded: () => void;
   onPickRef?: (ref: string) => void;
-  onContextMenu?: (payload: any) => void;
+  onContextMenu?: (payload: CommitGraphMenuPayload) => void;
   error?: string | null;
 }
 

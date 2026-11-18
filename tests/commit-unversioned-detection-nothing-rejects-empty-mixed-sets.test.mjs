@@ -6,7 +6,8 @@ import test from 'node:test';
 import { loadTypeScriptFunction } from './ts-source.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = readFileSync(join(root, 'lib/client.js'), 'utf8');
+const source = readFileSync(join(root, 'src/client/editor-workspace.tsx'), 'utf8');
+const localesSource = readFileSync(join(root, 'src/client/locales.ts'), 'utf8');
 const gitChangeModelSource = readFileSync(join(root, 'src/client/components/ui/git-change-model.ts'), 'utf8');
 
 test('unversioned detection is all-or-nothing and rejects empty or mixed sets', () => {
@@ -23,20 +24,20 @@ test('unversioned detection is all-or-nothing and rejects empty or mixed sets', 
 });
 
 test('unversioned rollback is labelled and confirmed as deletion', () => {
-  assert.match(source, /rollbackUnversioned: '删除未纳入版本控制的文件',/);
-  assert.match(source, /rollbackUnversioned: 'Delete Unversioned File',/);
-  assert.match(source, /rollbackUnversionedCount: '删除 {count} 个未纳入版本控制的文件',/);
-  assert.match(source, /rollbackUnversionedConfirm: '删除 {count} 个未纳入版本控制的文件？此操作不可撤销。',/);
+  assert.match(localesSource, /rollbackUnversioned: '删除未纳入版本控制的文件',/);
+  assert.match(localesSource, /rollbackUnversioned: 'Delete Unversioned File',/);
+  assert.match(localesSource, /rollbackUnversionedCount: '删除 {count} 个未纳入版本控制的文件',/);
+  assert.match(localesSource, /rollbackUnversionedConfirm: '删除 {count} 个未纳入版本控制的文件？此操作不可撤销。',/);
   assert.match(source, /const allUnversioned = allPathsUnversioned\(selected, changesByPathRef\.current\);/);
   assert.match(source, /batchLabel\('editor\.rollbackUnversioned', 'editor\.rollbackUnversionedCount'\)/);
   assert.match(source, /rollback\(paths, allUnversioned \? \{ unversioned: true \} : undefined\)/);
 });
 
 test('the rollback confirmation selects the unversioned wording only for that mode', () => {
-  const start = source.indexOf('const rollback = React.useCallback(');
+  const start = source.indexOf('const rollback =');
   assert.notEqual(start, -1);
   const block = source.slice(start, source.indexOf('const buildChangeMenu = React.useCallback(', start));
   assert.match(block, /const unversionedOnly = options\?\.unversioned === true;/);
   assert.match(block, /const confirmKey = stagedOnly/);
-  assert.match(block, /unversionedOnly \? 'editor\.rollbackUnversionedConfirm' : 'editor\.rollbackConfirm'/);
+  assert.match(block, /unversionedOnly\s+\? 'editor\.rollbackUnversionedConfirm'\s+: 'editor\.rollbackConfirm'/);
 });

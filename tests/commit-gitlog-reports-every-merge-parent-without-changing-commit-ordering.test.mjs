@@ -81,6 +81,19 @@ test('Commit Log exposes parent and child actions and wires IDEA arrow keys', as
   const client = await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8');
   const host = await readFile(new URL('../lib/index.js', import.meta.url), 'utf8');
   const menu = await readFile(new URL('../src/client/components/commit/log-menu.ts', import.meta.url), 'utf8');
+  const commandModel = await readFile(
+    new URL('../src/client/components/commit/commit-log-list-command-model.ts', import.meta.url),
+    'utf8',
+  );
+  const commitLog = await readFile(new URL('../src/client/components/commit/CommitLog.tsx', import.meta.url), 'utf8');
+  const graphController = await readFile(
+    new URL('../src/client/components/commit/commit-log-graph-controller.ts', import.meta.url),
+    'utf8',
+  );
+  const flatController = await readFile(
+    new URL('../src/client/components/commit/commit-log-flat-controller.ts', import.meta.url),
+    'utf8',
+  );
   const locales = await readFile(new URL('../src/client/locales.ts', import.meta.url), 'utf8');
 
   assert.match(menu, /id: 'goToParentCommit'/);
@@ -95,17 +108,10 @@ test('Commit Log exposes parent and child actions and wires IDEA arrow keys', as
   assert.match(locales, /goToChildCommitAction: '转到子提交'/);
   assert.match(locales, /goToParentCommitAction: 'Go to Parent Commit'/);
   assert.match(locales, /goToChildCommitAction: 'Go to Child Commit'/);
-  const graphKeys = client.slice(
-    client.indexOf('commitLogGraphListCommand('),
-    client.indexOf("if (command?.type === 'move')", client.indexOf('commitLogGraphListCommand(')),
-  );
-  assert.match(graphKeys, /command\?\.type === 'relation'[\s\S]*?commitRelationTarget\([\s\S]*?command\.direction/);
-  const flatKeys = client.slice(
-    client.indexOf('commitLogFlatListCommand('),
-    client.indexOf("if (command?.type !== 'row')", client.indexOf('commitLogFlatListCommand(')),
-  );
-  assert.match(flatKeys, /command\?\.type === 'relation'[\s\S]*?commitRelationTarget\(visible, selected, command\.direction\)/);
-  assert.match(client, /if \(key === 'ArrowRight'\) return \{ type: 'relation', direction: 'parents' \}/);
+  assert.match(commandModel, /intent\.type === 'relation'/);
+  assert.match(commitLog, /command\?\.type === 'relation'[\s\S]*?commitRelationTarget\(visible, selected, command\.direction\)/);
+  assert.match(graphController, /if \(key === 'ArrowRight'\) return \{ type: 'relation', direction: 'parents' \}/);
+  assert.match(flatController, /if \(key === 'ArrowRight'\) return \{ type: 'relation', direction: 'parents' \}/);
   assert.match(host, /--pretty=format:%H%x1f%an%x1f%aI%x1f%s%x1f%P%x1e/);
   assert.match(host, /parents: parents === '' \? \[\]/);
 });

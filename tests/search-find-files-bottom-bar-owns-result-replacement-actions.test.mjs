@@ -2,7 +2,14 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) + '\n' + (await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8'));
+const source =
+  (await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8')) +
+  '\n' +
+  (await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8')) +
+  '\n' +
+  (await readFile(new URL('../src/client/commit.ts', import.meta.url), 'utf8')) +
+  '\n' +
+  (await readFile(new URL('../src/client/locales.ts', import.meta.url), 'utf8'));
 const findTool = source.slice(
   source.lastIndexOf('function FindToolWindowView('),
   source.indexOf('const FindToolWindow = FindToolWindowView;', source.lastIndexOf('function FindToolWindowView(')),
@@ -25,8 +32,8 @@ test('Find in Files bottom bar owns result and replacement actions', () => {
 test('Open results in new tab routes activations through the right split', () => {
   assert.match(findTool, /const \[openResultsInNewTab, setOpenResultsInNewTab\]/);
   assert.match(findTool, /onOpen\(result, openResultsInNewTab === true\)/);
-  assert.match(source, /onOpen: \(result, openInNewTab = false\) =>/);
-  assert.match(source, /if \(openInNewTab\)[\s\S]*?void openInRightSplit\(result\.path/);
+  assert.match(source, /onOpen=\{\(result, openInNewTab = false\) =>/);
+  assert.match(source, /if \(openInNewTab\)[\s\S]*?void openInRightSplit\(\s*result\.path/);
 });
 
 test('Directory scope provides a workspace-relative path editor', () => {

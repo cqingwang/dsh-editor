@@ -11,7 +11,17 @@ import { gitCommitDiff, gitFileHistory, gitShowCommit, workspaceFileOperations }
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const read = (path) => readFileSync(join(root, path), 'utf8');
 const readClient = () =>
-  readFileSync(join(root, 'src/client/components/diff/DiffPreview.tsx'), 'utf8') + '\n' + read('lib/client.js');
+  [
+    'src/client/components/diff/DiffPreview.tsx',
+    'src/client/editor-workspace.tsx',
+    'src/client/components/commit/CommitLogDetailPane.tsx',
+    'src/client/components/commit/file-menu.ts',
+    'src/client/components/editor/EditorConflictBars.tsx',
+    'src/client/components/terminal/TerminalPanel.tsx',
+    'src/client/ui/styles.ts',
+  ]
+    .map(read)
+    .join('\n');
 
 /** A repository with two commits touching the same file. */
 async function fixture() {
@@ -91,10 +101,13 @@ test('described paths carry the mtime the editor needs to spot external edits', 
 test('the editor silently adopts a clean external edit and prompts on a dirty one', () => {
   const client = readClient();
   assert.match(client, /const checkExternalChanges = React\.useCallback\(async \(\) => \{/);
-  assert.match(client, /const clean = paths\.filter\(\(path\) => openFilesRef\.current\.find\(\(file\) => file\.path === path\)\?\.dirty !== true\);/);
+  assert.match(
+    client,
+    /const clean = paths\.filter\(\s+\(path\) => openFilesRef\.current\.find\(\(file\) => file\.path === path\)\?\.dirty !== true,\s+\);/,
+  );
   /* Programmatic replacement must not fake unsaved work. */
-  assert.match(client, /const silentReloadRef = React\.useRef\(new Set\(\)\);/);
-  assert.match(client, /if \(silentReloadRef\.current\.has\(activePath\)\) return;/);
+  assert.match(client, /const silentReloadRef =\s+React\.useRef\(new Set\(\)\);/);
+  assert.match(client, /silentReloadRef\.current\.has\(activePath\)\s+\)\s+return;/);
   assert.match(client, /t\('editor\.externalChanged'\)/);
   assert.match(client, /const dismissExternal = React\.useCallback\(/);
 });
@@ -107,9 +120,9 @@ test('commit log opens a commit diff on click and the working copy on double cli
   assert.match(client, /typeof target\.clipboardText === 'string'\s+\? \{\s+op: 'compareText'/u);
   assert.match(client, /typeof target\.commit === 'string'\s+\? \{\s+op: 'commitDiff'/u);
   assert.match(client, /op: 'commitDiff',\s+hash: target\.commit,\s+path: target\.path,/u);
-  assert.match(client, /onDoubleClick: \(\) => \{[\s\S]*?if \(localExists\) onEditSource\?\.\(file\.path\);/);
+  assert.match(client, /onDoubleClick=\{\(\) => \{[\s\S]*?if \(localExists\) onEditSource\?\.\(file\.path\);/);
   /* The tree can jump straight to one file's history. */
-  assert.match(client, /id: 'history',\n\s+label: t\('editor\.showHistory'\)/);
+  assert.match(client, /id: 'history',\s+label: t\('editor\.showHistory'\)/);
 });
 
 test('terminal clears with the IDEA shortcut and tabs move between panes', () => {

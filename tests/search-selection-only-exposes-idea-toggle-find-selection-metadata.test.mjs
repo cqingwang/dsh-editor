@@ -2,23 +2,27 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
-const actionsStart = source.indexOf('const searchEverywhereActions = React.useMemo');
-const actionsEnd = source.indexOf('/* Recompute match count', actionsStart);
-const actions = source.slice(actionsStart, actionsEnd);
+import { transpileTypeScriptFunction } from './ts-source.mjs';
 
-function extractFunction(name) {
-  const start = source.indexOf(`function ${name}(`);
-  assert.notEqual(start, -1, `${name} is missing`);
-  const bodyStart = source.indexOf(') {', start) + 2;
-  assert.ok(bodyStart > 1, `${name} has no function body`);
-  let depth = 0;
-  for (let index = bodyStart; index < source.length; index += 1) {
-    if (source[index] === '{') depth += 1;
-    if (source[index] === '}') depth -= 1;
-    if (depth === 0) return source.slice(start, index + 1);
-  }
-  assert.fail(`${name} has no closing brace`);
+const workspaceSource = await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8');
+const findToolSource = await readFile(new URL('../src/client/find-tool.ts', import.meta.url), 'utf8');
+const commitSource = await readFile(new URL('../src/client/commit.ts', import.meta.url), 'utf8');
+const source =
+  workspaceSource +
+  '\n' +
+  (await readFile(new URL('../src/client/locales.ts', import.meta.url), 'utf8'));
+const actionsStart = workspaceSource.indexOf('const searchEverywhereActions =');
+const actionsEnd = workspaceSource.indexOf('/* Recompute match count', actionsStart);
+const actions = workspaceSource.slice(actionsStart, actionsEnd);
+
+function loadRanker() {
+  const functions = ['wholeWordIndex', 'fuzzyScore']
+    .map((name) => transpileTypeScriptFunction(findToolSource, name))
+    .join('\n');
+  return new Function(
+    'basename',
+    `${functions}\n${transpileTypeScriptFunction(commitSource, 'rankSearchActions')}\nreturn rankSearchActions;`,
+  )((path) => path.split('/').at(-1));
 }
 
 test('Search in Selection Only exposes IDEA Toggle Find in Selection metadata', () => {
@@ -30,9 +34,7 @@ test('Search in Selection Only exposes IDEA Toggle Find in Selection metadata', 
 });
 
 test('Toggle Find in Selection synonym ranks the existing scoped action first', () => {
-  const rank = new Function(
-    `${extractFunction('fuzzyScore')}; ${extractFunction('rankSearchActions')}; return rankSearchActions;`,
-  )();
+  const rank = loadRanker();
   const ranked = rank([
     {
       id: 'searchInSelectionOnly',
@@ -56,6 +58,8 @@ test('Toggle Find in Selection synonym is localized', () => {
 });
 
 test('the visible shortcut normalizes to Control+Alt+E metadata', () => {
-  const normalize = new Function(`${extractFunction('searchEverywhereAriaKeyShortcuts')}; return searchEverywhereAriaKeyShortcuts;`)();
+  const normalize = new Function(
+    `${transpileTypeScriptFunction(commitSource, 'searchEverywhereAriaKeyShortcuts')}; return searchEverywhereAriaKeyShortcuts;`,
+  )();
   assert.equal(normalize('⌃⌥E'), 'Control+Alt+E');
 });

@@ -69,14 +69,16 @@ test('an unknown or hostile stash ref is refused before git runs', async (t) => 
 });
 
 test('the stash menu lists entries with apply and drop', () => {
-  const client = read('lib/client.js');
+  const client = read('src/client/editor-workspace.tsx');
+  const menu = read('src/client/components/commit/stash-shelve-menu.ts');
   const start = client.indexOf('const openStashMenu = React.useCallback(');
   assert.notEqual(start, -1);
   const block = client.slice(start, start + 2600);
-  assert.match(block, /t\('editor\.stashApply'/);
-  assert.match(block, /t\('editor\.stashDrop'/);
-  assert.match(block, /runStash\('apply', entry\.ref\)/);
-  assert.match(block, /runStash\('drop', entry\.ref\)/);
+  assert.match(menu, /t\('editor\.stashApply'/);
+  assert.match(menu, /t\('editor\.stashDrop'/);
+  assert.match(menu, /onRunStash\('apply', entry\.ref\)/);
+  assert.match(menu, /onRunStash\('drop', entry\.ref\)/);
+  assert.match(block, /onRunStash: \(operation, ref\) => void runStash\(operation, ref\)/);
 });
 
 test('the host accepts the two new actions', () => {

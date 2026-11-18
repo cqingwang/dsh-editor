@@ -4,22 +4,22 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
+import { transpileTypeScriptFunction } from './ts-source.mjs';
+
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = ((readFileSync(join(root, 'src/client/components/commit/CommitPanel.tsx'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'))) + '\n' + readFileSync(join(root, 'src/client/components/commit/CommitLog.tsx'), 'utf8');
+const diffSource = readFileSync(join(root, 'src/client/diff.ts'), 'utf8');
+const menuSource = readFileSync(join(root, 'src/client/components/commit/commit-options-menu.ts'), 'utf8');
+const source = [
+  readFileSync(join(root, 'src/client/components/commit/CommitPanel.tsx'), 'utf8'),
+  readFileSync(join(root, 'src/client/editor-workspace.tsx'), 'utf8'),
+  readFileSync(join(root, 'src/client/components/commit/CommitLog.tsx'), 'utf8'),
+  diffSource,
+  menuSource,
+  readFileSync(join(root, 'src/client/locales.ts'), 'utf8'),
+].join('\n');
 
 function extractFunction(name) {
-  const start = source.indexOf(`    function ${name}(`);
-  assert.notEqual(start, -1, `${name} is missing`);
-  let index = source.indexOf('{', start);
-  let depth = 0;
-  for (; index < source.length; index += 1) {
-    if (source[index] === '{') depth += 1;
-    else if (source[index] === '}') {
-      depth -= 1;
-      if (depth === 0) return source.slice(start, index + 1);
-    }
-  }
-  throw new Error(`unbalanced ${name}`);
+  return transpileTypeScriptFunction(diffSource, name);
 }
 
 test('Stage All targets every working-side change and can exclude untracked files', () => {
@@ -38,29 +38,27 @@ test('Stage All targets every working-side change and can exclude untracked file
 
 test('IDEA Stage All Tracked is a direct Changes toolbar action', () => {
   const panel = source.slice(source.indexOf('function CommitPanel('), source.indexOf('function CommitLogView('));
-  const start = panel.indexOf('actions: [', panel.indexOf('CompactActionBar'));
-  const toolbar = panel.slice(start, panel.indexOf('],\n            }),', start));
-  assert.match(toolbar, /id: 'refresh'/);
-  assert.match(toolbar, /id: 'stageAllTracked'/);
-  assert.match(toolbar, /label: t\('editor\.stageAllTracked'\)/);
-  assert.match(toolbar, /disabled: busy \|\| stageAllTrackedPaths\.length === 0/);
-  assert.match(toolbar, /onClick: \(\) => onStageAllTracked\?\.\(\)/);
+  assert.ok(panel.indexOf("id: 'refresh'") < panel.indexOf("id: 'stageAllTracked'"));
+  assert.match(panel, /id: 'stageAllTracked'[\s\S]*?label: t\('editor\.stageAllTracked'\)/);
+  assert.match(panel, /disabled: busy \|\| stageAllTrackedPaths\.length === 0/);
+  assert.match(panel, /onClick: \(\) => onStageAllTracked\?\.\(\)/);
 });
 
 test('Stage All is available behind Commit Options and reuses restage', () => {
   const workspace = source.slice(source.indexOf('function EditorWorkspace('), source.indexOf('function clampChatPercent('));
-  assert.match(workspace, /const stageEveryChange = React\.useCallback\(async \(trackedOnly = false\) => \{/);
+  assert.match(workspace, /const stageEveryChange = React\.useCallback\(\s*async \(trackedOnly = false\) => \{/);
   assert.match(workspace, /const paths = stageAllTargets\(git\?\.changes \?\? \[\], trackedOnly === true\)/);
   assert.match(workspace, /const staged = await restage\(paths, false\)/);
   assert.match(workspace, /setCommitSelection\(\(current\) => new Set\(\[\.\.\.current, \.\.\.paths\]\)\)/);
 
-  const menu = source.slice(
-    source.indexOf('const openCommitOptionsMenu = React.useCallback('),
-    source.indexOf('const commit = React.useCallback(', source.indexOf('const openCommitOptionsMenu = React.useCallback(')),
+  const menu = menuSource.slice(
+    menuSource.indexOf('export function commitOptionsMenu('),
+    menuSource.indexOf('export function stashMenu('),
   );
   assert.match(menu, /id: 'stageAll'/);
   assert.match(menu, /label: t\('editor\.stageAll'\)/);
-  assert.match(menu, /run: \(\) => void stageEveryChange\(false\)/);
+  assert.match(menu, /run: onStageAll,/);
+  assert.match(workspace, /onStageAll: \(\) => void stageEveryChange\(false\)/);
 });
 
 test('both dictionaries define Stage All wording', () => {

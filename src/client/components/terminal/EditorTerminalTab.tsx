@@ -40,7 +40,7 @@ function EditorTerminalTab({
   onReturnToDock,
   getCwd,
 }: EditorTerminalTabProps) {
-  const [emulator, setEmulator] = React.useState<any | null>(null);
+  const [emulator, setEmulator] = React.useState<unknown | null>(null);
   return (
     <div
       style={styles.editorTerminalPane}

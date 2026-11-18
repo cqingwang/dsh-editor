@@ -120,6 +120,7 @@ async function moduleSourceForBuild(name) {
     .replace(/^import[\s\S]*?;\n/gm, '')
     .replace(/^export\s+(?=(?:(?:async\s+)?function|const|let|var|class)\b)/gm, '')
     .replace(/^export\s*\{[^}]*\};?\s*$/gm, '')
+    .replace(/export\s*\{\s*\};\s*$/gm, '')
     .trimEnd();
   return compiled
     .split('\n')

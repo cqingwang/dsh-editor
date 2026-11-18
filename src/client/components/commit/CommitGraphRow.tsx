@@ -1,28 +1,33 @@
 import React from 'react';
 import { styles } from '../../ui/styles';
 import { Icon } from '../ui/Icon';
+import type { CommitGraphEntryData, CommitGraphMenuPayload } from './CommitGraph';
 
 type Translate = (key: string, params?: Record<string, unknown>) => string;
 
 interface CommitGraphRun {
   hashes: string[];
-  first: any;
+  first: CommitGraphEntryData;
 }
 
 export interface CommitGraphRowProps {
   t: Translate;
-  entry: any;
+  entry: CommitGraphEntryData;
   run: CommitGraphRun;
   lane: number;
   active: boolean;
   isMerge: boolean;
   isHead: boolean;
-  rowRef?: any;
+  rowRef?: React.Ref<HTMLDivElement>;
   selectionHashes: string[];
   onShow?: (hash: string) => void;
-  onRowClick?: (entry: any, event: any, options?: any) => void;
+  onRowClick?: (
+    entry: CommitGraphEntryData,
+    event: React.MouseEvent<HTMLElement>,
+    options?: Record<string, unknown>,
+  ) => void;
   onSelect?: (hash: string | null) => void;
-  onContextMenu?: (payload: any) => void;
+  onContextMenu?: (payload: CommitGraphMenuPayload) => void;
   onPickRef?: (ref: string) => void;
 }
 

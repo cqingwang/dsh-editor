@@ -5,7 +5,11 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = readFileSync(join(root, 'lib/client.js'), 'utf8');
+const source = [
+  readFileSync(join(root, 'src/client/editor-workspace.tsx'), 'utf8'),
+  readFileSync(join(root, 'src/client/components/commit/CommitLogDetailPane.tsx'), 'utf8'),
+  readFileSync(join(root, 'src/client/locales.ts'), 'utf8'),
+].join('\n');
 
 test('a file-history filter can be left for the whole log in one click', () => {
   /* The chip used to offer only "×", which silently threw the filter away; IDEA's
@@ -14,7 +18,7 @@ test('a file-history filter can be left for the whole log in one click', () => {
   assert.notEqual(start, -1);
   const block = source.slice(start, start + 1600);
   assert.match(block, /t\('editor\.historyShowAll'\)/);
-  assert.match(block, /onClick: \(\) => onClearHistory\?\.\(\)/);
+  assert.match(block, /onClick=\{\(\) => onClearHistory\?\.\(\)\}/);
   /* The chip names the file it is filtering by, not just "file history". */
   assert.match(block, /basename\(historyPath\)/);
 });
@@ -26,7 +30,7 @@ test('leaving the filter reloads the unfiltered first page', () => {
   assert.match(block, /setHistoryPath\(null\);/);
   assert.match(block, /void loadLog\(\);/);
   /* A stale "exhausted" flag would stop the scroll from loading more of the full log. */
-  assert.match(source, /const loadLog = React.useCallback\(async \(\) => \{[\s\S]*?setLogExhausted\(firstPage\.length < LOG_PAGE\);/);
+  assert.match(source, /const loadLog = React.useCallback\(async \(\) => \{[\s\S]*?setLogExhausted\(\s*firstPage\.length < LOG_PAGE,?\s*\);/);
 });
 
 test('both dictionaries carry the label', () => {

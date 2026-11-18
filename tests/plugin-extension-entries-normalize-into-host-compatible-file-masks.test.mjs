@@ -1,32 +1,34 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
+import { loadTypeScriptFunction, transpileTypeScriptFunction } from './ts-source.mjs';
 
-const source = (await readFile(new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url), 'utf8') + '\n' + (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) + '\n' + (await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8')));
-
-function extractFunction(name) {
-  const start = source.indexOf(`function ${name}(`);
-  assert.notEqual(start, -1, `${name} is missing`);
-  const bodyStart = source.indexOf(') {', start) + 2;
-  assert.ok(bodyStart > 1, `${name} has no function body`);
-  let depth = 0;
-  for (let index = bodyStart; index < source.length; index += 1) {
-    if (source[index] === '{') depth += 1;
-    if (source[index] === '}') depth -= 1;
-    if (depth === 0) return source.slice(start, index + 1);
-  }
-  assert.fail(`${name} has no closing brace`);
-}
+const workspaceSource = await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8');
+const findToolSource = await readFile(new URL('../src/client/find-tool.ts', import.meta.url), 'utf8');
+const commitSource = await readFile(new URL('../src/client/commit.ts', import.meta.url), 'utf8');
+const source = [
+  await readFile(new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url), 'utf8'),
+  workspaceSource,
+  await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8'),
+  findToolSource,
+  commitSource,
+  await readFile(new URL('../src/client/editor-core.ts', import.meta.url), 'utf8'),
+  await readFile(new URL('../src/client/locales.ts', import.meta.url), 'utf8'),
+  await readFile(new URL('../src/client/ui/styles.ts', import.meta.url), 'utf8'),
+].join('\n');
 
 function loadHelpers() {
-  return new Function(
-    'basename',
-    `${extractFunction('wholeWordIndex')};`
-      + `${extractFunction('normalizeFileExtensionFilter')};`
-      + `${extractFunction('fileExtensionFilterMatches')};`
-      + `${extractFunction('fuzzyScore')};`
-      + 'return { wholeWordIndex, normalizeFileExtensionFilter, fileExtensionFilterMatches, fuzzyScore };',
-  )((path) => path.split('/').at(-1));
+  const names = ['wholeWordIndex', 'normalizeFileExtensionFilter', 'fileExtensionFilterMatches', 'fuzzyScore'];
+  const functions = names.map((name) => transpileTypeScriptFunction(findToolSource, name)).join('\n');
+  const loaded = new Function('basename', `${functions}\nreturn { ${names.join(', ')} };`)(
+    (path) => path.split('/').at(-1),
+  );
+  return {
+    wholeWordIndex: loaded.wholeWordIndex,
+    normalizeFileExtensionFilter: loaded.normalizeFileExtensionFilter,
+    fileExtensionFilterMatches: loaded.fileExtensionFilterMatches,
+    fuzzyScore: loaded.fuzzyScore,
+  };
 }
 
 test('extension entries normalize into host-compatible file masks', () => {
@@ -76,7 +78,7 @@ test('the three common filters live in a right-aligned toolbar group', () => {
   assert.match(dialog, /disabled: state\.regex === true/);
   assert.match(dialog, /t\('editor\.searchFileSuffixFilter'\)/);
   assert.match(source, /searchEverywhereActionBar: \{[\s\S]*?justifyContent: 'flex-end'/);
-  assert.match(dialog, /style: styles\.searchEverywhereActionBar/);
+  assert.match(dialog, /style=\{styles\.searchEverywhereActionBar\}/);
 });
 
 test('extension input is opened from the toolbar and hidden when unused', () => {
@@ -86,7 +88,7 @@ test('extension input is opened from the toolbar and hidden when unused', () => 
   );
   assert.match(dialog, /const \[fileMaskOpen, setFileMaskOpen\] = React\.useState\(false\)/);
   assert.match(dialog, /fileMaskOpen \|\| String\(state\.fileMask \?\? ''\)\.trim\(\) !== ''/);
-  assert.match(dialog, /ref: fileMaskInputRef/);
+  assert.match(dialog, /ref=\{fileMaskInputRef\}/);
   assert.match(dialog, /setFileMaskOpen\(\(open\) => !open\)/);
   assert.match(dialog, /fileMaskInputRef\.current\?\.focus\?\.\(\)/);
 });
@@ -101,16 +103,17 @@ test('all text-search and replace handoffs use normalized extension masks', () =
 });
 
 test('double Shift and Cmd/Ctrl+Shift+F call one Find in Files shortcut body', () => {
-  const shortcut = source.slice(
-    source.indexOf('const openFindInFilesFromShortcut = React.useCallback'),
-    source.indexOf('const closeFindToolWindow', source.indexOf('const openFindInFilesFromShortcut = React.useCallback')),
+  const shortcut = workspaceSource.slice(
+    workspaceSource.indexOf('const openFindInFilesFromShortcut ='),
+    workspaceSource.indexOf('const closeFindToolWindow', workspaceSource.indexOf('const openFindInFilesFromShortcut =')),
   );
   assert.match(shortcut, /if \(findTool !== null\)/);
   assert.match(shortcut, /selectedEditorFindQuery\(currentCodeEditor\(\)\)/);
   assert.match(shortcut, /openFindTool\(selectedQuery, 'find'\)/);
   const doubleShiftEffect = source.slice(
     source.indexOf('/* Double Shift remains a registered alias'),
-    source.indexOf('React.useEffect(() => {\n        searchEverywhereFilesRequestRef', source.indexOf('/* Double Shift remains a registered alias')),
+    source.indexOf('}, [openFindInFilesFromShortcut]);', source.indexOf('/* Double Shift remains a registered alias')) +
+      '}, [openFindInFilesFromShortcut]);'.length,
   );
   assert.match(doubleShiftEffect, /doubleShiftAction\(/);
   assert.match(doubleShiftEffect, /openFindInFilesFromShortcut\(\)/);
@@ -128,12 +131,12 @@ test('Find in Files keeps File mask top-right and query filters at the right edg
     source.indexOf('const FindToolWindow = FindToolWindowView;'),
   );
   assert.match(findTool, /styles\.findToolFileMaskControl/);
-  assert.match(findTool, /type: 'checkbox'/);
+  assert.match(findTool, /type='checkbox'/);
   assert.match(findTool, /styles\.findToolFileMaskInput/);
-  assert.match(findTool, /style: styles\.findToolFilterGroup/);
-  assert.match(findTool, /icon: 'matchCase'/);
-  assert.match(findTool, /icon: 'wholeWords'/);
-  assert.match(findTool, /icon: 'regex'/);
+  assert.match(findTool, /style=\{styles\.findToolFilterGroup\}/);
+  assert.match(findTool, /icon='matchCase'/);
+  assert.match(findTool, /icon='wholeWords'/);
+  assert.match(findTool, /icon='regex'/);
   const toolbarActions = findTool.slice(findTool.indexOf('const toolbarActions = ['), findTool.indexOf('React.useEffect(() => {\n        if (handoffRevision'));
   assert.doesNotMatch(toolbarActions, /id: 'case'/);
   assert.doesNotMatch(toolbarActions, /id: 'words'/);
@@ -143,9 +146,7 @@ test('Find in Files keeps File mask top-right and query filters at the right edg
 });
 
 test('Find in Files scope row maps Project, Directory and truthful presets', () => {
-  const scope = new Function(
-    `${extractFunction('findToolPathMatchesScope')}; return findToolPathMatchesScope;`,
-  )();
+  const scope = loadTypeScriptFunction(commitSource, 'findToolPathMatchesScope');
   assert.equal(scope('src/app.ts', 'project', {}), true);
   assert.equal(scope('src/app.ts', 'directory', { directory: 'src' }), true);
   assert.equal(scope('docs/readme.md', 'directory', { directory: 'src' }), false);
@@ -157,7 +158,7 @@ test('Find in Files scope row maps Project, Directory and truthful presets', () 
     source.indexOf('function FindToolWindowView('),
     source.indexOf('const FindToolWindow = FindToolWindowView;'),
   );
-  assert.match(findTool, /'data-dsh-find-scope': ''/);
+  assert.match(findTool, /data-dsh-find-scope=''/);
   assert.match(findTool, /id: 'project'/);
   assert.match(findTool, /id: 'module'[\s\S]*?disabled: true/);
   assert.match(findTool, /id: 'directory'/);
@@ -165,21 +166,21 @@ test('Find in Files scope row maps Project, Directory and truthful presets', () 
   assert.match(findTool, /findScopeProjectFiles/);
   assert.match(findTool, /findScopeOpenFiles/);
   assert.match(findTool, /findScopeChangedFiles/);
-  assert.match(source, /React\.createElement\(FindToolWindow, \{[\s\S]*?activeFilePath: activePath/);
-  assert.doesNotMatch(source, /React\.createElement\(FindToolWindow, \{[\s\S]*?\n\s+activeFilePath,\n/);
+  assert.match(workspaceSource, /<FindToolWindow[\s\S]*?activeFilePath=\{activePath\}/);
+  assert.doesNotMatch(workspaceSource, /React\.createElement\(FindToolWindow,/);
 });
 
 test('scope filtering also limits Replace All targets', () => {
   assert.match(source, /const scopedReplacementPaths = new Set\(scopedMatches\.map\(\(match\) => match\.path\)\)/);
   assert.match(source, /onReplaceAll\(scopedReplacementPaths\)/);
-  assert.match(source, /const replaceInFindTool = React\.useCallback\(async \(allowedPaths = null\)/);
-  assert.match(source, /\.filter\(\(match\) => allowed === null \|\| allowed\.has\(match\.path\)\)/);
+  assert.match(source, /const replaceInFindTool = React\.useCallback\(\s+async \(allowedPaths = null\)/);
+  assert.match(source, /\.filter\(\s*\(match\) => allowed === null \|\| allowed\.has\(match\.path\),?\s*\)/);
 });
 
 test('repeating the shortcut focuses an open Find without resetting it', () => {
-  const shortcut = source.slice(
-    source.indexOf('const openFindInFilesFromShortcut = React.useCallback'),
-    source.indexOf('openFindTool(textQuery, \'find\')', source.indexOf('const openFindInFilesFromShortcut = React.useCallback')),
+  const shortcut = workspaceSource.slice(
+    workspaceSource.indexOf('const openFindInFilesFromShortcut ='),
+    workspaceSource.indexOf('openFindTool(textQuery, \'find\')', workspaceSource.indexOf('const openFindInFilesFromShortcut =')),
   );
   assert.match(shortcut, /if \(findTool !== null\)/);
   assert.match(shortcut, /mode: 'find'/);

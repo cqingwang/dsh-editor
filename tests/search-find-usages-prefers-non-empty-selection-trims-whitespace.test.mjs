@@ -2,22 +2,19 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+import { transpileTypeScriptFunction } from './ts-source.mjs';
+
+const workspaceSource = await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8');
+const commitSource = await readFile(new URL('../src/client/commit.ts', import.meta.url), 'utf8');
+const source =
+  workspaceSource +
+  '\n' +
+  commitSource +
+  '\n' +
+  (await readFile(new URL('../src/client/locales.ts', import.meta.url), 'utf8'));
 
 function extractSource(name) {
-  const marker = `    function ${name}(`;
-  const start = source.indexOf(marker);
-  assert.notEqual(start, -1, `${name} should exist`);
-  let index = source.indexOf('{', start);
-  let depth = 0;
-  for (; index < source.length; index += 1) {
-    if (source[index] === '{') depth += 1;
-    else if (source[index] === '}') {
-      depth -= 1;
-      if (depth === 0) return source.slice(start, index + 1);
-    }
-  }
-  assert.fail(`unterminated ${name}`);
+  return transpileTypeScriptFunction(commitSource, name);
 }
 
 function extract(name) {
@@ -78,13 +75,13 @@ test('Find Usages distinguishes no editor from no symbol', () => {
 });
 
 test('Search Everywhere exposes Find Usages as a workspace search action', () => {
-  const actionsStart = source.indexOf('const searchEverywhereActions = React.useMemo');
-  const actionsEnd = source.indexOf('/* Recompute match count', actionsStart);
-  const actions = source.slice(actionsStart, actionsEnd);
+  const actionsStart = workspaceSource.indexOf('const searchEverywhereActions =');
+  const actionsEnd = workspaceSource.indexOf('/* Recompute match count', actionsStart);
+  const actions = workspaceSource.slice(actionsStart, actionsEnd);
   assert.match(actions, /id: 'findUsages'/);
   assert.match(actions, /label: t\('editor\.findUsagesAction'\)/);
   assert.match(actions, /shortcut: ideaUsageFamilyShortcut\('findUsages', searchMacPlatform\)/);
-  assert.match(actions, /disabled: findUsagesTarget\.query === ''/);
+  assert.match(actions, /disabled:\s*findUsagesTarget\.query === ''/);
   assert.match(actions, /openFindTool\(findUsagesTarget\.query, 'find'\)/);
 });
 

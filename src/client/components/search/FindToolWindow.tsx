@@ -9,9 +9,44 @@ import { ContextMenu } from '../ui/Menu';
 import { ToolbarButton } from '../ui/ToolbarButton';
 import { FindScopeEditor } from './FindScopeEditor';
 type Translate = (key: string, params?: Record<string, unknown>) => string;
+
+interface FindToolWindowState {
+  query: string;
+  replace: string;
+  mode?: 'find' | 'replace';
+  files?: SearchFileResult[];
+  matches?: SearchTextResult[];
+  [key: string]: unknown;
+}
+
+interface SearchFileResult {
+  path: string;
+  [key: string]: unknown;
+}
+
+interface SearchTextResult {
+  path: string;
+  line: number;
+  column: number;
+  [key: string]: unknown;
+}
+
+interface FindCustomScope {
+  id: string;
+  name?: string;
+  [key: string]: unknown;
+}
+
+interface FindScopeValue {
+  mode?: string;
+  preset?: string;
+  directory?: string;
+  [key: string]: unknown;
+}
+
 export interface FindToolWindowProps {
   t: Translate;
-  state: any;
+  state: FindToolWindowState;
   queryHistory?: string[];
   replaceHistory?: string[];
   onQuery: (value: string) => void;
@@ -23,26 +58,26 @@ export interface FindToolWindowProps {
   onToggleIncludeExcluded: () => void;
   onContextFilterChange: (value: string) => void;
   onFileMaskChange: (value: string) => void;
-  onScopeChange?: (value: any) => void;
+  onScopeChange?: (value: FindScopeValue) => void;
   onDirectoryRecursiveChange?: (value: boolean) => void;
-  customScopes?: any[];
-  onCustomScopesChange?: (scopes: any[]) => any[];
+  customScopes?: FindCustomScope[];
+  onCustomScopesChange?: (scopes: FindCustomScope[]) => FindCustomScope[];
   onMove: (direction: number, count: number, index?: number) => void;
-  onOpen: (result: any, openInNewTab: boolean) => void;
-  onReplaceOccurrence: (result: any, index: number) => void;
+  onOpen: (result: SearchTextResult | SearchFileResult, openInNewTab: boolean) => void;
+  onReplaceOccurrence: (result: SearchTextResult, index: number) => void;
   onReplaceAll: (paths: Set<string>) => void;
   canUndoLastReplace?: boolean;
   onUndoLastReplace?: () => void;
   canRedoLastReplace?: boolean;
   onRedoLastReplace?: () => void;
-  onOpenInRightSplit: (path: string, position: any) => void;
+  onOpenInRightSplit: (path: string, position: { line: number; column: number } | null) => void;
   onRevealResult: (path: string) => void;
   onNotify: (message: string) => void;
   onReplaceMode: () => void;
   onOpenSettings?: () => void;
   onOpenInFindWindow: () => void;
-  onPopupDragStart?: (event: any) => void;
-  onPopupResizeStart?: (event: any, direction: string) => void;
+  onPopupDragStart?: (event: React.MouseEvent<HTMLElement>) => void;
+  onPopupResizeStart?: (event: React.MouseEvent<HTMLElement>, direction: string) => void;
   onClose: () => void;
   floating?: boolean;
   activeFilePath?: string | null;
@@ -128,7 +163,7 @@ function FindToolWindowView({
   const [groupByMenu, setGroupByMenu] = React.useState(null);
   const [searchNewLine, setSearchNewLine] = React.useState(false);
   const [replaceNewLine, setReplaceNewLine] = React.useState(false);
-  const [replaceExpanded, setReplaceExpanded] = React.useState(() => floating || state.mode === 'replace');
+  const [replaceExpanded, setReplaceExpanded] = React.useState(() => state.mode === 'replace');
   const [openResultsInNewTab, setOpenResultsInNewTab] = React.useState(
     () => readStoredText('dsh-editor.find.openInNewTab', '0') === '1',
   );

@@ -1,4 +1,5 @@
 import React from 'react';
+import type * as Monaco from 'monaco-editor';
 import { styles } from '../../ui/styles';
 import { PathLabel } from '../ui/PathLabel';
 import { ToolbarButton } from '../ui/ToolbarButton';
@@ -8,7 +9,7 @@ declare const EDITOR_CODE_LINE_HEIGHT: number;
 declare const EDITOR_UI_FONT: string;
 declare function basename(path: string): string;
 declare function detectTheme(): string;
-declare function safeLanguage(monaco: any, path: string): string;
+declare function safeLanguage(monaco: typeof Monaco, path: string): string;
 
 type Translate = (key: string, params?: Record<string, unknown>) => string;
 
@@ -33,14 +34,14 @@ export interface RepositoryVersionPreviewProps {
 
 function RepositoryVersionPreview({ t, target, monacoReady, onClose, onOpenLocal }: RepositoryVersionPreviewProps) {
   const hostRef = React.useRef<HTMLDivElement | null>(null);
-  const editorRef = React.useRef<any>(null);
+  const editorRef = React.useRef<Monaco.editor.IStandaloneCodeEditor | null>(null);
   const version = target?.repositoryVersion ?? null;
   const path = typeof target?.path === 'string' ? target.path : '';
   const hash = typeof version?.hash === 'string' ? version.hash : '';
 
   React.useEffect(() => {
     const node = hostRef.current;
-    const monaco = (window as any).monaco;
+    const monaco = (window as Window & { monaco?: typeof Monaco }).monaco;
     if (!monacoReady || node === null || monaco?.editor === undefined || version === null || version.binary === true) {
       return undefined;
     }

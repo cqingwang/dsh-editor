@@ -1,4 +1,6 @@
 /* commit.ts: dsh-editor Search/Find model and storage helpers. Generated into lib/client.js by scripts/build-client.mjs. */
+import type * as Monaco from 'monaco-editor';
+
 interface SearchPreviewWindow {
   start: number;
   end: number;
@@ -225,7 +227,7 @@ function findToolPreviewLineParts(lineText: string, lineStart: number, matches: 
  * @param {string} path - previewed file path.
  * @returns {string} registered Monaco language id or plaintext.
  */
-function codePreviewLanguage(monaco: any, path: string): string {
+function codePreviewLanguage(monaco: typeof Monaco, path: string): string {
   if (monaco?.languages === undefined || typeof monaco.languages.getLanguages !== 'function') return 'plaintext';
   return safeLanguage(monaco, path);
 }
@@ -2014,6 +2016,10 @@ function findScopeStorageKey(root) {
 
 /** Browser-local geometry for the movable Find in Files popup. */
 const FIND_POPUP_GEOMETRY_STORAGE_KEY = 'dsh-editor.find.popup.geometry.v1';
+const FIND_POPUP_DEFAULT_WIDTH = 510;
+const FIND_POPUP_DEFAULT_HEIGHT = 440;
+const LEGACY_FIND_POPUP_DEFAULT_WIDTH = 580;
+const LEGACY_FIND_POPUP_DEFAULT_HEIGHT = 536;
 
 /**
  * Keep the movable Find popup inside the current viewport.
@@ -2034,10 +2040,16 @@ function clampFindPopupGeometry(value, viewportWidth, viewportHeight) {
   const requestedWidth = Number(source.width);
   const requestedHeight = Number(source.height);
   const width = Math.round(
-    Math.max(minimumWidth, Math.min(availableWidth, Number.isFinite(requestedWidth) ? requestedWidth : 580)),
+    Math.max(
+      minimumWidth,
+      Math.min(availableWidth, Number.isFinite(requestedWidth) ? requestedWidth : FIND_POPUP_DEFAULT_WIDTH),
+    ),
   );
   const height = Math.round(
-    Math.max(minimumHeight, Math.min(availableHeight, Number.isFinite(requestedHeight) ? requestedHeight : 536)),
+    Math.max(
+      minimumHeight,
+      Math.min(availableHeight, Number.isFinite(requestedHeight) ? requestedHeight : FIND_POPUP_DEFAULT_HEIGHT),
+    ),
   );
   const requestedX = Number(source.x);
   const requestedY = Number(source.y);
@@ -2100,8 +2112,14 @@ function resizeFindPopupGeometry(start, deltaX, deltaY, direction, viewportWidth
 /** Read the last movable Find popup geometry. */
 function readFindPopupGeometry(viewportWidth = window.innerWidth, viewportHeight = window.innerHeight) {
   try {
+    const saved = JSON.parse(window.localStorage.getItem(FIND_POPUP_GEOMETRY_STORAGE_KEY) ?? '{}');
+    const legacyDefault =
+      saved !== null &&
+      typeof saved === 'object' &&
+      Number(saved.width) === LEGACY_FIND_POPUP_DEFAULT_WIDTH &&
+      Number(saved.height) === LEGACY_FIND_POPUP_DEFAULT_HEIGHT;
     return clampFindPopupGeometry(
-      JSON.parse(window.localStorage.getItem(FIND_POPUP_GEOMETRY_STORAGE_KEY) ?? '{}'),
+      legacyDefault ? {} : saved,
       viewportWidth,
       viewportHeight,
     );

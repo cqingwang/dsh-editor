@@ -5,14 +5,19 @@ import test from 'node:test';
 const root = new URL('../', import.meta.url);
 const allowedLegacyFixtures = [];
 
-test('legacy fixture budget cannot grow while tests migrate to TSX boundaries', async () => {
-  const topLevel = (await readdir(new URL('tests/fixtures/', root)))
-    .filter((name) => name.endsWith('.legacy.js'))
-    .sort();
-  const workspaceOracle = (await readdir(new URL('tests/fixtures/legacy/', root)))
-    .filter((name) => name.endsWith('.legacy.js'))
-    .sort();
+async function legacyFixtures(path) {
+  try {
+    return (await readdir(new URL(path, root))).filter((name) => name.endsWith('.legacy.js')).sort();
+  } catch (error) {
+    if (error?.code === 'ENOENT') return [];
+    throw error;
+  }
+}
+
+test('legacy JavaScript fixtures stay retired', async () => {
+  const topLevel = await legacyFixtures('tests/fixtures/');
+  const workspaceOracle = await legacyFixtures('tests/fixtures/legacy/');
 
   assert.deepEqual(topLevel, allowedLegacyFixtures);
-  assert.deepEqual(workspaceOracle, ['editor-workspace.legacy.js']);
+  assert.deepEqual(workspaceOracle, []);
 });

@@ -52,11 +52,12 @@
   "license": "MIT",
   "scripts": {
     "build:client": "node scripts/build-client.mjs",
-    "postbuild:client": "npm test",
+    "postbuild:client": "npm run lint:client-types && npm test",
     "check:client-build": "node scripts/build-client.mjs --check",
+    "lint:client-types": "eslint \"src/client/**/*.{ts,tsx}\"",
     "format:client-components": "prettier --write \"src/client/**/*.{ts,tsx}\"",
     "check:format:client-components": "prettier --check \"src/client/**/*.{ts,tsx}\"",
-    "test": "node --import ./tests/client-source-oracle.mjs --test --test-concurrency=1 \"tests/*.test.mjs\"",
+    "test": "node --test --test-concurrency=1 \"tests/*.test.mjs\"",
     "fixture:editor": "bash scripts/prepare-editor-fixture.sh"
   },
   "dependencies": {
@@ -68,8 +69,12 @@
     "@babel/core": "7.29.13",
     "@babel/plugin-transform-react-jsx": "7.27.1",
     "@babel/plugin-transform-typescript": "7.28.0",
+    "@typescript-eslint/eslint-plugin": "^8.73.0",
+    "@typescript-eslint/parser": "^8.73.0",
     "babel-plugin-transform-react-createelement-to-jsx": "1.1.0",
     "esbuild": "0.28.2",
-    "prettier": "3.6.2"
+    "eslint": "^9.39.5",
+    "prettier": "3.6.2",
+    "typescript": "^5.9.3"
   }
 }

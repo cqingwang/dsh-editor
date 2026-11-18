@@ -10,7 +10,7 @@ import { loadTypeScriptFunction } from './ts-source.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const source =
-  readFileSync(join(root, 'lib/client.js'), 'utf8') +
+  readFileSync(join(root, 'src/client/editor-workspace.tsx'), 'utf8') +
   '\n' +
   readFileSync(join(root, 'src/client/components/search/FindToolWindow.tsx'), 'utf8') +
   '\n' +
@@ -19,6 +19,7 @@ const host = readFileSync(join(root, 'lib/index.js'), 'utf8');
 const revisionPickerSource = readFileSync(join(root, 'src/client/components/commit/RevisionPicker.tsx'), 'utf8');
 const moveToPickerSource = readFileSync(join(root, 'src/client/components/commit/MoveToPicker.tsx'), 'utf8');
 const quickOpenSource = readFileSync(join(root, 'src/client/components/search/QuickOpen.tsx'), 'utf8');
+const stylesSource = readFileSync(join(root, 'src/client/ui/styles.ts'), 'utf8');
 const fileTemplateModel = readFileSync(
   join(root, 'src/client/components/editor/editor-file-template-model.ts'),
   'utf8',
@@ -55,13 +56,13 @@ test('creating a file writes the skeleton, and the toggle can suppress it', () =
     source.indexOf('const createEntry = React.useCallback('),
     source.indexOf('/* IDEA\'s "Reveal in Finder"'),
   );
-  assert.match(create, /if \(createState\.kind === 'file' && createState\.template !== false\)/);
+  assert.match(create, /if \(\s+createState\.kind === 'file' &&\s+createState\.template !== false\s+\)/);
   assert.match(create, /const skeleton = templateFor\(name\);/);
   /* The file exists first: a template write failure must not mean "no file". */
   assert.match(create, /await callFs\(\{ op: 'create', path, kind: createState\.kind \}\);/);
-  assert.match(create, /op: 'write', path, content: skeleton, force: true, create: true/);
+  assert.match(create, /op: 'write',[\s\S]*?path,[\s\S]*?content: skeleton,[\s\S]*?force: true,[\s\S]*?create: true,/);
   /* Templates are ON by default, the way IDEA opens the dialog. */
-  assert.match(source, /setCreateState\(\{ kind, parent, value: '', template: true \}\);/);
+  assert.match(source, /setCreateState\(\{\s+kind,\s+parent,\s+value: '',\s+template: true,\s+\}\);/);
 });
 
 /* ── Move to… (F6) ─────────────────────────────────────────────────────── */
@@ -140,16 +141,16 @@ test('the palette list contributes its content height', () => {
      whose height is `auto`, so the circular sizing resolved to "list is empty".
      `auto` contributes the rows; `minHeight: 0` still lets them scroll inside
      the dialog's 56vh cap. */
-  const start = source.indexOf('      paletteList: {');
+  const start = stylesSource.indexOf('  paletteList: {');
   assert.notEqual(start, -1, 'paletteList style is missing');
-  const block = source.slice(start, source.indexOf('      },', start));
+  const block = stylesSource.slice(start, stylesSource.indexOf('  },', start));
   assert.match(block, /flex: '1 1 auto'/, 'a zero flex-basis collapses an auto-height dialog');
   assert.doesNotMatch(block, /flex: '1 1 0'/);
   /* Keep the scroll contract the cap depends on. */
   assert.match(block, /minHeight: 0/);
   assert.match(block, /overflow: 'auto'/);
   /* The dialog itself must still cap its height, or a long list runs off-screen. */
-  const dialog = source.slice(source.indexOf('      palette: {'), source.indexOf('      paletteInput: {'));
+  const dialog = stylesSource.slice(stylesSource.indexOf('  palette: {'), stylesSource.indexOf('  paletteInput: {'));
   assert.match(dialog, /maxHeight: '56vh'/);
 });
 

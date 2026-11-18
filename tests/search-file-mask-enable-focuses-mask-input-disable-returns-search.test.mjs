@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) + '\n' + (await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8'));
+const source = (await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8')) + '\n' + (await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8'));
 
 function findToolComponent() {
   return source.slice(
@@ -49,7 +49,7 @@ test('Mouse Scope mode and preset changes return focus to Search', () => {
   const component = findToolComponent();
   assert.match(
     component,
-    /onClick: \(\) => \{\s+selectFindScopeMode\(scope\.id\);\s+window\.setTimeout\(\(\) => queryInputRef\.current\?\.focus\?\.\(\), 0\);\s+\}/u,
+    /onClick=\{\(\) => \{\s+selectFindScopeMode\(scope\.id\);\s+window\.setTimeout\(\(\) => queryInputRef\.current\?\.focus\?\.\(\), 0\);\s+\}\}/u,
   );
   assert.match(
     component,

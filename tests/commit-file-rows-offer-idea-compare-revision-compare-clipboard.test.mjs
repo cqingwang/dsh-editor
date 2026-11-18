@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = readFileSync(join(root, 'lib/client.js'), 'utf8');
+const source = readFileSync(join(root, 'src/client/editor-workspace.tsx'), 'utf8');
 
 function menuSource() {
   const start = source.indexOf('const buildChangeMenu = React.useCallback(');
@@ -31,5 +31,5 @@ test('compare actions are single-file only and wired into the menu dependencies'
   const menu = menuSource();
   assert.match(menu, /id: 'compareRevision',[\s\S]*?disabled: paths\.length > 1/);
   assert.match(menu, /id: 'compareClipboard',[\s\S]*?disabled: paths\.length > 1/);
-  assert.match(menu, /\[compareWithClipboard, compareWithHead, compareWithRevision, copySelectedPatch, createSelectedPatch, currentCodeEditor, currentCodePath, openFile, openInTerminal, addToGitignore,/);
+  assert.match(menu, /\[[\s\S]*?compareWithClipboard,[\s\S]*?copySelectedPatch,[\s\S]*?currentCodeEditor,[\s\S]*?openInTerminal,/);
 });

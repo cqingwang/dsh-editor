@@ -29,20 +29,42 @@ function extractFunction(name) {
 
 function geometryFunctions() {
   return new Function(
-    `${extractFunction('clampFindPopupGeometry')};`
+    'const FIND_POPUP_DEFAULT_WIDTH = 510;'
+      + 'const FIND_POPUP_DEFAULT_HEIGHT = 440;'
+      + `${extractFunction('clampFindPopupGeometry')};`
       + `${extractFunction('moveFindPopupGeometry')};`
       + `${extractFunction('resizeFindPopupGeometry')};`
       + 'return { clampFindPopupGeometry, moveFindPopupGeometry, resizeFindPopupGeometry };',
   )();
 }
 
+function readGeometry(savedGeometry) {
+  return new Function(
+    'window',
+    'const FIND_POPUP_GEOMETRY_STORAGE_KEY = "dsh-editor.find.popup.geometry.v1";'
+      + 'const FIND_POPUP_DEFAULT_WIDTH = 510;'
+      + 'const FIND_POPUP_DEFAULT_HEIGHT = 440;'
+      + 'const LEGACY_FIND_POPUP_DEFAULT_WIDTH = 580;'
+      + 'const LEGACY_FIND_POPUP_DEFAULT_HEIGHT = 536;'
+      + `${extractFunction('clampFindPopupGeometry')};`
+      + `${extractFunction('readFindPopupGeometry')};`
+      + 'return readFindPopupGeometry;',
+  )({
+    innerHeight: 900,
+    innerWidth: 1200,
+    localStorage: {
+      getItem: () => JSON.stringify(savedGeometry),
+    },
+  })(1200, 900);
+}
+
 test('Find popup geometry defaults to centered and clamps into the viewport', () => {
   const { clampFindPopupGeometry } = geometryFunctions();
   assert.deepEqual(clampFindPopupGeometry({}, 1200, 900), {
-    x: 310,
-    y: 182,
-    width: 580,
-    height: 536,
+    x: 345,
+    y: 230,
+    width: 510,
+    height: 440,
   });
   assert.deepEqual(clampFindPopupGeometry({ x: -100, y: -50, width: 580, height: 536 }, 800, 600), {
     x: 8,
@@ -89,6 +111,11 @@ test('Find popup resize honors each edge and minimum readable size', () => {
 test('Find popup remembers geometry in browser-local storage', () => {
   assert.match(source, /findToolPopup: \{\s+position: 'fixed',\s+boxSizing: 'border-box',/u);
   assert.match(source, /dsh-editor\.find\.popup\.geometry\.v1/u);
+  assert.match(source, /FIND_POPUP_DEFAULT_WIDTH = 510/u);
+  assert.match(source, /FIND_POPUP_DEFAULT_HEIGHT = 440/u);
+  assert.match(source, /LEGACY_FIND_POPUP_DEFAULT_WIDTH = 580/u);
+  assert.match(source, /LEGACY_FIND_POPUP_DEFAULT_HEIGHT = 536/u);
+  assert.match(source, /legacyDefault \? \{\} : saved/u);
   assert.match(source, /function readFindPopupGeometry\(/u);
   assert.match(source, /function writeFindPopupGeometry\(/u);
 });
@@ -107,4 +134,19 @@ test('The floating wrapper uses persisted geometry and exposes move/resize handl
   assert.match(source, /const FIND_POPUP_RESIZE_DIRECTIONS = \['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'\]/u);
   assert.match(source, /onPointerDown=\{\s+floating\s+\?/u);
   assert.match(source, /closest\('button, input, textarea, select, a, \[role="menuitem"\]'\)/u);
+});
+
+test('Legacy default geometry migrates while custom Find popup sizes survive', () => {
+  assert.deepEqual(readGeometry({ x: 100, y: 80, width: 580, height: 536 }), {
+    x: 345,
+    y: 230,
+    width: 510,
+    height: 440,
+  });
+  assert.deepEqual(readGeometry({ x: 100, y: 80, width: 620, height: 500 }), {
+    x: 100,
+    y: 80,
+    width: 620,
+    height: 500,
+  });
 });

@@ -2,23 +2,26 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
-const actionsStart = source.indexOf('const searchEverywhereActions = React.useMemo');
-const actionsEnd = source.indexOf('/* Recompute match count', actionsStart);
-const actions = source.slice(actionsStart, actionsEnd);
+import { transpileTypeScriptFunction } from './ts-source.mjs';
+
+const workspaceSource = await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8');
+const commitSource = await readFile(new URL('../src/client/commit.ts', import.meta.url), 'utf8');
+const findToolSource = await readFile(new URL('../src/client/find-tool.ts', import.meta.url), 'utf8');
+const source =
+  workspaceSource +
+  '\n' +
+  commitSource +
+  '\n' +
+  (await readFile(new URL('../src/client/locales.ts', import.meta.url), 'utf8'));
+const actionsStart = workspaceSource.indexOf('const searchEverywhereActions =');
+const actionsEnd = workspaceSource.indexOf('/* Recompute match count', actionsStart);
+const actions = workspaceSource.slice(actionsStart, actionsEnd);
 
 function extractFunction(name) {
-  const start = source.indexOf(`function ${name}(`);
-  assert.notEqual(start, -1, `${name} is missing`);
-  const bodyStart = source.indexOf(') {', start) + 2;
-  assert.ok(bodyStart > 1, `${name} has no function body`);
-  let depth = 0;
-  for (let index = bodyStart; index < source.length; index += 1) {
-    if (source[index] === '{') depth += 1;
-    if (source[index] === '}') depth -= 1;
-    if (depth === 0) return source.slice(start, index + 1);
-  }
-  assert.fail(`${name} has no closing brace`);
+  return transpileTypeScriptFunction(
+    name === 'nextEnabledSearchResultIndex' ? commitSource : [findToolSource, commitSource].join('\n'),
+    name,
+  );
 }
 
 test('Find Usages Settings is visible but honestly disabled at the text-search boundary', () => {
@@ -30,7 +33,7 @@ test('Find Usages Settings is visible but honestly disabled at the text-search b
   assert.match(action, /description: t\('editor\.findUsagesSettingsHint'\)/);
   assert.match(action, /shortcut: ideaUsageFamilyShortcut\('findUsagesSettings', searchMacPlatform\)/);
   assert.match(action, /keywords: t\('editor\.findUsagesSettingsSynonym'\)/);
-  assert.match(action, /disabled: true/);
+  assert.match(action, /disabled:\s*true/);
   assert.match(action, /disabledReason: t\('editor\.findUsagesSettingsUnavailable'\)/);
   assert.match(action, /run: \(\) => \{\}/);
 });
@@ -45,8 +48,12 @@ test('Find Usages Settings copy explains the missing language-aware scope model'
 
 test('Settings action remains searchable by IDEA action id and ranks ahead of plain Find Usages', () => {
   const rank = new Function(
-    `${extractFunction('fuzzyScore')}; ${extractFunction('rankSearchActions')}; return rankSearchActions;`,
-  )();
+    'basename',
+    `${transpileTypeScriptFunction(findToolSource, 'wholeWordIndex')};
+     ${transpileTypeScriptFunction(findToolSource, 'fuzzyScore')};
+     ${transpileTypeScriptFunction(commitSource, 'rankSearchActions')};
+     return rankSearchActions;`,
+  )((path) => path.split('/').at(-1));
   const rows = [
     {
       id: 'findUsages',
@@ -66,7 +73,9 @@ test('Settings action remains searchable by IDEA action id and ranks ahead of pl
 });
 
 test('disabled settings action is skipped by Search Everywhere keyboard traversal', () => {
-  const skip = new Function(`${extractFunction('nextEnabledSearchResultIndex')}; return nextEnabledSearchResultIndex;`)();
+  const skip = new Function(
+    `${transpileTypeScriptFunction(commitSource, 'nextEnabledSearchResultIndex')}; return nextEnabledSearchResultIndex;`,
+  )();
   const rows = [
     { id: 'findUsages', disabled: false },
     { id: 'findUsagesSettings', disabled: true },

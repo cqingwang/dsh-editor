@@ -5,7 +5,8 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = (readFileSync(join(root, 'src/client/components/diff/DiffPreview.tsx'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
+const source = (readFileSync(join(root, 'src/client/components/diff/DiffPreview.tsx'), 'utf8') + '\n' + readFileSync(join(root, 'src/client/editor-workspace.tsx'), 'utf8'));
+const fileMenuSource = readFileSync(join(root, 'src/client/components/commit/file-menu.ts'), 'utf8');
 
 function diffPreview() {
   return source.slice(source.indexOf('function DiffPreview('), source.indexOf('export { DiffPreview };'));
@@ -28,12 +29,12 @@ test('Diff visible toolbar buttons carry the disabled state used by the overflow
 });
 
 test('Commit Log path copying does not require the working copy to exist', () => {
-  const menu = commitFileMenu();
+  const menu = fileMenuSource;
   const relative = menu.slice(menu.indexOf("id: 'copyRelative'"), menu.indexOf("id: 'copyAbsolute'"));
   const absolute = menu.slice(menu.indexOf("id: 'copyAbsolute'"), menu.indexOf('],', menu.indexOf("id: 'copyAbsolute'")));
-  assert.match(relative, /writeText\(path\)/);
+  assert.match(relative, /onCopyText\(path\)/);
   assert.doesNotMatch(relative, /disabled/);
-  assert.match(absolute, /shellQuote\(root === '' \? path : `\$\{root\}\/\$\{path\}`\)/);
+  assert.match(absolute, /onCopyText\(absoluteClipboardPath\)/);
   assert.doesNotMatch(absolute, /disabled/);
 });
 

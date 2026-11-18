@@ -2,7 +2,10 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+const source = [
+  await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8'),
+  await readFile(new URL('../src/client/commit.ts', import.meta.url), 'utf8'),
+].join('\n');
 const replaceAll = source.slice(
   source.indexOf('const replaceInFindTool = React.useCallback'),
   source.indexOf('const replaceFindToolOccurrence = React.useCallback'),
@@ -16,7 +19,7 @@ test('Mixed dirty and clean Replace All waits for clean host success before dirt
   const hostCall = replaceAll.indexOf('await callFs({');
   const dirtyCommit = replaceAll.indexOf('commitFindToolDirtyPlans(dirtyPlans)');
   assert.ok(hostCall >= 0 && dirtyCommit > hostCall);
-  assert.match(replaceAll, /cleanTargets\.size === 0 \? null : await callFs/);
+  assert.match(replaceAll, /cleanTargets\.size === 0\s+\? null\s+: await callFs/);
   assert.match(replaceAll, /targets: \[\.\.\.cleanTargets\.values\(\)\]/);
 });
 

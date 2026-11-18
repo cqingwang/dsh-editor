@@ -2,7 +2,14 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = (await readFile(new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
+const source =
+  (await readFile(new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url), 'utf8')) +
+  '\n' +
+  (await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8')) +
+  '\n' +
+  (await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8')) +
+  '\n' +
+  (await readFile(new URL('../src/client/components/search/ShowUsagesPopup.tsx', import.meta.url), 'utf8'));
 
 function extractFunction(name) {
   const start = source.indexOf(`function ${name}(`);
@@ -31,7 +38,7 @@ test('provider suggestions are not rendered as an input-level result list', () =
 });
 
 test('Show Usages has a distinct transient popup instead of aliasing Find Usages', () => {
-  const actionsStart = source.indexOf('const searchEverywhereActions = React.useMemo');
+  const actionsStart = source.indexOf('const searchEverywhereActions =');
   const actionsEnd = source.indexOf('/* Recompute match count', actionsStart);
   const actions = source.slice(actionsStart, actionsEnd);
   assert.match(actions, /id: 'showUsages'/);

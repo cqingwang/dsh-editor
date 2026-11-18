@@ -2,8 +2,8 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
-const actionsStart = source.indexOf('const searchEverywhereActions = React.useMemo');
+const source = await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8');
+const actionsStart = source.indexOf('const searchEverywhereActions =');
 const actionsEnd = source.indexOf('/* Recompute match count', actionsStart);
 const actions = source.slice(actionsStart, actionsEnd);
 const matches = [...actions.matchAll(/id: '([^']+)'/g)];
@@ -20,7 +20,7 @@ test('editor-only actions are disabled only by editor availability', () => {
   for (const id of ['find', 'replace', 'incrementalSearch']) {
     const block = blocks.get(id);
     assert.ok(block, `${id} missing`);
-    assert.match(block, /disabled: !hasEditorModel/);
+    assert.match(block, /disabled:\s*!hasEditorModel/);
     assert.match(block, /disabledReason: t\('editor\.findEditorRequired'\)/);
   }
 });
@@ -29,7 +29,7 @@ test('selection-only actions are disabled without a selection scope', () => {
   for (const id of ['searchInSelectionOnly', 'replaceInSelectionOnly']) {
     const block = blocks.get(id);
     assert.ok(block, `${id} missing`);
-    assert.match(block, /disabled: !hasSelectionScope/);
+    assert.match(block, /disabled:\s*!hasSelectionScope/);
     assert.match(block, /editor\.findSelectionRequired/);
     assert.match(block, /editor\.findEditorRequired/);
   }
@@ -52,7 +52,7 @@ test('symbol actions share the selection-or-caret availability boundary', () => 
   ]) {
     const block = blocks.get(id);
     assert.ok(block, `${id} missing`);
-    assert.match(block, /disabled: findUsagesTarget\.query === ''/);
+    assert.match(block, /disabled:\s*findUsagesTarget\.query === ''/);
     assert.match(block, /editor\.findEditorRequired/);
     assert.match(block, /editor\.findUsagesSymbolRequired/);
   }
@@ -62,7 +62,7 @@ test('find-step actions require an active editor query', () => {
   for (const id of ['findNext', 'findPrevious']) {
     const block = blocks.get(id);
     assert.ok(block, `${id} missing`);
-    assert.match(block, /disabled: !hasEditorModel \|\| replaceState === null \|\| replaceState\.find === ''/);
+    assert.match(block, /disabled:\s*!hasEditorModel \|\| replaceState === null \|\| replaceState\.find === ''/);
     assert.match(block, /editor\.findStepInactive/);
   }
 });
@@ -70,7 +70,7 @@ test('find-step actions require an active editor query', () => {
 test('Search In Changes requires an active visible diff', () => {
   const block = blocks.get('searchInChanges');
   assert.ok(block, 'searchInChanges missing');
-  assert.match(block, /disabled: diffOpen === false/);
+  assert.match(block, /disabled:\s*diffOpen === false/);
   assert.match(block, /editor\.searchInChangesUnavailable/);
 });
 
@@ -78,7 +78,7 @@ test('structural actions stay disabled and workspace actions stay available', ()
   for (const id of ['structuralSearch', 'structuralReplace', 'findUsagesSettings']) {
     const block = blocks.get(id);
     assert.ok(block, `${id} missing`);
-    assert.match(block, /disabled: true/);
+    assert.match(block, /disabled:\s*true/);
     assert.match(block, /disabledReason: t\('editor\./);
   }
   for (const id of [

@@ -2,10 +2,21 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = (await readFile(new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
+const searchEverywhereSource = await readFile(
+  new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url),
+  'utf8',
+);
+const workspaceSource = await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8');
+const commitSource = await readFile(new URL('../src/client/commit.ts', import.meta.url), 'utf8');
+const source = [
+  searchEverywhereSource,
+  workspaceSource,
+  await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8'),
+  commitSource,
+].join('\n');
 
 function extractSource(name) {
-  const marker = `    function ${name}(`;
+  const marker = `function ${name}(`;
   const start = source.indexOf(marker);
   assert.notEqual(start, -1, `${name} should exist`);
   let index = source.indexOf('(', start);
@@ -56,8 +67,14 @@ test('Search Everywhere passes active or clicked result into the shared handoff'
 });
 
 test('openFindTool stores and clamps the initial active index', () => {
-  const opener = source.slice(source.indexOf('const openFindTool = React.useCallback'), source.indexOf('React.useEffect(() => {\n        if (searchEverywhere !== null) writeSearchOptions'));
-  assert.match(opener, /const initialCount = \(Array\.isArray\(initial\?\.files\) \? initial\.files\.length : 0\) \+ \(Array\.isArray\(initial\?\.matches\) \? initial\.matches\.length : 0\)/);
+  const opener = workspaceSource.slice(
+    workspaceSource.indexOf('const openFindTool = React.useCallback'),
+    workspaceSource.indexOf('const openFindToolInDock = React.useCallback'),
+  );
+  assert.match(
+    opener,
+    /const initialCount =\s*\(Array\.isArray\(initial\?\.files\) \? initial\.files\.length : 0\) \+\s*\(Array\.isArray\(initial\?\.matches\) \? initial\.matches\.length : 0\)/,
+  );
   assert.match(opener, /index: Math\.max\(0, Math\.min\(initialCount - 1, Number\(initial\?\.index\) \|\| 0\)\)/);
 });
 

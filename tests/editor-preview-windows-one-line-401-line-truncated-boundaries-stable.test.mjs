@@ -2,20 +2,23 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = (await readFile(new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url), 'utf8') + '\n' + (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) + '\n' + (await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8')));
+import { transpileTypeScriptFunction } from './ts-source.mjs';
+
+const searchEverywhereSource = await readFile(
+  new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url),
+  'utf8',
+);
+const workspaceSource = await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8');
+const commitSource = await readFile(new URL('../src/client/commit.ts', import.meta.url), 'utf8');
+const source = [
+  searchEverywhereSource,
+  workspaceSource,
+  await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8'),
+  commitSource,
+].join('\n');
 
 function extractFunction(name) {
-  const start = source.indexOf(`function ${name}(`);
-  assert.notEqual(start, -1, `${name} is missing`);
-  const bodyStart = source.indexOf(') {', start) + 2;
-  assert.ok(bodyStart > 1, `${name} has no function body`);
-  let depth = 0;
-  for (let index = bodyStart; index < source.length; index += 1) {
-    if (source[index] === '{') depth += 1;
-    if (source[index] === '}') depth -= 1;
-    if (depth === 0) return source.slice(start, index + 1);
-  }
-  assert.fail(`${name} has no closing brace`);
+  return transpileTypeScriptFunction(commitSource, name);
 }
 
 function lines(count) {
@@ -91,12 +94,12 @@ test('Search Everywhere dirty search invalidates stale requests on file changes'
 });
 
 test('Dirty preview and save/reload paths keep current content authoritative', () => {
-  const dialog = source.slice(source.indexOf('function SearchEverywhere('), source.lastIndexOf('function QuickOpen('));
+  const dialog = searchEverywhereSource.slice(searchEverywhereSource.indexOf('function SearchEverywhere('));
   assert.match(dialog, /activeResult\.kind === 'text' && activeResult\.dirty === true/u);
   assert.match(dialog, /Array\.isArray\(openFiles\) \? openFiles : \[\]/u);
   assert.match(dialog, /activeResult\?\.dirty, openFiles\]/u);
-  assert.match(source, /\.\.\.entry, content: model\.getValue\(\), dirty: false, mtime:/u);
-  assert.match(source, /\.\.\.entry, content: value\.content, dirty: false, mtime:/u);
+  assert.match(source, /\.\.\.entry,[\s\S]*?content: model\.getValue\(\),[\s\S]*?dirty: false,[\s\S]*?mtime:/u);
+  assert.match(source, /\.\.\.entry,[\s\S]*?content: value\.content,[\s\S]*?dirty: false,[\s\S]*?mtime:/u);
   assert.match(source, /textRevision: \(current\.textRevision \?\? 0\) \+ 1/u);
 });
 

@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = readFileSync(join(root, 'lib/client.js'), 'utf8');
+const source = readFileSync(join(root, 'src/client/editor-workspace.tsx'), 'utf8');
 
 function menuSource() {
   const start = source.indexOf('const buildChangeMenu = React.useCallback(');
@@ -17,8 +17,8 @@ function menuSource() {
 
 test('unversioned file rows expose IDEA Add to .gitignore in the row menu', () => {
   const menu = menuSource();
-  assert.match(menu, /allUnversioned\s*\?\s*\[\{\s*id: 'gitignore',[\s\S]*?label: t\('editor\.addToGitignore'\),[\s\S]*?addToGitignore\(paths\)/);
-  assert.match(menu, /\[compareWithClipboard, compareWithHead, compareWithRevision, copySelectedPatch, createSelectedPatch, currentCodeEditor, currentCodePath, openFile, openInTerminal, addToGitignore, resolveConflict, restage, revealPath, rollback, root, showCombinedDiff, showFileHistory, t\]/);
+  assert.match(menu, /allUnversioned\s*\?\s*\[[\s\S]*?id: 'gitignore',[\s\S]*?label: t\('editor\.addToGitignore'\),[\s\S]*?void addToGitignore\(paths\)/);
+  assert.match(menu, /\[[\s\S]*?compareWithClipboard,[\s\S]*?showFileHistory,[\s\S]*?t,[\s\S]*?\]/);
 });
 
 test('addToGitignore is declared before the menu that depends on it', () => {

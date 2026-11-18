@@ -55,7 +55,11 @@ test('Commit Log exposes New Branch from the selected commit', async () => {
   const client = await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8');
   const locales = await readFile(new URL('../src/client/locales.ts', import.meta.url), 'utf8');
   assert.match(menu, /id: 'newBranchFromCommit'/);
-  assert.match(menu, /label: t\('editor\.newBranchFromCommitAction', \{ hash: commit\.hash\.slice\(0, 7\) \}\)/);
+  assert.match(
+    menu,
+    /label: t\('editor\.newBranchFromCommitAction', \{\s+hash: commit\.hash\.slice\(0, 7\),\s+\}\)/,
+  );
+  assert.match(menu, /run: \(\) => onCreateBranch\(commit\.hash\)/);
   assert.match(client, /namePrompt\.hash !== '' \? \{ startPoint: namePrompt\.hash \} : \{\}/);
   assert.match(locales, /newBranchFromCommitAction: '从提交 \{hash\} 新建分支…'/);
   assert.match(locales, /newBranchFromCommitAction: 'New Branch from \{hash\}…'/);

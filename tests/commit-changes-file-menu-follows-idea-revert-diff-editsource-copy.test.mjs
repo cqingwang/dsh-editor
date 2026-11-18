@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+const source = await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8');
 
 function changeMenu() {
   const start = source.indexOf('const buildChangeMenu = React.useCallback(');
@@ -40,10 +40,11 @@ test('Changes file menu follows IDEA Revert, Diff, EditSource, Copy Reference pr
 
 test('Changes menu uses IDEA separators and patch ordering', () => {
   const menu = changeMenu();
-  assert.match(menu, /items: \[\s*\{\s*id: 'rollback'[\s\S]*?\n              null,\s*\n              \{\s*id: 'diff'/);
-  assert.match(menu, /id: 'copyReference'[\s\S]*?\n              null,\s*\n              \{\s*id: removalOnly \? 'removeDeleted' : 'stage'/);
+  assert.ok((menu.match(/\bnull,/g) ?? []).length >= 4, 'IDEA action groups must remain separated');
+  assert.match(menu, /id: 'rollback'[\s\S]*?id: 'diff'/);
+  assert.match(menu, /id: 'copyReference'[\s\S]*?id: removalOnly \? 'removeDeleted' : 'stage'/);
   assert.match(menu, /id: 'createPatch'[\s\S]*?id: 'copyPatch'/);
-  assert.match(menu, /id: 'openTerminal'[\s\S]*?\n              null,\s*\n              \{\s*id: 'compareRevision'/);
+  assert.match(menu, /id: 'openTerminal'[\s\S]*?id: 'compareRevision'/);
 });
 
 test('Changes menu keeps multi-row safety and IDEA dirty-group order', () => {

@@ -2,20 +2,28 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = (await readFile(new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url), 'utf8') + '\n' + (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) + '\n' + (await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8')));
+import { transpileTypeScriptFunction } from './ts-source.mjs';
+
+const searchEverywhereSource = await readFile(
+  new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url),
+  'utf8',
+);
+const workspaceSource = await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8');
+const commitSource = await readFile(new URL('../src/client/commit.ts', import.meta.url), 'utf8');
+const terminalSource = await readFile(new URL('../src/client/terminal.ts', import.meta.url), 'utf8');
+const source = [
+  searchEverywhereSource,
+  workspaceSource,
+  await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8'),
+  commitSource,
+  terminalSource,
+].join('\n');
 
 function extractFunction(name) {
-  const start = source.indexOf(`function ${name}(`);
-  assert.notEqual(start, -1, `${name} is missing`);
-  const bodyStart = source.indexOf(') {', start) + 2;
-  assert.ok(bodyStart > 1, `${name} has no function body`);
-  let depth = 0;
-  for (let index = bodyStart; index < source.length; index += 1) {
-    if (source[index] === '{') depth += 1;
-    if (source[index] === '}') depth -= 1;
-    if (depth === 0) return source.slice(start, index + 1);
-  }
-  assert.fail(`${name} has no closing brace`);
+  return transpileTypeScriptFunction(
+    name === 'searchEverywherePreviewWindow' ? commitSource : terminalSource,
+    name,
+  );
 }
 
 function lines(count) {
@@ -24,21 +32,21 @@ function lines(count) {
 
 test('saving a dirty model writes live content and clears dirty with the new mtime', () => {
   const savePath = source.slice(
-    source.indexOf('const savePath = React.useCallback'),
+    source.indexOf('const savePath ='),
     source.indexOf('/* Save the active model. */'),
   );
   assert.match(savePath, /content: model\.getValue\(\)/u);
-  assert.match(savePath, /mtime: file\?\.mtime \?\? undefined, force/u);
+  assert.match(savePath, /mtime: file\?\.mtime \?\? undefined,\s+force,/u);
   assert.match(
     savePath,
-    /entry\.path === path \? \{ \.\.\.entry, content: model\.getValue\(\), dirty: false, mtime: value\.mtime \?\? entry\.mtime \}/u,
+    /entry\.path === path\s+\? \{[\s\S]*?content: model\.getValue\(\),[\s\S]*?dirty: false,[\s\S]*?mtime: value\.mtime \?\? entry\.mtime,/u,
   );
 });
 
 test('Search Everywhere text requests invalidate stale responses after open-file changes', () => {
   const effect = source.slice(
     source.indexOf('const searchEverywhereRawQuery'),
-    source.indexOf('/**\n       * Move a Search Everywhere result set into IDEA'),
+    source.indexOf('const openFindTool ='),
   );
   assert.match(effect, /const requestId = \+\+searchTextRequestRef\.current/u);
   assert.match(effect, /if \(searchTextRequestRef\.current !== requestId\) return;/gu);
@@ -49,15 +57,12 @@ test('Dirty buffers replace host rows instead of duplicating the same path', () 
   const merge = extractFunction('mergeFindToolDirtyMatches');
   assert.match(merge, /const dirtyPaths = new Set\(\)/u);
   assert.match(merge, /dirtyPaths\.add\(file\.path\)/u);
-  assert.match(merge, /\.filter\(\(match\) => !dirtyPaths\.has\(match\?\.path\)\)/u);
+  assert.match(merge, /\.filter\(\(?match\)? => !dirtyPaths\.has\(match\?\.path\)\)/u);
   assert.match(merge, /const matches = \[\.\.\.selectedDirty, \.\.\.selectedHost\]/u);
 });
 
 test('Dirty text preview reads the live buffer and the exact match line', () => {
-  const dialog = source.slice(
-    source.indexOf('function SearchEverywhere('),
-    source.lastIndexOf('function QuickOpen('),
-  );
+  const dialog = searchEverywhereSource.slice(searchEverywhereSource.indexOf('function SearchEverywhere('));
   assert.match(dialog, /activeResult\.kind === 'text' && activeResult\.dirty === true/u);
   assert.match(
     dialog,
@@ -86,7 +91,7 @@ test('402-line files retain the final match inside the bounded preview window', 
 });
 
 test('all text-result open paths retain line-centered navigation', () => {
-  assert.match(source, /const openFileAtLocation = React\.useCallback\(\(path, line, column, options = \{\}\) =>/u);
+  assert.match(source, /const openFileAtLocation = React\.useCallback\(\s*\(path, line, column, options = \{\}\) =>/u);
   assert.match(source, /pendingReveal\.current = \{ path, line, column \}/u);
   assert.match(source, /revealLines\(path, line, column\)/u);
   assert.match(source, /editor\.revealLineInCenter\(safeLine\)/u);

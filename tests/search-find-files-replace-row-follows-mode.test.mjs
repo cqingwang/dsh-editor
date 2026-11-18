@@ -8,10 +8,10 @@ const findTool = source.slice(
   source.indexOf('const FindToolWindow = FindToolWindowView;', source.lastIndexOf('function FindToolWindowView(')),
 );
 
-test('Find in Files floats with Replace visible while the dock stays compact', () => {
+test('Find in Files opens Find-only while Replace mode exposes the Replace row', () => {
   assert.match(findTool, /const \[searchNewLine, setSearchNewLine\] = React\.useState\(false\)/);
   assert.match(findTool, /const \[replaceNewLine, setReplaceNewLine\] = React\.useState\(false\)/);
-  assert.match(findTool, /const \[replaceExpanded, setReplaceExpanded\] = React\.useState\(\(\) => floating \|\| state\.mode === 'replace'\)/);
+  assert.match(findTool, /const \[replaceExpanded, setReplaceExpanded\] = React\.useState\(\(\) => state\.mode === 'replace'\)/);
   assert.match(findTool, /replaceExpanded \? \(\s*<div style=\{styles\.findToolReplaceRow\}/u);
   assert.match(findTool, /label=\{replaceExpanded \? t\('editor\.findToolHideReplace'\) : t\('editor\.findToolShowReplace'\)\}/u);
   assert.match(findTool, /data-dsh-find-replace-input=''/);
@@ -44,7 +44,7 @@ test('Preserve case is part of the Replace row', () => {
 });
 
 test('Find in Files popup remains bounded at narrow viewports', () => {
-  assert.match(source, /findToolPopup: \{[\s\S]*?width: 'min\(580px, calc\(100vw - 24px\)\)'[\s\S]*?height: 'min\(536px, calc\(100vh - 32px\)\)'/);
+  assert.match(source, /findToolPopup: \{[\s\S]*?width: 'min\(510px, calc\(100vw - 24px\)\)'[\s\S]*?height: 'min\(440px, calc\(100vh - 32px\)\)'/);
   assert.doesNotMatch(source, /findToolPopup: \{[\s\S]*?0 0 0 100vmax rgba\(0, 0, 0, 0\.18\)/);
   assert.match(source, /findToolSearchRow: \{[\s\S]*?flexWrap: 'wrap'/);
   assert.match(source, /findToolReplaceRow: \{[\s\S]*?flexWrap: 'wrap'/);

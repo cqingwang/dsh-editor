@@ -2,26 +2,22 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = (await readFile(new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
+import { loadTypeScriptFunction } from './ts-source.mjs';
 
-function extractSource(name) {
-  const marker = `    function ${name}(`;
-  const start = source.indexOf(marker);
-  assert.notEqual(start, -1, `${name} should exist`);
-  let index = source.indexOf('{', start);
-  let depth = 0;
-  for (; index < source.length; index += 1) {
-    if (source[index] === '{') depth += 1;
-    else if (source[index] === '}') {
-      depth -= 1;
-      if (depth === 0) return source.slice(start, index + 1);
-    }
-  }
-  assert.fail(`unterminated ${name}`);
-}
+const searchEverywhereSource = await readFile(
+  new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url),
+  'utf8',
+);
+const findToolWindowSource = await readFile(
+  new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url),
+  'utf8',
+);
+const workspaceSource = await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8');
+const commitSource = await readFile(new URL('../src/client/commit.ts', import.meta.url), 'utf8');
+const source = [searchEverywhereSource, findToolWindowSource, workspaceSource, commitSource].join('\n');
 
 function extract(name) {
-  return new Function(`${extractSource(name)}; return ${name};`)();
+  return loadTypeScriptFunction(commitSource, name);
 }
 
 test('disabled Search Everywhere actions expose their concrete reason', () => {
@@ -49,14 +45,17 @@ test('keyboard traversal keeps disabled search actions out of the closed focus l
 });
 
 test('editor-dependent and search-state-dependent actions retain distinct reasons', () => {
-  const actionsStart = source.indexOf('const searchEverywhereActions = React.useMemo');
-  const actionsEnd = source.indexOf('/* Recompute match count', actionsStart);
-  const actions = source.slice(actionsStart, actionsEnd);
+  const actionsStart = workspaceSource.indexOf('const searchEverywhereActions =');
+  const actionsEnd = workspaceSource.indexOf('/* Recompute match count', actionsStart);
+  const actions = workspaceSource.slice(actionsStart, actionsEnd);
   const find = actions.slice(actions.indexOf("id: 'find'"), actions.indexOf("id: 'replace'"));
   const findNext = actions.slice(actions.indexOf("id: 'findNext'"), actions.indexOf("id: 'findPrevious'"));
   assert.match(find, /disabled: !hasEditorModel/);
   assert.match(find, /disabledReason: t\('editor\.findEditorRequired'\)/);
-  assert.match(findNext, /disabled: !hasEditorModel \|\| replaceState === null \|\| replaceState\.find === ''/);
+  assert.match(
+    findNext,
+    /disabled:\s*!hasEditorModel \|\| replaceState === null \|\| replaceState\.find === ''/,
+  );
   assert.match(
     findNext,
     /disabledReason: !hasEditorModel \? t\('editor\.findEditorRequired'\) : t\('editor\.findStepInactive'\)/,
@@ -65,8 +64,8 @@ test('editor-dependent and search-state-dependent actions retain distinct reason
 
 test('Search Everywhere result rows connect disabled reasons to both tooltip and assistive text', () => {
   const dialog = source.slice(source.indexOf('function SearchEverywhere('), source.indexOf('function FindToolWindowView('));
-  assert.match(dialog, /'aria-description': result\.kind === 'action' \? searchEverywhereResultTooltip\(result\) : undefined/);
+  assert.match(dialog, /aria-description=\{result\.kind === 'action' \? searchEverywhereResultTooltip\(result\) : undefined\}/);
   assert.match(dialog, /scheduleResultTooltip\(event, result\)/);
   assert.match(dialog, /searchEverywhereResultTooltip\(result\)/);
-  assert.match(dialog, /'aria-disabled': result\.disabled === true/);
+  assert.match(dialog, /aria-disabled=\{result\.disabled === true\}/);
 });

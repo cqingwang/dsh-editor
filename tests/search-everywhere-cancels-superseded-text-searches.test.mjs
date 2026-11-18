@@ -2,11 +2,11 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const client = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+const client = await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8');
 
 function searchEverywhereEffect() {
-  const start = client.indexOf('React.useEffect(() => {\n        if (!searchEverywhereTextActive) return undefined;');
-  const end = client.indexOf('      }, [\n        searchEverywhereTextActive,', start);
+  const start = client.indexOf('React.useEffect(() => {\n    if (!searchEverywhereTextActive) return undefined;');
+  const end = client.indexOf('  }, [\n    searchEverywhereTextActive,', start);
   assert.ok(start >= 0 && end > start, 'Search Everywhere text-search effect is missing');
   return client.slice(start, end);
 }

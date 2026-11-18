@@ -11,7 +11,7 @@ test('git requests accept an external abort signal without losing timeout protec
     client.indexOf('async function callGit('),
     client.indexOf('/** Pick a Monaco theme', client.indexOf('async function callGit(')),
   );
-  assert.match(callGit, /async function callGit\(payload, options = \{\}\)/u);
+  assert.match(callGit, /async function callGit\(\s*payload,\s*options = \{\},?\s*\)/u);
   assert.match(callGit, /options\.signal\?\.addEventListener\('abort', abortExternal, \{ once: true \}\)/u);
   assert.match(callGit, /options\.signal\?\.removeEventListener\('abort', abortExternal\)/u);
   assert.match(callGit, /let timedOut = false;/u);

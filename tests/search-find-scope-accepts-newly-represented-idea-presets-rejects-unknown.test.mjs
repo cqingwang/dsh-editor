@@ -9,9 +9,13 @@ import test from 'node:test';
 const execFileAsync = promisify(execFile);
 const host = await import('../lib/index.js');
 const source =
-  (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) +
+  (await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8')) +
   '\n' +
-  (await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8'));
+  (await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8')) +
+  '\n' +
+  (await readFile(new URL('../src/client/commit.ts', import.meta.url), 'utf8')) +
+  '\n' +
+  (await readFile(new URL('../src/client/locales.ts', import.meta.url), 'utf8'));
 const hostSource = await readFile(new URL('../lib/index.js', import.meta.url), 'utf8');
 
 function extractFunction(name, text = source) {
@@ -111,7 +115,7 @@ test('host Git scope reports which dirty buffers belong before the client merges
 test('client filters Recently Viewed by MRU and lets the host enforce Git scopes', () => {
   assert.match(source, /effectiveScopePreset === 'recentlyViewedFiles'[\s\S]*?new Set\(recentFilePaths\)/u);
   assert.match(source, /effectiveScopePreset === 'gitTrackedFiles'[\s\S]*?effectiveScopePreset === 'gitNonIgnoredFiles'/u);
-  assert.match(source, /const findToolGitScope = findToolSearchScopePreset === 'gitTrackedFiles'[\s\S]*?findToolSearchScopePreset === 'gitNonIgnoredFiles'/u);
+  assert.match(source, /const findToolGitScope =\s*findToolSearchScopePreset === 'gitTrackedFiles'[\s\S]*?findToolSearchScopePreset === 'gitNonIgnoredFiles'/u);
   assert.match(source, /gitScope: findToolGitScope/u);
   assert.match(source, /dirtyPaths: dirtyFiles\.map\(\(file\) => file\.path\)/u);
   assert.match(source, /const eligibleDirtyPaths = Array\.isArray\(value\?\.dirtyPaths\)/u);

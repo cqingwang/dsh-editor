@@ -2,12 +2,18 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = (await readFile(new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
+const source = (
+  (await readFile(new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url), 'utf8')) +
+  '\n' +
+  (await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8')) +
+  '\n' +
+  (await readFile(new URL('../src/client/components/diff/DiffPreview.tsx', import.meta.url), 'utf8'))
+);
 
 test('the whole Diff surface is identifiable as its own keyboard domain', () => {
   assert.match(
     source,
-    /ref: hostRef,[\s\S]{0,180}'data-dsh-editor-diff-surface': ''/,
+    /ref=\{hostRef\}[\s\S]{0,180}data-dsh-editor-diff-surface=''/,
   );
 });
 
@@ -37,10 +43,7 @@ test('Find step alternatives do not steal F3 from the Diff surface', () => {
 });
 
 test('Search In Changes keeps its IDEA shortcut and existing runner', () => {
-  const actionsStart = source.indexOf('const searchEverywhereActions = React.useMemo');
-  const actionsEnd = source.indexOf('/* Recompute match count', actionsStart);
-  const actions = source.slice(actionsStart, actionsEnd);
-  const action = actions.slice(actions.indexOf("id: 'searchInChanges'"), actions.indexOf("id: 'findInFiles'"));
+  const action = source.slice(source.indexOf("id: 'searchInChanges'"), source.indexOf("id: 'findInFiles'"));
   assert.match(action, /shortcut: '⌘F'/);
   assert.match(action, /diffSearchInChangesRef\.current\?\.\(\)/);
 });

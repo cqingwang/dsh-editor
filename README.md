@@ -197,7 +197,7 @@ Editor **不再插入“对话 / 轨迹 / 上下文”标签行**；没有 View 
 - Go to File（`⌘⇧O`）的结果行带与 Project 树一致的 git 状态徽标（`M↓`/`A`/`U` 等），同名文件不再分不出哪个是改过的。
   列表**真的会显示**：早先 `paletteList` 用 `flex: 1 1 0`，在自动高度的对话框里 flex-basis 贡献 0 高，17 行结果被 `overflow: hidden` 裁成 8px 空条——Go to File / 与修订比较 / 移动到… 三个弹窗同时受影响，现在统一 `flex: 1 1 auto` 并在 `56vh` 内滚动。
 - **Search Everywhere（Action / Find Action）**：结果范围只由 `All / Files / Text / Actions` 基础页签决定，输入框只接收普通文本 query；`/text`、`/actions` 等 slash 文本不再隐式切换 provider，也没有 provider 命令帮助、补全行或类别输入语法。`All` 同时混排动作、文件与文本命中；`Files` 复用 Go to File 的宿主文件清单；`Text` 调用宿主有界内容搜索（最多 2000 个文件、单文件 1 MiB、200 条命中，跳过依赖/构建目录与二进制）；`Actions` 搜索现有命令。`Classes / Symbols` 没有可靠的语言索引，不伪造。文本命中带 `path:line:column`，Enter 打开文件并把光标定位到命中处，即使该文件已经是活动标签也会移动，不只打开标签。输入框支持 `↑/↓`、Enter、Escape；`Tab / ⇧Tab` 只循环搜索页签。页签采用 roving `tabIndex`：页签获得焦点后 `←/→` 循环、`Home/End` 跳首尾、`Enter/Space` 激活。查询输入暴露 combobox 语义并关联结果 listbox，查询框和列表都用 `aria-activedescendant` 指向当前 option；结果列表本身也可获得焦点并复用 `↑/↓`、Enter、Escape 和结果上下文菜单。整个 Search Everywhere 弹框都提供 History 按钮与 `⌥↓`，复用当前 workspace 最近搜索；查询框仍拥有查询历史，替换输入框仍拥有替换历史，Listbox、Tabs 与工具栏使用查询历史。选择历史项后才修改 draft，Esc 保持输入并回焦查询框。
-- `双击 Shift` 与 `Cmd/Ctrl+Shift+F` 现在共用同一个 Find in Files handler：Editor 可见时两者都打开 IDEA 风格 Find in Files 弹框，不再由双击 Shift 打开 Search Everywhere。弹框初始按 IDEA 实窗使用约 `580×536` 的居中浮层，支持拖动标题栏移动和八方向缩放；位置与尺寸写入浏览器本地并在下次打开时恢复，小视口与显示器变化会自动 clamp：标题/结果数、File extension、Filter、Pin 位于标题行；查询行保留清空、历史、`Aa / W / .*` 筛选与独立 New Line；下方是 Scope 行、平铺的结果列表、自动 Source Preview 和底部 Open results in new tab / `⌘⏎` / Open in Find Window。`⇧⌘R` 打开同一尺寸的 **Replace in Files** 模式，标题随模式切换；Replace 行使用 replace 图标、历史下拉、自己的 New Line 和 Preserve case。Search/Replace 的 New Line 互相独立，启用后该输入切换为 textarea，普通 Enter 插入换行，`⌘⏎`/`⌥⇧⏎` 仍执行动作；query 与 replacement 按输入的原始字节参与匹配和写入，不 trim 首尾空格/换行，只有真正的空字符串才进入空查询状态。Transient popup 不再复用持久 Find 工具窗的目录树/Group By 结构，Group By 仍只属于底部 dock。Find in Files 的查询、File extension、Match Case、Whole Words、Regex 和 Replace 全部复用同一状态；Find 已打开时重复按任一快捷键只回焦 query，不重置当前条件；Search Everywhere 仍可从 Actions 或 Find Action 显式进入。
+- `双击 Shift` 与 `Cmd/Ctrl+Shift+F` 现在共用同一个 Find in Files handler：Editor 可见时两者都打开 IDEA 风格 Find in Files 弹框，不再由双击 Shift 打开 Search Everywhere。弹框初始按 IDEA 实窗使用约 `510×440` 的居中浮层；旧版 `580×536` 默认几何自动迁移，自定义尺寸保留。支持拖动标题栏移动和八方向缩放；位置与尺寸写入浏览器本地并在下次打开时恢复，小视口与显示器变化会自动 clamp：标题/结果数、File extension、Filter、Pin 位于标题行；查询行保留清空、历史、`Aa / W / .*` 筛选与独立 New Line；下方是 Scope 行、平铺的结果列表、自动 Source Preview 和底部 Open results in new tab / `⌘⏎` / Open in Find Window。`⇧⌘R` 打开同一尺寸的 **Replace in Files** 模式，标题随模式切换；Replace 行使用 replace 图标、历史下拉、自己的 New Line 和 Preserve case。Search/Replace 的 New Line 互相独立，启用后该输入切换为 textarea，普通 Enter 插入换行，`⌘⏎`/`⌥⇧⏎` 仍执行动作；query 与 replacement 按输入的原始字节参与匹配和写入，不 trim 首尾空格/换行，只有真正的空字符串才进入空查询状态。Transient popup 不再复用持久 Find 工具窗的目录树/Group By 结构，Group By 仍只属于底部 dock。Find in Files 的查询、File extension、Match Case、Whole Words、Regex 和 Replace 全部复用同一状态；Find 已打开时重复按任一快捷键只回焦 query，不重置当前条件；Search Everywhere 仍可从 Actions 或 Find Action 显式进入。
 - 当 Monaco 编辑器存在非空选区时，`Cmd/Ctrl+Shift+F`、`Cmd/Ctrl+Shift+R` 和双击 Shift 会读取最新选区原文并替换 Find/Replace in Files 查询框；重复执行会再次用最新选区覆盖旧 query，而不是保留旧值。多行选区会自动打开 Search New Line，使换行和首尾空白原样可见。无选区时保持原有空白/聚焦行为。
 - Search Everywhere 顶部提供 **Include non-project items / Match Case / Whole Words / Regex / Preview / Filter / Open in Find Tool Window**，复用 `CompactActionBar` 测量与 `»` overflow；Filter 和 Open Find 为 pinned，窄视口下其余动作进入 overflow，菜单按当前隐藏集合实时重算，直接入口和 overflow 共用同一 Filter 菜单。Text/All 页另提供 **File Mask**，展开 Replace 时另提供 **Preserve case**。`Include non-project items` 只在当前 workspace 内重新纳入常规快速搜索跳过的 `node_modules / dist / build / target` 等排除目录，并仍保持文件数、单文件大小和命中数上限；`.git/.hg/.svn` 元数据永不扫描，浏览器不能借该开关传入任意路径。`Match Case` 只在 `All / Text` 页可用，开启后文本搜索强制区分大小写，关闭时保持 IDEA smart case；`Whole Words` 使用 Unicode 字母、数字、组合符和下划线边界，单个 ASCII/CJK 匹配不会穿透 `needleValue`、`猫猫` 这类连续词；`Regex` 使用 Unicode JavaScript 正则、smart case 和 `$1/$&` 捕获替换，开启时 Whole Words 自动关闭并禁用；`Preserve case` 在捕获组展开之后按匹配文本调整替换大小写：全大写、全小写和首字母大写分别跟随，混合大小写保留输入。`File Mask` 支持逗号分隔的 `* / ? / **`、basename/路径匹配和 `!` 排除项，例如 `*.ts, !src/generated/**`；`Include non-project items`、布尔开关和 mask 都会随结果移交到 Find in Files 浮层，Find 中的同类开关会清空旧结果并按新 scope 重新搜索；显式 handoff 的 scope 优先于上一次本地默认值，文件候选缓存也按 scope 隔离。正则 pattern 最大 256 字符，编译失败会显示具体解析错误，常见嵌套量词 ReDoS 形状会被拒绝；File Mask 最多 16 项、总长 512，未支持的 `[] / {}` 语法会显式报错。Preview 复用宿主文件读取，在弹框底部显示最多 401 行的只读代码窗口；文本命中自动居中并高亮对应行，文件命中从文件开头显示；`Soft-Wrap Preview Editor` 可切换自动换行。Filter 菜单可在 `All` 页实时启停 `Files / Text / Actions` 分类，菜单保持打开以便连续切换，`Files / Text / Actions` 专用页签本身不受影响；`Classes / Symbols` 仍不伪造。All 页有 provider 被 Filter 隐藏且结果为空时，空结果区显示 IDEA 的 **重置筛选器 / Reset filter**；它只把 `Files / Text / Actions` 恢复为全部启用，保留 query、Include non-project scope、Match Case / Whole Words / Regex / Preserve case 和 File Mask，并把焦点还给查询框。Text 页查询至少 2 字符、结果为空且 Match Case / Whole Words / Regex / File Mask 至少一项生效时，会显示 **搜索已用选项: Match Case / Whole Words / Regex / File mask** 明细和 **清除所有选项 / Clear all options**；明细和按钮共用同一 active-option 判定，顺序固定，Clear 只重置这四项，保留 query、Include scope、Preserve case 和 Filter 状态。All/Text 空结果从普通项目 scope 开始时还提供独立的 **搜索工作区中的所有位置 / Search all workspace places**：只在 Include non-project 未开启时出现，点击只扩大当前 workspace 搜索 scope，保留 query 和全部搜索选项；文案不宣称能搜索工作区之外的任意路径。Files 页对非空真实查询仍无文件名命中时显示 **在文件中查找 / Find in Files**，复用同一 Find handoff 保留全部搜索选项，并以 fresh-search 标记打开 Find in Files 浮层，不会只显示查询却不刷新结果。`Open in Find Tool Window` 只要求非空 query；零 Files/Text 结果时也会把查询、options、空结果和 active row 状态交接到持久 Find 工具窗，空 query 才禁用。Replace 行复用 workspace replacement history：History 按钮和 `⌥↓` 打开同一菜单，Esc 不修改 draft；replacement history 精确保留首尾空白、换行、纯空白值和空字符串，空 replacement 表示删除并在 History 中显示为可回放空行；Search/Replace History replay 都原样回填并把焦点还给对应输入；搜索结果的隐藏 live region 用 `role="status"` / `aria-live="polite"` 播报 loading、空结果或结果数，截断说明单独播报。Include non-project items / Match Case / Whole Words / Regex / File Mask 以及 Replace 专用的 Preserve case 会写入浏览器本地 `dsh-editor.search.options.v1`，Search Everywhere 和 Find 重新打开或页面刷新后恢复；损坏、旧版或类型错误的存储值安全回退默认值。
 - Search Everywhere 与 Find in Files 的文本 query generation 被替换时都会通过 AbortSignal 取消在途 `searchText` fetch；旧请求的 requestId 校验继续保留，取消不会显示为搜索错误，查询框焦点也不会丢失。连续切换 query 后再回到同一文本时创建新的请求和 controller，不复用已 abort 的 controller。搜索失败时可见 `role="alert"` 是唯一错误播报，隐藏的 polite live status 清空，空结果状态也不会与错误同时渲染。切换到 Actions/Files 时会清除只属于 text provider 的错误和悬空 `textLoading`；All/Text 之间切换则保留仍在进行的文本加载。Search Everywhere 与 Find 的 Preview 在快速切换 active result 时都会 abort 上一个文件的 `read` 请求，最终只保留当前 active descendant 对应的 Preview。Search Everywhere 切换 Include non-project 时会 abort 上一轮文件候选列表 `files` 请求；workspace 切换或卸载也会取消候选加载。
@@ -399,8 +399,6 @@ pnpm add link:/Users/chan/Documents/project/dsh-editor --ignore-scripts
 lib/index.js       宿主半：文件 API、Monaco / xterm 资源路由（从依赖包解析）
 src/client/*.ts    浏览器业务/模型模块，由构建脚本转译后嵌入单 factory
 src/client/*.tsx   React 功能组件，由 esbuild 编译后嵌入单 factory
-tests/fixtures/legacy/editor-workspace.legacy.js 历史工作区 oracle；仅测试读取，
-                   不进入 npm 包
 src/client/components/ui/*.tsx 可复用 UI 组件：Icon、ToolbarButton、PanelToolbar、
                    CompactActionBar、ActivityStripe、DiffViewModeControl、
                    PathLabel、LineCounts、ContextMenu、EntryIcon、GitStatusBadge
@@ -455,24 +453,35 @@ TSX 使用 Prettier 统一格式；`singleAttributePerLine` 强制 JSX 属性按
 ```bash
 npm run build:client
 npm run check:client-build
+npm run lint:client-types
 npm run format:client-components
 npm run check:format:client-components
 ```
 
-`build:client` 成功后由 `postbuild:client` 自动执行完整 `npm test` 回归；
+`build:client` 成功后由 `postbuild:client` 自动执行
+`lint:client-types` 和完整 `npm test` 回归；
 任一构建或测试失败都会让命令返回非零。`check:client-build` 只校验生成产物
 是否最新，不触发测试。
+
+生产代码默认使用 TS/TSX。只有无类型语义、由运行时或第三方接口强约束的纯 JS
+适配/脚本才允许 `.js/.jsx`，并应在工程记忆中记录例外理由。客户端代码使用
+ESLint + TypeScript parser 做静态检查，`@typescript-eslint/no-explicit-any`
+为错误级；禁止用新的显式 `any` 绕过类型定义。
 
 修改任何 `src/client/*.ts` / `*.tsx` 后必须重新构建 `lib/client.js`；
 `editor-browser-client-source-split-into-ordered-typescript-business-modules`
 会验证生成产物没有过期。
 
 浏览器业务模块迁移已经完成：13 个 manifest 模块全部为 TS/TSX，生产源码中
-不再保留旧 JavaScript 文件或备份。`editor-workspace` 的单一 client oracle
-仍冻结在 `tests/fixtures/legacy/editor-workspace.legacy.js`；顶层高引用历史
-fixture 已从 40 份收敛到 **0 份**。所有组件、菜单、Diff、Find 与 Search
-Everywhere 测试均读取对应 TS/TSX 模块或其纯函数/模型；fixture budget 会阻止
-新的顶层 `.legacy.js` 重新进入测试树。
+不再保留旧 JavaScript 文件或备份。历史 legacy fixture 和
+`tests/client-source-oracle.mjs` 已全部退役；相关契约测试迁回对应 TS/TSX
+模块、纯函数模型、locales/styles 或当前生成的 `lib/client.js` 产物。
+fixture budget 会阻止任何新的 `.legacy.js` 重新进入测试树。
+
+新增、拆分或重命名的单元测试统一使用
+`<module>-<feature>.test.mjs`，例如 `editor-find-focus.test.mjs`、
+`terminal-tab-reorder.test.mjs`；禁止 `roundNN`、日期、批次号或迁移序号。
+`tests/editor-test-naming.test.mjs` 会递归守卫这套命名边界。
 `editor-production-browser-modules-typescript-only` 测试会阻止 `.js/.jsx`
 业务模块重新进入构建，并验证源码与 npm 包均无备份。
 Project 工具栏的新建菜单和 Options 菜单已抽到

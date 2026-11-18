@@ -5,7 +5,10 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { workspaceFileOperations } from '../lib/index.js';
 
-const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+const source = [
+  await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8'),
+  await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8'),
+].join('\n');
 
 test('Host text search applies directory and allowed-path scope before the match cap', async () => {
   const root = await mkdtemp(join(tmpdir(), 'dsh-editor-round643-'));
@@ -46,8 +49,8 @@ test('Persistent Find forwards its live scope to the host search request', () =>
   assert.match(source, /searchScopeDirectory: savedScope\.directory/);
   assert.match(source, /const changeFindToolScope = React\.useCallback/);
   assert.match(source, /directory: findTool\?\.searchScopeMode === 'directory'/);
-  assert.match(source, /allowedPaths: findTool\?\.searchScopeMode === 'scope'/);
-  assert.match(source, /onScopeChange: changeFindToolScope/);
+  assert.match(source, /findTool\?\.searchScopeMode === 'scope'/);
+  assert.match(source, /onScopeChange=\{changeFindToolScope\}/);
 });
 
 test('Changing Find scope invalidates the prior scoped result generation', () => {

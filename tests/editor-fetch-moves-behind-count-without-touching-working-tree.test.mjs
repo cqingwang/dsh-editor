@@ -107,15 +107,21 @@ test('a branch without an upstream and a repo without a remote say so', async (t
 });
 
 test('the commit toolbar offers Fetch and Update Project, and reloads open files', () => {
-  const client = read('lib/client.js');
+  const menu = read('src/client/components/commit/commit-options-menu.ts');
+  const client = menu + read('src/client/editor-workspace.tsx') + read('src/client/locales.ts');
   /* Both actions live in the Commit Options menu, not as crowded toolbar buttons. */
-  for (const [id, key] of [['fetch', 'editor.fetchRemote'], ['update', 'editor.updateProject']]) {
-    const at = client.indexOf(`id: '${id}',`);
+  for (const [id, key, handler] of [
+    ['fetch', 'editor.fetchRemote', 'onFetch'],
+    ['update', 'editor.updateProject', 'onUpdate'],
+  ]) {
+    const at = menu.indexOf(`id: '${id}',`);
     assert.notEqual(at, -1, `${id} button is missing`);
-    const block = client.slice(at, at + 400);
+    const block = menu.slice(at, at + 400);
     assert.ok(block.includes(`t('${key}')`), `${id} needs the ${key} label`);
-    assert.match(block, new RegExp(`run: \\(\\) => void ${id}Now\\(\\)`), `${id} must stay wired`);
+    assert.match(block, new RegExp(`run: ${handler},`), `${id} must stay wired`);
   }
+  assert.match(client, /onFetch: \(\) => void fetchNow\(\)/);
+  assert.match(client, /onUpdate: \(\) => void updateNow\(\)/);
   /* Update rewrites working files, so an unsaved buffer has to be confirmed first. */
   assert.match(client, /t\('editor\.updateDirty'\)/);
   assert.match(client, /for \(const file of openFilesRef\.current\) await reloadFile\(file\.path\)/);

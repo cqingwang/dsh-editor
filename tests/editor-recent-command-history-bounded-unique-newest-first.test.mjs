@@ -2,26 +2,42 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = (await readFile(new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
+import { transpileTypeScriptFunction } from './ts-source.mjs';
 
-function extractSource(name) {
-  const marker = `    function ${name}(`;
-  const start = source.indexOf(marker);
-  assert.notEqual(start, -1, `${name} should exist`);
-  let index = source.indexOf('{', start);
-  let depth = 0;
-  for (; index < source.length; index += 1) {
-    if (source[index] === '{') depth += 1;
-    else if (source[index] === '}') {
-      depth -= 1;
-      if (depth === 0) return source.slice(start, index + 1);
-    }
-  }
-  assert.fail(`unterminated ${name}`);
-}
+const searchEverywhereSource = await readFile(
+  new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url),
+  'utf8',
+);
+const findToolWindowSource = await readFile(
+  new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url),
+  'utf8',
+);
+const workspaceSource = await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8');
+const findToolSource = await readFile(new URL('../src/client/find-tool.ts', import.meta.url), 'utf8');
+const commitSource = await readFile(new URL('../src/client/commit.ts', import.meta.url), 'utf8');
+const source = [searchEverywhereSource, findToolWindowSource, workspaceSource, findToolSource, commitSource].join(
+  '\n',
+);
+const actions = workspaceSource.slice(
+  workspaceSource.indexOf('const searchEverywhereActions ='),
+  workspaceSource.indexOf('/* Recompute match count'),
+);
 
 function extract(name) {
-  return new Function(`${extractSource(name)}; return ${name};`)();
+  return new Function(
+    'basename',
+    `${transpileTypeScriptFunction(commitSource, name)}; return ${name};`,
+  )((path) => path.split('/').at(-1));
+}
+
+function loadRanker() {
+  const functions = ['wholeWordIndex', 'fuzzyScore']
+    .map((name) => transpileTypeScriptFunction(findToolSource, name))
+    .join('\n');
+  return new Function(
+    'basename',
+    `${functions}\n${transpileTypeScriptFunction(commitSource, 'rankSearchActions')}\nreturn rankSearchActions;`,
+  )((path) => path.split('/').at(-1));
 }
 
 test('recent command history is bounded, unique and newest first', () => {
@@ -35,9 +51,7 @@ test('recent command history is bounded, unique and newest first', () => {
 });
 
 test('command ranking keeps recent commands ahead on an empty query', () => {
-  const rank = new Function(
-    `${extractSource('fuzzyScore')}\n${extractSource('rankSearchActions')}\nreturn rankSearchActions;`,
-  )();
+  const rank = loadRanker();
   const actions = [
     { id: 'goToFile', label: 'Go to File', description: '' },
     { id: 'find', label: 'Find…', description: 'Find' },
@@ -51,10 +65,9 @@ test('command ranking keeps recent commands ahead on an empty query', () => {
 
 test('disabled Search Everywhere actions cannot run and advertise their state', () => {
   const dialog = source.slice(source.indexOf('function SearchEverywhere('), source.indexOf('function FindToolWindowView('));
-  const actions = source.slice(source.indexOf('const searchEverywhereActions = React.useMemo'), source.indexOf('/* Recompute match count'));
-  assert.match(actions, /disabled: !hasEditorModel \|\| replaceState === null \|\| replaceState\.find === ''/);
+  assert.match(actions, /disabled:\s*!hasEditorModel \|\| replaceState === null \|\| replaceState\.find === ''/);
   assert.match(dialog, /result\.disabled === true/);
-  assert.match(dialog, /'aria-disabled': result\.disabled === true/);
+  assert.match(dialog, /aria-disabled=\{result\.disabled === true\}/);
   assert.match(dialog, /onRememberCommand\(result\.id\)/);
   assert.match(source, /dsh-editor\.search\.commandHistory/);
 });

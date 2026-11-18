@@ -2,7 +2,10 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+const source =
+  (await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8')) +
+  '\n' +
+  (await readFile(new URL('../src/client/locales.ts', import.meta.url), 'utf8'));
 const previewSource = await readFile(
   new URL('../src/client/components/editor/MarkdownPreviewPane.tsx', import.meta.url),
   'utf8',
@@ -28,6 +31,6 @@ test('Markdown local links consume the asynchronous open result without editorEr
   );
   assert.match(
     source,
-    /onOpenFile: \(path\) => \(path === '' \? Promise\.resolve\(false\) : openFile\(path, \{ silentError: true \}\)\)/,
+    /onOpenFile=\{\(path\) =>\s*path === '' \? Promise\.resolve\(false\) : openFile\(path, \{ silentError: true \}\)\s*\}/,
   );
 });

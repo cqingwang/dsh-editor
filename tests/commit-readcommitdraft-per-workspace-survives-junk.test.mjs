@@ -3,9 +3,16 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
+import { transpileTypeScriptFunction } from './ts-source.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = readFileSync(join(root, 'lib/client.js'), 'utf8');
+const source = [
+  readFileSync(join(root, 'src/client/terminal.ts'), 'utf8'),
+  readFileSync(join(root, 'src/client/editor-core.ts'), 'utf8'),
+  readFileSync(join(root, 'src/client/editor-workspace.tsx'), 'utf8'),
+  readFileSync(join(root, 'src/client/components/terminal/TerminalPanel.tsx'), 'utf8'),
+  readFileSync(join(root, 'src/client/find-tool.ts'), 'utf8'),
+].join('\n');
 
 /**
  * Evaluate one module-level helper from the client bundle with a stubbed window.
@@ -18,24 +25,14 @@ const source = readFileSync(join(root, 'lib/client.js'), 'utf8');
  * @returns {Function} the helper.
  */
 function loadWithStorage(name, storage, sessionId) {
-  const marker = `    function ${name}(`;
-  const start = source.indexOf(marker);
-  assert.notEqual(start, -1, `${name} is missing`);
-  let index = source.indexOf('{', start);
-  let depth = 0;
-  for (; index < source.length; index += 1) {
-    if (source[index] === '{') depth += 1;
-    else if (source[index] === '}') {
-      depth -= 1;
-      if (depth === 0) {
-        const body = source.slice(start, index + 1);
-        const palette = source.slice(source.indexOf('    const TERMINAL_COLORS'), source.indexOf('\n', source.indexOf('    const TERMINAL_COLORS')) + 1);
-        const factory = new Function('window', 'currentTerminalScope', `'use strict';\n${palette}\n${body}\nreturn ${name};`);
-        return factory({ localStorage: storage }, () => sessionId);
-      }
-    }
-  }
-  throw new Error(`unbalanced braces in ${name}`);
+  const body = transpileTypeScriptFunction(source, name);
+  const palette = /const TERMINAL_COLORS = \[[^\]]+\];/u.exec(source)?.[0] ?? '';
+  const factory = new Function(
+    'window',
+    'currentTerminalScope',
+    `'use strict';\n${palette}\n${body}\nreturn ${name};`,
+  );
+  return factory({ localStorage: storage }, () => sessionId);
 }
 
 /** A localStorage stub backed by a Map, with the three methods the code uses. */

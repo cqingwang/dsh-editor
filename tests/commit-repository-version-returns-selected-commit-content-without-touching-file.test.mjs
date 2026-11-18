@@ -68,7 +68,7 @@ test('Commit file menu opens a read-only repository version preview', async () =
   assert.match(client, /callGit\(\{ op: 'repositoryVersion', hash, path \}\)/);
   assert.match(
     client,
-    /repositoryVersion: \{ hash: value\.hash, content: value\.content, binary: value\.binary === true \}/,
+    /repositoryVersion: \{\s+hash: value\.hash,\s+content: value\.content,\s+binary: value\.binary === true,\s+\}/,
   );
   assert.match(repositoryVersionPreview, /function RepositoryVersionPreview\(/);
   assert.match(repositoryVersionPreview, /readOnly: true/);

@@ -3,27 +3,33 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 import { en } from './locale-source.mjs';
+import { transpileTypeScriptFunction } from './ts-source.mjs';
 
-const source = (await readFile(new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url), 'utf8') + '\n' + (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) + '\n' + (await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8')));
+const searchEverywhereSource = await readFile(
+  new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url),
+  'utf8',
+);
+const workspaceSource = await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8');
+const findToolWindowSource = await readFile(
+  new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url),
+  'utf8',
+);
+const findToolSource = await readFile(new URL('../src/client/find-tool.ts', import.meta.url), 'utf8');
+const commitSource = await readFile(new URL('../src/client/commit.ts', import.meta.url), 'utf8');
+const source = [searchEverywhereSource, workspaceSource, findToolWindowSource, commitSource].join('\n');
 
-function extractFunction(name) {
-  const start = source.indexOf(`function ${name}(`);
-  assert.notEqual(start, -1, `${name} is missing`);
-  const bodyStart = source.indexOf(') {', start) + 2;
-  assert.ok(bodyStart > 1, `${name} has no function body`);
-  let depth = 0;
-  for (let index = bodyStart; index < source.length; index += 1) {
-    if (source[index] === '{') depth += 1;
-    if (source[index] === '}') depth -= 1;
-    if (depth === 0) return source.slice(start, index + 1);
-  }
-  assert.fail(`${name} has no closing brace`);
+function loadRanker() {
+  const functions = ['wholeWordIndex', 'fuzzyScore']
+    .map((name) => transpileTypeScriptFunction(findToolSource, name))
+    .join('\n');
+  return new Function(
+    'basename',
+    `${functions}\n${transpileTypeScriptFunction(commitSource, 'rankSearchActions')}\nreturn rankSearchActions;`,
+  )((path) => path.split('/').at(-1));
 }
 
 test('/replace action filtering removes fuzzy description noise and keeps real matches', () => {
-  const rank = new Function(
-    `${extractFunction('fuzzyScore')}; ${extractFunction('rankSearchActions')}; return rankSearchActions;`,
-  )();
+  const rank = loadRanker();
   const actions = [
     {
       id: 'replace',
@@ -74,9 +80,7 @@ test('/replace action filtering removes fuzzy description noise and keeps real m
 });
 
 test('action labels still accept IDEA fuzzy abbreviations while descriptions stay literal', () => {
-  const rank = new Function(
-    `${extractFunction('fuzzyScore')}; ${extractFunction('rankSearchActions')}; return rankSearchActions;`,
-  )();
+  const rank = loadRanker();
   const actions = [
     { id: 'replaceInFiles', label: 'Replace in Files…', description: 'Replace All' },
     { id: 'incrementalSearch', label: 'Incremental Search', description: 'Open incremental Find' },
@@ -88,7 +92,7 @@ test('action labels still accept IDEA fuzzy abbreviations while descriptions sta
 
 test('Find Next and Previous expose IDEA descriptions that participate in /replace', () => {
   const actions = source.slice(
-    source.indexOf('const searchEverywhereActions = React.useMemo'),
+    source.indexOf('const searchEverywhereActions ='),
     source.indexOf('/* Recompute match count'),
   );
   assert.match(actions, /id: 'findNext',[\s\S]*?description: t\('editor\.findNextActionHint'\)/);
@@ -108,9 +112,7 @@ test('Find Next and Previous expose IDEA descriptions that participate in /repla
 });
 
 test('replace Enter intent accepts IDEA Alt+Shift and legacy Cmd/Ctrl acceleration', () => {
-  const intent = new Function(
-    `${extractFunction('replaceInputAction')}; return replaceInputAction;`,
-  )();
+  const intent = new Function(`${transpileTypeScriptFunction(commitSource, 'replaceInputAction')}; return replaceInputAction;`)();
   assert.equal(intent({ key: 'Enter' }, 'single'), 'single');
   assert.equal(intent({ key: 'Enter' }, 'all'), 'all');
   assert.equal(intent({ key: 'Enter', metaKey: true }, 'single'), 'all');

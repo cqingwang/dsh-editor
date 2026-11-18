@@ -3,52 +3,22 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
+import { loadTypeScriptFunction, transpileTypeScriptFunction } from './ts-source.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = (readFileSync(join(root, 'src/client/components/diff/DiffPreview.tsx'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
+const diffPreviewSource = readFileSync(join(root, 'src/client/components/diff/DiffPreview.tsx'), 'utf8');
+const workspaceSource = readFileSync(join(root, 'src/client/editor-workspace.tsx'), 'utf8');
+const terminalSource = readFileSync(join(root, 'src/client/terminal.ts'), 'utf8');
+const diffModelSource = readFileSync(join(root, 'src/client/diff.ts'), 'utf8');
+const source = [diffPreviewSource, workspaceSource, terminalSource, diffModelSource].join('\n');
 
-/** Evaluate one shipping helper by brace balance. */
-function load(name) {
-  const marker = `    function ${name}(`;
-  const start = source.indexOf(marker);
-  assert.notEqual(start, -1, `${name} is missing from lib/client.js`);
-  let index = source.indexOf('{', start);
-  let depth = 0;
-  for (; index < source.length; index += 1) {
-    if (source[index] === '{') depth += 1;
-    else if (source[index] === '}') {
-      depth -= 1;
-      if (depth === 0) return new Function(`${source.slice(start, index + 1)}; return ${name};`)();
-    }
-  }
-  throw new Error(`unbalanced braces in ${name}`);
-}
-
-const hunkAt = load('hunkAt');
-const typeaheadMatch = load('typeaheadMatch');
-/** Same loader, but typeaheadStep reads the module-level reset constant. */
-function loadWithReset(name) {
-  const marker = `    function ${name}(`;
-  const start = source.indexOf(marker);
-  assert.notEqual(start, -1, `${name} is missing from lib/client.js`);
-  let index = source.indexOf('{', start);
-  let depth = 0;
-  for (; index < source.length; index += 1) {
-    if (source[index] === '{') depth += 1;
-    else if (source[index] === '}') {
-      depth -= 1;
-      if (depth === 0) {
-        const reset = /const TYPEAHEAD_RESET_MS = (\d+);/.exec(source);
-        assert.notEqual(reset, null, 'TYPEAHEAD_RESET_MS must stay a literal');
-        return new Function(
-          `const TYPEAHEAD_RESET_MS = ${reset[1]};\n${typeaheadMatch.toString()}\n${source.slice(start, index + 1)}; return ${name};`,
-        )();
-      }
-    }
-  }
-  throw new Error(`unbalanced braces in ${name}`);
-}
-const typeaheadStep = loadWithReset('typeaheadStep');
+const hunkAt = loadTypeScriptFunction(terminalSource, 'hunkAt');
+const typeaheadMatch = loadTypeScriptFunction(terminalSource, 'typeaheadMatch');
+const reset = /const TYPEAHEAD_RESET_MS = (\d+);/.exec(diffModelSource);
+assert.notEqual(reset, null, 'TYPEAHEAD_RESET_MS must stay a literal');
+const typeaheadStep = new Function(
+  `const TYPEAHEAD_RESET_MS = ${reset[1]};\n${transpileTypeScriptFunction(terminalSource, 'typeaheadMatch')}\n${transpileTypeScriptFunction(terminalSource, 'typeaheadStep')}\nreturn typeaheadStep;`,
+)();
 
 /* ── IDEA's diff toolbar: hunk position and F7 navigation ────────────────── */
 
@@ -91,7 +61,7 @@ test('an unchanged file reports no hunks, and bad input does not throw', () => {
 });
 
 test('the diff toolbar walks hunks with the buttons and F7', () => {
-  const body = source.slice(source.indexOf('function DiffPreview('), source.indexOf('export { DiffPreview };'));
+  const body = diffPreviewSource;
   assert.match(body, /diff\.goToDiff\(direction === 'previous' \? 'previous' : 'next'\)/);
   assert.match(body, /diff\.onDidUpdateDiff/);
   assert.match(body, /diff\.revealFirstDiff\(\)/);
@@ -108,7 +78,7 @@ test('the diff toolbar walks hunks with the buttons and F7', () => {
 /* ── Explicit Project reveal owns active-file navigation ─────────────────── */
 
 test('opening tabs never moves the Project tree; explicit reveal does', () => {
-  const body = source.slice(source.indexOf('function EditorWorkspace('));
+  const body = workspaceSource;
   assert.doesNotMatch(body, /autoScroll/);
   assert.doesNotMatch(body, /void revealInProjectTree\(activePath\)/);
   /* The shared reveal helper must not force the tool window open. */
@@ -125,7 +95,10 @@ test('opening tabs never moves the Project tree; explicit reveal does', () => {
 test('Project no longer offers an automatic active-tab follow preference', () => {
   assert.doesNotMatch(source, /const toggleAutoScroll = React\.useCallback/);
   assert.doesNotMatch(source, /dsh-editor\.project\.autoscroll'/);
-  const options = source.slice(source.indexOf('onOpenOptions: (event) => {'), source.indexOf('onCreateChange: (value) =>'));
+  const options = workspaceSource.slice(
+    workspaceSource.indexOf('onOpenOptions={(event) => {'),
+    workspaceSource.indexOf('onCreateChange={(value) =>'),
+  );
   assert.doesNotMatch(options, /id: 'autoscroll'/);
 });
 
@@ -192,15 +165,24 @@ test('a pause longer than the reset window starts a new prefix', () => {
 });
 
 test('typing in the tree moves the selection and stays out of form fields', () => {
-  const handler = source.slice(source.indexOf('const onTreeKeyDown = React.useCallback('), source.indexOf('const toggleCommitPath = React.useCallback('));
-  assert.match(handler, /event\.key\.length === 1 && !event\.metaKey && !event\.ctrlKey && !event\.altKey/);
+  const handler = workspaceSource.slice(
+    workspaceSource.indexOf('const onTreeKeyDown = React.useCallback('),
+    workspaceSource.indexOf('const toggleCommitPath = React.useCallback('),
+  );
+  assert.match(
+    handler,
+    /event\.key\.length === 1 &&\s+!event\.metaKey &&\s+!event\.ctrlKey &&\s+!event\.altKey/,
+  );
   assert.match(handler, /const step = typeaheadStep\(\{/);
   /* Unmatched letters fall through to the normal key handling. */
   assert.match(handler, /if \(step\.hit !== null\) \{\n\s+event\.preventDefault\(\);/);
   /* The rename field and create row live inside the tree: without the guard every
      letter would also run the typeahead and never reach the input. */
-  assert.match(handler, /event\.target\.closest\('input, textarea, select'\) !== null\) return;/);
+  assert.match(
+    handler,
+    /event\.target\.closest\('input, textarea, select'\) !== null\s+\)\s+return;/,
+  );
   assert.match(source, /const TYPEAHEAD_RESET_MS = \d+;/);
-  assert.match(source, /const typeaheadAt = React\.useRef\(0\);/);
-  assert.match(source, /const typeaheadBuffer = React\.useRef\(''\);/);
+  assert.match(workspaceSource, /const typeaheadAt = React\.useRef\(0\);/);
+  assert.match(workspaceSource, /const typeaheadBuffer =\s+React\.useRef\(''\);/);
 });

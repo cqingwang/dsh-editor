@@ -56,9 +56,9 @@ test('Current File supplies the active editor path to host search and replacemen
   );
 });
 
-test('Floating Find starts with the Replace row visible while the dock stays compact', () => {
+test('Floating Find reveals the Replace row only in Replace mode', () => {
   assert.match(
     source,
-    /const \[replaceExpanded, setReplaceExpanded\] = React\.useState\(\(\) => floating \|\| state\.mode === 'replace'\)/u,
+    /const \[replaceExpanded, setReplaceExpanded\] = React\.useState\(\(\) => state\.mode === 'replace'\)/u,
   );
 });

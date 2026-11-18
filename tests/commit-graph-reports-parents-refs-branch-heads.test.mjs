@@ -76,9 +76,10 @@ test('the log tab toggles into graph mode and back', () => {
 });
 
 test('the graph loads on demand, not with every log refresh', () => {
-  const client = read('lib/client.js');
+  const client = read('src/client/editor-workspace.tsx');
+  const log = read('src/client/components/commit/CommitLog.tsx');
   assert.match(client, /const loadGraph = React\.useCallback\(async \(branch, at\) => \{/);
-  assert.match(client, /op: 'graph', limit: 80, branch: branchValue, at: atValue/);
+  assert.match(client, /op: 'graph',\s+limit: 80,\s+branch: branchValue,\s+at: atValue,/);
   /* Toggling on triggers the load; the flat log never does. */
-  assert.match(client, /if \(next\.loadGraph\) \{\n\s+onLoadGraph\?\.\(graph\?\.branch \?\? '', graph\?\.at \?\? ''\);/);
+  assert.match(log, /if \(next\.loadGraph\) \{[\s\S]*?onLoadGraph\?\.\(graph\?\.branch \?\? '', graph\?\.at \?\? ''\);/);
 });

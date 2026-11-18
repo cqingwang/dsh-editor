@@ -2,22 +2,19 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+import { transpileTypeScriptFunction } from './ts-source.mjs';
+
+const workspaceSource = await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8');
+const terminalSource = await readFile(new URL('../src/client/terminal.ts', import.meta.url), 'utf8');
+const menuSource = await readFile(
+  new URL('../src/client/components/project/project-options-menu.ts', import.meta.url),
+  'utf8',
+);
+const localesSource = await readFile(new URL('../src/client/locales.ts', import.meta.url), 'utf8');
+const source = [workspaceSource, terminalSource, menuSource, localesSource].join('\n');
 
 function extractSource(name) {
-  const marker = `    function ${name}(`;
-  const start = source.indexOf(marker);
-  assert.notEqual(start, -1, `${name} should exist`);
-  let index = source.indexOf('{', start);
-  let depth = 0;
-  for (; index < source.length; index += 1) {
-    if (source[index] === '{') depth += 1;
-    else if (source[index] === '}') {
-      depth -= 1;
-      if (depth === 0) return source.slice(start, index + 1);
-    }
-  }
-  assert.fail(`unterminated ${name}`);
+  return transpileTypeScriptFunction(terminalSource, name);
 }
 
 const boundary = new Function(`${extractSource('manualReorderBoundary')}\nreturn manualReorderBoundary;`)();
@@ -41,12 +38,12 @@ test('Project tree owns Alt+Up/Down only in Manual Order', () => {
   assert.match(treeKey, /manualReorderBoundary\(/);
   assert.match(treeKey, /reorderManualProject\(sources, boundary\.target, boundary\.edge\)/);
   assert.match(treeKey, /scrollIntoView\?\.\(\{ block: 'nearest' \}\)/);
-  assert.match(treeKey, /\[(?:applyTreeSelection, )?children, entries, expanded, manualOrder,[\s\S]*?reorderManualProject,[\s\S]*?sortMode,/);
+  assert.match(treeKey, /\[\s*(?:applyTreeSelection,\s*)?children,\s*entries,\s*expanded,\s*manualOrder,[\s\S]*?reorderManualProject,[\s\S]*?sortMode,/);
 });
 
 test('Sort By can reset manual order without leaving Manual Order mode', () => {
   assert.match(source, /id: 'resetManualOrder'/);
-  assert.match(source, /disabled: Object\.keys\(manualOrder\)\.length === 0/);
+  assert.match(source, /disabled: manualOrderEmpty/);
   assert.match(source, /setManualOrder\(\{\}\);\s*writeProjectManualOrder\(root, \{\}\);\s*flashStatus\(t\('editor\.manualOrderReset'\)\)/);
   assert.match(source, /resetManualOrderAction: '重置手动排序'/);
   assert.match(source, /resetManualOrderAction: 'Reset Manual Order'/);

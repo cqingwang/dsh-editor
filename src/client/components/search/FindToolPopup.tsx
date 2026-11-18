@@ -11,9 +11,9 @@ export interface FindToolPopupGeometry {
 export interface FindToolPopupProps {
   open: boolean;
   geometry: FindToolPopupGeometry;
-  onPopupDragStart: (event: any) => void;
-  onPopupResizeStart: (event: any, direction: string) => void;
-  children: React.ReactElement<any> | null;
+  onPopupDragStart: (event: React.MouseEvent<HTMLElement>) => void;
+  onPopupResizeStart: (event: React.MouseEvent<HTMLElement>, direction: string) => void;
+  children: React.ReactElement<unknown> | null;
 }
 
 function FindToolPopup({ open, geometry, onPopupDragStart, onPopupResizeStart, children }: FindToolPopupProps) {

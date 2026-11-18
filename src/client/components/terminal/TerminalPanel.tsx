@@ -16,10 +16,10 @@ export interface TerminalPanelProps {
   onRequestNew?: () => void;
   onRequestClose?: () => void;
   onOpenFile?: (path: string) => void;
-  onEditorTerminals?: (terminals: any[]) => void;
+  onEditorTerminals?: (terminals: Array<{ id?: string; [key: string]: unknown }>) => void;
   onSwitchFocusToEditor?: () => void;
   focusGeneration?: number;
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 function TerminalPanel({
@@ -663,7 +663,6 @@ function TerminalPanel({
     /* `createTerminal`/`restoreTerminals` are read through the closure on
        purpose: including them re-ran this on every parent render. `openedRef`
        makes the body idempotent, so no dependency on them is needed. */
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [available, busy, loaded, terminals.length, error, onRequestClose]);
 
   /**

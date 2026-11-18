@@ -8,7 +8,7 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const source = readFileSync(join(root, 'lib/client.js'), 'utf8');
 
 test('Git requests fail fast instead of leaving the tool window loading forever', () => {
-  const start = source.indexOf('async function callGit(payload, options = {})');
+  const start = source.indexOf('async function callGit(');
   assert.notEqual(start, -1);
   const end = source.indexOf('/** Call the host terminal API.', start);
   assert.notEqual(end, -1);

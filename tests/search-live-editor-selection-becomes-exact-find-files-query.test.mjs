@@ -2,20 +2,19 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+import { transpileTypeScriptFunction } from './ts-source.mjs';
+
+const editorCoreSource = await readFile(new URL('../src/client/editor-core.ts', import.meta.url), 'utf8');
+const source = [
+  await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8'),
+  editorCoreSource,
+  await readFile(new URL('../src/client/terminal.ts', import.meta.url), 'utf8'),
+  await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8'),
+  await readFile(new URL('../src/client/locales.ts', import.meta.url), 'utf8'),
+].join('\n');
 
 function extractFunction(name) {
-  const start = source.indexOf(`function ${name}(`);
-  assert.notEqual(start, -1, `${name} is missing`);
-  const bodyStart = source.indexOf(') {', start) + 2;
-  assert.ok(bodyStart > 1, `${name} has no function body`);
-  let depth = 0;
-  for (let index = bodyStart; index < source.length; index += 1) {
-    if (source[index] === '{') depth += 1;
-    if (source[index] === '}') depth -= 1;
-    if (depth === 0) return source.slice(start, index + 1);
-  }
-  assert.fail(`${name} has no closing brace`);
+  return transpileTypeScriptFunction(editorCoreSource, name);
 }
 
 function actionBlock(id, nextId) {
@@ -44,8 +43,8 @@ test('the live editor selection becomes the exact Find in Files query', () => {
 });
 
 test('Find and Replace shortcuts replace the open query with the latest selection', () => {
-  const findStart = source.indexOf('const openFindInFilesFromShortcut = React.useCallback');
-  const findEnd = source.indexOf('/**\n       * Hide the persistent Find tool', findStart);
+  const findStart = source.indexOf('const openFindInFilesFromShortcut =');
+  const findEnd = source.indexOf('const closeFindToolWindow', findStart);
   const find = source.slice(findStart, findEnd);
   assert.match(find, /const selectedQuery = selectedEditorFindQuery\(currentCodeEditor\(\)\)/u);
   assert.match(find, /query: hasSelectionQuery \? selectedQuery : current\.query/u);
@@ -54,7 +53,7 @@ test('Find and Replace shortcuts replace the open query with the latest selectio
   assert.match(find, /openFindTool\(selectedQuery, 'find'\)/u);
 
   const replaceStart = source.indexOf('const openBlankReplaceInFilesFromEditor = React.useCallback');
-  const replaceEnd = source.indexOf('/** Single shortcut body shared', replaceStart);
+  const replaceEnd = source.indexOf('const openFindInFilesFromShortcut', replaceStart);
   const replace = source.slice(replaceStart, replaceEnd);
   assert.match(replace, /const selectedQuery = selectedEditorFindQuery\(currentCodeEditor\(\)\)/u);
   assert.match(replace, /openFindTool\(selectedQuery, 'replace'\)/u);

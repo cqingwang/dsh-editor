@@ -2,25 +2,15 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = (await readFile(new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
-const actionsStart = source.indexOf('const searchEverywhereActions = React.useMemo');
+import { transpileTypeScriptFunction } from './ts-source.mjs';
+
+const source = (await readFile(new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../src/client/find-tool.ts', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../src/client/commit.ts', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../src/client/locales.ts', import.meta.url), 'utf8'));
+const actionsStart = source.indexOf('const searchEverywhereActions =');
 const actionsEnd = source.indexOf('/* Recompute match count', actionsStart);
 const actions = source.slice(actionsStart, actionsEnd);
 
 function extractSource(name) {
-  const marker = `    function ${name}(`;
-  const start = source.indexOf(marker);
-  assert.notEqual(start, -1, `${name} should exist`);
-  let index = source.indexOf('{', start);
-  let depth = 0;
-  for (; index < source.length; index += 1) {
-    if (source[index] === '{') depth += 1;
-    else if (source[index] === '}') {
-      depth -= 1;
-      if (depth === 0) return source.slice(start, index + 1);
-    }
-  }
-  assert.fail(`unterminated ${name}`);
+  return transpileTypeScriptFunction(source, name);
 }
 
 test('Search Everywhere exposes IDEA word-at-caret occurrence actions', () => {
@@ -38,7 +28,7 @@ test('occurrence actions share the Find Usages target and disabled reasons', () 
   const next = actions.slice(actions.indexOf("id: 'findNextWordOccurrence'"), actions.indexOf("id: 'findPreviousWordOccurrence'"));
   const previous = actions.slice(actions.indexOf("id: 'findPreviousWordOccurrence'"), actions.indexOf("id: 'findNext'"));
   for (const action of [next, previous]) {
-    assert.match(action, /disabled: findUsagesTarget\.query === ''/);
+    assert.match(action, /disabled:\s*findUsagesTarget\.query === ''/);
     assert.match(action, /findUsagesTarget\.reason === 'editor'/);
     assert.match(action, /editor\.findEditorRequired/);
     assert.match(action, /editor\.findUsagesSymbolRequired/);
@@ -68,9 +58,18 @@ test('word occurrence action text is present in both dictionaries', () => {
 });
 
 test('an exact action label outranks another action whose description mentions it', () => {
+  const findToolSource = source.slice(
+    source.indexOf('/* find-tool.ts:'),
+    source.indexOf('/* commit.ts:'),
+  );
+  const commitSource = source.slice(source.indexOf('/* commit.ts:'), source.indexOf('/* locales.ts:'));
   const rank = new Function(
-    `${extractSource('fuzzyScore')}\n${extractSource('rankSearchActions')}\nreturn rankSearchActions;`,
-  )();
+    'basename',
+    `${transpileTypeScriptFunction(findToolSource, 'wholeWordIndex')}
+     ${transpileTypeScriptFunction(findToolSource, 'fuzzyScore')}
+     ${transpileTypeScriptFunction(commitSource, 'rankSearchActions')}
+     return rankSearchActions;`,
+  )((path) => path.split('/').at(-1));
   const candidates = [
     {
       id: 'next',

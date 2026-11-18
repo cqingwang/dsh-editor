@@ -41,21 +41,20 @@ test('git failures surface the sentence git actually wrote', () => {
 
 test('the log failure banner offers a retry and suppresses the empty state', () => {
   const client = [
-    read('lib/client.js'),
-    read('src/client/components/commit/CommitLogListState.tsx'),
     read('src/client/editor-workspace.tsx'),
+    read('src/client/components/commit/CommitLogListState.tsx'),
   ].join('\n');
-  assert.match(client, /const \[logError, setLogError\] = React\.useState\(null\);/);
+  assert.match(client, /const \[logError, setLogError\] =\s+React\.useState\(null\);/);
   assert.match(client, /t\('editor\.logFailed', \{\s+message: logFailure,\s+\}\)/);
   assert.match(client, /t\('editor\.logRetry'\)/);
   /* "No commits" is a statement about the repository; only say it after a
      successful (empty) answer. */
   assert.match(client, /!graphMode && commitCount === 0 && !loading && logFailure === null/);
-  assert.match(client, /logFailure: logError,/);
+  assert.match(client, /logFailure=\{logError\}/);
 });
 
 test('the graph clears the previous failure on success', () => {
-  const client = read('lib/client.js');
+  const client = read('src/client/editor-workspace.tsx');
   const start = client.indexOf('const loadGraph = React.useCallback(async (branch, at) => {');
   assert.notEqual(start, -1);
   const block = client.slice(start, start + 1600);

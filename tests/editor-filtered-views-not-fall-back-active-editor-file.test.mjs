@@ -1,28 +1,11 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
+import { loadTypeScriptFunction } from './ts-source.mjs';
 
-const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
-
-function extract(name) {
-  const marker = `    function ${name}(`;
-  const start = source.indexOf(marker);
-  assert.notEqual(start, -1, `${name} should exist`);
-  let index = source.indexOf('{', start);
-  let depth = 0;
-  for (; index < source.length; index += 1) {
-    if (source[index] === '{') depth += 1;
-    else if (source[index] === '}') {
-      depth -= 1;
-      if (depth === 0) return source.slice(start, index + 1);
-    }
-  }
-  assert.fail(`${name} has no closing brace`);
-}
-
-const filteredViewSelection = new Function(
-  `${extract('filteredViewSelection')}\nreturn filteredViewSelection;`,
-)();
+const source = await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8');
+const terminalSource = await readFile(new URL('../src/client/terminal.ts', import.meta.url), 'utf8');
+const filteredViewSelection = loadTypeScriptFunction(terminalSource, 'filteredViewSelection');
 
 test('filtered views do not fall back to the active editor file', () => {
   const state = filteredViewSelection(

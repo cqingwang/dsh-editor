@@ -6,22 +6,35 @@ import { PathLabel } from '../ui/PathLabel';
 import { ToolbarButton } from '../ui/ToolbarButton';
 
 type Translate = (key: string, params?: Record<string, unknown>) => string;
+type DiffCallback = (...args: unknown[]) => void;
+
+export interface DiffTextPosition {
+  path?: string;
+  line?: number;
+  column?: number;
+  [key: string]: unknown;
+}
+
+export interface DiffTarget {
+  path?: string;
+  [key: string]: unknown;
+}
 
 export interface DiffPreviewProps {
   t: Translate;
-  target: any;
+  target: DiffTarget;
   monacoReady: boolean;
   includedInCommit?: boolean;
   onClose: () => void;
-  onRestored?: (...args: any[]) => void;
-  onStatus?: (...args: any[]) => void;
-  onNotice?: (...args: any[]) => void;
-  onNavigate?: (...args: any[]) => void;
-  undoRef?: React.MutableRefObject<any>;
-  redoRef?: React.MutableRefObject<any>;
-  viewStatesRef?: React.MutableRefObject<Map<string, any>>;
+  onRestored?: DiffCallback;
+  onStatus?: DiffCallback;
+  onNotice?: DiffCallback;
+  onNavigate?: DiffCallback;
+  undoRef?: React.MutableRefObject<unknown>;
+  redoRef?: React.MutableRefObject<unknown>;
+  viewStatesRef?: React.MutableRefObject<Map<string, Record<string, unknown>>>;
   searchInChangesRef?: React.MutableRefObject<(() => void) | null> | null;
-  filePosition?: any;
+  filePosition?: DiffTextPosition | null;
   onPreviousFile?: () => void;
   onNextFile?: () => void;
   onOpenLocal?: (path: string) => void;

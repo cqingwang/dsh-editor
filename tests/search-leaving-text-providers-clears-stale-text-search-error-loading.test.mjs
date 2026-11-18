@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const client = (await readFile(new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
+const client = (await readFile(new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../src/client/commit.ts', import.meta.url), 'utf8'));
 
 function extractFunction(name) {
   const start = client.indexOf(`function ${name}(`);
@@ -57,6 +57,6 @@ test('switching between text-capable tabs preserves the in-flight loading state'
 test('EditorWorkspace routes Search Everywhere tab changes through that transition', () => {
   assert.match(
     client,
-    /onTab: \(tab\) => setSearchEverywhere\(\(current\) => current === null \? current : searchEverywhereTabTransition\(current, tab\)\)/u,
+    /onTab=\{\(tab\) =>\s*setSearchEverywhere\(\(current\) => \(current === null \? current : searchEverywhereTabTransition\(current, tab\)\)\)/u,
   );
 });

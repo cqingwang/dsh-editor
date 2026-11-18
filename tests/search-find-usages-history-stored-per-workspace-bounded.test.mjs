@@ -2,26 +2,38 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = (await readFile(new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
-const actionsStart = source.indexOf('const searchEverywhereActions = React.useMemo');
-const actionsEnd = source.indexOf('/* Recompute match count', actionsStart);
-const actions = source.slice(actionsStart, actionsEnd);
+import { transpileTypeScriptFunction } from './ts-source.mjs';
+
+const searchEverywhereSource = await readFile(
+  new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url),
+  'utf8',
+);
+const findToolWindowSource = await readFile(
+  new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url),
+  'utf8',
+);
+const workspaceSource = await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8');
+const findToolSource = await readFile(new URL('../src/client/find-tool.ts', import.meta.url), 'utf8');
+const commitSource = await readFile(new URL('../src/client/commit.ts', import.meta.url), 'utf8');
+const localesSource = await readFile(new URL('../src/client/locales.ts', import.meta.url), 'utf8');
+const source = [searchEverywhereSource, findToolWindowSource, workspaceSource, findToolSource, commitSource, localesSource].join('\n');
+const actionsStart = workspaceSource.indexOf('const searchEverywhereActions =');
+const actionsEnd = workspaceSource.indexOf('/* Recompute match count', actionsStart);
+const actions = workspaceSource.slice(actionsStart, actionsEnd);
 const dialog = source.slice(source.indexOf('function SearchEverywhere('), source.indexOf('function FindToolWindowView('));
 
 function extractSource(name) {
-  const marker = `    function ${name}(`;
-  const start = source.indexOf(marker);
-  assert.notEqual(start, -1, `${name} should exist`);
-  let index = source.indexOf('{', start);
-  let depth = 0;
-  for (; index < source.length; index += 1) {
-    if (source[index] === '{') depth += 1;
-    else if (source[index] === '}') {
-      depth -= 1;
-      if (depth === 0) return source.slice(start, index + 1);
-    }
-  }
-  assert.fail(`unterminated ${name}`);
+  return transpileTypeScriptFunction(commitSource, name);
+}
+
+function loadRanker() {
+  const functions = ['wholeWordIndex', 'fuzzyScore']
+    .map((name) => transpileTypeScriptFunction(findToolSource, name))
+    .join('\n');
+  return new Function(
+    'basename',
+    `${functions}\n${transpileTypeScriptFunction(commitSource, 'rankSearchActions')}\nreturn rankSearchActions;`,
+  )((path) => path.split('/').at(-1));
 }
 
 test('Find Usages history is stored per workspace and bounded', () => {
@@ -94,9 +106,7 @@ test('Recent Find Usages text is localized in both dictionaries', () => {
 });
 
 test('Find Usages ranks above Recent Find Usages for the same query', () => {
-  const rank = new Function(
-    `${extractSource('fuzzyScore')}\n${extractSource('rankSearchActions')}\nreturn rankSearchActions;`,
-  )();
+  const rank = loadRanker();
   const candidates = [
     { id: 'recentFindUsages', label: 'Recent Find Usages', description: '' },
     { id: 'findUsages', label: 'Find Usages…', description: '' },

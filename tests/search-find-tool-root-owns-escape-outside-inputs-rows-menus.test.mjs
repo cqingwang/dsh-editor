@@ -3,28 +3,28 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 const source =
-  (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) +
+  (await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8')) +
   '\n' +
   (await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8'));
 const findStart = source.indexOf('function FindToolWindowView(');
 const findEnd = source.indexOf('const FindToolWindow = FindToolWindowView;', findStart);
 const find = source.slice(findStart, findEnd);
-const panelStart = source.indexOf('React.createElement(FindToolWindow, {');
-const panelClose = 'onClose: closeFindToolWindow,';
+const panelStart = source.indexOf('<FindToolWindow');
+const panelClose = 'onClose={closeFindToolWindow}';
 const panelEnd = source.indexOf(panelClose, panelStart);
 const panel = source.slice(panelStart, panelEnd + panelClose.length);
 
 test('Find tool root owns Escape outside inputs, rows and menus', () => {
   assert.match(
     find,
-    /onKeyDown: \(event\) => \{[\s\S]*?event\.key !== 'Escape'[\s\S]*?event\.defaultPrevented[\s\S]*?closest\('\[role="menu"\]'\)[\s\S]*?event\.preventDefault\(\)[\s\S]*?event\.stopPropagation\(\)[\s\S]*?onClose\(\)/,
+    /onKeyDown=\{\(event\) => \{[\s\S]*?event\.key !== 'Escape'[\s\S]*?event\.defaultPrevented[\s\S]*?closest\('\[role="menu"\]'\)[\s\S]*?event\.preventDefault\(\)[\s\S]*?event\.stopPropagation\(\)[\s\S]*?onClose\(\)/,
   );
   assert.doesNotMatch(find, /document\.body\.focus/);
 });
 
 test('replacement Escape cannot double-close through the tool root', () => {
-  const replacementStart = find.indexOf("'data-dsh-find-replace-input': ''");
-  const replacementEnd = find.indexOf('React.createElement(ToolbarButton', replacementStart);
+  const replacementStart = find.indexOf("data-dsh-find-replace-input=''");
+  const replacementEnd = find.indexOf('<ToolbarButton', replacementStart);
   const replacement = find.slice(replacementStart, replacementEnd);
   assert.match(
     replacement,
@@ -37,6 +37,6 @@ test('closing the Find tool returns keyboard ownership to the active editor', ()
     source,
     /const closeFindToolWindow = React\.useCallback\(\(\) => \{[\s\S]*?setFindTool\(null\);[\s\S]*?window\.setTimeout\([\s\S]*?currentCodeEditor\(\)\?\.focus\?\.\(\)[\s\S]*?0\);[\s\S]*?\}, \[currentCodeEditor\]\);/,
   );
-  assert.match(panel, /onClose: closeFindToolWindow/);
-  assert.doesNotMatch(panel, /onClose: \(\) => setFindTool\(null\)/);
+  assert.match(panel, /onClose=\{closeFindToolWindow\}/);
+  assert.doesNotMatch(panel, /onClose=\{\(\) => setFindTool\(null\)\}/);
 });

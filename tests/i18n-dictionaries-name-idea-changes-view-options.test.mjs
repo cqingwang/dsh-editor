@@ -5,7 +5,14 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = ((readFileSync(join(root, 'src/client/components/commit/CommitPanel.tsx'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'))) + '\n' + readFileSync(join(root, 'src/client/components/commit/CommitLog.tsx'), 'utf8');
+const menuSource = readFileSync(join(root, 'src/client/components/commit/commit-options-menu.ts'), 'utf8');
+const source = [
+  readFileSync(join(root, 'src/client/components/commit/CommitPanel.tsx'), 'utf8'),
+  readFileSync(join(root, 'src/client/editor-workspace.tsx'), 'utf8'),
+  readFileSync(join(root, 'src/client/components/commit/CommitLog.tsx'), 'utf8'),
+  menuSource,
+  readFileSync(join(root, 'src/client/locales.ts'), 'utf8'),
+].join('\n');
 
 function commitPanel() {
   const start = source.indexOf('function CommitPanel(');
@@ -16,7 +23,7 @@ function commitPanel() {
 }
 
 test('both dictionaries name IDEA Changes View Options', () => {
-  const occurrences = source.match(/^        viewOptions:/gmu) ?? [];
+  const occurrences = source.match(/^    viewOptions:/gmu) ?? [];
   assert.equal(occurrences.length, 2);
   assert.match(source, /viewOptions: '视图选项',/);
   assert.match(source, /viewOptions: 'View Options',/);
@@ -24,26 +31,24 @@ test('both dictionaries name IDEA Changes View Options', () => {
 
 test('Changes action bar exposes View Options next to inspection actions', () => {
   const panel = commitPanel();
-  const actions = panel.slice(panel.indexOf('actions: ['), panel.indexOf('},\n            }),', panel.indexOf('id: \'rollback\'')));
-  const showDiff = actions.indexOf("id: 'showDiff'");
-  const viewOptions = actions.indexOf("id: 'viewOptions'");
-  const selectOpened = actions.indexOf("id: 'selectOpened'");
+  const showDiff = panel.indexOf("id: 'showDiff'");
+  const viewOptions = panel.indexOf("id: 'viewOptions'");
+  const selectOpened = panel.indexOf("id: 'selectOpened'");
   assert.ok(showDiff >= 0 && viewOptions > showDiff && selectOpened > viewOptions);
-  assert.match(actions, /id: 'viewOptions',\s+group: 'view',\s+icon: 'settings',\s+label: t\('editor\.viewOptions'\)/);
-  assert.match(actions, /onViewOptionsMenu\?\.\(/);
+  assert.match(panel, /id: 'viewOptions'[\s\S]*?group: 'view'[\s\S]*?icon: 'settings'[\s\S]*?label: t\('editor\.viewOptions'\)/);
+  assert.match(panel, /onViewOptionsMenu\?\.\(/);
 });
 
 test('View Options reuses the existing Group by menu instead of a second value set', () => {
   const panel = commitPanel();
   assert.match(panel, /onViewOptionsMenu,/);
-  assert.match(source, /onViewOptionsMenu: \(position\) => openChangesViewMenu\(position\)/);
-  const handler = source.slice(
-    source.indexOf('const openChangesViewMenu = React.useCallback('),
-    source.indexOf("/* IDEA's \"Move to…\" picker", source.indexOf('const openChangesViewMenu = React.useCallback(')),
+  assert.match(source, /onViewOptionsMenu=\{\(position\) => openChangesViewMenu\(position\)\}/);
+  const handler = menuSource.slice(
+    menuSource.indexOf('export function changesViewOptionsMenu('),
+    menuSource.indexOf('export function commitOptionsMenu('),
   );
-  assert.notEqual(handler.length, 0);
   assert.match(handler, /title: t\('editor\.viewOptions'\)/);
   assert.match(handler, /id: 'groupBy'/);
   assert.match(handler, /items: groupMenu\.items/);
-  assert.match(handler, /changeGroupMenu\(position\)/);
+  assert.match(handler, /changeGroupMenu\(\{[\s\S]*?position,/);
 });

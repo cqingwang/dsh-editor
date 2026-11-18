@@ -5,10 +5,10 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = readFileSync(join(root, 'lib/client.js'), 'utf8');
+const source = readFileSync(join(root, 'src/client/editor-workspace.tsx'), 'utf8');
 
 function resolveConflictSource() {
-  const start = source.indexOf('const resolveConflict = React.useCallback(');
+  const start = source.indexOf('const resolveConflict =');
   assert.notEqual(start, -1);
   const end = source.indexOf('const buildChangeMenu = React.useCallback(', start);
   assert.notEqual(end, -1);

@@ -2,22 +2,19 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+import { transpileTypeScriptFunction } from './ts-source.mjs';
+
+const workspaceSource = await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8');
+const terminalSource = await readFile(new URL('../src/client/terminal.ts', import.meta.url), 'utf8');
+const pathModelSource = await readFile(
+  new URL('../src/client/components/editor/editor-path-model.ts', import.meta.url),
+  'utf8',
+);
+const editorCoreSource = await readFile(new URL('../src/client/editor-core.ts', import.meta.url), 'utf8');
+const source = workspaceSource + '\n' + terminalSource;
 
 function extract(name) {
-  const marker = `    function ${name}(`;
-  const start = source.indexOf(marker);
-  assert.notEqual(start, -1, `${name} should exist`);
-  let index = source.indexOf('{', start);
-  let depth = 0;
-  for (; index < source.length; index += 1) {
-    if (source[index] === '{') depth += 1;
-    else if (source[index] === '}') {
-      depth -= 1;
-      if (depth === 0) return source.slice(start, index + 1);
-    }
-  }
-  assert.fail(`${name} has no closing brace`);
+  return transpileTypeScriptFunction([pathModelSource, editorCoreSource, terminalSource].join('\n'), name);
 }
 
 const remapManualOrder = new Function(
@@ -72,7 +69,7 @@ test('rename and move remap manual order before refreshTree', () => {
     /remapProjectManualOrderForMoves\(\[\[renameState\.path, next\]\]\)[\s\S]*?await refreshTree\(\)/u,
   );
 
-  const moveStart = source.indexOf('const moveEntry = React.useCallback(');
+  const moveStart = source.indexOf('const moveEntry =');
   const move = source.slice(moveStart, source.indexOf('/* Resolve one conflicted file', moveStart));
   assert.match(move, /remapProjectManualOrderForMoves\(entries\)[\s\S]*?await refreshTree\(\)/u);
 });

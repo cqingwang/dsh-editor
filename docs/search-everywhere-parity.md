@@ -184,7 +184,8 @@
 - Find 已打开时重复双击 Shift / CmdShiftF 只回焦 query，不重置现有
   query、scope 或筛选条件。
 - IDEA CUA 显示 `Cmd+Shift+F` 为独立的 Find in Files 窗口；DSH 使用
-  默认 `580×536`、居中 fixed-position 的弹框，而不是底部 dock。
+  默认 `510×440`、居中 fixed-position 的弹框，而不是底部 dock。旧版本保存
+  的 `580×536` 默认几何会迁移到新尺寸；用户自定义的其他尺寸继续保留。
 - Floating Find 支持标题栏拖动和 n/s/e/w/ne/nw/se/sw 八方向缩放；
   geometry 保存到 `dsh-editor.find.popup.geometry.v1`，关闭重开及刷新后
   恢复。恢复时按当前 viewport clamp，最小尺寸 360×260（小视口自动收缩）；
@@ -246,9 +247,9 @@
 - Find 弹框内 Search/Replace History、Filter 和 File mask 菜单按弹框
   transform 的本地坐标定位，并限制在弹框可命中区域内。长历史菜单自身
   滚动；菜单扩展到弹框外时不会再把 pointer hit-test 穿透到聊天页面。
-- Find in Files floating 弹框默认同时显示 Search 与 Replace 行，仍可用
-  Replace toggle 收起；持久 Find dock 只在 replace mode 自动展开。
-  popup 与 dock 的 Search/Replace New Line
+- Find in Files floating 弹框与 IDEA 一致：普通 Find 入口只显示 Search 行；
+  只有 Replace 入口/`⇧⌘R` 进入 replace mode 时才展开 Replace 行。持久
+  Find dock 保留自己的 Replace toggle。popup 与 dock 的 Search/Replace New Line
   都是独立开关，启用后对应输入使用 textarea 并让普通 Enter 插入换行，
   `⌘⏎` / `⌥⇧⏎` 等动作快捷键不被普通 Enter 分支吞掉。
 - Find 的 Search/Replace query 按字面值原样传递，不 trim 首尾空格或

@@ -38,24 +38,23 @@ test('each commit reports its own first changed file', async (t) => {
 });
 
 test('the log menu resolves history from the right-clicked commit', () => {
-  const client = read('lib/client.js');
-  assert.match(client, /const showCommitHistory = React\.useCallback\(async \(hash\) => \{/);
+  const client = read('src/client/editor-workspace.tsx');
+  const menu = read('src/client/components/commit/log-menu.ts');
+  assert.match(client, /const showCommitHistory = React\.useCallback\(\s+async \(hash\) => \{/);
   /* It must fetch the commit it was given instead of reading the selected detail. */
   assert.match(client, /const detail = await callGit\(\{ op: 'show', hash \}\);/);
   assert.match(client, /void showFileHistory\(first\.path\);/);
   /* A commit that changed nothing says so rather than opening a random file. */
   assert.match(client, /t\('editor\.noChangedFiles'\)/);
   /* The menu no longer closes over `logDetail`. */
-  const menuAt = client.indexOf('const buildLogMenu = React.useCallback(');
-  const menuEnd = client.indexOf('const buildChangeMenu = React.useCallback(');
-  const menuBody = client.slice(menuAt, menuEnd);
-  assert.equal(menuBody.includes('logDetail'), false);
-  assert.match(menuBody, /run: \(\) => void showCommitHistory\(commit\.hash\)/);
+  assert.equal(menu.includes('logDetail'), false);
+  assert.match(menu, /run: \(\) => onShowCommitHistory\(commit\.hash\)/);
 });
 
 test('the log row tooltip advertises the right-click actions', () => {
-  const client = read('lib/client.js');
-  assert.match(client, /title: `\$\{commit\.hash\}\\n\$\{t\('editor\.logRowHint'\)\}`/);
-  assert.match(client, /logRowHint: '右键：拣选 \/ 还原 \/ 复制哈希'/);
-  assert.match(client, /logRowHint: 'Right-click: cherry-pick \/ revert \/ copy hash'/);
+  const log = read('src/client/components/commit/CommitLogFlatRow.tsx');
+  const locales = read('src/client/locales.ts');
+  assert.match(log, /title=\{`\$\{commit\.hash\}\\n\$\{t\('editor\.logRowHint'\)\}`\}/);
+  assert.match(locales, /logRowHint: '右键：拣选 \/ 还原 \/ 复制哈希'/);
+  assert.match(locales, /logRowHint: 'Right-click: cherry-pick \/ revert \/ copy hash'/);
 });

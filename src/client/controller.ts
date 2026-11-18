@@ -37,6 +37,8 @@ interface HarnessReferenceRuntime {
   document?: Document | null;
 }
 
+type ControllerContext = import('@deepseek-ai/cordis').Context;
+
 /**
  * Render a workspace path in the DSH file-mention grammar.
  *
@@ -165,7 +167,7 @@ function insertHarnessTextFallback(documentRef: Document | null | undefined, tex
  * @returns {Promise<boolean>} whether the composer accepted every reference.
  */
 async function insertHarnessReferencesIntoComposer(
-  ctx: any,
+  ctx: ControllerContext,
   request: HarnessReferenceHostRequest = {},
   runtime: HarnessReferenceRuntime = {},
 ): Promise<boolean> {
@@ -268,7 +270,7 @@ async function insertHarnessReferencesIntoComposer(
   return insertHarnessTextFallback(documentRef, plans.map((plan) => plan.plainText).join(' '));
 }
 
-function createController(ctx: any): void {
+function createController(ctx: ControllerContext): void {
   const t = translate(ctx.locale.bind(NS), { zh, en });
   let active = false;
   let host = null;
@@ -1328,7 +1330,7 @@ function createController(ctx: any): void {
 /**
  * @param {import('@deepseek-ai/cordis').Context} ctx - client root context.
  */
-function apply(ctx: any): void {
+function apply(ctx: ControllerContext): void {
   try {
     installStyles();
     ctx.effect(

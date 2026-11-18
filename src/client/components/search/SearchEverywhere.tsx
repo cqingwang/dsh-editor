@@ -9,20 +9,47 @@ import { ToolbarButton } from '../ui/ToolbarButton';
 
 type Translate = (key: string, params?: Record<string, unknown>) => string;
 
+interface SearchEverywhereState {
+  query: string;
+  tab: string;
+  index: number;
+  [key: string]: unknown;
+}
+
+interface SearchFileResult {
+  path: string;
+  [key: string]: unknown;
+}
+
+interface SearchTextResult {
+  path: string;
+  line: number;
+  column: number;
+  preview?: string;
+  [key: string]: unknown;
+}
+
+interface SearchActionRow {
+  id: string;
+  label: string;
+  disabled?: boolean;
+  [key: string]: unknown;
+}
+
 export interface SearchEverywhereProps {
   t: Translate;
-  state: any;
-  files: any[];
-  openFiles: any[];
-  changes: any[];
-  textMatches: any[];
-  actions: any[];
-  recentSearches: any[];
-  recentFindUsages: any[];
-  recentCommands: any[];
-  historyRequest: any;
-  findUsagesHistoryRequest: any;
-  replaceHistory: any[];
+  state: SearchEverywhereState;
+  files: SearchFileResult[];
+  openFiles: SearchFileResult[];
+  changes: SearchFileResult[];
+  textMatches: SearchTextResult[];
+  actions: SearchActionRow[];
+  recentSearches: string[];
+  recentFindUsages: string[];
+  recentCommands: string[];
+  historyRequest: number;
+  findUsagesHistoryRequest: number;
+  replaceHistory: string[];
   textLoading: boolean;
   textTruncated: boolean;
   error: string | null;
@@ -32,7 +59,7 @@ export interface SearchEverywhereProps {
   onMove: (delta: number) => void;
   onActivate: () => void;
   onClose: () => void;
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 function SearchEverywhere({

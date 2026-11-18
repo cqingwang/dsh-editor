@@ -70,20 +70,21 @@ test('an unknown sub-action degrades to list and never writes', async (t) => {
 });
 
 test('the commit toolbar offers stash and the panel shows template chips', () => {
-  const client = read('lib/client.js');
-  assert.match(client, /id: 'stash',\n\s+label: t\('editor\.stash'\),\n\s+run: \(\) => void openStashMenu\(position\)/);
+  const client = read('src/client/editor-workspace.tsx');
+  const options = read('src/client/components/commit/commit-options-menu.ts');
+  assert.match(options, /id: 'stash',\n\s+label: t\('editor\.stash'\),\n\s+run: onStash/);
   assert.match(client, /const openStashMenu = React\.useCallback\(/);
   /* The sub-action field is `action`: `op` already names the route operation. */
   /* Round 68 added apply/drop refs, so the request now carries an optional ref. */
-  assert.match(client, /callGit\(\{ op: 'stash', action: operation, \.\.\.\(ref === undefined \? \{\} : \{ ref \}\) \}\)/);
+  assert.match(client, /callGit\(\{\s+op: 'stash',\s+action: operation,\s+\.\.\.\(ref === undefined \? \{\} : \{ ref \}\),\s+\}\)/);
   assert.doesNotMatch(client, /op2/);
   assert.match(client, /const COMMIT_TEMPLATES = \['feat', 'fix', 'refactor', 'docs', 'test', 'chore', 'perf', 'style'\];/);
-  assert.match(client, /templates: COMMIT_TEMPLATES,/);
-  assert.match(client, /onTemplate: applyCommitTemplate,/);
+  assert.match(client, /templates=\{COMMIT_TEMPLATES\}/);
+  assert.match(client, /onTemplate=\{applyCommitTemplate\}/);
 });
 
 test('applying a template twice does not stack prefixes', () => {
-  const client = read('lib/client.js');
+  const client = read('src/client/editor-workspace.tsx');
   /* The guard is a strip-then-prefix, so `feat: fix: x` cannot accumulate. */
   assert.ok(client.includes("const match = /^([a-z]+)(\\([^)]*\\))?: ?/u.exec(text);"));
   assert.match(client, /COMMIT_TEMPLATES\.includes\(match\[1\]\) \? text\.slice\(match\[0\]\.length\) : text;/);

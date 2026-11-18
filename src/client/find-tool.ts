@@ -59,6 +59,84 @@ interface TerminalTabOverflow {
   visible: TerminalTabIdentity[];
   hidden: TerminalTabIdentity[];
 }
+
+interface TerminalBufferLine {
+  isWrapped?: boolean;
+  translateToString?: (trimRight?: boolean) => string;
+}
+
+interface TerminalBuffer {
+  cursorX?: number;
+  cursorY?: number;
+  length?: number;
+  getLine?: (row: number) => TerminalBufferLine | undefined;
+}
+
+interface TerminalEmulator {
+  buffer: { active: TerminalBuffer };
+  rows: number;
+  focus: () => void;
+  select: (column: number, row: number, length: number) => void;
+  scrollToLine: (line: number) => void;
+}
+
+interface TerminalConstructor {
+  new (...args: unknown[]): TerminalEmulator;
+}
+
+interface TerminalLinkProvider {
+  provideLinks: (...args: unknown[]) => unknown;
+  dispose: () => void;
+}
+
+interface CommitGraphBadge {
+  name?: unknown;
+  hash?: unknown;
+}
+
+interface CommitGraphReferenceData {
+  branchList?: unknown[];
+  tagList?: CommitGraphBadge[];
+  [key: string]: unknown;
+}
+
+interface TerminalMenuInput {
+  t: (key: string, params?: Record<string, unknown>) => string;
+  emulator: TerminalEmulator | null;
+  active: TerminalTabIdentity | null;
+  onSelectAll: () => void;
+  onFind: () => void;
+  onClose?: () => void;
+  onClear: () => void;
+  onClearBuffer: () => void;
+  onCreate: () => void;
+  onSplitRight?: () => void;
+  onMoveToEditor?: () => void;
+  onSwitchFocusToEditor?: () => void;
+  [key: string]: unknown;
+}
+
+interface TerminalTabMenuActions {
+  rename: () => void;
+  close: () => void;
+  closeOthers: () => void;
+  duplicate?: () => void;
+  cycleColor?: () => void;
+  canDuplicate?: boolean;
+  moveLeft?: () => void;
+  canMoveLeft?: boolean;
+  moveRight?: () => void;
+  canMoveRight?: boolean;
+  cwd?: string;
+  readmePath?: string;
+  openReadme?: () => void;
+  revealCwd?: () => void;
+  splitRight?: (() => void) | null;
+  reopen?: (() => void) | null;
+  moveToEditor?: (() => void) | null;
+  switchFocusToEditor?: (() => void) | null;
+  canCloseOthers?: boolean;
+}
 /**
  * Choose the row to select after one occurrence was replaced.
  *
@@ -379,7 +457,7 @@ function graphDisplayEntries(entries: CommitGraphEntry[] | null | undefined, fol
  * @param {object|null} graph - the loaded graph payload.
  * @returns {{branch: string, at: string}} scope for the next request.
  */
-function refScopeOf(ref: string, graph: any): { branch: string; at: string } {
+function refScopeOf(ref: string, graph: CommitGraphReferenceData | null): { branch: string; at: string } {
   const value = typeof ref === 'string' ? ref.trim() : '';
   if (value === '') return { branch: '', at: '' };
   if (value.startsWith('tag: ')) {
@@ -584,7 +662,10 @@ function formatCommitDate(value: unknown): string {
  * AMD `define`, which would otherwise capture a UMD xterm bundle.
  * @returns {Promise<{Terminal: Function, FitAddon: Function}>} constructors.
  */
-function loadXterm(): Promise<{ Terminal: any; FitAddon: any }> {
+function loadXterm(): Promise<{
+  Terminal: TerminalConstructor;
+  FitAddon: new () => { fit?: () => void };
+}> {
   if (xtermPromise !== null) return xtermPromise;
   xtermPromise = (async () => {
     injectStylesheet('/api/dsh-editor/xterm/xterm.css', 'dsh-editor-xterm-css');
@@ -617,7 +698,11 @@ const TERMINAL_POLL_MS = 16;
  * @param {AbortSignal} signal - request lifetime.
  * @returns {Promise<void>} resolves when the stream ends.
  */
-async function readEventStream(response: Response, onEvent: (event: any) => void, signal: AbortSignal): Promise<void> {
+async function readEventStream(
+  response: Response,
+  onEvent: (event: unknown) => void,
+  signal: AbortSignal,
+): Promise<void> {
   if (response.body === null) return;
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
@@ -658,7 +743,7 @@ async function readEventStream(response: Response, onEvent: (event: any) => void
  * Monaco claims the global AMD `define`, so a static script tag would be captured.
  */
 let linkParserPromise = null;
-function loadLinkParser(): Promise<any> {
+function loadLinkParser(): Promise<unknown> {
   if (linkParserPromise === null) {
     linkParserPromise = import('/api/dsh-editor/shared/link-parser.mjs').catch(() => null);
   }
@@ -674,7 +759,7 @@ function loadLinkParser(): Promise<any> {
  * @param {() => string} getCwd - current shell working directory.
  * @returns {{provideLinks: Function, dispose: Function}} provider handle.
  */
-function createTerminalLinkProvider(emulator: any, getCwd: () => string): any {
+function createTerminalLinkProvider(emulator: TerminalEmulator, getCwd: () => string): TerminalLinkProvider {
   /* Existence cache: terminal lines are re-scanned while scrolling. */
   const cache = new Map();
   const pending = new Set();
@@ -791,7 +876,11 @@ function openTerminalTarget(target: { path?: string; line?: number | null; colum
  * @param {number} limit - safety ceiling for huge scrollbacks.
  * @returns {Array<{row: number, column: number}>} hits in buffer order.
  */
-function terminalMatches(emulator: any, needle: string, limit = 2000): Array<{ row: number; column: number }> {
+function terminalMatches(
+  emulator: TerminalEmulator,
+  needle: string,
+  limit = 2000,
+): Array<{ row: number; column: number }> {
   if (needle === '') return [];
   const buffer = emulator.buffer.active;
   const hits = [];
@@ -814,7 +903,7 @@ function terminalMatches(emulator: any, needle: string, limit = 2000): Array<{ r
  * @param {string} needle - query.
  * @returns {number} occurrences.
  */
-function countTerminalMatches(emulator: any, needle: string): number {
+function countTerminalMatches(emulator: TerminalEmulator, needle: string): number {
   return terminalMatches(emulator, needle).length;
 }
 
@@ -831,7 +920,7 @@ function countTerminalMatches(emulator: any, needle: string): number {
  * @returns {void}
  */
 function moveTerminalSelection(
-  emulator: any,
+  emulator: TerminalEmulator | null,
   find: { query: string; index: number; total: number },
   setFind: (value: { query: string; index: number; total: number }) => void,
   direction: number,
@@ -876,7 +965,7 @@ function directTerminalShortcut(
  * @param {number} [cursorY] - current cursor row.
  * @returns {number|null} first visual row occupied by the prompt.
  */
-function terminalPromptStartRow(buffer: any, cursorY = buffer?.cursorY): number | null {
+function terminalPromptStartRow(buffer: TerminalBuffer | null, cursorY = buffer?.cursorY): number | null {
   if (buffer === null || buffer === undefined || !Number.isInteger(cursorY)) return null;
   let row = cursorY;
   while (row > 0 && buffer.getLine?.(row)?.isWrapped === true) row -= 1;
@@ -893,7 +982,7 @@ function terminalPromptStartRow(buffer: any, cursorY = buffer?.cursorY): number 
  * @returns {{row: number, column: number, length: number}|null} xterm range.
  */
 function terminalPromptSelection(
-  buffer: any,
+  buffer: TerminalBuffer | null,
   cursorY = buffer?.cursorY,
   cursorX = buffer?.cursorX,
 ): { row: number; column: number; length: number } | null {
@@ -910,7 +999,10 @@ function terminalPromptSelection(
  * @param {number} [cursorY] - current cursor row.
  * @returns {{start: number, end: number}|null} inclusive buffer rows.
  */
-function terminalLastBlockSelection(buffer: any, cursorY = buffer?.cursorY): TerminalBlockRange | null {
+function terminalLastBlockSelection(
+  buffer: TerminalBuffer | null,
+  cursorY = buffer?.cursorY,
+): TerminalBlockRange | null {
   if (buffer === null || buffer === undefined || !Number.isInteger(cursorY)) return null;
   const rowText = (row) => {
     const line = buffer.getLine?.(row);
@@ -940,7 +1032,7 @@ function terminalLastBlockSelection(buffer: any, cursorY = buffer?.cursorY): Ter
  * @param {number} row - buffer row.
  * @returns {{start: number, end: number}|null} inclusive block range.
  */
-function terminalBlockRangeAt(buffer: any, row: number): TerminalBlockRange | null {
+function terminalBlockRangeAt(buffer: TerminalBuffer | null, row: number): TerminalBlockRange | null {
   if (buffer === null || buffer === undefined || !Number.isInteger(row) || row < 0) return null;
   const textAt = (candidate) => {
     const line = buffer.getLine?.(candidate);
@@ -970,7 +1062,7 @@ function terminalBlockRangeAt(buffer: any, row: number): TerminalBlockRange | nu
  * @returns {{start: number, end: number}|null} selected block span.
  */
 function terminalSelectionBlockRange(
-  buffer: any,
+  buffer: TerminalBuffer | null,
   position: { start?: { y?: number }; end?: { y?: number } } | null,
 ): TerminalBlockRange | null {
   const startRow = position?.start?.y;
@@ -996,7 +1088,7 @@ function terminalSelectionBlockRange(
  * @returns {{start: number, end: number}|null} adjacent block.
  */
 function terminalAdjacentBlockRange(
-  buffer: any,
+  buffer: TerminalBuffer | null,
   range: TerminalBlockRange | null,
   direction: number,
   maxRow = Number.isInteger(buffer?.length) ? buffer.length - 1 : -1,
@@ -1029,7 +1121,7 @@ function terminalAdjacentBlockRange(
  * @returns {{start: number, end: number}|null} expanded range.
  */
 function terminalExpandBlockRange(
-  buffer: any,
+  buffer: TerminalBuffer | null,
   range: TerminalBlockRange | null,
   direction: number,
   maxRow: number,
@@ -1071,7 +1163,7 @@ function terminalBlockKeyboardAction(
  * @param {Function} input.onCreate - open a new terminal.
  * @returns {object|null} menu model.
  */
-function terminalMenuModel(input: Record<string, any>): TerminalMenuAction[] {
+function terminalMenuModel(input: TerminalMenuInput): TerminalMenuAction[] {
   const {
     t,
     emulator,
@@ -1387,7 +1479,7 @@ function terminalTabContextFocus(terminalId: string, _activeId: string | null, s
 function terminalTabMenu(
   t: (key: string, params?: Record<string, unknown>) => string,
   terminal: TerminalTabIdentity,
-  actions: Record<string, any>,
+  actions: TerminalTabMenuActions,
 ): Array<TerminalMenuAction | null> {
   return [
     { id: 'rename', label: t('editor.terminalRename'), shortcut: '⇧F6', run: actions.rename },
@@ -1483,8 +1575,8 @@ function pasteHistoryPreview(text: unknown, limit = 60): string {
 }
 
 async function writeTerminalText(
-  emulator: any,
-  active: any,
+  emulator: TerminalEmulator,
+  active: TerminalTabIdentity | null,
   text: unknown,
   t: (key: string, params?: Record<string, unknown>) => string,
 ): Promise<boolean | undefined> {
@@ -1499,8 +1591,8 @@ async function writeTerminalText(
 }
 
 async function pasteIntoTerminal(
-  emulator: any,
-  active: any,
+  emulator: TerminalEmulator,
+  active: TerminalTabIdentity | null,
   t: (key: string, params?: Record<string, unknown>) => string,
   onRefused?: (message: string) => void,
   onPasted?: (text: string) => void,

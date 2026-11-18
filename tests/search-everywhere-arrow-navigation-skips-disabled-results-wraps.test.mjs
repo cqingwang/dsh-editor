@@ -2,22 +2,22 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = (await readFile(new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
+import { loadTypeScriptFunction } from './ts-source.mjs';
+
+const searchEverywhereSource = await readFile(
+  new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url),
+  'utf8',
+);
+const findToolWindowSource = await readFile(
+  new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url),
+  'utf8',
+);
+const workspaceSource = await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8');
+const commitSource = await readFile(new URL('../src/client/commit.ts', import.meta.url), 'utf8');
+const source = [searchEverywhereSource, findToolWindowSource, workspaceSource, commitSource].join('\n');
 
 function extract(name) {
-  const marker = `    function ${name}(`;
-  const start = source.indexOf(marker);
-  assert.notEqual(start, -1, `${name} should exist`);
-  let index = source.indexOf('{', start);
-  let depth = 0;
-  for (; index < source.length; index += 1) {
-    if (source[index] === '{') depth += 1;
-    else if (source[index] === '}') {
-      depth -= 1;
-      if (depth === 0) return new Function(`${source.slice(start, index + 1)}; return ${name};`)();
-    }
-  }
-  assert.fail(`unterminated ${name}`);
+  return loadTypeScriptFunction(commitSource, name);
 }
 
 test('Search Everywhere arrow navigation skips disabled results and wraps', () => {
@@ -37,7 +37,10 @@ test('Search Everywhere arrow navigation skips disabled results and wraps', () =
 
 test('disabled actions expose a reason and cannot be activated', () => {
   const dialog = source.slice(source.indexOf('function SearchEverywhere('), source.indexOf('function FindToolWindowView('));
-  const actions = source.slice(source.indexOf('const searchEverywhereActions = React.useMemo'), source.indexOf('/* Recompute match count'));
+  const actions = workspaceSource.slice(
+    workspaceSource.indexOf('const searchEverywhereActions ='),
+    workspaceSource.indexOf('/* Recompute match count'),
+  );
   assert.match(actions, /disabledReason: !hasEditorModel \? t\('editor\.findEditorRequired'\) : t\('editor\.findStepInactive'\)/);
   assert.match(dialog, /nextEnabledSearchResultIndex\(results, activeIndex, direction\)/);
   assert.match(dialog, /moveSearchSelection\(1\)/);

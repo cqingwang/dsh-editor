@@ -2,12 +2,15 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-import { extractJavaScriptFunctionSource } from './ts-source.mjs';
+import { transpileTypeScriptFunction } from './ts-source.mjs';
 
-const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+const workspaceSource = await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8');
+const controllerSource = await readFile(new URL('../src/client/controller.ts', import.meta.url), 'utf8');
+const editorCoreSource = await readFile(new URL('../src/client/editor-core.ts', import.meta.url), 'utf8');
+const source = [workspaceSource, controllerSource, editorCoreSource].join('\n');
 
 function extractFunction(name) {
-  return extractJavaScriptFunctionSource(source, name);
+  return transpileTypeScriptFunction(source, name);
 }
 
 function helpers() {
@@ -161,16 +164,16 @@ test('Harness action is first in Project and every editor tab menu', () => {
 
 test('Editor receives the official composer insertion bridge', () => {
   assert.match(
-    source,
-    /function EditorWorkspace\(\{ t, workspaceId = '', initialHarnessCollapsed = false, onToggleHarness, onCloseEditor, onInsertHarnessReference \}\)/u,
+    workspaceSource,
+    /function EditorWorkspace\(\{[\s\S]*?onInsertHarnessReference,\s*\}:\s*EditorWorkspaceProps\)/u,
   );
-  assert.match(source, /onInsertHarnessReference: \(request\) => insertHarnessReferencesIntoComposer\(ctx, request\)/u);
-  assert.match(source, /input\.insertReference/u);
-  assert.match(source, /input\.insertText/u);
+  assert.match(controllerSource, /onInsertHarnessReference: \(request\) => insertHarnessReferencesIntoComposer\(ctx, request\)/u);
+  assert.match(controllerSource, /input\.insertReference/u);
+  assert.match(controllerSource, /input\.insertText/u);
   assert.doesNotMatch(
-    source.slice(
-      source.indexOf('async function insertHarnessReferencesIntoComposer('),
-      source.indexOf('function createController('),
+    controllerSource.slice(
+      controllerSource.indexOf('async function insertHarnessReferencesIntoComposer('),
+      controllerSource.indexOf('function createController('),
     ),
     /\.submit\(/u,
   );

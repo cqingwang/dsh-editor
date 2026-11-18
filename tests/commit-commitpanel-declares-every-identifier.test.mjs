@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
+import { extractFunctionSource } from './ts-source.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const source =
@@ -10,7 +11,9 @@ const source =
   '\n' +
   readFileSync(join(root, 'src/client/components/commit/CommitPanel.tsx'), 'utf8') +
   '\n' +
-  readFileSync(join(root, 'lib/client.js'), 'utf8') +
+  readFileSync(join(root, 'src/client/editor-workspace.tsx'), 'utf8') +
+  '\n' +
+  readFileSync(join(root, 'src/client/components/project/ProjectPanel.tsx'), 'utf8') +
   '\n' +
   readFileSync(join(root, 'src/client/components/commit/CommitLog.tsx'), 'utf8');
 
@@ -22,29 +25,24 @@ const source =
  * @returns {string} that component's source.
  */
 function bodyOf(name) {
-  const marker = `    function ${name}(`;
-  const start = source.indexOf(marker);
-  assert.notEqual(start, -1, `${name} is missing`);
-  const rest = source.slice(start + marker.length);
-  const nextMatch = /\n {4}function [A-Za-z_$][\w$]*\(/u.exec(rest);
-  return nextMatch === null ? rest : rest.slice(0, nextMatch.index);
+  return extractFunctionSource(source, name);
 }
 
 test('CommitPanel declares every identifier it renders', () => {
-  const panel = bodyOf('CommitPanel');
+  const panel = readFileSync(join(root, 'src/client/components/commit/CommitPanel.tsx'), 'utf8');
   /* `highlightedCommit` is owned by EditorWorkspace; CommitPanel must receive it as a prop. */
   assert.match(panel, /highlightedCommit,/);
-  assert.match(panel, /highlighted: highlightedCommit,/);
+  assert.match(panel, /highlighted=\{highlightedCommit\}/);
 });
 
 test('EditorWorkspace passes the highlighted commit into CommitPanel', () => {
   const workspace = bodyOf('EditorWorkspace');
-  assert.match(workspace, /const \[highlightedCommit, setHighlightedCommit\] = React\.useState\(null\);/);
+  assert.match(workspace, /const \[\s*highlightedCommit,\s*setHighlightedCommit,\s*\] = React\.useState\(null\);/);
   /* The value has to cross the component boundary, or the log tab throws on render. */
-  const callStart = workspace.indexOf('React.createElement(CommitPanel');
+  const callStart = workspace.indexOf('<CommitPanel');
   assert.notEqual(callStart, -1, 'CommitPanel call is missing');
-  const call = workspace.slice(callStart, workspace.indexOf('\n                    })', callStart));
-  assert.match(call, /highlightedCommit,/);
+  const call = workspace.slice(callStart, workspace.indexOf('/>', callStart));
+  assert.match(call, /highlightedCommit=\{highlightedCommit\}/);
 });
 
 test('every free identifier used by a component is declared or received', () => {

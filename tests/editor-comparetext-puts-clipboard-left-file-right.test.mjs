@@ -54,7 +54,7 @@ test('compareText flags a binary clipboard as binary', async (t) => {
 });
 
 test('the tree offers clipboard compare and directory staging', () => {
-  const client = read('lib/client.js');
+  const client = read('src/client/editor-workspace.tsx');
   assert.match(client, /id: 'compareClipboard',/);
   assert.match(client, /run: \(\) => void compareWithClipboard\(row\.path\)/);
   assert.match(client, /id: 'stageHere',/);
@@ -67,18 +67,18 @@ test('the tree offers clipboard compare and directory staging', () => {
 });
 
 test('clipboard reading failures are reported rather than opening an empty diff', () => {
-  const client = read('lib/client.js');
-  assert.match(client, /const compareWithClipboard = React\.useCallback\(async \(path\) => \{/);
+  const client = read('src/client/editor-workspace.tsx');
+  assert.match(client, /const compareWithClipboard = React\.useCallback\(\s*async \(path\) => \{/);
   assert.match(client, /setEditorError\(t\('editor\.clipboardUnavailable'\)\)/);
   assert.match(client, /setEditorError\(t\('editor\.clipboardEmpty'\)\)/);
-  assert.match(client, /setDiffTarget\(\{ path, clipboardText: text, label: 'clipboard', staged: false \}\)/);
+  assert.match(client, /setDiffTarget\(\{\s*path,\s*clipboardText: text,\s*label: 'clipboard',\s*staged: false,\s*\}\)/);
 });
 
 test('a compare target is not mistaken for a commit or a staged diff', () => {
-  const client = read('lib/client.js');
+  const client = read('src/client/editor-workspace.tsx') + read('src/client/locales.ts');
   /* Order matters: clipboard first, otherwise `undefined === 'string'` checks fall through. */
-  const clipboardAt = client.indexOf("typeof target.clipboardText === 'string'");
-  const commitAt = client.indexOf("typeof target.commit === 'string'", clipboardAt);
+  const clipboardAt = client.indexOf("typeof current.clipboardText === 'string'");
+  const commitAt = client.indexOf("typeof current.commit === 'string'", clipboardAt);
   assert.ok(clipboardAt > 0 && commitAt > clipboardAt);
-  assert.match(client, /t\('editor\.compareClipboardMode'\)/);
+  assert.match(read('src/client/components/diff/DiffPreview.tsx'), /t\('editor\.compareClipboardMode'\)/);
 });

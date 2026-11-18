@@ -2,23 +2,34 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source =
-  (await readFile(new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url), 'utf8')) +
-  '\n' +
-  (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) +
-  '\n' +
-  (await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8'));
+const searchEverywhereSource = await readFile(
+  new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url),
+  'utf8',
+);
+const workspaceSource = await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8');
+const commitSource = await readFile(new URL('../src/client/commit.ts', import.meta.url), 'utf8');
+const showUsagesSource = await readFile(
+  new URL('../src/client/components/search/ShowUsagesPopup.tsx', import.meta.url),
+  'utf8',
+);
+const source = [
+  searchEverywhereSource,
+  workspaceSource,
+  await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8'),
+  commitSource,
+  showUsagesSource,
+].join('\n');
 
 function extractFunction(name) {
-  const start = source.indexOf(`function ${name}(`);
+  const start = commitSource.indexOf(`function ${name}(`);
   assert.notEqual(start, -1, `${name} is missing`);
-  const bodyStart = source.indexOf(') {', start) + 2;
+  const bodyStart = commitSource.indexOf(') {', start) + 2;
   assert.ok(bodyStart > 1, `${name} has no function body`);
   let depth = 0;
-  for (let index = bodyStart; index < source.length; index += 1) {
-    if (source[index] === '{') depth += 1;
-    if (source[index] === '}') depth -= 1;
-    if (depth === 0) return source.slice(start, index + 1);
+  for (let index = bodyStart; index < commitSource.length; index += 1) {
+    if (commitSource[index] === '{') depth += 1;
+    if (commitSource[index] === '}') depth -= 1;
+    if (depth === 0) return commitSource.slice(start, index + 1);
   }
   assert.fail(`${name} has no closing brace`);
 }
@@ -49,9 +60,9 @@ test('usage rows have stable identities and indexes clamp to the filtered list',
 });
 
 test('Search Everywhere exposes a distinct Show Usages action and shortcut', () => {
-  const actionsStart = source.indexOf('const searchEverywhereActions = React.useMemo');
-  const actionsEnd = source.indexOf('/* Recompute match count', actionsStart);
-  const actions = source.slice(actionsStart, actionsEnd);
+  const actionsStart = workspaceSource.indexOf('const searchEverywhereActions =');
+  const actionsEnd = workspaceSource.indexOf('/* Recompute match count', actionsStart);
+  const actions = workspaceSource.slice(actionsStart, actionsEnd);
   const start = actions.indexOf("id: 'showUsages'");
   assert.notEqual(start, -1);
   const end = actions.indexOf("id: 'findUsagesInFile'", start);
@@ -59,7 +70,7 @@ test('Search Everywhere exposes a distinct Show Usages action and shortcut', () 
   assert.match(action, /label: t\('editor\.showUsagesAction'\)/);
   assert.match(action, /description: t\('editor\.showUsagesHint'\)/);
   assert.match(action, /shortcut: ideaUsageFamilyShortcut\('showUsages', searchMacPlatform\)/);
-  assert.match(action, /disabled: findUsagesTarget\.query === ''/);
+  assert.match(action, /disabled:\s*findUsagesTarget\.query === ''/);
   assert.match(action, /closeSearchEverywhere\(\)/);
   assert.match(action, /openShowUsages\(findUsagesTarget\.query\)/);
 });
@@ -76,21 +87,19 @@ test('Control+Alt+F7 invokes the transient usage runner outside Search Everywher
 });
 
 test('Show Usages popup is transient, keyboard navigable, and can pin to Find', () => {
-  const popupStart = source.indexOf('function ShowUsagesPopup(');
-  const popupEnd = source.indexOf('function FindToolWindowView(', popupStart);
+  const popupStart = showUsagesSource.indexOf('function ShowUsagesPopup(');
   assert.notEqual(popupStart, -1);
-  assert.notEqual(popupEnd, -1);
-  const popup = source.slice(popupStart, popupEnd);
-  assert.match(popup, /'data-dsh-show-usages': ''/);
-  assert.match(popup, /role: 'dialog'/);
-  assert.match(popup, /role: 'listbox'/);
+  const popup = showUsagesSource.slice(popupStart);
+  assert.match(popup, /data-dsh-show-usages=''/);
+  assert.match(popup, /role='dialog'/);
+  assert.match(popup, /role='listbox'/);
   assert.match(popup, /event\.key === 'ArrowDown'/);
   assert.match(popup, /event\.key === 'ArrowUp'/);
   assert.match(popup, /event\.key === 'Enter'/);
   assert.match(popup, /event\.key === 'Escape'/);
-  assert.match(popup, /onClick: onPin/);
-  assert.match(source, /const \[showUsages, setShowUsages\] = React\.useState\(null\)/);
+  assert.match(popup, /onClick=\{onPin\}/);
+  assert.match(workspaceSource, /const \[showUsages, setShowUsages\] =\s*React\.useState\(null\)/);
   assert.match(source, /op: 'searchText'/);
   assert.match(source, /const pinShowUsages = React\.useCallback/);
-  assert.match(source, /setShowUsages\(null\);[\s\S]*?openFindTool\(current\.query, 'find'/);
+  assert.match(source, /setShowUsages\(null\);[\s\S]*?openFindTool\(\s*current\.query,\s*'find'/);
 });

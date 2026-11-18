@@ -5,7 +5,10 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = readFileSync(join(root, 'lib/client.js'), 'utf8');
+const source = [
+  readFileSync(join(root, 'src/client/terminal.ts'), 'utf8'),
+  readFileSync(join(root, 'src/client/editor-workspace.tsx'), 'utf8'),
+].join('\n');
 
 test('the change-tree fold state survives a reload, per workspace', () => {
   /* IDEA remembers which change groups you collapsed; losing that on every refresh
@@ -32,7 +35,7 @@ test('a malformed stored value degrades to "nothing collapsed"', () => {
 
 test('the fold state is restored once the workspace root is known', () => {
   /* The key includes the root, so it cannot be read during the first render. */
-  assert.match(source, /const \[collapsedGroups, setCollapsedGroups\] = React\.useState\(\(\) => new Set\(\)\);/);
-  assert.match(source, /if \(collapsedRestoredFor\.current !== \(value\.root \?\? ''\)\) \{/);
+  assert.match(source, /const \[\s*collapsedGroups,\s*setCollapsedGroups,\s*\] = React\.useState\(\(\) => new Set\(\)\);/);
+  assert.match(source, /if \(\s+collapsedRestoredFor\.current !== \(value\.root \?\? ''\)\s+\) \{/);
   assert.match(source, /setCollapsedGroups\(readCollapsedGroups\(value\.root \?\? ''\)\);/);
 });

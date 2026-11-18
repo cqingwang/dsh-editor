@@ -102,24 +102,23 @@ test('the porcelain parser carries metadata forward for repeated commits', () =>
 });
 
 test('annotate replaces the editor area and the diff closes it', () => {
-  const client = read('lib/client.js');
+  const client = read('src/client/editor-workspace.tsx');
   const annotate = read('src/client/components/diff/AnnotatePreview.tsx');
   const annotateArea = read('src/client/components/editor/EditorAnnotateArea.tsx');
   assert.match(annotate, /function AnnotatePreview\(/);
   assert.match(annotate, /className='dsh-editor-annotate-pane'/);
   assert.match(annotate, /t\('editor\.annotateTruncated'\)/);
   assert.match(annotateArea, /if \(!active \|\| target === null\) return null;/);
-  assert.match(client, /React\.createElement\(EditorAnnotateArea, \{/);
-  assert.match(client, /active: annotateTarget !== null/);
-  assert.match(client, /const toggleAnnotate = React\.useCallback\(async \(\) => \{/);
+  assert.match(client, /<EditorAnnotateArea[\s\S]*?active=\{annotateTarget !== null\}/);
+  assert.match(client, /const toggleAnnotate = React\.useCallback\(/);
   /* Annotate and diff both take the editor area, so only one may be open. */
   assert.match(client, /setDiffTarget\(null\);\n\s+setAnnotateTarget\(\{ path \}\);/);
   /* The shared file-surface flag hides both editor groups for diff/annotate/terminal. */
   assert.match(
     client,
-    /const fileSurfaceVisible = \(activeFile !== null \|\| splitFile !== null\)[\s\S]*?diffOpen === false[\s\S]*?annotateTarget === null[\s\S]*?editorTerminals\.length === 0/,
+    /const fileSurfaceVisible =\s+\(activeFile !== null \|\| splitFile !== null\) &&\s+diffOpen === false &&\s+annotateTarget === null &&\s+editorTerminals\.length === 0;/,
   );
   const fileSurface = read('src/client/components/editor/EditorFileSurface.tsx');
-  assert.match(client, /React\.createElement\(\s*EditorFileSurface,\s*\{/);
+  assert.match(client, /<EditorFileSurface/);
   assert.match(fileSurface, /display: visible \? 'flex' : 'none'/);
 });

@@ -11,8 +11,8 @@ const findTool = source.slice(
 test('Find in Files popup is content-sized without a full-screen dimmer', () => {
   const popup = source.slice(source.indexOf('findToolPopup: {'), source.indexOf('findToolToolbar: {'));
   assert.match(popup, /position: 'fixed'/);
-  assert.match(popup, /width: 'min\(580px, calc\(100vw - 24px\)\)'/);
-  assert.match(popup, /height: 'min\(536px, calc\(100vh - 32px\)\)'/);
+  assert.match(popup, /width: 'min\(510px, calc\(100vw - 24px\)\)'/);
+  assert.match(popup, /height: 'min\(440px, calc\(100vh - 32px\)\)'/);
   assert.doesNotMatch(popup, /height: 'min\(680px, 76vh\)'/);
   assert.doesNotMatch(popup, /100vmax/);
 });

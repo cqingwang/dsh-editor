@@ -1,5 +1,6 @@
 import React from 'react';
 import { DiffPreview } from '../diff/DiffPreview';
+import type { DiffTarget, DiffTextPosition } from '../diff/DiffPreview';
 import { RepositoryVersionPreview } from '../diff/RepositoryVersionPreview';
 
 type Translate = (key: string, params?: Record<string, unknown>) => string;
@@ -7,21 +8,21 @@ type Translate = (key: string, params?: Record<string, unknown>) => string;
 export interface EditorDiffAreaProps {
   active: boolean;
   t: Translate;
-  target: any;
+  target: DiffTarget;
   monacoReady: boolean;
   includedInCommit: boolean;
   onClose: () => void;
-  onRestored?: (...args: any[]) => void;
-  onStatus?: (...args: any[]) => void;
-  onNotice?: (...args: any[]) => void;
-  onNavigate?: (...args: any[]) => void;
-  filePosition?: any;
+  onRestored?: (...args: unknown[]) => void;
+  onStatus?: (...args: unknown[]) => void;
+  onNotice?: (...args: unknown[]) => void;
+  onNavigate?: (...args: unknown[]) => void;
+  filePosition?: DiffTextPosition | null;
   onPreviousFile?: () => void;
   onNextFile?: () => void;
   onOpenLocal?: (path: string) => void;
-  undoRef?: React.MutableRefObject<any>;
-  redoRef?: React.MutableRefObject<any>;
-  viewStatesRef?: React.MutableRefObject<Map<string, any>>;
+  undoRef?: React.MutableRefObject<unknown>;
+  redoRef?: React.MutableRefObject<unknown>;
+  viewStatesRef?: React.MutableRefObject<Map<string, Record<string, unknown>>>;
   searchInChangesRef?: React.MutableRefObject<(() => void) | null> | null;
 }
 

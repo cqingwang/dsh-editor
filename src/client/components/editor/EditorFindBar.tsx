@@ -18,7 +18,7 @@ export interface EditorFindState {
   regex?: boolean;
   preserveCase?: boolean;
   withReplace?: boolean;
-  scope?: any;
+  scope?: { start: number; end: number } | null;
 }
 
 export interface EditorFindHistoryMenu {
@@ -34,7 +34,7 @@ export interface EditorFindBarProps {
   historyValues: string[];
   onFindChange: (value: string) => void;
   onReplaceChange: (value: string) => void;
-  onOpenHistory: (event: any, kind: 'query' | 'replace') => void;
+  onOpenHistory: (event: React.MouseEvent<HTMLElement>, kind: 'query' | 'replace') => void;
   onSelectHistory: (value: string) => void;
   onCloseHistory: () => void;
   onJump: (direction: number) => void;

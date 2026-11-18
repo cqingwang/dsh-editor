@@ -4,8 +4,8 @@ import test from 'node:test';
 
 import { en, zh } from './locale-source.mjs';
 
-const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
-const actionsStart = source.indexOf('const searchEverywhereActions = React.useMemo');
+const source = await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8');
+const actionsStart = source.indexOf('const searchEverywhereActions =');
 const actionsEnd = source.indexOf('/* Recompute match count', actionsStart);
 const actions = source.slice(actionsStart, actionsEnd);
 const zhKeys = new Set(Object.keys(zh.editor));
@@ -61,7 +61,7 @@ test('every Search Everywhere action has a visible identity', () => {
 });
 
 test('every disabled Search Everywhere action carries a concrete reason', () => {
-  const disabled = (actions.match(/disabled: /g) ?? []).length;
+  const disabled = (actions.match(/disabled:\s*/g) ?? []).length;
   const reasons = (actions.match(/disabledReason:/g) ?? []).length;
   assert.ok(disabled > 0);
   assert.equal(reasons, disabled);

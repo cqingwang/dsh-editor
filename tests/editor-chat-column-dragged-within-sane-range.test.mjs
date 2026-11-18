@@ -5,18 +5,21 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = readFileSync(join(root, 'lib/client.js'), 'utf8');
+const workspaceSource = readFileSync(join(root, 'src/client/editor-workspace.tsx'), 'utf8');
+const controllerSource = readFileSync(join(root, 'src/client/controller.ts'), 'utf8');
+const injectedCssSource = readFileSync(join(root, 'src/client/injected-css.ts'), 'utf8');
+const source = [workspaceSource, controllerSource, injectedCssSource].join('\n');
 
 /** Evaluate one shipping helper by brace balance, with the width constants. */
 function load(name) {
-  const marker = `    function ${name}(`;
-  const start = source.indexOf(marker);
-  assert.notEqual(start, -1, `${name} is missing from lib/client.js`);
+  const marker = `function ${name}(`;
+  const start = workspaceSource.indexOf(marker);
+  assert.notEqual(start, -1, `${name} is missing from editor-workspace.tsx`);
   let index = source.indexOf('{', start);
   let depth = 0;
-  for (; index < source.length; index += 1) {
-    if (source[index] === '{') depth += 1;
-    else if (source[index] === '}') {
+  for (; index < workspaceSource.length; index += 1) {
+    if (workspaceSource[index] === '{') depth += 1;
+    else if (workspaceSource[index] === '}') {
       depth -= 1;
       if (depth === 0) {
         const constants = [
@@ -24,7 +27,7 @@ function load(name) {
           'const CHAT_WIDTH_MAX = 44;',
           'const CHAT_WIDTH_DEFAULT = 35;',
         ].join('\n');
-        return new Function(`${constants}\n${source.slice(start, index + 1)}; return ${name};`)();
+        return new Function(`${constants}\n${workspaceSource.slice(start, index + 1)}; return ${name};`)();
       }
     }
   }

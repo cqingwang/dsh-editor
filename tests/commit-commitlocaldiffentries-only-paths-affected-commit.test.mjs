@@ -69,6 +69,7 @@ test('combined diff can show commit versions against local working files', async
 test('Commit Log exposes Compare with Local through the combined diff model', async () => {
   const client = await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8');
   const menu = await readFile(new URL('../src/client/components/commit/log-menu.ts', import.meta.url), 'utf8');
+  const diffPreview = await readFile(new URL('../src/client/components/diff/DiffPreview.tsx', import.meta.url), 'utf8');
   const locales = await readFile(new URL('../src/client/locales.ts', import.meta.url), 'utf8');
   const actionStart = client.indexOf('const compareCommitWithLocal = React.useCallback');
   const actionEnd = client.indexOf('const createCommitPatch = React.useCallback', actionStart);
@@ -76,7 +77,7 @@ test('Commit Log exposes Compare with Local through the combined diff model', as
 
   assert.match(menu, /id: 'compareWithLocalCommit'/);
   assert.match(menu, /label: t\('editor\.compareWithLocalCommitAction'\)/);
-  assert.match(menu, /void compareCommitWithLocal\(commit\.hash\)/);
+  assert.match(menu, /run: \(\) => onCompareWithLocal\(commit\.hash\)/);
   assert.match(action, /callGit\(\{ op: 'show', hash \}\)/);
   assert.match(action, /commitLocalDiffEntries\(detail, hash, t\('editor\.currentVersion'\)\)/);
   assert.match(action, /setDiffTarget\(\{\s*combined: true,\s*entries,\s*commitWithLocal: hash,\s*staged: false,/);
@@ -84,5 +85,5 @@ test('Commit Log exposes Compare with Local through the combined diff model', as
   assert.match(locales, /compareWithLocalCommitAction: '与本地比较'/);
   assert.match(locales, /compareWithLocalCommitAction: 'Compare with Local'/);
   assert.match(client, /commitWithLocal/);
-  assert.match(client, /target\?\.combined === true[\s\S]*?typeof target\?\.commitWithLocal === 'string'/);
+  assert.match(diffPreview, /target\?\.combined === true[\s\S]*?typeof target\?\.commitWithLocal === 'string'/);
 });

@@ -2,8 +2,8 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = (await readFile(new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
-const actions = source.slice(source.indexOf('const searchEverywhereActions = React.useMemo'), source.indexOf('/* Recompute match count'));
+const source = (await readFile(new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8'));
+const actions = source.slice(source.indexOf('const searchEverywhereActions ='), source.indexOf('/* Recompute match count'));
 
 test('Search Everywhere Actions open Find in Files with a content query, not the action filter', () => {
   const find = actions.slice(actions.indexOf("id: 'findInFiles'"), actions.indexOf("id: 'replaceInFiles'"));
@@ -16,7 +16,7 @@ test('Search Everywhere Actions open Find in Files with a content query, not the
 
 test('content-result handoff still owns query preservation', () => {
   const component = source.slice(source.indexOf('function SearchEverywhere('), source.indexOf('function FindToolWindowView('));
-  assert.match(component, /const request = searchFindHandoff\(\{\n          query: effectiveQuery,/);
+  assert.match(component, /const request = searchFindHandoff\(\{\s*query: effectiveQuery,/);
   assert.match(component, /activeRowKey: \(result \?\? activeResult\)\?\.rowKey/);
   assert.match(component, /onReplace: \(\) => openSearchResultsInFind\('replace', result\)/);
 });

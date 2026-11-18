@@ -1,4 +1,6 @@
 /* editor-core.ts: dsh-editor file API, Monaco and path utility module. Generated into lib/client.js by scripts/build-client.mjs. */
+import type * as Monaco from 'monaco-editor';
+
 interface LocaleDictionaryTree {
   [key: string]: string | LocaleDictionaryTree;
 }
@@ -17,7 +19,7 @@ interface FileApiRequestOptions {
 
 interface FileApiResult {
   response: Response;
-  data: any;
+  data: unknown;
 }
 
 interface WorkspaceTreeEntry {
@@ -50,9 +52,13 @@ interface RootLabel {
 }
 
 interface MonacoEditorGroup {
-  editor: any;
+  editor: Monaco.editor.IStandaloneCodeEditor;
   dispose: () => void;
 }
+
+type MonacoApi = typeof Monaco;
+type MonacoEditor = Monaco.editor.IStandaloneCodeEditor;
+type MonacoTextModel = Monaco.editor.ITextModel;
 
 function translate(
   bind: (key: string) => string,
@@ -103,7 +109,7 @@ function currentEditorWorkspaceId(): string {
  * @param {object|null} editor - Monaco editor instance.
  * @returns {string} selected text, or an empty string.
  */
-function selectedEditorFindQuery(editor: any): string {
+function selectedEditorFindQuery(editor: MonacoEditor | null | undefined): string {
   const model = editor?.getModel?.() ?? null;
   const selection = editor?.getSelection?.() ?? null;
   if (model === null || selection === null || typeof selection.isEmpty !== 'function' || selection.isEmpty()) return '';
@@ -115,7 +121,7 @@ function selectedEditorFindQuery(editor: any): string {
  * @param {object|null} editor - Monaco editor instance.
  * @returns {{path: string, line: number, column: number, endLine: number|null, endColumn: number|null}|null} reference location.
  */
-function harnessEditorLocation(editor: any): HarnessEditorLocation | null {
+function harnessEditorLocation(editor: MonacoEditor | null | undefined): HarnessEditorLocation | null {
   const model = editor?.getModel?.() ?? null;
   const path = navigationPathForModel(model);
   if (path === '') return null;
@@ -164,7 +170,7 @@ function currentTerminalScope(): string {
  * @param {string} operation - requested operation.
  * @returns {boolean} whether the host explicitly rejected the operation.
  */
-function fileApiMissingOperation(data: any, operation: string): boolean {
+function fileApiMissingOperation(data: unknown, operation: string): boolean {
   const message = String(data?.error?.message ?? '');
   return (
     data?.ok === false && message.toLowerCase().includes('unknown operation') && message.includes(`"${operation}"`)
@@ -215,7 +221,10 @@ async function requestFileApi(
  * @param {{signal?: AbortSignal}} [options] - transport cancellation.
  * @returns {Promise<object>} host operation value.
  */
-async function callFs(payload: Record<string, unknown>, options: FileApiRequestOptions = {}): Promise<any> {
+async function callFs(
+  payload: Record<string, unknown>,
+  options: FileApiRequestOptions = {},
+): Promise<Record<string, unknown>> {
   let { response, data } = await requestFileApi(payload, options);
   if (payload?.op === 'searchText' && fileApiMissingOperation(data, 'searchText')) {
     /* Host hot-reload can briefly expose an older operation table. One
@@ -230,7 +239,10 @@ async function callFs(payload: Record<string, unknown>, options: FileApiRequestO
 }
 
 /** Call the host git API. */
-async function callGit(payload: Record<string, unknown>, options: FileApiRequestOptions = {}): Promise<any> {
+async function callGit(
+  payload: Record<string, unknown>,
+  options: FileApiRequestOptions = {},
+): Promise<Record<string, unknown>> {
   const sessionId = currentSessionId();
   const workspaceId = currentEditorWorkspaceId();
   if (sessionId === '' && workspaceId === '') throw new Error('no active Session or workspace');
@@ -285,7 +297,7 @@ let codeEditorGroupSequence = 0;
  * @param {string[]} hiddenActionIds - action ids that must not be rendered.
  * @returns {Function} restores the previous menu action resolver.
  */
-function filterMonacoContextMenuActions(editor: any, hiddenActionIds: string[]): () => void {
+function filterMonacoContextMenuActions(editor: MonacoEditor, hiddenActionIds: string[]): () => void {
   const hidden = new Set(hiddenActionIds);
   const controller = editor?.getContribution?.('editor.contrib.contextmenu') ?? null;
   const original = controller?._getMenuActions;
@@ -316,7 +328,11 @@ function filterMonacoContextMenuActions(editor: any, hiddenActionIds: string[]):
  * @param {{onSave?: Function, onFind?: Function, onSearchText?: Function, onFindUsages?: Function, onFindUsagesInFile?: Function, onFindInFiles?: Function, onReplaceInFiles?: Function, onReplace?: Function, onIncrementalSearch?: Function, onFindInSelection?: Function, onReplaceInSelection?: Function, textSearchLabel?: string, findUsagesLabel?: string, findUsagesInFileLabel?: string, highlightUsagesInFileLabel?: string, findWordAtCaretLabel?: string, previousWordOccurrenceLabel?: string, replaceLabel?: string, incrementalSearchLabel?: string, findInSelectionLabel?: string, replaceInSelectionLabel?: string, findInFilesLabel?: string, replaceInFilesLabel?: string, selectAllOccurrencesLabel?: string, selectNextOccurrenceLabel?: string, unselectPreviousOccurrenceLabel?: string, searchWebLabel?: string, onSaveAll?: Function, onGotoLine?: Function, gotoLineLabel?: string, onGoToDefinition?: Function, goToDefinitionLabel?: string, onNavigateBack?: Function, onNavigateForward?: Function, navigationBackLabel?: string, navigationForwardLabel?: string, onCloseTab?: Function}} handlers - shortcut actions.
  * @returns {{editor: object, dispose: Function}} editor group controller.
  */
-function createCodeEditorGroup(monaco: any, container: HTMLElement, handlers: Record<string, any>): MonacoEditorGroup {
+function createCodeEditorGroup(
+  monaco: MonacoApi,
+  container: HTMLElement,
+  handlers: Record<string, unknown>,
+): MonacoEditorGroup {
   const actionsHandlers = handlers ?? {};
   const groupId = ++codeEditorGroupSequence;
   const findUsagesPrecondition = `dshEditorFindUsagesAvailable${groupId}`;
@@ -582,7 +598,12 @@ function createCodeEditorGroup(monaco: any, container: HTMLElement, handlers: Re
  * @param {string} content - initial content when the model must be created.
  * @returns {object} Monaco text model.
  */
-function ensureEditorModel(monaco: any, models: Map<string, any>, path: string, content: string): any {
+function ensureEditorModel(
+  monaco: MonacoApi,
+  models: Map<string, MonacoTextModel>,
+  path: string,
+  content: string,
+): MonacoTextModel {
   const existing = models.get(path);
   if (existing !== undefined) return existing;
   const uri = monaco.Uri.parse(`file:///${path.split('/').map(encodeURIComponent).join('/')}`);
@@ -600,7 +621,7 @@ function ensureEditorModel(monaco: any, models: Map<string, any>, path: string, 
  * @param {object} monaco - Monaco global namespace.
  * @returns {string} registered theme name.
  */
-function ensureDiffTheme(monaco: any): string {
+function ensureDiffTheme(monaco: MonacoApi): string {
   const base = detectTheme();
   const id = base === 'vs-dark' ? 'dsh-editor-diff-dark' : 'dsh-editor-diff-light';
   monaco.editor.defineTheme(id, {
@@ -827,7 +848,7 @@ function abbreviatePath(path: string, home: string): string {
 }
 
 /** Return a language id only when Monaco knows it. */
-function safeLanguage(monaco: any, path: string): string {
+function safeLanguage(monaco: MonacoApi, path: string): string {
   const language = languageFor(path);
   return monaco.languages.getLanguages().some((entry) => entry.id === language) ? language : 'plaintext';
 }
@@ -897,7 +918,7 @@ function downloadPatchBlob(patch: string, downloadName: string): void {
   }
 }
 
-let monacoPromise: Promise<any> | null = null;
+let monacoPromise: Promise<MonacoApi> | null = null;
 /* Monotonic suffix for diff model URIs; see DiffPreview's model swap. */
 let diffLoadSerial = 0;
 
@@ -911,7 +932,7 @@ let diffLoadSerial = 0;
  * @param {object} monaco - Monaco 全局命名空间。
  * @returns {boolean} 是否找到 TypeScript language defaults。
  */
-function configureMonacoLanguageDiagnostics(monaco: any): boolean {
+function configureMonacoLanguageDiagnostics(monaco: MonacoApi): boolean {
   const typescript = monaco?.languages?.typescript;
   if (typescript === undefined || typescript === null) return false;
   const diagnosticsOptions = {
@@ -937,7 +958,7 @@ function configureMonacoLanguageDiagnostics(monaco: any): boolean {
 }
 
 /** Load Monaco's AMD build through the host asset bridge. */
-function loadMonaco(): Promise<any> {
+function loadMonaco(): Promise<MonacoApi> {
   if (window.monaco?.editor !== undefined) {
     configureMonacoLanguageDiagnostics(window.monaco);
     return Promise.resolve(window.monaco);

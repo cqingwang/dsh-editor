@@ -14,5 +14,5 @@ test('Commit Log file menu copies a shell-ready absolute path', () => {
   assert.match(menu, /id: 'copyAbsolute'/);
   assert.match(menu, /label: t\('editor\.copyAbsolutePath'\)/);
   assert.match(workspace, /absoluteClipboardPath: shellQuote\(root === '' \? path : `\$\{root\}\/\$\{path\}`\)/);
-  assert.match(workspace, /onCopyText: \(value\) => void copyText\(value\)/);
+  assert.match(workspace, /onCopyText: \(value\) => void navigator\.clipboard\?\.writeText\(value\)/);
 });

@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = (readFileSync(join(root, 'src/client/components/diff/DiffPreview.tsx'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
+const source = (readFileSync(join(root, 'src/client/components/diff/DiffPreview.tsx'), 'utf8') + '\n' + readFileSync(join(root, 'src/client/editor-workspace.tsx'), 'utf8'));
 
 function diffPreview() {
   return source.slice(source.indexOf('function DiffPreview('), source.indexOf('export { DiffPreview };'));
@@ -34,8 +34,8 @@ test('the active diff owns IDEA Close Tab and returns focus to its origin', () =
   assert.match(workspace, /const diffReturnFocusRef = React\.useRef\(null\)/);
   assert.match(workspace, /const closeDiff = React\.useCallback\(\(\) => \{[\s\S]*?setDiffTarget\(null\);[\s\S]*?editorRef\.current\?\.focus\(\)/);
   assert.match(workspace, /if \(row\.isConnected\) row\.focus\(\);/);
-  assert.match(workspace, /onShowDiff: \(target\) => \{[\s\S]*?diffReturnFocusRef\.current = changeRowRefs\.current\.get/);
-  assert.match(workspace, /onClose: closeDiff/);
+  assert.match(workspace, /onShowDiff=\{\(target\) => \{[\s\S]*?diffReturnFocusRef\.current =\s+changeRowRefs\.current\.get/);
+  assert.match(workspace, /onClose=\{closeDiff\}/);
 });
 
 test('Enter in the Changes tree also remembers the row that opened the diff', () => {

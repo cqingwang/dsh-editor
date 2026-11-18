@@ -14,7 +14,7 @@ export interface CommitPanelProps {
   t: Translate;
   selectedPaths: Set<string>;
   message: string;
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 function CommitPanel({

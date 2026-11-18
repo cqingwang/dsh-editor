@@ -6,9 +6,9 @@ import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const source = [
-  readFileSync(join(root, 'lib/client.js'), 'utf8'),
   readFileSync(join(root, 'src/client/components/commit/CommitLogDetailPane.tsx'), 'utf8'),
   readFileSync(join(root, 'src/client/editor-workspace.tsx'), 'utf8'),
+  readFileSync(join(root, 'src/client/components/commit/file-menu.ts'), 'utf8'),
 ].join('\n');
 
 function commitLog() {
@@ -24,13 +24,9 @@ test('Commit Log file rows are keyboard-reachable for their context menu', () =>
 });
 
 test('Commit Log file menu names the working copy action Open Local Version', () => {
-  const workspace = source.slice(source.indexOf('function EditorWorkspace('), source.indexOf('function clampChatPercent('));
-  const menu = workspace.slice(
-    workspace.indexOf('const buildCommitFileMenu = React.useCallback('),
-    workspace.indexOf('const buildLogMenu = React.useCallback(', workspace.indexOf('const buildCommitFileMenu = React.useCallback(')),
-  );
+  const menu = readFileSync(join(root, 'src/client/components/commit/file-menu.ts'), 'utf8');
   assert.match(menu, /id: 'openLocalVersion'/);
   assert.match(menu, /label: t\('editor\.openLocalVersion'\)/);
-  assert.match(menu, /if \(localExists !== false\) void editLocalVersion\(path\)/);
+  assert.match(menu, /if \(localExists !== false\) onEditLocalVersion\(path\)/);
   assert.doesNotMatch(menu, /label: t\('editor\.openInEditor'\)/);
 });

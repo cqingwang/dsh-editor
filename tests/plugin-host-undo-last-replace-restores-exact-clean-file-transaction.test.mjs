@@ -5,7 +5,11 @@ import { join } from 'node:path';
 import test from 'node:test';
 
 const host = await import('../lib/index.js');
-const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+const source = [
+  await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8'),
+  await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8'),
+  await readFile(new URL('../src/client/locales.ts', import.meta.url), 'utf8'),
+].join('\n');
 const hostSource = await readFile(new URL('../lib/index.js', import.meta.url), 'utf8');
 
 test('host Undo Last Replace restores the exact clean-file transaction', async (t) => {
@@ -77,8 +81,8 @@ test('Find exposes Undo Last Replace only while a replacement snapshot exists', 
   assert.match(source, /id: 'undoReplace'/);
   assert.match(source, /label: t\('editor\.findUndoLastReplace'\)/);
   assert.match(source, /disabled: canUndoLastReplace !== true \|\| state\.replaceBusy === true/);
-  assert.match(source, /canUndoLastReplace: findReplaceUndoStack\.length > 0/);
-  assert.match(source, /onUndoLastReplace: \(\) => void undoFindReplace\(\)/);
+  assert.match(source, /canUndoLastReplace=\{findReplaceUndoStack\.length > 0\}/);
+  assert.match(source, /onUndoLastReplace=\{\(\) => void undoFindReplace\(\)\}/);
   assert.match(source, /findUndoLastReplace: '撤销上次替换'/);
   assert.match(source, /findUndoLastReplace: 'Undo Last Replace'/);
 });
@@ -89,7 +93,7 @@ test('Undo validates dirty buffers before host rollback and clears stale operati
     source.indexOf('const dismissExternal = React.useCallback'),
   );
   assert.match(undo, /model\.getValue\(\) !== entry\.afterContent/);
-  assert.match(undo, /callFs\(\{ op: 'undoReplaceText', operationId: operation\.operationId \}\)/);
+  assert.match(undo, /callFs\(\{\s+op: 'undoReplaceText',\s+operationId: operation\.operationId,\s+\}\)/);
   assert.match(undo, /commitFindToolDirtyPlans\(dirtyPlans\)/);
   assert.match(undo, /setFindReplaceUndoStack\(\(current\) => current\.slice\(0, -1\)\)/);
   assert.match(undo, /setFindReplaceRedoStack\(\(current\) => boundedReplaceHistory\(current, operation\)\)/);

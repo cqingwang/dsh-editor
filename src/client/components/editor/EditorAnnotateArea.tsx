@@ -3,11 +3,20 @@ import { AnnotatePreview } from '../diff/AnnotatePreview';
 
 type Translate = (key: string, params?: Record<string, unknown>) => string;
 
+interface AnnotateTarget {
+  path?: string;
+  [key: string]: unknown;
+}
+
+interface AnnotateLine {
+  [key: string]: unknown;
+}
+
 export interface EditorAnnotateAreaProps {
   active: boolean;
   t: Translate;
-  target: any;
-  lines: any[];
+  target: AnnotateTarget;
+  lines: AnnotateLine[];
   loading: boolean;
   truncated: boolean;
   onClose: () => void;

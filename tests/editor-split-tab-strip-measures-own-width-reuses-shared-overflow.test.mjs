@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = readFileSync(join(root, 'lib/client.js'), 'utf8');
+const source = readFileSync(join(root, 'src/client/editor-workspace.tsx'), 'utf8');
 const splitHeaderSource = readFileSync(join(root, 'src/client/components/editor/EditorSplitHeader.tsx'), 'utf8');
 
 test('split tab strip measures its own width and reuses the shared overflow helper', () => {
@@ -13,7 +13,7 @@ test('split tab strip measures its own width and reuses the shared overflow help
   assert.match(source, /const splitTabStripRef = React\.useRef\(null\)/);
   assert.match(source, /splitTabStripRef\.current/);
   assert.match(source, /setSplitTabStripWidth\(node\.clientWidth\)/);
-  assert.match(source, /const splitTabLayout = overflowTabs\(splitTabs, visibleTabCount\(splitTabStripWidth, splitTabs\.length\), splitPath, \(path\) => path\)/);
+  assert.match(source, /const splitTabLayout = overflowTabs\(\s+splitTabs,\s+visibleTabCount\(splitTabStripWidth, splitTabs\.length\),\s+splitPath,\s+\(path\) => path,\s+\)/);
 });
 
 test('only fitting split tabs render and the active tab stays visible', () => {
@@ -24,19 +24,17 @@ test('only fitting split tabs render and the active tab stays visible', () => {
 });
 
 test('split overflow menu activates a hidden tab without rebuilding the editor', () => {
-  const start = source.indexOf('onOverflow: (event) => {');
-  const overflow = source.slice(start, source.indexOf('onCloseSplit: closeRightSplit', start));
   assert.match(splitHeaderSource, /title=\{t\('editor\.tabsOverflow', \{ count: hiddenCount \}\)\}/);
-  assert.match(overflow, /items: splitTabLayout\.hidden\.map\(\(path\) =>/);
-  assert.match(overflow, /splitPathRef\.current = path/);
-  assert.match(overflow, /setSplitPath\(path\)/);
+  const overflowStart = source.indexOf('items: splitTabLayout.hidden.map');
+  const overflow = source.slice(overflowStart, source.indexOf('onCloseSplit=', overflowStart));
+  assert.match(overflow, /splitTabLayout\.hidden\.map\(\(path\) => \{/);
+  assert.match(overflow, /splitPathRef\.current = path;\s+setSplitPath\(path\);/);
   assert.doesNotMatch(overflow, /createCodeEditorGroup\(/);
 });
 
 test('the whole-split close remains outside the overflow list', () => {
-  const tabsAt = source.indexOf("'data-dsh-editor-split-tabs': ''");
-  assert.ok(tabsAt >= 0);
-  assert.match(source, /onCloseSplit: closeRightSplit/);
+  assert.match(splitHeaderSource, /data-dsh-editor-split-tabs=''/);
+  assert.match(source, /onCloseSplit=\{closeRightSplit\}/);
   assert.match(splitHeaderSource, /aria-label=\{t\('editor\.closeSplit'\)\}/);
   assert.match(splitHeaderSource, /onClick=\{onCloseSplit\}/);
 });

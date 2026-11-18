@@ -37,7 +37,7 @@ test('cancelling an upload interrupts its retry backoff instead of waiting for i
 });
 
 test('chunk requests receive the batch abort signal', () => {
-  assert.match(source, /async function requestWorkspaceUpload\(action, options = \{\}\)/u);
+  assert.match(source, /async function requestWorkspaceUpload\(\s*action,\s*options = \{\},?\s*\)/u);
   assert.match(source, /signal: options\.signal/u);
   assert.match(
     source,

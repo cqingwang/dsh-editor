@@ -4,6 +4,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
+import { loadTypeScriptFunction } from './ts-source.mjs';
 
 import { gitCommitPatch } from '../lib/index.js';
 
@@ -70,21 +71,7 @@ test('an invalid commit is refused before Git writes anything', async (t) => {
 
 test('commit patch download names keep the hash and sanitize the subject', async () => {
   const client = await readFile(new URL('../src/client/editor-core.ts', import.meta.url), 'utf8');
-  const start = client.indexOf('function commitPatchDownloadName(');
-  assert.notEqual(start, -1, 'commitPatchDownloadName is missing');
-  const bodyStart = client.indexOf('{', start);
-  let depth = 0;
-  let end = -1;
-  for (let index = bodyStart; index < client.length; index += 1) {
-    if (client[index] === '{') depth += 1;
-    if (client[index] === '}') depth -= 1;
-    if (depth === 0) {
-      end = index + 1;
-      break;
-    }
-  }
-  assert.notEqual(end, -1, 'commitPatchDownloadName has no closing brace');
-  const fn = new Function(`${client.slice(start, end)}; return commitPatchDownloadName;`)();
+  const fn = loadTypeScriptFunction(client, 'commitPatchDownloadName');
   const first = fn('abcdef123456', 'fix: path/with * unsafe? chars');
   const second = fn('1234567890ab', 'another subject');
 
@@ -96,17 +83,18 @@ test('commit patch download names keep the hash and sanitize the subject', async
 
 test('Commit Log exposes Create Patch from Commit through the host route', async () => {
   const client = await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8');
+  const core = await readFile(new URL('../src/client/editor-core.ts', import.meta.url), 'utf8');
   const host = await readFile(new URL('../lib/index.js', import.meta.url), 'utf8');
   const menu = await readFile(new URL('../src/client/components/commit/log-menu.ts', import.meta.url), 'utf8');
   const locales = await readFile(new URL('../src/client/locales.ts', import.meta.url), 'utf8');
 
   assert.match(menu, /id: 'createCommitPatch'/);
   assert.match(menu, /label: t\('editor\.createPatchFromCommitAction'\)/);
-  assert.match(menu, /void createCommitPatch\(commit\.hash\)/);
+  assert.match(menu, /run: \(\) => onCreateCommitPatch\(commit\.hash\)/);
   assert.match(locales, /createPatchFromCommitAction: '从提交创建补丁…'/);
   assert.match(locales, /createPatchFromCommitAction: 'Create Patch from Commit…'/);
   assert.match(client, /callGit\(\{ op: 'commitPatch', hash \}\)/);
-  assert.match(client, /anchor\.download = downloadName/);
+  assert.match(core, /anchor\.download = downloadName/);
   assert.match(host, /async function gitCommitPatch\(/);
   assert.match(host, /'format-patch',\s*'-1',\s*'--stdout',\s*'--binary',\s*'--no-signature',\s*'--no-color'/);
   assert.match(host, /case 'commitPatch':[\s\S]*?gitCommitPatch\(root, String\(body\?\.hash \?\? ''\)\)/);

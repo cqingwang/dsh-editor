@@ -6,19 +6,26 @@ import { readFile as readSource } from 'node:fs/promises';
 import test from 'node:test';
 
 const host = await import('../lib/index.js');
-const source = (await readSource(new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url), 'utf8') + '\n' + await readSource(new URL('../lib/client.js', import.meta.url), 'utf8') + '\n' + await readSource(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8'));
+const commitSource = await readSource(new URL('../src/client/commit.ts', import.meta.url), 'utf8');
+const source = [
+  await readSource(new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url), 'utf8'),
+  await readSource(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8'),
+  await readSource(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8'),
+  commitSource,
+  await readSource(new URL('../src/client/locales.ts', import.meta.url), 'utf8'),
+].join('\n');
 const hostSource = await readSource(new URL('../lib/index.js', import.meta.url), 'utf8');
 
 function extractFunction(name) {
-  const start = source.indexOf(`function ${name}(`);
+  const start = commitSource.indexOf(`function ${name}(`);
   assert.notEqual(start, -1, `${name} is missing`);
-  const bodyStart = source.indexOf(') {', start) + 2;
+  const bodyStart = commitSource.indexOf(') {', start) + 2;
   assert.ok(bodyStart > 1, `${name} has no function body`);
   let depth = 0;
-  for (let index = bodyStart; index < source.length; index += 1) {
-    if (source[index] === '{') depth += 1;
-    if (source[index] === '}') depth -= 1;
-    if (depth === 0) return source.slice(start, index + 1);
+  for (let index = bodyStart; index < commitSource.length; index += 1) {
+    if (commitSource[index] === '{') depth += 1;
+    if (commitSource[index] === '}') depth -= 1;
+    if (depth === 0) return commitSource.slice(start, index + 1);
   }
   assert.fail(`${name} has no closing brace`);
 }
@@ -59,13 +66,13 @@ test('the persistent Find replace bar exposes an IDEA Preserve case toggle', () 
   );
   assert.match(searchEverywhere, /id: 'preserveCase'/);
   assert.match(searchEverywhere, /\.\.\.\(state\.withReplace === true\s*\? \[/);
-  assert.match(findWindow, /id: 'preserveCase'/);
-  assert.match(findWindow, /label: t\('editor\.searchPreserveCase'\)/);
-  assert.match(findWindow, /active: state\.preserveCase === true/);
-  assert.match(findWindow, /onClick: onTogglePreserveCase/);
+  assert.match(findWindow, /id='preserveCase'/);
+  assert.match(findWindow, /label=\{t\('editor\.searchPreserveCase'\)\}/);
+  assert.match(findWindow, /active=\{state\.preserveCase === true\}/);
+  assert.match(findWindow, /onClick=\{onTogglePreserveCase\}/);
   assert.doesNotMatch(findWindow, /\.\.\.\(replaceMode\s*\? \[/);
-  assert.match(source, /onTogglePreserveCase: \(\) => setFindTool/);
-  assert.match(source, /onTogglePreserveCase: \(\) => setSearchEverywhere/);
+  assert.match(source, /onTogglePreserveCase=\{\(\) =>\s*setFindTool/);
+  assert.match(source, /onTogglePreserveCase=\{\(\) =>\s*setSearchEverywhere/);
   assert.match(source, /searchPreserveCase: '保留大小写'/);
   assert.match(source, /searchPreserveCase: 'Preserve case'/);
 });

@@ -4,8 +4,12 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
+import { transpileTypeScriptFunction } from './ts-source.mjs';
+
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = readFileSync(join(root, 'lib/client.js'), 'utf8');
+const workspaceSource = readFileSync(join(root, 'src/client/editor-workspace.tsx'), 'utf8');
+const findToolSource = readFileSync(join(root, 'src/client/find-tool.ts'), 'utf8');
+const source = workspaceSource + '\n' + findToolSource;
 const tabStripSource = readFileSync(join(root, 'src/client/components/editor/EditorTabStrip.tsx'), 'utf8');
 
 test('the editor tab strip overflows into `»` instead of squeezing every tab', () => {
@@ -14,19 +18,19 @@ test('the editor tab strip overflows into `»` instead of squeezing every tab', 
   /* The layout is computed once per render and consumed by the strip. */
   /* Round 148: the Commit diff owns a pinned tab, so the strip overflows one
      list that starts with that key and continues with the open files. */
-  assert.match(source, /const fileTabLayout = overflowTabs\(allTabs, visibleTabCount\(tabStripWidth, allTabs\.length\), activeTabKey, \(entry\) => \(entry === DIFF_TAB_KEY \? DIFF_TAB_KEY : entry\.path\)\);/);
-  assert.match(source, /React\.createElement\(EditorTabStrip, \{/);
-  assert.match(source, /children: fileTabLayout\.visible\.map\(\(entry\) => fileTabElement\(entry\)\)/);
+  assert.match(source, /const fileTabLayout = overflowTabs\(allTabs, visibleTabCount\(tabStripWidth, allTabs\.length\), activeTabKey, \(entry\) =>\s+entry === DIFF_TAB_KEY \? DIFF_TAB_KEY : entry\.path,\s*\);/);
+  assert.match(source, /<EditorTabStrip/);
+  assert.match(source, /children=\{fileTabLayout\.visible\.map\(\(entry\) => fileTabElement\(entry\)\)\}/);
   assert.match(tabStripSource, /t\('editor\.tabsOverflow', \{ count: hiddenCount \}\)/);
   /* The strip needs the same measurement the terminal dock uses. */
-  assert.match(source, /const \[tabStripWidth, setTabStripWidth\] = React\.useState\(0\);/);
+  assert.match(source, /const \[tabStripWidth, setTabStripWidth\] =\s*React\.useState\(0\);/);
   assert.match(source, /dsh-editor\.tabStripOverflow|tabStripOverflowRef|new ResizeObserver\(measure\)/);
 });
 
 test('hidden file tabs keep their full titles in the dropdown', () => {
-  const start = source.indexOf('onOverflow: (event) => {');
+  const start = source.indexOf('onOverflow={(event) => {');
   assert.notEqual(start, -1);
-  const block = source.slice(start, source.indexOf('children: fileTabLayout.visible.map', start));
+  const block = source.slice(start, source.indexOf('children={fileTabLayout.visible.map', start));
   /* Menu labels come from the file paths, so two `index.ts` stay distinguishable. */
   assert.match(block, /label: entry\.dirty \? `\$\{entry\.path\} •` : entry\.path/);
   assert.match(block, /setActivePath\(entry\.path\)/);
@@ -35,18 +39,7 @@ test('hidden file tabs keep their full titles in the dropdown', () => {
 /** Load `visibleTabCount` and `overflowTabs` in one scope. */
 const tabHelpers = (() => {
   const load = (name) => {
-    const start = source.indexOf(`    function ${name}(`);
-    assert.notEqual(start, -1, `${name} is missing`);
-    let index = source.indexOf('{', start);
-    let depth = 0;
-    for (; index < source.length; index += 1) {
-      if (source[index] === '{') depth += 1;
-      else if (source[index] === '}') {
-        depth -= 1;
-        if (depth === 0) return source.slice(start, index + 1);
-      }
-    }
-    throw new Error(`unbalanced braces in ${name}`);
+    return transpileTypeScriptFunction(findToolSource, name);
   };
   const body = `${load('visibleTabCount')}\n${load('overflowTabs')}`;
   return new Function(`${body}; return { visibleTabCount, overflowTabs };`)();

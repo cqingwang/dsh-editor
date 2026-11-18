@@ -6,11 +6,19 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
+import { loadTypeScriptFunction } from './ts-source.mjs';
 
 import { gitGraph } from '../lib/index.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = readFileSync(join(root, 'lib/client.js'), 'utf8');
+const source = [
+  readFileSync(join(root, 'src/client/editor-workspace.tsx'), 'utf8'),
+  readFileSync(join(root, 'src/client/components/commit/CommitLog.tsx'), 'utf8'),
+  readFileSync(join(root, 'src/client/components/diff/AnnotatePreview.tsx'), 'utf8'),
+  readFileSync(join(root, 'src/client/components/commit/CommitGraphRow.tsx'), 'utf8'),
+  readFileSync(join(root, 'src/client/components/commit/CommitLogFlatRow.tsx'), 'utf8'),
+  readFileSync(join(root, 'src/client/find-tool.ts'), 'utf8'),
+].join('\n');
 const read = (path) => readFileSync(join(root, path), 'utf8');
 
 /** Three linear commits plus an annotated and a lightweight tag. */
@@ -63,18 +71,10 @@ test('a tag scope wins over a branch scope when both arrive', async (t) => {
 
 /** Load the shipping `refScopeOf` so badge semantics are asserted, not strings. */
 function loadRefScope() {
-  const start = source.indexOf('    function refScopeOf(');
-  assert.notEqual(start, -1, 'refScopeOf is missing');
-  let index = source.indexOf('{', start);
-  let depth = 0;
-  for (; index < source.length; index += 1) {
-    if (source[index] === '{') depth += 1;
-    else if (source[index] === '}') {
-      depth -= 1;
-      if (depth === 0) return new Function(`${source.slice(start, index + 1)}; return refScopeOf;`)();
-    }
-  }
-  throw new Error('unbalanced braces in refScopeOf');
+  return loadTypeScriptFunction(
+    readFileSync(join(root, 'src/client/find-tool.ts'), 'utf8'),
+    'refScopeOf',
+  );
 }
 
 const refScopeOf = loadRefScope();
@@ -115,30 +115,30 @@ test('the graph shows a scope chip and clickable badges', () => {
 });
 
 test('annotate rows jump into the commit log', () => {
-  const client = read('lib/client.js');
-  assert.match(client, /onClick: \(\) => onOpenCommit\?\.\(row\.hash\)/);
-  assert.match(client, /const openCommitFromAnnotate = React\.useCallback\(\(hash\) => \{/);
-  assert.match(client, /setCommitMode\('log'\);\n\s+setHistoryPath\(null\);\n\s+void loadLog\(\);\n\s+void showCommit\(hash\);/);
+  const client = source;
+  assert.match(client, /onClick=\{\(\) => onOpenCommit\?\.\(row\.hash\)\}/);
+  assert.match(client, /const openCommitFromAnnotate = React\.useCallback\(\s+\(hash\) => \{/);
+  assert.match(client, /setCommitMode\('log'\);[\s\S]*?setHistoryPath\(null\);[\s\S]*?void loadLog\(\);[\s\S]*?void showCommit\(hash\);/);
   /* The annotate pane must survive the jump: the user is reading it, not leaving it. */
-  assert.match(client, /onOpenCommit: openCommitFromAnnotate,/);
+  assert.match(client, /onOpenCommit=\{openCommitFromAnnotate\}/);
 });
 
 test('both log views mark the commit the detail pane shows', () => {
-  const client = read('lib/client.js');
+  const client = source;
   /* One selection, two renderings: a row picked in either view is marked in both. */
-  assert.match(client, /const \[selectedCommit, setSelectedCommit\] = React\.useState\(null\);/);
+  assert.match(client, /const \[\s*selectedCommit,\s*setSelectedCommit,\s*\] = React\.useState\(null\);/);
   assert.match(client, /setSelectedCommit\(hash\);/);
-  assert.match(client, /selectionIncluded: selectedCommits\.includes\(commit\.hash\),/);
-  assert.match(client, /'aria-selected': selectionIncluded,/);
-  assert.match(client, /selected: graphHover \?\? graphCursor \?\? selected,/);
+  assert.match(client, /selectionIncluded=\{selectedCommits\.includes\(commit\.hash\)\}/);
+  assert.match(client, /aria-selected=\{selectionIncluded\}/);
+  assert.match(client, /selected=\{graphHover \?\? graphCursor \?\? selected\}/);
   /* Walking the graph with the keyboard loads the detail pane, like IDEA's log. */
   assert.match(client, /const next = commitLogGraphMove\(graphRows, graphCursor, graphHover, delta\);/);
   assert.match(client, /onShow\?\.\(next\.hash\);/);
 });
 
 test('re-opening an open file keeps the Annotate reading mode', () => {
-  const client = read('lib/client.js');
-  const start = client.indexOf('const openFile = React.useCallback(async (path, options = {}) => {');
+  const client = source;
+  const start = client.indexOf('const openFile = React.useCallback(');
   assert.notEqual(start, -1);
   const block = client.slice(start, start + 900);
   /* The early return for an already-open file must not reset annotateTarget. */
@@ -151,10 +151,10 @@ test('re-opening an open file keeps the Annotate reading mode', () => {
 });
 
 test('a double-click cannot open the same file twice', () => {
-  const client = read('lib/client.js');
+  const client = source;
   /* Two clicks fire two reads before either resolves; both appends used to land. */
   assert.match(client, /const openingRef = React\.useRef\(new Set\(\)\);/);
   assert.match(client, /if \(existing === undefined && openingRef\.current\.has\(path\)\) \{/);
-  assert.match(client, /setOpenFiles\(\(current\) => \(current\.some\(\(entry\) => entry\.path === path\) \? current : \[file, \.\.\.current\]\)\);/);
+  assert.match(client, /current\.some\(\(entry\) => entry\.path === path\) \? current : \[file, \.\.\.current\]/);
   assert.match(client, /openingRef\.current\.delete\(path\);/);
 });

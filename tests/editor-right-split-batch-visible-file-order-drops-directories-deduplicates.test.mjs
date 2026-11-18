@@ -4,21 +4,15 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
+import { transpileTypeScriptFunction } from './ts-source.mjs';
+
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = readFileSync(join(root, 'lib/client.js'), 'utf8');
+const workspaceSource = readFileSync(join(root, 'src/client/editor-workspace.tsx'), 'utf8');
+const terminalSource = readFileSync(join(root, 'src/client/terminal.ts'), 'utf8');
+const source = workspaceSource + '\n' + terminalSource;
 
 function extractFunction(name) {
-  const start = source.indexOf(`    function ${name}(`);
-  assert.notEqual(start, -1, `${name} is missing`);
-  let depth = 0;
-  for (let index = source.indexOf('{', start); index < source.length; index += 1) {
-    if (source[index] === '{') depth += 1;
-    else if (source[index] === '}') {
-      depth -= 1;
-      if (depth === 0) return source.slice(start, index + 1);
-    }
-  }
-  assert.fail(`${name} has no closing brace`);
+  return transpileTypeScriptFunction(terminalSource, name);
 }
 
 const projectRightSplitPaths = new Function(
@@ -60,17 +54,17 @@ test('Project menu opens every selected file through the ordered batch action', 
   assert.match(menu, /const splitCandidates = projectRightSplitPaths\(rows, selection, row\.path\)/);
   assert.match(menu, /disabled: isRoot \|\| splitCandidates\.length === 0/);
   assert.match(menu, /openInRightSplit\(splitCandidates\)/);
-  assert.match(menu, /title: batch\.length > 1 \? t\('editor\.selectionCount', \{ count: batch\.length \}\)/);
+  assert.match(menu, /title:\s*batch\.length > 1 \? t\('editor\.selectionCount', \{ count: batch\.length \}\) : null/);
 });
 
 test('Open in Right Split accepts a batch without switching the left active document', () => {
   const open = source.slice(
-    source.indexOf('const openInRightSplit = React.useCallback('),
-    source.indexOf('/**\n       * Save one open model by path.'),
+    source.indexOf('const openInRightSplit ='),
+    source.indexOf('const savePath ='),
   );
   assert.match(open, /const requested = Array\.isArray\(target\) \? target : \[target\]/);
   assert.match(open, /const paths = \[\.\.\.new Set\(requested\.filter\(\(path\) => typeof path === 'string' && path !== ''\)\)\]/);
   assert.match(open, /for \(const path of paths\)/);
-  assert.match(open, /splitTabsRef\.current\.includes\(path\) \? splitTabsRef\.current : \[\.\.\.splitTabsRef\.current, path\]/);
+  assert.match(open, /splitTabsRef\.current\.includes\(path\)\s+\? splitTabsRef\.current\s+: \[\.\.\.splitTabsRef\.current, path\]/);
   assert.match(open, /setActivePath\(previous\)/);
 });

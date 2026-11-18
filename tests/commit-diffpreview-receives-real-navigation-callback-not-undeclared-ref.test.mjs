@@ -5,18 +5,20 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = (readFileSync(join(root, 'src/client/components/diff/DiffPreview.tsx'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
+const diffPreviewSource = readFileSync(join(root, 'src/client/components/diff/DiffPreview.tsx'), 'utf8');
+const workspaceSource = readFileSync(join(root, 'src/client/editor-workspace.tsx'), 'utf8');
+const source = `${diffPreviewSource}\n${workspaceSource}`;
 
 test('DiffPreview receives a real navigation callback, not an undeclared ref', () => {
-  const body = source.slice(source.indexOf('function DiffPreview('), source.indexOf('export { DiffPreview };'));
+  const body = diffPreviewSource;
   assert.match(body, /onNavigate/);
   assert.match(body, /const onNavigateRef = React\.useRef\(onNavigate\);/);
   assert.match(body, /onNavigateRef\.current = onNavigate;/);
-  assert.match(source, /onNavigate: \(entry\) =>/);
+  assert.match(workspaceSource, /onNavigate=\{\(entry\) => \{/);
 });
 
 test('cross-file undo switches the visible diff back to the restored file', () => {
-  const body = source.slice(source.indexOf('function DiffPreview('), source.indexOf('export { DiffPreview };'));
+  const body = diffPreviewSource;
   const history = body.slice(body.indexOf('const applyHistoryEntry'), body.indexOf('const undoRestore'));
   assert.match(history, /active\.path !== entry\.path \|\| active\.side !== entry\.side/);
   assert.match(history, /onNavigateRef\.current\?\.\(entry\);/);
@@ -25,7 +27,7 @@ test('cross-file undo switches the visible diff back to the restored file', () =
 });
 
 test('the workspace supplies the navigation target with the original side', () => {
-  const call = source.slice(source.indexOf('onNavigate: (entry) =>'), source.indexOf('undoRef: diffUndoRef'));
+  const call = workspaceSource.slice(workspaceSource.indexOf('onNavigate={(entry) => {'), workspaceSource.indexOf('undoRef: diffUndoRef'));
   assert.match(call, /path: entry\.path,/);
   assert.match(call, /staged: entry\.staged === true,/);
   assert.match(call, /setDiffTarget\(/);

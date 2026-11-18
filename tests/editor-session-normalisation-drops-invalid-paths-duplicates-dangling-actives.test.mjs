@@ -4,21 +4,15 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
+import { transpileTypeScriptFunction } from './ts-source.mjs';
+
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = readFileSync(join(root, 'lib/client.js'), 'utf8');
+const workspaceSource = readFileSync(join(root, 'src/client/editor-workspace.tsx'), 'utf8');
+const terminalSource = readFileSync(join(root, 'src/client/terminal.ts'), 'utf8');
+const source = workspaceSource + '\n' + terminalSource;
 
 function extractFunction(name) {
-  const start = source.indexOf(`    function ${name}(`);
-  assert.notEqual(start, -1, `${name} is missing`);
-  let depth = 0;
-  for (let index = source.indexOf('{', start); index < source.length; index += 1) {
-    if (source[index] === '{') depth += 1;
-    else if (source[index] === '}') {
-      depth -= 1;
-      if (depth === 0) return source.slice(start, index + 1);
-    }
-  }
-  assert.fail(`${name} has no closing brace`);
+  return transpileTypeScriptFunction(terminalSource, name);
 }
 
 const normalizeEditorSession = new Function(
@@ -51,11 +45,11 @@ test('editor session persists only per workspace and restores after root is know
 
 test('session restore opens only files that still read successfully', () => {
   const restore = source.slice(
-    source.indexOf('const restoreEditorSession = React.useCallback('),
-    source.indexOf('React.useEffect(() => {\n        void restoreEditorSession();'),
+    source.indexOf('const restoreEditorSession ='),
+    source.indexOf('React.useEffect(() => {\n    void restoreEditorSession();'),
   );
   assert.match(restore, /const requested = \[\.\.\.new Set\(\[\.\.\.stored\.openPaths, \.\.\.stored\.splitPaths\]\)\]/);
-  assert.match(restore, /if \(!await openFile\(path\)\) continue/);
+  assert.match(restore, /if \(!\(await openFile\(path\)\)\) continue/);
   assert.match(restore, /const restoredOpenPaths = requested\.filter\(\(path\) => opened\.has\(path\)\)/);
   assert.match(restore, /setSplitTabs\(restoredSplitPaths\)/);
   assert.match(restore, /setEditorSplitPercent\(stored\.splitPercent\)/);

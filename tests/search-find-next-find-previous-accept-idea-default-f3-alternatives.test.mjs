@@ -2,20 +2,13 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+import { transpileTypeScriptFunction } from './ts-source.mjs';
+
+const source = await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8');
+const foundationSource = await readFile(new URL('../src/client/foundation.ts', import.meta.url), 'utf8');
 
 function extractFunction(name) {
-  const start = source.indexOf(`function ${name}(`);
-  assert.notEqual(start, -1, `${name} is missing`);
-  const bodyStart = source.indexOf(') {', start) + 2;
-  assert.ok(bodyStart > 1, `${name} has no function body`);
-  let depth = 0;
-  for (let index = bodyStart; index < source.length; index += 1) {
-    if (source[index] === '{') depth += 1;
-    if (source[index] === '}') depth -= 1;
-    if (depth === 0) return source.slice(start, index + 1);
-  }
-  assert.fail(`${name} has no closing brace`);
+  return transpileTypeScriptFunction(foundationSource, name);
 }
 
 function event(key, modifiers = {}) {
@@ -54,7 +47,7 @@ test('macOS Control+L alternatives do not steal non-macOS Go to Line', () => {
 });
 
 test('Action rows keep Cmd+G as the visible primary shortcut', () => {
-  const actionsStart = source.indexOf('const searchEverywhereActions = React.useMemo');
+  const actionsStart = source.indexOf('const searchEverywhereActions =');
   const actionsEnd = source.indexOf('/* Recompute match count', actionsStart);
   const actions = source.slice(actionsStart, actionsEnd);
   const next = actions.slice(actions.indexOf("id: 'findNext'"), actions.indexOf("id: 'findPrevious'"));

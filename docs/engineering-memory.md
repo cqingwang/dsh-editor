@@ -1,6 +1,179 @@
 # dsh-editor 工程记忆
 
-## 2026-11-18 — workspace oracle 增量退役（进行中）
+## 2026-11-18 — Find in Files 弹框尺寸与旧默认值迁移
+
+**作用域**：Find in Files popup geometry、inline styles、localStorage 恢复和
+对应回归测试。
+
+**症状/证据**：
+
+- Computer Use 对照 IDEA 2026.2：Find in Files 窗口约 `510×439`；
+- DSH 默认弹框约 `580×536`，高度明显多出，空查询时留下大块无意义空白；
+- 旧尺寸保存在 `dsh-editor.find.popup.geometry.v1`，只改 CSS 不会更新已有
+  用户的实际窗口。
+
+**修复**：
+
+- `FIND_POPUP_DEFAULT_WIDTH/HEIGHT` 改为 `510/440`；
+- `clampFindPopupGeometry()` 同步默认值；
+- 检测 localStorage 中旧默认 `580×536` 并迁移到新默认；
+- 用户自定义的其他 width/height 继续保留；
+- README、Find parity 文档和测试同步更新；
+- 新增 executable regression：旧默认迁移、custom size 保留。
+
+**回归**：
+
+- geometry 定向：**6 pass / 0 fail**；
+- Find/Search 定向：**20 pass / 0 fail**；
+- 全量 `npm test`：**2806 pass / 0 fail**；
+- DSH 原生应用重新载入后 `⌘⇧F` 实测约 `510×440`，与 IDEA `510×439`
+  对齐；
+- Ego Browser 的 DSH Web 入口仍被局域网 PIN 验证页拦截，未猜测凭据；使用
+  Computer Use 的 DSH 原生应用与 IDEA 实窗完成对照。
+
+## 2026-11-18 — Find in Files 默认隐藏 Replace 行以对齐 IDEA
+
+**作用域**：`FindToolWindow.tsx`、Find in Files 弹框初始模式和对应回归测试。
+
+**症状/证据**：
+
+- Computer Use 对照 IDEA 2026.2：`⌘⇧F` 打开的 Find in Files 只有 Search
+  行，没有 Replace 输入和 Replace/Replace All 按钮；
+- DSH 修复前 `⌘⇧F` 同时显示 Search 与 Replace 两行，空查询下底部两个
+  Replace 动作全部 disabled；视觉上像 Replace 工具而不是 Find；
+- DSH `⌘⇧R` 才应显示 Replace 行。
+
+**根因**：`FindToolWindow` 的 `replaceExpanded` 初始值包含 `floating`，
+导致所有 floating popup 无条件展开 Replace 行，而不是跟随 `state.mode`。
+
+**修复**：
+
+- 初始值改为 `state.mode === 'replace'`；
+- 普通 Find 入口保持 Find-only；Replace 入口/`⇧⌘R` 继续展开 Replace；
+- 测试改名为 `search-find-files-replace-row-follows-mode.test.mjs`；
+- 更新 Scope 持久化测试和 `docs/search-everywhere-parity.md` 的过期说明。
+
+**回归**：
+
+- 定向 Find/Search：**23 pass / 0 fail**；
+- `npm run build:client`：成功；后置 lint + 全量测试
+  **2806 pass / 0 fail**；
+- DSH 原生应用运行态：`⌘⇧F` 无 Replace 行，`⌘⇧R` 有 Replace 行；
+- IDEA 实窗截图与 DSH 两个入口一致；
+- Ego Browser 的 DSH Web 入口被局域网 PIN 验证页拦截，未输入或猜测凭据；
+  本轮改用 Computer Use 验证 DSH 原生应用。
+
+## 2026-11-18 — 生产代码 TS/TSX 默认化与静态类型 lint 门禁
+
+**作用域**：`src/client/**/*.ts|tsx`、构建后置门禁、README 与后续开发约定。
+
+**规则**：
+
+- 生产代码默认使用 TS/TSX；
+- 只有无类型语义、由运行时或第三方接口强约束的纯 JS 适配/脚本才允许
+  `.js/.jsx`，并需记录为什么 TS/TSX 不适用；
+- 禁止新增显式 `any`。跨模块/第三方边界优先定义最小结构类型、`unknown` +
+  类型守卫或具体接口，不用 `any` 关闭检查。
+
+**实现**：
+
+- 采用 ESLint + `@typescript-eslint/parser`/`@typescript-eslint/eslint-plugin`
+  作为 TSLint（已废弃）的现代替代；
+- 新增 `eslint.config.mjs`，对 `src/client/**/*.{ts,tsx}` 启用
+  `@typescript-eslint/no-explicit-any: error`；
+- 暂不启用 `no-unused-vars`：客户端模块最终在单一 factory 作用域合并执行，
+  单文件 lint 无法看到其他模块的使用点，会产生系统性假阳性；
+- 新增 `npm run lint:client-types`；
+- `postbuild:client` 改为 `npm run lint:client-types && npm test`，构建后必须
+  同时通过类型 lint 与回归；
+- 修补 Monaco/editor、搜索、终端、Diff、Commit、Controller、project upload
+  等位置的显式 `any`，补充 `ControllerContext`、graph/commit、search result、
+  terminal buffer/emulator、diff target/position、React callback/ref 等类型；
+- 构建器支持移除 Babel 因 type-only import 生成的 `export {}`，避免类型导入
+  进入浏览器产物后触发语法错误。
+
+**回归**：
+
+- lint 初始：**129 个 explicit-any 错误**；修复后：
+  `npm run lint:client-types` **0 error / 0 warning**；
+- `npm run build:client`：构建成功；
+- build 后置 `lint:client-types + npm test`：**2806 pass / 0 fail**；
+- `npm run check:client-build`：**13 modules verified**；
+- `git diff --check`：通过。
+
+**说明**：当前门禁解决显式 `any` 与 TS/TSX 语法/规则错误；由于本项目的业务
+模块按 DSH 单一 factory 动态合并，直接对独立文件运行 `tsc --noEmit` 会把跨模块
+全局符号视为缺失，暂不作为门禁。后续若引入合并后的类型入口，再升级到完整
+TypeScript type-check。
+
+## 2026-11-18 — workspace legacy fixture/oracle 全量退役与测试命名源头约束
+
+**作用域**：`tests/fixtures/legacy/editor-workspace.legacy.js`、
+`tests/client-source-oracle.mjs`、workspace oracle 相关回归测试及后续测试命名。
+
+**症状/风险**：无 oracle 运行时仍有 **134 fail / 2804 tests**。大量搜索、Editor、
+Commit 与 Plugin 测试继续通过 `lib/client.js` 读取历史 workspace 文本；测试虽然
+在 oracle 预加载下全绿，却不能证明当前 `editor-workspace.tsx`、`commit.ts`、
+`find-tool.ts`、`terminal.ts` 与组件 TSX 的契约。文件名若继续使用
+`roundNN.test.mjs`，也会把实施批次而不是实际模块/功能当作测试边界。
+
+**根因**：
+
+- 历史 workspace 被冻结后由 `client-source-oracle.mjs` 在读取
+  `lib/client.js` 时动态替换；测试实际断言的是旧实现。
+- 组件拆分后 Action、搜索算法、菜单模型和快捷键 helper 分散在
+  `editor-workspace.tsx`、`commit.ts`、`find-tool.ts`、`terminal.ts`、
+  `foundation.ts`、`editor-core.ts`、locales/styles 和功能 TSX 中；
+  旧测试仍按单文件 `lib/client.js` 的缩进、函数签名与 `React.createElement`
+  文本切片。
+- 批量把一个旧文件整体替换成 `editor-workspace.tsx` 会把依赖其他模块的测试
+  推入错误边界，必须逐个测试判断真实归属模块。
+
+**修复**：
+
+- 逐文件把失败测试迁移到真实 TS/TSX 模块或纯函数模型；TS helper 使用
+  `transpileTypeScriptFunction`/`loadTypeScriptModule` 执行，避免类型注释进入
+  `new Function`。
+- Search Action、Find/Replace、Show Usages、shell scope、locales 与菜单模型
+  分别读取实际 Action 注册、`commit.ts`、`find-tool.ts`、`terminal.ts`、
+  `SearchEverywhere.tsx`、`FindToolWindow.tsx`、`ShowUsagesPopup.tsx` 和
+  `locales.ts`。
+- Editor/Commit 的 Project tree、log、diff、Markdown、save/session、split、
+  conflict、Stage All 与 tab overflow 测试改读对应 workspace TSX、功能 TSX、
+  `terminal.ts`、`diff.ts`、`editor-core.ts` 或菜单模型。
+- Plugin Harness 改读 `controller.ts`、`editor-core.ts`、`code-navigation.ts`
+  和 `editor-workspace.tsx`；Find lexical filtering 改读 `terminal.ts` 与
+  `commit.ts`。
+- 删除 `tests/client-source-oracle.mjs`；`npm test` 不再注入历史实现。
+- 删除 `tests/fixtures/legacy/editor-workspace.legacy.js`；fixture budget 要求
+  顶层与 legacy 目录的 `.legacy.js` 都保持为空，目录不存在也视为空。
+- `package.json` 的测试命令恢复为直接运行 Node test runner。
+- README 删除 oracle 仍存在的过期说明，并写入模块-功能命名约束。
+
+**回归**：
+
+- 无 oracle 全量：**2738 pass / 66 fail / 2804 tests** → **2806 pass / 0 fail**；
+- 删除 oracle 后的 `npm test`：**2806 pass / 0 fail**；
+- Search 定向组：**110 pass / 0 fail**；
+- Editor/i18n 定向组：**121 pass / 0 fail**；
+- Plugin 定向组：**31 pass / 0 fail**；
+- `round*.test.mjs`：**0**；
+- `src/client/**/*.js.bak`：**0**；
+- `tests/fixtures/**/*.legacy.js`：**0**；
+- `tests/client-source-oracle.mjs`：**已删除**。
+
+**测试命名硬约束**：后续所有新增、拆分或重命名的 `test.mjs` 必须使用
+`<module>-<feature>.test.mjs`，例如 `editor-find-focus.test.mjs`、
+`commit-log-filter.test.mjs`、`terminal-tab-reorder.test.mjs`。禁止
+`roundNN`、日期、批次号、迁移序号、`misc`/`temp` 等无语义名称；跨模块测试按
+主要用户行为所属模块命名。`tests/editor-test-naming.test.mjs` 递归扫描
+`tests/**/*.test.mjs`，作为源头防回归门禁。
+
+**说明**：仍读取 `lib/client.js` 的测试现在读取的是当前真实构建产物，不再被
+legacy 实现替换；与历史 workspace fixture 耦合的契约测试已迁移到对应 TS/TSX
+模块。生产运行时代码本轮未修改。
+
+## 2026-11-18 — workspace oracle 增量退役（历史快照）
 
 **作用域**：`tests/fixtures/legacy/editor-workspace.legacy.js` 与读取
 `lib/client.js` 的历史 workspace 文本契约。

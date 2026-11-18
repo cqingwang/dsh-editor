@@ -6,9 +6,9 @@ import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const source = [
-  readFileSync(join(root, 'lib/client.js'), 'utf8'),
   readFileSync(join(root, 'src/client/components/commit/CommitLogDetailPane.tsx'), 'utf8'),
   readFileSync(join(root, 'src/client/editor-workspace.tsx'), 'utf8'),
+  readFileSync(join(root, 'src/client/components/commit/file-menu.ts'), 'utf8'),
 ].join('\n');
 
 test('Commit Log file rows use IDEA EditSource F4 and focus the editor', () => {
@@ -17,17 +17,14 @@ test('Commit Log file rows use IDEA EditSource F4 and focus the editor', () => {
   assert.match(log, /event\.key === 'F4'[\s\S]*?if \(!localExists\) return;[\s\S]*?event\.preventDefault\(\);[\s\S]*?event\.stopPropagation\(\);[\s\S]*?onEditSource\?\.\(file\.path\);/);
 
   const workspace = source.slice(source.indexOf('function EditorWorkspace('), source.indexOf('function clampChatPercent('));
-  assert.match(workspace, /const editLocalVersion = React\.useCallback\(\(path\) => \{/);
+  assert.match(workspace, /const editLocalVersion = React\.useCallback\(/);
   assert.match(workspace, /if \(opened\) focusEditorOnNextFrame\(editorRef\);/);
-  assert.match(workspace, /onEditSource: editLocalVersion/);
+  assert.match(workspace, /onEditSource=\{editLocalVersion\}/);
 });
 
 test('Commit Log file menu advertises and reuses the same F4 path', () => {
   const workspace = source.slice(source.indexOf('function EditorWorkspace('), source.indexOf('function clampChatPercent('));
-  const menu = workspace.slice(
-    workspace.indexOf('const buildCommitFileMenu = React.useCallback('),
-    workspace.indexOf('const buildLogMenu = React.useCallback(', workspace.indexOf('const buildCommitFileMenu = React.useCallback(')),
-  );
-  assert.match(menu, /id: 'openLocalVersion'[\s\S]*?shortcut: 'F4'[\s\S]*?if \(localExists !== false\) void editLocalVersion\(path\)/);
-  assert.match(menu, /\[showCommitDiff, editLocalVersion, openInTerminal, openRepositoryVersion, revealPath, showFileHistory, root, t\]/);
+  const menu = readFileSync(join(root, 'src/client/components/commit/file-menu.ts'), 'utf8');
+  assert.match(menu, /id: 'openLocalVersion'[\s\S]*?shortcut: 'F4'[\s\S]*?if \(localExists !== false\) onEditLocalVersion\(path\)/);
+  assert.match(workspace, /onEditLocalVersion: \(target\) => void editLocalVersion\(target\)/);
 });

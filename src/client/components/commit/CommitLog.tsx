@@ -15,15 +15,34 @@ import { CommitLogToolbar } from './CommitLogToolbar';
 
 type Translate = (key: string, params?: Record<string, unknown>) => string;
 
+export interface CommitLogEntry {
+  hash: string;
+  subject?: string;
+  author?: string;
+  [key: string]: unknown;
+}
+
+export interface CommitLogDetail {
+  hash?: string;
+  files?: Array<{ path?: string; [key: string]: unknown }>;
+  [key: string]: unknown;
+}
+
+interface CommitLogScrollRefs {
+  [key: string]: React.RefObject<HTMLElement | null> | undefined;
+}
+
+type CommitLogCallback = (...args: unknown[]) => void;
+
 export interface CommitLogProps {
   t: Translate;
-  scrollRefs?: any;
-  commits: any[];
+  scrollRefs?: CommitLogScrollRefs;
+  commits: CommitLogEntry[];
   loading: boolean;
-  detail: any;
+  detail: CommitLogDetail | null;
   onRefresh: () => void;
   onShow: (hash: string) => void;
-  onOpenFile?: (...args: any[]) => void;
+  onOpenFile?: CommitLogCallback;
   onEditSource?: (path: string) => void;
   onShowCommitDiff?: (target: { hash: string; path: string }) => void;
   historyPath?: string | null;
@@ -32,10 +51,10 @@ export interface CommitLogProps {
   onAuthor?: (value: string) => void;
   onLoadMore?: () => void;
   exhausted?: boolean;
-  onContextMenu?: (payload: any) => void;
-  onDirectoryMenu?: (...args: any[]) => void;
+  onContextMenu?: (payload: Record<string, unknown>) => void;
+  onDirectoryMenu?: CommitLogCallback;
   highlighted?: string | null;
-  graph?: any;
+  graph?: import('./CommitGraph').CommitGraphPayload | null;
   onLoadGraph?: (branch: string, at: string) => void;
   onGraphBranch?: (branch: string) => void;
   onGraphRef?: (ref: string) => void;
@@ -44,7 +63,7 @@ export interface CommitLogProps {
   onSelectCommits?: (hashes: string[]) => void;
   logFailure?: string | null;
   onRetry?: () => void;
-  onFileMenu?: (payload: any) => void;
+  onFileMenu?: (payload: Record<string, unknown>) => void;
   onFindInFiles?: () => void;
 }
 

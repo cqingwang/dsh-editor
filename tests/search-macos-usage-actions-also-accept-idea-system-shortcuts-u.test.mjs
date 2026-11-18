@@ -2,20 +2,17 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+import { transpileTypeScriptFunction } from './ts-source.mjs';
+
+const source = await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8');
+const foundationSource = await readFile(new URL('../src/client/foundation.ts', import.meta.url), 'utf8');
+const commitSource = await readFile(new URL('../src/client/commit.ts', import.meta.url), 'utf8');
+const editorCoreSource = await readFile(new URL('../src/client/editor-core.ts', import.meta.url), 'utf8');
+const terminalSource = await readFile(new URL('../src/client/terminal.ts', import.meta.url), 'utf8');
+const implementationSource = [foundationSource, commitSource, editorCoreSource, terminalSource].join('\n');
 
 function extractFunction(name) {
-  const start = source.indexOf(`function ${name}(`);
-  assert.notEqual(start, -1, `${name} is missing`);
-  const bodyStart = source.indexOf(') {', start) + 2;
-  assert.ok(bodyStart > 1, `${name} has no function body`);
-  let depth = 0;
-  for (let index = bodyStart; index < source.length; index += 1) {
-    if (source[index] === '{') depth += 1;
-    if (source[index] === '}') depth -= 1;
-    if (depth === 0) return source.slice(start, index + 1);
-  }
-  assert.fail(`${name} has no closing brace`);
+  return transpileTypeScriptFunction(implementationSource, name);
 }
 
 function createGroupHarness(platform) {
@@ -70,6 +67,7 @@ function createGroupHarness(platform) {
      ${extractFunction('isMacPlatform')}
      ${extractFunction('ideaControlKeyModifier')}
      ${extractFunction('findUsagesSearchTarget')}
+     ${extractFunction('editorFindSelectionScope')}
      ${extractFunction('filterMonacoContextMenuActions')}
      ${extractFunction('createCodeEditorGroup')};
      return createCodeEditorGroup;`,
@@ -101,7 +99,7 @@ test('non-macOS usage actions keep the single default keymap chord', () => {
 });
 
 test('alternate chords stay out of the visible Actions shortcut metadata', () => {
-  const actionsStart = source.indexOf('const searchEverywhereActions = React.useMemo');
+  const actionsStart = source.indexOf('const searchEverywhereActions =');
   const actionsEnd = source.indexOf('/* Recompute match count', actionsStart);
   const actions = source.slice(actionsStart, actionsEnd);
   assert.match(actions, /id: 'findUsagesInFile'[\s\S]*?shortcut: '⌘F7'/);
@@ -110,9 +108,9 @@ test('alternate chords stay out of the visible Actions shortcut metadata', () =>
 });
 
 test('U alternates are Monaco-scoped and avoid a second global listener', () => {
-  const groupStart = source.indexOf('function createCodeEditorGroup(');
-  const groupEnd = source.indexOf('\n    /**\n     * Reuse one workspace model', groupStart);
-  const group = source.slice(groupStart, groupEnd);
+  const groupStart = editorCoreSource.indexOf('function createCodeEditorGroup(');
+  const groupEnd = editorCoreSource.indexOf('/**\n * Reuse one workspace model', groupStart);
+  const group = editorCoreSource.slice(groupStart, groupEnd);
   assert.equal((group.match(/monaco\.KeyCode\.KeyU/g) ?? []).length, 2);
   assert.doesNotMatch(source, /event\.key\.toLowerCase\(\) === 'u'[\s\S]{0,160}findUsagesInFile/);
 });

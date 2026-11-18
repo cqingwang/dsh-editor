@@ -3,22 +3,22 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 import { en, zh } from './locale-source.mjs';
+import { transpileTypeScriptFunction } from './ts-source.mjs';
 
-const source = (await readFile(new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
+const foundationSource = await readFile(new URL('../src/client/foundation.ts', import.meta.url), 'utf8');
+const editorCoreSource = await readFile(new URL('../src/client/editor-core.ts', import.meta.url), 'utf8');
+const source = [
+  await readFile(new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url), 'utf8'),
+  await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8'),
+  foundationSource,
+  editorCoreSource,
+  await readFile(new URL('../src/client/ui/styles.ts', import.meta.url), 'utf8'),
+  await readFile(new URL('../src/client/locales.ts', import.meta.url), 'utf8'),
+].join('\n');
 const host = await readFile(new URL('../lib/index.js', import.meta.url), 'utf8');
 
 function extractFunction(name) {
-  const start = source.indexOf(`function ${name}(`);
-  assert.notEqual(start, -1, `${name} is missing`);
-  const bodyStart = source.indexOf(') {', start) + 2;
-  assert.ok(bodyStart > 1, `${name} has no function body`);
-  let depth = 0;
-  for (let index = bodyStart; index < source.length; index += 1) {
-    if (source[index] === '{') depth += 1;
-    if (source[index] === '}') depth -= 1;
-    if (depth === 0) return source.slice(start, index + 1);
-  }
-  assert.fail(`${name} has no closing brace`);
+  return transpileTypeScriptFunction([foundationSource, editorCoreSource].join('\n'), name);
 }
 
 function styleBlock(name, nextName) {
@@ -49,13 +49,13 @@ test('Cmd/Ctrl+Shift+F uses the visible Editor, not focused Editor controls', ()
 test('double Shift and Cmd/Ctrl+Shift+F share the Find in Files action', () => {
   assert.match(source, /doubleShiftAction\(/);
   assert.doesNotMatch(source, /searchEverywhereOpenRef/);
-  assert.match(source, /const openFindInFilesFromShortcut = React\.useCallback/);
+  assert.match(source, /const openFindInFilesFromShortcut =/);
   const shortcutEffects = source.slice(
     source.indexOf('/* Double Shift remains a registered alias'),
     source.indexOf("if (key === 'f' && event.shiftKey)"),
   );
   assert.match(shortcutEffects, /openFindInFilesFromShortcut\(\)/);
-  assert.match(source, /onClose: closeSearchEverywhere/);
+  assert.match(source, /onClose=\{closeSearchEverywhere\}/);
 });
 
 test('searchText unknown-operation retry and friendly fallback are wired', () => {
@@ -92,7 +92,7 @@ test('Search Everywhere tabs and toolbar have room to breathe', () => {
   assert.match(tabs, /gap: 22/);
   assert.match(tabs, /height: 44/);
   assert.match(tabs, /padding: '0 16px'/);
-  const tabListStart = source.indexOf("role: 'tablist'", source.indexOf('function SearchEverywhere('));
+  const tabListStart = source.indexOf("role='tablist'", source.indexOf('function SearchEverywhere('));
   const tabListStyle = source.slice(tabListStart, source.indexOf("tabs.map", tabListStart));
   assert.match(tabListStyle, /gap: 22/);
   assert.match(tabListStyle, /height: '100%'/);
@@ -106,7 +106,7 @@ test('Search Everywhere tabs and toolbar have room to breathe', () => {
   assert.match(bar, /height: 34/);
   assert.match(bar, /gap: 6/);
   assert.match(bar, /padding: '0 12px'/);
-  assert.match(source, /style: styles\.searchEverywhereActionBar/);
+  assert.match(source, /style=\{styles\.searchEverywhereActionBar\}/);
 
   const query = styleBlock('searchEverywhereSearchRow', 'searchEverywhereInput');
   assert.match(query, /flex: '0 0 auto'/);

@@ -2,10 +2,12 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-import { extractJavaScriptFunctionSource } from './ts-source.mjs';
+import { transpileTypeScriptFunction } from './ts-source.mjs';
 
-const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
-const actionsStart = source.indexOf('const searchEverywhereActions = React.useMemo');
+const source = await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8');
+const terminalSource = await readFile(new URL('../src/client/terminal.ts', import.meta.url), 'utf8');
+const localesSource = await readFile(new URL('../src/client/locales.ts', import.meta.url), 'utf8');
+const actionsStart = source.indexOf('const searchEverywhereActions =');
 const actionsEnd = source.indexOf('/* Recompute match count', actionsStart);
 const actions = source.slice(actionsStart, actionsEnd);
 const findBarSource = await readFile(
@@ -14,7 +16,7 @@ const findBarSource = await readFile(
 );
 
 function extractSource(name) {
-  return extractJavaScriptFunctionSource(source, name);
+  return transpileTypeScriptFunction(terminalSource, name);
 }
 
 function buildFunctions(names) {
@@ -90,8 +92,8 @@ test('the editor Find state and toolbar retain the selection-only scope', () => 
 });
 
 test('selection-only text is localized in both dictionaries', () => {
-  assert.match(source, /searchInSelectionOnly: '仅在选区内搜索'/);
-  assert.match(source, /findSelectionRequired: '请先在编辑器中选择搜索范围'/);
-  assert.match(source, /searchInSelectionOnly: 'Search in Selection Only'/);
-  assert.match(source, /findSelectionRequired: 'Select a search range in the editor first'/);
+  assert.match(localesSource, /searchInSelectionOnly: '仅在选区内搜索'/);
+  assert.match(localesSource, /findSelectionRequired: '请先在编辑器中选择搜索范围'/);
+  assert.match(localesSource, /searchInSelectionOnly: 'Search in Selection Only'/);
+  assert.match(localesSource, /findSelectionRequired: 'Select a search range in the editor first'/);
 });

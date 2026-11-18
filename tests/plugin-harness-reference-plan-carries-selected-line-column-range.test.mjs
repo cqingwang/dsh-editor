@@ -2,12 +2,16 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-import { extractJavaScriptFunctionSource } from './ts-source.mjs';
+import { transpileTypeScriptFunction } from './ts-source.mjs';
 
-const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+const workspaceSource = await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8');
+const controllerSource = await readFile(new URL('../src/client/controller.ts', import.meta.url), 'utf8');
+const editorCoreSource = await readFile(new URL('../src/client/editor-core.ts', import.meta.url), 'utf8');
+const codeNavigationSource = await readFile(new URL('../src/client/code-navigation.ts', import.meta.url), 'utf8');
+const source = [workspaceSource, controllerSource, editorCoreSource, codeNavigationSource].join('\n');
 
 function extractFunction(name) {
-  return extractJavaScriptFunctionSource(source, name);
+  return transpileTypeScriptFunction(source, name);
 }
 
 function planHarness() {
@@ -133,12 +137,12 @@ test('Project and editor tab menus expose one direct Harness action', () => {
 });
 
 test('Monaco body context menu registers the direct Harness action', () => {
-  assert.match(source, /id: `dsh-editor\.sendHarnessReference\.\$\{groupId\}`/u);
-  assert.match(source, /sendHarnessReferenceLabel: `\$\{t\('editor\.harness'\)\}->`/u);
-  assert.match(source, /contextMenuGroupId: 'navigation'/u);
-  assert.match(source, /contextMenuOrder: -100/u);
-  assert.match(source, /actionsHandlers\.onSendHarnessReference\?\.\(editorInstance\)/u);
-  assert.equal((source.match(/onSendHarnessReference: sendHarnessEditorReference/g) ?? []).length, 2);
+  assert.match(editorCoreSource, /id: `dsh-editor\.sendHarnessReference\.\$\{groupId\}`/u);
+  assert.match(workspaceSource, /sendHarnessReferenceLabel: `\$\{t\('editor\.harness'\)\}->`/u);
+  assert.match(editorCoreSource, /contextMenuGroupId: 'navigation'/u);
+  assert.match(editorCoreSource, /contextMenuOrder: -100/u);
+  assert.match(editorCoreSource, /actionsHandlers\.onSendHarnessReference\?\.\(editorInstance\)/u);
+  assert.equal((workspaceSource.match(/onSendHarnessReference: sendHarnessEditorReference/g) ?? []).length, 2);
 });
 
 test('editor requests forward the selected range to the composer bridge', () => {
@@ -146,7 +150,7 @@ test('editor requests forward the selected range to the composer bridge', () => 
     source,
     /line: position\?\.line \?\? null,[\s\S]*?column: position\?\.column \?\? null,[\s\S]*?endLine: position\?\.endLine \?\? null,[\s\S]*?endColumn: position\?\.endColumn \?\? null,/u,
   );
-  assert.match(source, /const sendHarnessEditorReference = React\.useCallback\(\(editor\) => \{/u);
+  assert.match(source, /const sendHarnessEditorReference = React\.useCallback\(\s*\(editor\) => \{/u);
   assert.match(source, /const location = harnessEditorLocation\(editor\);/u);
   assert.match(source, /void sendHarnessReference\(\[\{ path: location\.path, isDirectory: false \}\], location\)/u);
 });

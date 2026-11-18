@@ -5,7 +5,11 @@ import { join } from 'node:path';
 import test from 'node:test';
 
 const host = await import('../lib/index.js');
-const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+const source = [
+  await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8'),
+  await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8'),
+  await readFile(new URL('../src/client/locales.ts', import.meta.url), 'utf8'),
+].join('\n');
 const hostSource = await readFile(new URL('../lib/index.js', import.meta.url), 'utf8');
 
 test('Redo Last Replace reapplies the undone clean-file transaction and can Undo again', async (t) => {
@@ -74,8 +78,8 @@ test('Find exposes Redo Last Replace through the same bounded action model', () 
   assert.match(source, /id: 'redoReplace'/);
   assert.match(source, /label: t\('editor\.findRedoLastReplace'\)/);
   assert.match(source, /disabled: canRedoLastReplace !== true \|\| state\.replaceBusy === true/);
-  assert.match(source, /canRedoLastReplace: findReplaceRedoStack\.length > 0/);
-  assert.match(source, /onRedoLastReplace: \(\) => void redoFindReplace\(\)/);
+  assert.match(source, /canRedoLastReplace=\{findReplaceRedoStack\.length > 0\}/);
+  assert.match(source, /onRedoLastReplace=\{\(\) => void redoFindReplace\(\)\}/);
   assert.match(source, /findRedoLastReplace: '重做上次替换'/);
   assert.match(source, /findRedoLastReplace: 'Redo Last Replace'/);
 });
@@ -86,13 +90,13 @@ test('Undo and Redo alternate the same dirty and host snapshots', () => {
     source.indexOf('const redoFindReplace = React.useCallback'),
   );
   const redo = source.slice(
-    source.indexOf('const redoFindReplace = React.useCallback'),
+    source.indexOf('const redoFindReplace ='),
     source.indexOf('const dismissExternal = React.useCallback'),
   );
   assert.match(undo, /setFindReplaceRedoStack\(\(current\) => boundedReplaceHistory\(current, operation\)\)/);
-  assert.match(undo, /callFs\(\{ op: 'undoReplaceText', operationId: operation\.operationId \}\)/);
+  assert.match(undo, /callFs\(\{\s*op: 'undoReplaceText',\s*operationId: operation\.operationId,\s*\}\)/);
   assert.match(redo, /model\.getValue\(\) !== entry\.beforeContent/);
-  assert.match(redo, /callFs\(\{ op: 'redoReplaceText', operationId: operation\.operationId \}\)/);
+  assert.match(redo, /callFs\(\{\s*op: 'redoReplaceText',\s*operationId: operation\.operationId,\s*\}\)/);
   assert.match(redo, /setFindReplaceUndoStack\(\(current\) => boundedReplaceHistory\(current, operation\)\)/);
   assert.match(redo, /setFindReplaceRedoStack\(\(current\) => current\.slice\(0, -1\)\)/);
   assert.match(source, /op: 'redoReplaceText'/);

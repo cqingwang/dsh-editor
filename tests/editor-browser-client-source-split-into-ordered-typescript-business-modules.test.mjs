@@ -31,7 +31,7 @@ test('The browser client source is split into ordered TypeScript business module
   for (const name of moduleOrder) {
     assert.doesNotMatch(name, /^\d+-/u, `${name} must not use a numeric filename prefix`);
     const source = await readFile(join(partsDir, name), 'utf8');
-    assert.doesNotMatch(source, /^\s*import\s/mu, `${name} must not require a runtime module loader`);
+    assert.doesNotMatch(source, /^\s*import\s+(?!type\b)/mu, `${name} must not require a runtime module loader`);
     assert.ok(source.trim().length > 0, `${name} must not be empty`);
   }
 });

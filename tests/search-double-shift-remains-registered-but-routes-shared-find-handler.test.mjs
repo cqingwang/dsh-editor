@@ -5,23 +5,23 @@ import { join } from 'node:path';
 import { readFile as readSource } from 'node:fs/promises';
 import test from 'node:test';
 
+import { transpileTypeScriptFunction } from './ts-source.mjs';
+
 const host = await import('../lib/index.js');
-const source = (await readSource(new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url), 'utf8') + '\n' + await readSource(new URL('../lib/client.js', import.meta.url), 'utf8'));
+const searchEverywhereSource = await readSource(
+  new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url),
+  'utf8',
+);
+const findToolWindowSource = await readSource(
+  new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url),
+  'utf8',
+);
+const workspaceSource = await readSource(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8');
+const foundationSource = await readSource(new URL('../src/client/foundation.ts', import.meta.url), 'utf8');
+const source = [searchEverywhereSource, findToolWindowSource, workspaceSource, foundationSource].join('\n');
 
 function extract(name) {
-  const marker = `    function ${name}(`;
-  const start = source.indexOf(marker);
-  assert.notEqual(start, -1, `${name} should exist`);
-  let index = source.indexOf('{', start);
-  let depth = 0;
-  for (; index < source.length; index += 1) {
-    if (source[index] === '{') depth += 1;
-    else if (source[index] === '}') {
-      depth -= 1;
-      if (depth === 0) return new Function(`${source.slice(start, index + 1)}; return ${name};`)();
-    }
-  }
-  assert.fail(`unterminated ${name}`);
+  return new Function(`${transpileTypeScriptFunction(foundationSource, name)}; return ${name};`)();
 }
 
 test('double Shift remains registered but routes to the shared Find handler', () => {
@@ -33,7 +33,8 @@ test('double Shift remains registered but routes to the shared Find handler', ()
   assert.match(source, /openFindInFilesFromShortcut/);
   const doubleShiftEffect = source.slice(
     source.indexOf('/* Double Shift remains a registered alias'),
-    source.indexOf('React.useEffect(() => {\n        searchEverywhereFilesRequestRef', source.indexOf('/* Double Shift remains a registered alias')),
+    source.indexOf('}, [openFindInFilesFromShortcut]);', source.indexOf('/* Double Shift remains a registered alias')) +
+      '}, [openFindInFilesFromShortcut]);'.length,
   );
   assert.doesNotMatch(doubleShiftEffect, /openSearchEverywhere\('all'\)/);
   assert.match(doubleShiftEffect, /openFindInFilesFromShortcut\(\)/);
@@ -41,7 +42,7 @@ test('double Shift remains registered but routes to the shared Find handler', ()
 
 test('Search Everywhere exposes IDEA tabs and search/replace command entries', () => {
   assert.match(source, /function SearchEverywhere\(/);
-  assert.match(source, /'data-dsh-search-everywhere': ''/);
+  assert.match(source, /data-dsh-search-everywhere=''/);
   for (const tab of ['all', 'files', 'text', 'actions']) {
     assert.match(source, new RegExp(`id: '${tab}'|searchEverywhereTabs[^\\n]*'${tab}'`));
   }
@@ -50,7 +51,7 @@ test('Search Everywhere exposes IDEA tabs and search/replace command entries', (
   assert.match(source, /label: t\('editor\.findInFilesAction'\)/);
   assert.match(source, /label: t\('editor\.replaceInFilesAction'\)/);
   const actions = source.slice(
-    source.indexOf('const searchEverywhereActions = React.useMemo'),
+    source.indexOf('const searchEverywhereActions ='),
     source.indexOf('/* Recompute match count'),
   );
   const find = actions.indexOf("label: t('editor.findAction')");
@@ -63,14 +64,14 @@ test('Search Everywhere exposes IDEA tabs and search/replace command entries', (
   assert.match(source, /openFindInFilesFromShortcut\(/);
   assert.match(source, /const openFileAtLocation = React\.useCallback/);
   assert.match(source, /openFileAtLocation\(result\.path, result\.line, result\.column\)/);
-  assert.match(source, /event\.key\.toLowerCase\(\) === 'f'/);
-  assert.match(source, /event\.key\.toLowerCase\(\) === 'r'/);
+  assert.match(source, /key === 'f'/);
+  assert.match(source, /key === 'r'/);
 });
 
 test('current-file replace exposes IDEA Meta+R and a single replace command', () => {
   assert.match(source, /const replaceCurrent = React\.useCallback/);
   assert.match(source, /t\('editor\.replaceCurrent'\)/);
-  assert.match(source, /event\.key\.toLowerCase\(\) === 'r'/);
+  assert.match(source, /key === 'r'/);
   assert.match(source, /const hasExplicitQuery = typeof initialQuery === 'string'/);
   assert.match(source, /const find = hasExplicitQuery \? requestedFind : base\.find/);
   assert.match(source, /const request = editorFindKeyboardRequest\(editor\)/);

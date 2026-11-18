@@ -288,7 +288,10 @@ function formatUploadBytes(value: number): string {
  * @param {object} [options] - method, query, body and headers.
  * @returns {Promise<object>} host value.
  */
-async function requestWorkspaceUpload(action: string, options: ProjectUploadRequestOptions = {}): Promise<any> {
+async function requestWorkspaceUpload(
+  action: string,
+  options: ProjectUploadRequestOptions = {},
+): Promise<Record<string, unknown>> {
   const sessionId = currentSessionId();
   const workspaceId = currentEditorWorkspaceId();
   if (sessionId === '' && workspaceId === '') throw new Error('no active Session or workspace');
@@ -520,7 +523,7 @@ async function readDroppedDirectoryEntries(reader: FileSystemDirectoryReader): P
  * @returns {Promise<void>} resolves after the subtree is enumerated.
  */
 async function collectDroppedWorkspaceEntry(
-  entry: any,
+  entry: FileSystemEntry,
   parent: string,
   depth: number,
   output: Map<string, ProjectDropEntry>,

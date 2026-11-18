@@ -5,7 +5,11 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = readFileSync(join(root, 'lib/client.js'), 'utf8');
+const source = [
+  readFileSync(join(root, 'src/client/editor-workspace.tsx'), 'utf8'),
+  readFileSync(join(root, 'src/client/terminal.ts'), 'utf8'),
+  readFileSync(join(root, 'src/client/injected-css.ts'), 'utf8'),
+].join('\n');
 
 test('left and split editors write one focused editor identity', () => {
   assert.match(source, /const focusedEditorRef = React\.useRef\(null\)/);
@@ -36,7 +40,7 @@ test('Reveal Lines and Copy Path:Line select the focused editor for that path', 
   const reveal = source.slice(source.indexOf('const revealLines = React.useCallback('), source.indexOf('/** Transient status-bar message'));
   assert.match(reveal, /const focused = focusedEditorRef\.current/);
   assert.match(reveal, /focused\?\.path === path/);
-  assert.match(reveal, /const preferred = pane === 'right' \? splitEditorRef\.current : pane === 'left' \? editorRef\.current : null/);
+  assert.match(reveal, /const preferred =\s+pane === 'right' \? splitEditorRef\.current : pane === 'left' \? editorRef\.current : null/);
   assert.match(reveal, /path === splitPathRef\.current[\s\S]*?splitEditorRef\.current[\s\S]*?: editorRef\.current/);
 
   const menu = source.slice(source.indexOf('const buildTreeMenu = React.useCallback('), source.indexOf('/* Move one entry into a directory by drag-and-drop'));

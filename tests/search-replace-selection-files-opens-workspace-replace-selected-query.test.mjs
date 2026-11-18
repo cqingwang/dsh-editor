@@ -2,15 +2,20 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
-const actionsStart = source.indexOf('const searchEverywhereActions = React.useMemo');
+const source =
+  (await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8')) +
+  '\n' +
+  (await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8')) +
+  '\n' +
+  (await readFile(new URL('../src/client/locales.ts', import.meta.url), 'utf8'));
+const actionsStart = source.indexOf('const searchEverywhereActions =');
 const actionsEnd = source.indexOf('/* Recompute match count', actionsStart);
 const actions = source.slice(actionsStart, actionsEnd);
 
 test('Replace Selection in Files opens workspace replace with the selected query', () => {
   assert.match(actions, /id: 'replaceSelectionInFiles'/);
   assert.match(actions, /label: t\('editor\.replaceSelectionInFilesAction'\)/);
-  assert.match(actions, /disabled: findUsagesTarget\.query === ''/);
+  assert.match(actions, /disabled:\s*findUsagesTarget\.query === ''/);
   assert.match(actions, /openFindTool\(findUsagesTarget\.query, 'replace', null, 'replace'\)/);
   assert.match(actions, /rememberQuery: false/);
 });
@@ -23,7 +28,7 @@ test('workspace Find can focus the replacement input after mounting', () => {
   assert.match(open, /focusTarget = 'query'/u);
   assert.match(open, /focusTarget === 'replace'/u);
   assert.match(open, /'\[data-dsh-find-replace-input\]'/u);
-  assert.match(source, /'data-dsh-find-replace-input': ''/u);
+  assert.match(source, /data-dsh-find-replace-input=''/u);
 });
 
 test('Replace Selection in Files is localized in both dictionaries', () => {

@@ -2,8 +2,8 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = (await readFile(new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
-const actionsStart = source.indexOf('const searchEverywhereActions = React.useMemo');
+const source = (await readFile(new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../src/client/locales.ts', import.meta.url), 'utf8'));
+const actionsStart = source.indexOf('const searchEverywhereActions =');
 const actionsEnd = source.indexOf('/* Recompute match count', actionsStart);
 const actions = source.slice(actionsStart, actionsEnd);
 const dialog = source.slice(source.indexOf('function SearchEverywhere('), source.indexOf('function FindToolWindowView('));
@@ -13,7 +13,7 @@ test('Show Search History is a keep-open Search Everywhere action', () => {
   assert.match(actions, /label: t\('editor\.showSearchHistoryAction'\)/);
   assert.match(actions, /keepOpen: true/);
   assert.match(actions, /rememberQuery: false/);
-  assert.match(actions, /setSearchEverywhere\(\(current\) => current === null \? current : \{ \.\.\.current, tab: 'all', index: 0 \}\)/);
+  assert.match(actions, /setSearchEverywhere\(\(current\) => \(current === null \? current : \{ \.\.\.current, tab: 'all', index: 0 \}\)\)/);
   assert.match(actions, /setSearchHistoryRequest\(\(current\) => current \+ 1\)/);
 });
 
@@ -32,7 +32,7 @@ test('the history request opens the shared menu without replacing the draft', ()
   assert.match(dialog, /openQueryHistoryMenuAt\(rect\)/);
   assert.match(dialog, /\[historyRequest, openQueryHistoryMenuAt\]/);
   assert.doesNotMatch(requestEffect, /onQuery\(/);
-  assert.match(dialog, /onClose: \(\) => setQueryHistoryMenu\(null\)/);
+  assert.match(dialog, /onClose=\{\(\) => setQueryHistoryMenu\(null\)\}/);
 });
 
 test('Show Search History is localized in both dictionaries', () => {

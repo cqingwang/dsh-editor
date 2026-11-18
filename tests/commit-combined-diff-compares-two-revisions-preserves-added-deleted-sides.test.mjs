@@ -91,6 +91,7 @@ test('compare selection orders the older revision on the left', async () => {
 test('Commit Log exposes Compare Revisions for exactly two selected commits', async () => {
   const client = await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8');
   const menu = await readFile(new URL('../src/client/components/commit/log-menu.ts', import.meta.url), 'utf8');
+  const diffPreview = await readFile(new URL('../src/client/components/diff/DiffPreview.tsx', import.meta.url), 'utf8');
   const locales = await readFile(new URL('../src/client/locales.ts', import.meta.url), 'utf8');
   const actionStart = client.indexOf('const compareCommitRevisions = React.useCallback');
   const actionEnd = client.indexOf('const compareCommitWithLocal = React.useCallback', actionStart);
@@ -105,5 +106,5 @@ test('Commit Log exposes Compare Revisions for exactly two selected commits', as
   assert.match(action, /revisionPair:/);
   assert.match(locales, /compareRevisionsAction: '比较版本'/);
   assert.match(locales, /compareRevisionsAction: 'Compare Revisions'/);
-  assert.match(client, /target\?\.revisionPair/);
+  assert.match(diffPreview, /target\?\.revisionPair/);
 });

@@ -5,7 +5,11 @@ import test from 'node:test';
 const source =
   (await readFile(new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url), 'utf8')) +
   '\n' +
-  (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
+  (await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8')) +
+  '\n' +
+  (await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8')) +
+  '\n' +
+  (await readFile(new URL('../src/client/commit.ts', import.meta.url), 'utf8'));
 
 function extractFunction(name) {
   const start = source.indexOf(`function ${name}(`);
@@ -22,10 +26,10 @@ function extractFunction(name) {
 }
 
 function actionIds() {
-  const start = source.indexOf('const searchEverywhereActions = React.useMemo(() => [');
-  const end = source.indexOf('], [', start);
+  const start = source.indexOf('const searchEverywhereActions =');
+  const end = source.indexOf('/* Recompute match count', start);
   assert.ok(start >= 0 && end > start);
-  return [...source.slice(start, end).matchAll(/^\s{10}id: '([^']+)',/gm)].map((match) => match[1]);
+  return [...source.slice(start, end).matchAll(/^\s*id: '([^']+)',/gm)].map((match) => match[1]);
 }
 
 function categoryInventory() {
@@ -73,7 +77,7 @@ test('base tabs are the only result-scope switch', () => {
   assert.match(dialog, /else if \(effectiveQuery === ''\)\s+results = \[/u);
   assert.match(dialog, /searchFilters\.files \? fileMatches/);
   assert.match(dialog, /searchFilters\.text \? textResults/);
-  assert.match(dialog, /onClick: \(event\) => \{[\s\S]*?onTab\(tab\.id\);/);
+  assert.match(dialog, /onClick=\{\(event\) => \{[\s\S]*?onTab\(tab\.id\);/);
 });
 
 test('disabled Action Item Info keeps both category and reason', () => {

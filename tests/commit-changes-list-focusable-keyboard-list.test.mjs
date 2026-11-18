@@ -5,32 +5,32 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = (readFileSync(join(root, 'src/client/components/commit/CommitPanel.tsx'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
+const panelSource = readFileSync(join(root, 'src/client/components/commit/CommitPanel.tsx'), 'utf8');
+const workspaceSource = readFileSync(join(root, 'src/client/editor-workspace.tsx'), 'utf8');
+const source = `${panelSource}\n${workspaceSource}`;
 
 test('the Changes list is a focusable keyboard list', () => {
-  const panel = source.slice(source.indexOf('function CommitPanel('), source.indexOf('function NamePrompt('));
-  const start = panel.indexOf('ref: scrollRefs?.changes');
-  const scroll = panel.slice(start, panel.indexOf('changes.length === 0', start));
-  assert.match(scroll, /tabIndex: 0/);
-  assert.match(scroll, /onKeyDown: \(event\) => onChangesKeyDown\?\.\(event\)/);
-  assert.match(scroll, /role: 'tree'/);
-  assert.match(scroll, /'data-dsh-changes-list': ''/);
+  assert.match(panelSource, /ref=\{scrollRefs\?\.changes \?\? null\}/);
+  assert.match(panelSource, /tabIndex=\{0\}/);
+  assert.match(panelSource, /onKeyDown=\{\(event\) => onChangesKeyDown\?\.\(event\)\}/);
+  assert.match(panelSource, /role='tree'/);
+  assert.match(panelSource, /data-dsh-changes-list=''/);
 });
 
 test('each change row exposes its group and path to keyboard selection', () => {
-  const panel = source.slice(source.indexOf('function CommitPanel('), source.indexOf('function NamePrompt('));
-  const row = panel.slice(panel.indexOf('title: change.path,'), panel.indexOf("React.createElement('input', {", panel.indexOf('title: change.path,')));
-  assert.match(row, /'data-dsh-change-path': change.path/);
-  assert.match(row, /'data-dsh-change-staged': group.id === 'staged'/);
-  assert.match(row, /tabIndex: selectedForChange \? 0 : -1/);
-  assert.match(row, /onChangesKeyDown\?\.\(event\)/);
-  assert.match(panel, /onChangesKeyDown,\n\s+onChangesKeyUp,\n\s+changeRowRefs,/);
-  assert.match(panel, /changeRowRefs\.current\.set/);
+  assert.match(panelSource, /data-dsh-change-path=\{change\.path\}/);
+  assert.match(panelSource, /data-dsh-change-staged=\{group\.id === 'staged'\}/);
+  assert.match(panelSource, /tabIndex=\{selectedForChange \? 0 : -1\}/);
+  assert.match(panelSource, /onKeyDown=\{\(event\) => \{[\s\S]*?onChangesKeyDown\?\.\(event\)/);
+  assert.match(panelSource, /onChangesKeyDown,\s+onChangesKeyUp,\s+changeRowRefs,/);
+  assert.match(panelSource, /changeRowRefs\.current\.set/);
 });
 
 test('keyboard movement selects rows without opening a diff', () => {
-  const workspace = source.slice(source.indexOf('function EditorWorkspace('), source.indexOf('function clampChatPercent('));
-  const handler = workspace.slice(workspace.indexOf('const onChangesKeyDown = React.useCallback('), workspace.indexOf('const toggleCommitGroup = React.useCallback('));
+  const handler = workspaceSource.slice(
+    workspaceSource.indexOf('const onChangesKeyDown = React.useCallback('),
+    workspaceSource.indexOf('const toggleCommitGroup = React.useCallback('),
+  );
   assert.match(handler, /event\.key === 'ArrowDown'/);
   assert.match(handler, /event\.key === 'ArrowUp'/);
   assert.match(handler, /event\.key === 'Home'/);
@@ -39,21 +39,25 @@ test('keyboard movement selects rows without opening a diff', () => {
   assert.match(handler, /chooseChange\(\{/);
   assert.match(handler, /shift: event\.shiftKey/);
   assert.match(handler, /if \(event\.key === 'Enter'\)[\s\S]*setDiffTarget/);
-  assert.match(handler, /if \(focused !== node && focused !== event\.target\) return;/);
+  assert.match(handler, /if \(focused !== node && focused !== event\.target\)\s+return;/);
   assert.match(handler, /event\.stopPropagation\(\);/);
 });
 
 test('Space toggles the selected checkbox on keyup, after the browser default is blocked', () => {
-  const workspace = source.slice(source.indexOf('function EditorWorkspace('), source.indexOf('function clampChatPercent('));
-  const keyup = workspace.slice(workspace.indexOf('const onChangesKeyUp = React.useCallback('), workspace.indexOf('const toggleCommitGroup = React.useCallback('));
+  const keyup = workspaceSource.slice(
+    workspaceSource.indexOf('const onChangesKeyUp = React.useCallback('),
+    workspaceSource.indexOf('const toggleCommitGroup = React.useCallback('),
+  );
   assert.match(keyup, /event\.key !== ' ' && event\.key !== 'Spacebar'/);
   assert.match(keyup, /toggleCommitPath\(path\)/);
-  const panel = source.slice(source.indexOf('function CommitPanel('), source.indexOf('function NamePrompt('));
-  assert.match(panel, /onKeyUp: \(event\) => onChangesKeyUp\?\.\(event\)/);
+  assert.match(panelSource, /onKeyUp=\{\(event\) => onChangesKeyUp\?\.\(event\)\}/);
 });
 
 test('a git refresh keeps user checkbox choices instead of selecting everything again', () => {
-  const load = source.slice(source.indexOf('const loadGit = React.useCallback'), source.indexOf('const COMMIT_TEMPLATES'));
+  const load = workspaceSource.slice(
+    workspaceSource.indexOf('const loadGit = React.useCallback'),
+    workspaceSource.indexOf('const COMMIT_TEMPLATES'),
+  );
   assert.match(load, /setCommitSelection\(\(current\) =>/);
   assert.match(load, /commitSelectionLoadedRef\.current === false/);
   assert.match(load, /filter\(\(path\) => changes\.some/);

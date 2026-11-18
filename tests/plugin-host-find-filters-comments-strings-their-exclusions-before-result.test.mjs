@@ -4,34 +4,20 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
-import { extractJavaScriptFunctionSource } from './ts-source.mjs';
+import { loadTypeScriptFunction, loadTypeScriptModule } from './ts-source.mjs';
 
 const host = await import('../lib/index.js');
-const source =
-  (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) +
-  '\n' +
-  (await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8'));
-
-function extractFunction(name) {
-  return extractJavaScriptFunctionSource(source, name);
-}
+const workspaceSource = await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8');
+const findToolWindowSource = await readFile(
+  new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url),
+  'utf8',
+);
+const terminalSource = await readFile(new URL('../src/client/terminal.ts', import.meta.url), 'utf8');
+const commitSource = await readFile(new URL('../src/client/commit.ts', import.meta.url), 'utf8');
+const source = [workspaceSource, findToolWindowSource, terminalSource, commitSource].join('\n');
 
 function clientTextContextHelpers() {
-  const start = source.indexOf('    const TEXT_SEARCH_CONTEXT_FILTERS');
-  const end = source.indexOf('    /**\n     * Compile and enumerate current-editor Find matches', start);
-  assert.ok(start >= 0 && end > start, 'lexical context helpers are missing');
-  const functions = [
-    'editorFindResult',
-    'editorApplyPreserveCase',
-    'editorRegexReplacementText',
-    'editorReplaceAt',
-    'editorReplaceAll',
-  ]
-    .map(extractFunction)
-    .join('\n');
-  return new Function(
-    `${source.slice(start, end)}\n${functions}\nreturn { editorFindResult, editorReplaceAt, editorReplaceAll };`,
-  )();
+  return loadTypeScriptModule(terminalSource, ['editorFindResult', 'editorReplaceAt', 'editorReplaceAll']);
 }
 
 const CONTEXT_FIXTURE = [
@@ -154,17 +140,18 @@ test('Filter Search Results exposes all six IDEA modes and reruns Find on select
   }
   assert.match(findTool, /contextFilter === 'comments' \? '✓' : ''/);
   assert.doesNotMatch(findTool, /id: 'comments'[\s\S]{0,120}disabled: true/);
-  assert.match(source, /onContextFilterChange: \(contextFilter\) => setFindTool/);
+  assert.match(workspaceSource, /onContextFilterChange=\{\(contextFilter\) =>\s*setFindTool\(/);
   assert.match(source, /searchGeneration: \(current\.searchGeneration \?\? 0\) \+ 1/);
 });
 
 test('Find search, dirty merge and both replace paths forward contextFilter', () => {
-  assert.match(source, /contextFilter: normalizeTextSearchContextFilter\(findTool\?\.contextFilter\)/);
+  assert.match(workspaceSource, /contextFilter: normalizeTextSearchContextFilter\(findTool\?\.contextFilter\)/);
   assert.equal(
-    (source.match(/contextFilter: normalizeTextSearchContextFilter\(findTool\.contextFilter\)/gu) ?? []).length >= 4,
+    (workspaceSource.match(/contextFilter: normalizeTextSearchContextFilter\(findTool\.contextFilter\)/gu) ?? [])
+      .length >= 4,
     true,
   );
-  const normalize = new Function(`${extractFunction('normalizeSearchOptions')}; return normalizeSearchOptions;`)();
+  const normalize = loadTypeScriptFunction(commitSource, 'normalizeSearchOptions');
   assert.equal(normalize({ contextFilter: 'comments' }).contextFilter, 'comments');
   assert.equal('contextFilter' in normalize(null), false);
 });

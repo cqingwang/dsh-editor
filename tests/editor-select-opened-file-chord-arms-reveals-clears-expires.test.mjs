@@ -4,20 +4,18 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
+import { transpileTypeScriptFunction } from './ts-source.mjs';
+
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = readFileSync(join(root, 'lib/client.js'), 'utf8');
+const diffSource = readFileSync(join(root, 'src/client/diff.ts'), 'utf8');
+const source = [
+  readFileSync(join(root, 'src/client/editor-workspace.tsx'), 'utf8'),
+  diffSource,
+  readFileSync(join(root, 'src/client/locales.ts'), 'utf8'),
+].join('\n');
 
 function extractFunction(name) {
-  const start = source.indexOf(`function ${name}(`);
-  assert.notEqual(start, -1, `${name} is missing`);
-  const bodyStart = source.indexOf('{', start);
-  let depth = 0;
-  for (let index = bodyStart; index < source.length; index += 1) {
-    if (source[index] === '{') depth += 1;
-    if (source[index] === '}') depth -= 1;
-    if (depth === 0) return source.slice(start, index + 1);
-  }
-  assert.fail(`${name} has no closing brace`);
+  return transpileTypeScriptFunction(diffSource, name);
 }
 
 test('the Select Opened File chord arms, reveals, clears and expires', () => {
@@ -38,7 +36,7 @@ test('the Project keyboard listener routes Alt+F1 then 1 through the real reveal
     source.indexOf('Alt+F12, Alt+1..3 and Ctrl+Shift+`'),
     source.indexOf("}, [selectActivity, terminalOpen]);", source.indexOf('Alt+F12, Alt+1..3 and Ctrl+Shift+`')),
   );
-  assert.match(listener, /selectOpenedChordAction\(event, selectOpenedChordAt\.current, Date\.now\(\), activePathRef\.current !== null\)/);
+  assert.match(listener, /selectOpenedChordAction\(\s*event,\s*selectOpenedChordAt\.current,\s*Date\.now\(\),\s*activePathRef\.current !== null,?\s*\)/);
   assert.match(listener, /chordAction === 'arm'[\s\S]{0,220}?selectOpenedChordAt\.current = Date\.now\(\)/);
   assert.match(listener, /chordAction === 'reveal'[\s\S]{0,220}?void revealActiveRef\.current\?\.\(\)/);
 });

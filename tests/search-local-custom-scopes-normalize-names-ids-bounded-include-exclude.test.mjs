@@ -4,29 +4,27 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
+import { transpileTypeScriptFunction } from './ts-source.mjs';
+
 const host = await import('../lib/index.js');
+const workspaceSource = await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8');
+const commitSource = await readFile(new URL('../src/client/commit.ts', import.meta.url), 'utf8');
+const findToolSource = await readFile(new URL('../src/client/find-tool.ts', import.meta.url), 'utf8');
 const source =
-  (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) +
+  workspaceSource +
   '\n' +
-  (await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8'));
+  (await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8')) +
+  '\n' +
+  commitSource +
+  '\n' +
+  findToolSource;
 const scopeEditorSource = await readFile(
   new URL('../src/client/components/search/FindScopeEditor.tsx', import.meta.url),
   'utf8',
 );
 
 function extractFunction(name) {
-  const plain = source.indexOf(`    function ${name}(`);
-  const asynchronous = source.indexOf(`    async function ${name}(`);
-  const start = plain >= 0 ? plain : asynchronous;
-  assert.notEqual(start, -1, `${name} is missing`);
-  const bodyStart = source.indexOf('{', start);
-  let depth = 0;
-  for (let index = bodyStart; index < source.length; index += 1) {
-    if (source[index] === '{') depth += 1;
-    if (source[index] === '}') depth -= 1;
-    if (depth === 0) return source.slice(start, index + 1);
-  }
-  assert.fail(`${name} has no closing brace`);
+  return transpileTypeScriptFunction([commitSource, findToolSource].join('\n'), name);
 }
 
 test('local custom Scopes normalize names, ids and bounded include/exclude patterns', () => {
@@ -234,13 +232,13 @@ test('Edit Scopes dialog edits local names, include and exclude patterns', () =>
 });
 
 test('Find search and replace requests forward custom Scope patterns', () => {
-  assert.match(source, /const findToolCustomScope = findToolSearchScopeMode === 'scope'/);
+  assert.match(source, /const findToolCustomScope =\s*findToolSearchScopeMode === 'scope'/);
   assert.match(source, /scopeIncludePatterns: findToolScopeIncludePatterns/);
   assert.match(source, /scopeExcludePatterns: findToolScopeExcludePatterns/);
   assert.equal((source.match(/scopeIncludePatterns: findToolScopeIncludePatterns/gu) ?? []).length, 3);
   assert.match(source, /customScope: findToolCustomScope/);
-  assert.match(source, /customScopes: customFindScopes/);
-  assert.match(source, /onCustomScopesChange: changeCustomFindScopes/);
+  assert.match(source, /customScopes=\{customFindScopes\}/);
+  assert.match(source, /onCustomScopesChange=\{changeCustomFindScopes\}/);
   assert.match(source, /dsh-editor\.find\.customScopes\.v1:/);
   assert.match(source, /\.idea\/scopes\/dsh-editor\.xml/);
   assert.match(source, /serializeIdeaScopeXml\(sharedScopes\)/);

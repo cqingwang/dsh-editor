@@ -4,22 +4,19 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
+import { transpileTypeScriptFunction } from './ts-source.mjs';
+
 const host = await import('../lib/index.js');
-const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+const commitSource = await readFile(new URL('../src/client/commit.ts', import.meta.url), 'utf8');
+const source = [
+  await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8'),
+  commitSource,
+  await readFile(new URL('../src/client/locales.ts', import.meta.url), 'utf8'),
+].join('\n');
 const hostSource = await readFile(new URL('../lib/index.js', import.meta.url), 'utf8');
 
 function extractFunction(name) {
-  const start = source.indexOf(`function ${name}(`);
-  assert.notEqual(start, -1, `${name} is missing`);
-  const bodyStart = source.indexOf(') {', start) + 2;
-  assert.ok(bodyStart > 1, `${name} has no function body`);
-  let depth = 0;
-  for (let index = bodyStart; index < source.length; index += 1) {
-    if (source[index] === '{') depth += 1;
-    if (source[index] === '}') depth -= 1;
-    if (depth === 0) return source.slice(start, index + 1);
-  }
-  assert.fail(`${name} has no closing brace`);
+  return transpileTypeScriptFunction(commitSource, name);
 }
 
 const boundedReplaceHistory = new Function(
@@ -191,7 +188,7 @@ test('client replace records gate host Undo on a stable operation id', () => {
   assert.match(replaceAll, /clean: operationId !== '' && hostChanged\.length > 0/);
   assert.match(replaceOne, /clean: operationId !== '' && dirtyFile === undefined && changed\.length > 0/);
   assert.match(replaceAll, /dirty: dirtyUndo,/);
-  assert.match(replaceOne, /dirty: dirtyFile !== undefined && dirtyRewrite !== null/);
+  assert.match(replaceOne, /dirty:\s*dirtyFile !== undefined && dirtyRewrite !== null && dirtyBeforeContent !== null/);
 });
 
 test('Undo and Redo status messages use the plural-aware count placeholders', () => {

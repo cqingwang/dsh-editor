@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = (await readFile(new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url), 'utf8') + '\n' + (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) + '\n' + (await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8')));
+const source = (await readFile(new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url), 'utf8') + '\n' + (await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8')) + '\n' + (await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8')) + '\n' + (await readFile(new URL('../src/client/commit.ts', import.meta.url), 'utf8')));
 
 function extractFunction(name) {
   const start = source.indexOf(`function ${name}(`);
@@ -52,10 +52,10 @@ test('Find opens with the handed-off non-project scope and resets results when t
   assert.match(openFind, /includeExcluded: initial !== null/);
   assert.match(openFind, /\? initial\.includeExcluded === true/);
   assert.match(openFind, /: savedOptions\.includeExcluded === true/);
-  assert.match(source, /onToggleIncludeExcluded: \(\) => setFindTool/);
+  assert.match(source, /onToggleIncludeExcluded=\{\(\) =>\s*setFindTool/);
   const toggle = source.slice(
-    source.indexOf('onToggleIncludeExcluded: () => setFindTool'),
-    source.indexOf('onFileMaskChange:', source.indexOf('onToggleIncludeExcluded: () => setFindTool')),
+    source.indexOf('onToggleIncludeExcluded={() =>'),
+    source.indexOf('onFileMaskChange={', source.indexOf('onToggleIncludeExcluded={() =>')),
   );
   assert.match(toggle, /includeExcluded: current\.includeExcluded !== true/);
   assert.match(toggle, /files: \[\]/);
@@ -66,7 +66,7 @@ test('Find opens with the handed-off non-project scope and resets results when t
 test('blank Replace in Files carries the current non-project scope', () => {
   const searchEverywhere = source.slice(
     source.indexOf('function SearchEverywhere('),
-    source.indexOf('function ShowUsagesPopup('),
+    source.indexOf('function SearchEverywhere(') + source.length,
   );
   assert.match(searchEverywhere, /includeExcluded: state\.includeNonProject === true/);
   assert.match(searchEverywhere, /preserveCase: state\.preserveCase === true/);
