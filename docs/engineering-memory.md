@@ -1,5 +1,158 @@
 # dsh-editor 工程记忆
 
+## 2026-11-19 — 目录大小写规范化但不解析符号链接
+
+**作用域**：Host workspace-directory picker、macOS/Windows
+case-insensitive filesystem、Workspace directory reveal。
+
+**症状/证据**：
+
+- DSH Web 在 home tree 中输入 `/users/chan/documents/project/dsh-editor`；
+- Host 原本直接返回 requested 字符串大小写；
+- 前端 `directoryPathIsWithin('/Users/chan', '/users/...')` 为 false，
+  把 Documents 误判为 root 外并重建树根；
+- 路径实际存在，因为 macOS 文件系统大小写不敏感。
+
+**修复**：
+
+- Host 新增 `canonicalizeDirectoryCase(directory, platform)`；
+- 只在 darwin/win32 生效；
+- 从 volume root 逐 segment readdir，用唯一 case-insensitive match
+  对齐 actual name；
+- 多匹配/读取失败时原样返回，不猜测；
+- 不调用 `realpath`，因此 symlink 名称保持自身，不会跳到 target；
+- workspace-directory route 使用规范化路径返回。
+
+**回归与运行态**：
+
+- `tests/project-workspace-directory-picker-canonical-case.test.mjs`：
+  - mac case 路径；
+  - Linux 原样；
+  - symlink 路径名保持；
+  - picker route actual case；
+- r526 Host 重启后 PID **51697**，端口 **63237**；
+- DSH Web：
+  - input 回填 `~/Documents/project/dsh-editor`；
+  - Tree 保留 `~` 和 Documents/project 祖先；
+  - dsh-editor selected + expanded；
+  - tree 最终聚焦，alert 0；
+- 定向 canonical case 回归 **3 pass / 0 fail**；
+- 完整测试 **3142 pass / 0 fail**。
+
+**适用环境**：macOS、DSH Web、Ego Lite。
+大小写规范化只能改 segment 表示，不能顺带解析 symlink；Host 代码修改
+后必须重启 r526 Host 才能进入实际运行进程。
+
+## 2026-11-19 — Terminal 字号下调与代码着色禁止加粗
+
+**作用域**：Terminal 默认字号、Terminal Options reset、
+IDEA Light Monaco token rules。
+
+**用户要求**：
+
+- Terminal 字体调小 1 号；
+- 代码着色继续对齐 IDEA Light，但**代码字体不要加粗**；
+- 写入工程记忆，后续不得重新引入 bold。
+
+**修复**：
+
+- 新增 `TERMINAL_DEFAULT_FONT_SIZE = 11`；
+- Terminal reset action 和无 stored 值默认到 11；
+- 新增一次性 persisted font migration：
+  - 当前 13 下调为 12；
+  - 旧默认 12 下调为 11；
+  - migration flag 完成后，后续显式字号选择不会被重复修改；
+- `editor-theme-model.ts` 移除全部 token 的 `fontStyle: 'bold'`；
+- 颜色保持不变，comment/global variable 的 italic 保留。
+
+**数据与运行态证据**：
+
+- DSH Web localStorage：
+  - fontSize 13 → 12；
+  - migration flag=1；
+  - xterm rows/span computed font-size=12px；
+- Monaco computed tokens：
+  - export/class/ThemeSample/format/return/const 全部 font-weight=400；
+  - boldSpans=0；
+  - keyword 色 `rgb(0,0,128)`、method 色 `rgb(145,76,7)` 保持不变。
+
+**回归门禁**：
+
+- `tests/terminal-font-size-actions-follow-idea-increase-decrease-reset-semantics.test.mjs`；
+- `tests/editor-code-coloring-idea-light-palette.test.mjs` 明确断言：
+  `ideaLightTokenRules()` 中任何 token 都不得包含 bold；
+- 定向字号/着色回归 **8 pass / 0 fail**；
+- 完整测试 **3139 pass / 0 fail**。
+
+**适用环境**：macOS、DSH Web、Ego Lite、IDEA 2026.2。
+**长期约束：代码 token 只能通过颜色和 italic 区分，禁止添加
+`fontStyle: 'bold'`；终端字体尺寸必须从共享默认值读取。**
+
+## 2026-11-19 — Project Speed Search 行图标复用共享尺寸
+
+**作用域**：Project Speed Search row、共享图标与工具栏视觉尺度。
+
+**症状/证据**：
+
+- Speed Search 左侧放大镜写死 `size={12}`；
+- 同一行关闭动作使用 `ToolbarButton` 的 16px Icon；
+- DSH 截图中搜索图标明显小于关闭按钮图标，与 IDEA 行内动作尺度不一致。
+
+**修复**：
+
+- ProjectPanel 从 `ui/Icon` 同时导入 `POPUP_ICON_SIZE`；
+- 搜索行放大镜使用 `size={POPUP_ICON_SIZE}`；
+- 不改搜索行高度、输入、关闭按钮或查询逻辑。
+
+**回归**：
+
+- `tests/project-speed-search-close-button-accessible.test.mjs`
+  新增共享图标尺寸断言；
+- DSH Web：
+  - 搜索图标 16×16；
+  - 关闭按钮 24×24；
+  - 搜索输入 `theme` 与结果显示正常；
+- 相关 Speed Search 回归 **5 pass / 0 fail**；
+- 完整测试 **3137 pass / 0 fail**。
+
+**适用环境**：macOS、DSH Web、Ego Lite、IDEA 2026.2。
+同一工具行内的图标必须引用共享尺寸 token；业务组件不应保留自己的
+硬编码小尺寸。
+
+## 2026-11-19 — Project Speed Search 关闭动作复用共享按钮
+
+**作用域**：Project tool window Speed Search 关闭按钮、键盘焦点闭环、
+双语可访问名称。
+
+**症状/证据**：
+
+- 直接输入 `theme` 打开 Speed Search 后，关闭控件只有裸文本 `×`；
+- Accessibility tree 中没有可识别 button 名称；
+- 点击动作本身能够关闭，但键盘和辅助技术无法可靠发现该动作。
+
+**修复**：
+
+- 增加双语 `treeSearchClose`；
+- 用共享 `ToolbarButton icon='close'` 替换裸字符按钮；
+- 点击继续复用 `closeTreeSearch`，保持 query/请求/结果逻辑不变；
+- 共享按钮统一提供 title、aria-label、16px Icon 和 24×24 点击面。
+
+**回归**：
+
+- `tests/project-speed-search-close-button-accessible.test.mjs`；
+- DSH Web：
+  - 直接输入 `theme` 后关闭按钮名称为 `Close search`；
+  - 点击尺寸 24×24；
+  - Tab 后焦点进入关闭按钮；
+  - Enter 关闭后焦点回到 Project tree；
+  - alert 0；
+- 相关 Speed Search 回归 **4 pass / 0 fail**；
+- 完整测试 **3136 pass / 0 fail**。
+
+**适用环境**：macOS、DSH Web、Ego Lite、IDEA 2026.2。
+工具窗内的可视图标动作必须使用带可访问名称的共享按钮积木；裸字符
+`×` 不能作为最终交互组件。
+
 ## 2026-11-19 — Project 树直接键入打开 Speed Search
 
 **作用域**：Project tool window tree keydown、speed search、

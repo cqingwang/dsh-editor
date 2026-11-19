@@ -296,6 +296,15 @@ export function installStyles(): void {
     '[data-dsh-editor-workspace] select {',
     '  font-family: var(--dsh-editor-font-ui, "Trebuchet MS", "SF Pro Text", "Segoe UI", sans-serif) !important;',
     '}',
+    /* Code coloring must never rely on weight: IDEA Light parity is carried by
+           color and italic only. This also blocks bold inherited from Monaco's
+           built-in theme for token types not explicitly listed in our rules. */
+    '[data-dsh-editor-workspace] .monaco-editor .view-lines,',
+    '[data-dsh-editor-workspace] .monaco-editor .view-lines span,',
+    '[data-dsh-editor-workspace] .dsh-editor-code-preview-line,',
+    '[data-dsh-editor-workspace] .dsh-editor-code-preview-line * {',
+    '  font-weight: 400 !important;',
+    '}',
     /* xterm owns its hidden helper textarea for composition and caret
            placement. The workspace-wide input family must not bleed into that
            terminal-specific domain. */

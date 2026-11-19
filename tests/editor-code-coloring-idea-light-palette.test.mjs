@@ -6,6 +6,7 @@ import { loadTypeScriptModule } from './ts-source.mjs';
 
 const root = new URL('../', import.meta.url);
 const modelSource = await readFile(new URL('src/client/components/editor/editor-theme-model.ts', root), 'utf8');
+const injectedCss = await readFile(new URL('src/client/injected-css.ts', root), 'utf8');
 const helpers = loadTypeScriptModule(modelSource, [
   'IDEA_LIGHT_THEME_ID',
   'IDEA_LIGHT_TOKEN_COLORS',
@@ -48,7 +49,6 @@ test('the grammar rules carry the IDEA font styles with the palette', () => {
   assert.deepEqual(byToken.get('keyword'), {
     token: 'keyword',
     foreground: '000080',
-    fontStyle: 'bold',
   });
   assert.deepEqual(byToken.get('comment'), {
     token: 'comment',
@@ -62,7 +62,19 @@ test('the grammar rules carry the IDEA font styles with the palette', () => {
   });
   assert.equal(byToken.get('ideaMethod').foreground, '914c07');
   assert.equal(byToken.get('ideaParameter').foreground, '000000');
-  assert.equal(byToken.get('ideaClass').fontStyle, 'bold');
+  assert.equal(byToken.get('ideaClass').fontStyle, undefined);
+});
+
+test('IDEA Light code coloring never uses bold text', () => {
+  const boldTokens = helpers.ideaLightTokenRules().filter((rule) => /bold/u.test(rule.fontStyle ?? ''));
+  assert.deepEqual(boldTokens, []);
+});
+
+test('shared code surfaces force normal weight even for unlisted Monaco tokens', () => {
+  assert.match(
+    injectedCss,
+    /\[data-dsh-editor-workspace\] \.monaco-editor \.view-lines span,[\s\S]*?\[data-dsh-editor-workspace\] \.dsh-editor-code-preview-line[\s\S]*?font-weight: 400 !important;/u,
+  );
 });
 
 test('editor surfaces consume the shared IDEA Light theme instead of raw vs', async () => {

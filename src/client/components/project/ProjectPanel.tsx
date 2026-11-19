@@ -1,7 +1,7 @@
 import React from 'react';
 import { styles } from '../../ui/styles';
 import { EDITOR_TEXT_STYLE } from '../editor/editor-style-model';
-import { Icon } from '../ui/Icon';
+import { Icon, POPUP_ICON_SIZE } from '../ui/Icon';
 import { ContextMenu } from '../ui/Menu';
 import { PanelToolbar } from '../ui/PanelToolbar';
 import { ToolbarButton } from '../ui/ToolbarButton';
@@ -1027,7 +1027,7 @@ function ProjectPanel({
         <div style={styles.treeSearchRow}>
           <Icon
             name='search'
-            size={12}
+            size={POPUP_ICON_SIZE}
           />
           <input
             ref={searchRef}

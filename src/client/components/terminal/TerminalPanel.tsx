@@ -38,6 +38,7 @@ import {
   readEditorTerminals,
   readmeInDirectory,
   readStoredNumber,
+  readTerminalFontSize,
   readTerminalColors,
   readTerminalProfile,
   readTerminalRestoreSnapshots,
@@ -312,7 +313,7 @@ function TerminalPanel({
     });
   }, []);
   const [shellMenu, setShellMenu] = React.useState(null);
-  const [fontSize, setFontSize] = React.useState(() => readStoredNumber('dsh-editor.terminal.fontSize', 12));
+  const [fontSize, setFontSize] = React.useState(readTerminalFontSize);
   const [renaming, setRenaming] = React.useState<TerminalRenameState | null>(null);
   const [menu, setMenu] = React.useState(null);
   /* The tab strip's measured width; 0 until the first layout pass. */

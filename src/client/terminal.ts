@@ -1419,18 +1419,47 @@ export function writeEditorTerminals(ids: string[]): void {
   }
 }
 
+export const TERMINAL_DEFAULT_FONT_SIZE = 11;
+const TERMINAL_FONT_SIZE_STORAGE_KEY = 'dsh-editor.terminal.fontSize';
+const TERMINAL_FONT_SIZE_MIGRATION_KEY = 'dsh-editor.terminal.fontSize.decrementMigrated';
+
+export function readTerminalFontSize(): number {
+  try {
+    const raw = window.localStorage.getItem(TERMINAL_FONT_SIZE_STORAGE_KEY);
+    const migrated = window.localStorage.getItem(TERMINAL_FONT_SIZE_MIGRATION_KEY) === '1';
+    const parsed = Number(raw);
+    const stored =
+      raw !== null && raw !== '' && Number.isFinite(parsed) ? Math.max(8, Math.min(24, Math.round(parsed))) : 12;
+    if (!migrated) {
+      const next = Math.max(8, stored - 1);
+      window.localStorage.setItem(TERMINAL_FONT_SIZE_STORAGE_KEY, String(next));
+      window.localStorage.setItem(TERMINAL_FONT_SIZE_MIGRATION_KEY, '1');
+      return next;
+    }
+    const value =
+      raw !== null && raw !== '' && Number.isFinite(parsed)
+        ? Math.max(8, Math.min(24, Math.round(parsed)))
+        : TERMINAL_DEFAULT_FONT_SIZE;
+    window.localStorage.setItem(TERMINAL_FONT_SIZE_MIGRATION_KEY, '1');
+    return value;
+  } catch {
+    return TERMINAL_DEFAULT_FONT_SIZE;
+  }
+}
+
 /** IDEA terminal font-size actions, clamped to a usable range. */
 export function terminalFontSize(current: number, action: string): number {
-  const value = Number.isFinite(Number(current)) ? Math.round(Number(current)) : 12;
+  const value = Number.isFinite(Number(current)) ? Math.round(Number(current)) : TERMINAL_DEFAULT_FONT_SIZE;
   if (action === 'increase') return Math.min(24, Math.max(8, value) + 1);
   if (action === 'decrease') return Math.max(8, Math.max(8, value) - 1);
-  return 12;
+  return TERMINAL_DEFAULT_FONT_SIZE;
 }
 
 /** Persist one explicit terminal font size. */
 export function storeFontSize(next: number): number {
   try {
-    window.localStorage.setItem('dsh-editor.terminal.fontSize', String(next));
+    window.localStorage.setItem(TERMINAL_FONT_SIZE_STORAGE_KEY, String(next));
+    window.localStorage.setItem(TERMINAL_FONT_SIZE_MIGRATION_KEY, '1');
   } catch {
     /* a storage-less browser still gets the in-memory size */
   }
