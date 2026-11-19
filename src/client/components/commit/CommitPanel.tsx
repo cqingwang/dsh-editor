@@ -15,6 +15,8 @@ import {
   collapseKeysOf,
   cycleChangeTarget,
   type DiffChange,
+  type DiffRow,
+  type DiffTreeNode,
   filterChanges,
   flattenChangeTree,
   groupingDepth,
@@ -35,6 +37,17 @@ interface CommitGroup {
   id: string;
   label: string;
   changes: DiffChange[];
+}
+
+/**
+ * IDEA disables Shelve when there is no selected change to shelve.
+ * @param changeCount - selected changes available to the action.
+ * @param busy - whether the Commit tool window is already writing.
+ * @param onShelve - shelf menu opener supplied by the workspace.
+ * @returns whether the toolbar action must stay disabled.
+ */
+export function commitShelveActionDisabled(changeCount: number, busy: boolean, onShelve: unknown): boolean {
+  return changeCount === 0 || busy === true || typeof onShelve !== 'function';
 }
 
 export interface CommitPanelProps {
@@ -288,36 +301,119 @@ function CommitPanel({
     window.addEventListener('keydown', onKeyDown, true);
     return () => window.removeEventListener('keydown', onKeyDown, true);
   }, [mode]);
-  const changes = git?.changes ?? [];
-  const changesByPath = new Map(changes.map((change) => [change.path, change]));
-  const stageAllTrackedPaths = stageAllTargets(changes, true);
-  const { staged, unstaged, unversioned } = splitChanges(changes);
-  const groups = [
-    {
-      id: 'staged',
-      label: t('editor.stagedGroup'),
-      changes: staged,
-    },
-    {
-      id: 'unstaged',
-      label: t('editor.unstagedGroup'),
-      changes: unstaged,
-    },
-    {
-      id: 'unversioned',
-      label: t('editor.unversionedGroup'),
-      changes: unversioned,
-    },
-  ].filter((group) => group.changes.length > 0 || group.id !== 'unversioned');
+  const changes = React.useMemo(() => (Array.isArray(git?.changes) ? git.changes : []), [git?.changes]);
+  const changesByPath = React.useMemo(() => new Map(changes.map((change) => [change.path, change])), [changes]);
+  const stageAllTrackedPaths = React.useMemo(() => stageAllTargets(changes, true), [changes]);
+  const changeSplit = React.useMemo(() => splitChanges(changes), [changes]);
+  const { staged, unstaged, unversioned } = changeSplit;
+  const groups = React.useMemo(
+    () =>
+      [
+        {
+          id: 'staged',
+          label: t('editor.stagedGroup'),
+          changes: staged,
+        },
+        {
+          id: 'unstaged',
+          label: t('editor.unstagedGroup'),
+          changes: unstaged,
+        },
+        {
+          id: 'unversioned',
+          label: t('editor.unversionedGroup'),
+          changes: unversioned,
+        },
+      ].filter((group) => group.changes.length > 0 || group.id !== 'unversioned'),
+    [staged, t, unversioned, unstaged],
+  );
   /* IDEA's change-list search narrows what is SHOWN, never what is ticked:
      filtering the selection too would quietly change what gets committed. */
-  const visibleGroups = groups
-    .map((group) => ({
-      ...group,
-      changes: filterChanges(group.changes, pathQuery),
-    }))
-    .filter((group) => group.changes.length > 0 || pathQuery === '');
-  const filteredTargets = React.useMemo(() => changeFilterTargets(visibleGroups), [git, groupBy, pathQuery]);
+  const visibleGroups = React.useMemo(
+    () =>
+      groups
+        .map((group) => ({
+          ...group,
+          changes: filterChanges(group.changes, pathQuery),
+        }))
+        .filter((group) => group.changes.length > 0 || pathQuery === ''),
+    [groups, pathQuery],
+  );
+  const filteredTargets = React.useMemo(() => changeFilterTargets(visibleGroups), [visibleGroups]);
+  /**
+   * Sum one band's line counts for the group header, IDEA's `+12 −3`.
+   *
+   * Binary rows contribute nothing (they have no numbers), and a band with
+   * no readings at all stays blank rather than claiming zero changes.
+   * @param {{id: string, changes: object[]}} group - band being rendered.
+   * @returns {object|undefined} summed counts, or undefined when unknown.
+   */
+  const groupTotals = (group: CommitGroup): ReturnType<typeof subtotalOf> => subtotalOf(group.changes, group.id);
+  const groupTrees = React.useMemo(() => {
+    const trees = new Map<string, DiffTreeNode>();
+    visibleGroups.forEach((group) => {
+      trees.set(group.id, changeTreeOf(group.changes, groupingDepth(groupBy)));
+    });
+    return trees;
+  }, [groupBy, visibleGroups]);
+  const groupRows = React.useMemo(() => {
+    const views = new Map<
+      string,
+      {
+        groupOpen: boolean;
+        rows: DiffRow[];
+        total: ReturnType<typeof subtotalOf>;
+      }
+    >();
+    visibleGroups.forEach((group) => {
+      const tree = groupTrees.get(group.id);
+      if (tree === undefined) return;
+      const groupOpen = !collapsedGroups.has(`${group.id}:`);
+      views.set(group.id, {
+        groupOpen,
+        rows: groupOpen ? flattenChangeTree(tree, collapsedGroups, group.id) : [],
+        total: groupTotals(group),
+      });
+    });
+    return views;
+  }, [collapsedGroups, groupTrees, visibleGroups]);
+  const groupSelectionViews = React.useMemo(() => {
+    const views = new Map<
+      string,
+      {
+        selectedInGroup: string[];
+        groupState: ReturnType<typeof selectionStateOf>;
+        removableInGroup: string[];
+        removalOnlyInGroup: boolean;
+      }
+    >();
+    visibleGroups.forEach((group) => {
+      const selectedInGroup = group.changes
+        .filter((change) => selectedPaths.has(change.path))
+        .map((change) => change.path);
+      const groupState = selectionStateOf(
+        group.changes.map((change) => change.path),
+        selectedPaths,
+      );
+      const removableInGroup =
+        group.id === 'unstaged'
+          ? pathsScheduledForRemoval(
+              selectedInGroup.map((path) => ({
+                path,
+                staged: false,
+              })),
+              changesByPath,
+            )
+          : [];
+      views.set(group.id, {
+        selectedInGroup,
+        groupState,
+        removableInGroup,
+        removalOnlyInGroup: selectedInGroup.length > 0 && removableInGroup.length === selectedInGroup.length,
+      });
+    });
+    return views;
+  }, [changesByPath, selectedPaths, visibleGroups]);
   /* Typing in the Changes filter must move the current row onto a visible
      target. Leaving it on a filtered-out row made Show Diff, Stage and
      Rollback act on an item the user could no longer see. */
@@ -337,7 +433,10 @@ function CommitPanel({
       staged: filteredTargets[0].staged,
     });
   }, [filteredTargets, onRevealChange, onSelectChange, onSelectGroup, pathQuery, selectedChange, selectedGroup]);
-  const allSelected = changes.length > 0 && changes.every((change) => selectedPaths.has(change.path));
+  const allSelected = React.useMemo(
+    () => changes.length > 0 && changes.every((change) => selectedPaths.has(change.path)),
+    [changes, selectedPaths],
+  );
   const branchText = branchLabel(git);
   const fileCountText = (count: number): string =>
     count === 1
@@ -349,16 +448,6 @@ function CommitPanel({
   const detached = git?.detached === true;
   const ahead = git?.ahead ?? 0;
   const behind = git?.behind ?? 0;
-
-  /**
-   * Sum one band's line counts for the group header, IDEA's `+12 −3`.
-   *
-   * Binary rows contribute nothing (they have no numbers), and a band with
-   * no readings at all stays blank rather than claiming zero changes.
-   * @param {{id: string, changes: object[]}} group - band being rendered.
-   * @returns {object|undefined} summed counts, or undefined when unknown.
-   */
-  const groupTotals = (group: CommitGroup): ReturnType<typeof subtotalOf> => subtotalOf(group.changes, group.id);
 
   /**
    * Clear the Changes path filter and return keyboard ownership to the tree.
@@ -382,32 +471,19 @@ function CommitPanel({
     }, 0);
   };
   const renderGroup = (group: CommitGroup, groupIndex: number): React.ReactNode => {
-    const tree = changeTreeOf(group.changes, groupingDepth(groupBy));
+    const tree = groupTrees.get(group.id);
+    if (tree === undefined) return null;
     /* A group folds as a whole, keyed by the bare group id: IDEA's root row
        ("Changes 5 files") is a tree node with its own chevron, and folding it
        leaves just that row. Directory keys stay `<group>:<path>`, so a group
        key can never collide with one of its own children. */
     const groupKey = `${group.id}:`;
-    const groupOpen = !collapsedGroups.has(groupKey);
-    const rows = groupOpen ? flattenChangeTree(tree, collapsedGroups, group.id) : [];
-    const selectedInGroup = group.changes
-      .filter((change) => selectedPaths.has(change.path))
-      .map((change) => change.path);
-    const groupState = selectionStateOf(
-      group.changes.map((change) => change.path),
-      selectedPaths,
-    );
-    const removableInGroup =
-      group.id === 'unstaged'
-        ? pathsScheduledForRemoval(
-            selectedInGroup.map((path) => ({
-              path,
-              staged: false,
-            })),
-            changesByPath,
-          )
-        : [];
-    const removalOnlyInGroup = selectedInGroup.length > 0 && removableInGroup.length === selectedInGroup.length;
+    const groupView = groupRows.get(group.id);
+    const groupOpen = groupView?.groupOpen ?? !collapsedGroups.has(groupKey);
+    const rows = groupView?.rows ?? [];
+    const groupSelection = groupSelectionViews.get(group.id);
+    if (groupSelection === undefined) return null;
+    const { selectedInGroup, groupState, removableInGroup, removalOnlyInGroup } = groupSelection;
     const groupActions = [
       {
         id: removalOnlyInGroup ? `removeDeleted:${group.id}` : `stage:${group.id}`,
@@ -610,7 +686,7 @@ function CommitPanel({
             style={styles.commitGroupFiles}>
             {fileCountText(group.changes.length)}
           </span>
-          <LineCounts counts={groupTotals(group)} />
+          <LineCounts counts={groupView?.total} />
           <span style={styles.toolbarSpacer} />
           {groupActions.length > 1 ? (
             <React.Fragment>
@@ -1166,40 +1242,40 @@ function CommitPanel({
           </div>
         ) : null
       }
-      {mode === 'log' ? (
-        <CommitLog
-          t={t}
-          scrollRefs={scrollRefs}
-          commits={commits}
-          loading={logLoading}
-          detail={logDetail}
-          onRefresh={onLoadLog}
-          onShow={onSelectCommit}
-          onOpenFile={onOpenFile}
-          onEditSource={onEditSource}
-          onShowCommitDiff={onShowCommitDiff}
-          historyPath={historyPath ?? null}
-          onClearHistory={onClearHistory}
-          author={logAuthor}
-          onAuthor={onLogAuthor}
-          onLoadMore={onLoadMoreLog}
-          exhausted={logExhausted === true}
-          onContextMenu={onLogContextMenu}
-          onDirectoryMenu={onDirectoryMenu}
-          highlighted={highlightedCommit}
-          graph={graph}
-          onLoadGraph={onLoadGraph}
-          onGraphBranch={onGraphBranch}
-          onGraphRef={onGraphRef}
-          selected={selected}
-          selectedCommits={selectedCommits}
-          onSelectCommits={onSelectCommits}
-          logFailure={logFailure}
-          onRetry={onRetry}
-          onFileMenu={onFileMenu}
-          onFindInFiles={onFindInFiles}
-        />
-      ) : (
+      <CommitLog
+        hidden={mode !== 'log'}
+        t={t}
+        scrollRefs={scrollRefs}
+        commits={commits}
+        loading={logLoading}
+        detail={logDetail}
+        onRefresh={onLoadLog}
+        onShow={onSelectCommit}
+        onOpenFile={onOpenFile}
+        onEditSource={onEditSource}
+        onShowCommitDiff={onShowCommitDiff}
+        historyPath={historyPath ?? null}
+        onClearHistory={onClearHistory}
+        author={logAuthor}
+        onAuthor={onLogAuthor}
+        onLoadMore={onLoadMoreLog}
+        exhausted={logExhausted === true}
+        onContextMenu={onLogContextMenu}
+        onDirectoryMenu={onDirectoryMenu}
+        highlighted={highlightedCommit}
+        graph={graph}
+        onLoadGraph={onLoadGraph}
+        onGraphBranch={onGraphBranch}
+        onGraphRef={onGraphRef}
+        selected={selected}
+        selectedCommits={selectedCommits}
+        onSelectCommits={onSelectCommits}
+        logFailure={logFailure}
+        onRetry={onRetry}
+        onFileMenu={onFileMenu}
+        onFindInFiles={onFindInFiles}
+      />
+      {mode === 'log' ? null : (
         <div style={styles.commitBody}>
           <div
             style={styles.commitChangesPane}
@@ -1251,7 +1327,7 @@ function CommitPanel({
                   group: 'shelve',
                   icon: 'stash',
                   label: t('editor.shelve'),
-                  disabled: busy || onShelve === undefined,
+                  disabled: commitShelveActionDisabled(chosenChangeList.length, busy, onShelve),
                   onClick: (event) => {
                     const rect = event?.currentTarget?.getBoundingClientRect?.();
                     onShelve?.(
@@ -1365,6 +1441,7 @@ function CommitPanel({
                 aria-label={t('editor.changeFilter')}
                 onChange={(event) => onPathQuery?.(event.target.value)}
                 onKeyDown={(event) => {
+                  if (event.nativeEvent.isComposing === true) return;
                   if (event.key === 'Escape') {
                     event.preventDefault();
                     clearChangeFilter();
@@ -1401,6 +1478,7 @@ function CommitPanel({
               ref={scrollRefs?.changes ?? null}
               tabIndex={0}
               role='tree'
+              aria-busy={busy ? 'true' : undefined}
               data-dsh-changes-list=''
               aria-label={t('editor.changes')}
               onKeyDown={(event) => onChangesKeyDown?.(event)}
@@ -1472,6 +1550,7 @@ function CommitPanel({
                 spellCheck={false}
                 onChange={(event) => onMessage(event.target.value)}
                 onKeyDown={(event) => {
+                  if (event.nativeEvent.isComposing === true) return;
                   /* ⌘/Ctrl+Enter commits without reaching for the mouse. */
                   if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
                     event.preventDefault();

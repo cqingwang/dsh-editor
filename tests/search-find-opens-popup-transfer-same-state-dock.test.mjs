@@ -92,6 +92,8 @@ test('Explicit Find tool-window actions open the dock instead of the popup', () 
       state = value;
     },
     findToolHandoffSequenceRef: { current: 0 },
+    findToolDraftRef: { current: { query: '', replace: '' } },
+    findToolReopenDraft: (_draft, query) => ({ query, replace: '' }),
     window: { setTimeout: (callback) => callback() },
     document: { querySelector: () => null },
   });
@@ -105,7 +107,7 @@ test('Explicit Find tool-window actions open the dock instead of the popup', () 
       matches: [{ path: 'a.ts', line: 1, column: 1 }],
       truncated: false,
     },
-    setShowUsages: () => {},
+    closeShowUsages: () => {},
     openFindTool: (...args) => forwarded.push(args),
   });
   pinShowUsages();

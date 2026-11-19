@@ -81,6 +81,8 @@ test('the graph loads on demand, not with every log refresh', async () => {
   const requests = [];
   let graph = null;
   const loadGraph = loadTypeScriptCallback(client, 'loadGraph', {
+    beginLogRequest: () => new AbortController(),
+    finishLogRequest: () => {},
     callGit: async (request) => {
       requests.push(request);
       return {

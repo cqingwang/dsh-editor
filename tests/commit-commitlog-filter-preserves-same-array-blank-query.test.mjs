@@ -31,7 +31,7 @@ test('CommitLog uses the extracted filter view model', async () => {
   const client = await read('lib/client.js');
 
   assert.match(log, /import \{ commitLogFilterCommits \} from '\.\/commit-log-view-model'/u);
-  assert.match(log, /const visible = commitLogFilterCommits\(commits, filter\)/u);
+  assert.match(log, /const visible = React\.useMemo\(\(\) => commitLogFilterCommits\(commits, filter\), \[commits, filter\]\)/u);
   assert.doesNotMatch(log, /const needle = filter\.trim\(\)\.toLowerCase\(\)/u);
   assert.match(build, /commit-log-view-model\.ts/u);
   assert.match(client, /function commitLogFilterCommits\(/u);

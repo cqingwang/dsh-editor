@@ -2,7 +2,12 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = (await readFile(new URL('../src/client/components/commit/CommitPanel.tsx', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../src/client/components/project/ProjectPanel.tsx', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
+const source =
+  (await readFile(new URL('../src/client/components/commit/CommitPanel.tsx', import.meta.url), 'utf8')) +
+  '\n' +
+  (await readFile(new URL('../src/client/components/project/ProjectPanel.tsx', import.meta.url), 'utf8')) +
+  '\n' +
+  (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
 const commit = source.slice(source.indexOf('function CommitPanel('), source.indexOf('function groupActionMenuItems('));
 
 function extractFunction(name) {
@@ -22,7 +27,9 @@ function extractFunction(name) {
 }
 
 test('projectTreePosition reports level and sibling position from visible rows', () => {
-  const projectTreePosition = new Function(`${extractFunction('projectTreePosition')}; return projectTreePosition;`)();
+  const projectTreePositions = new Function(
+    `${extractFunction('projectTreePositions')}; return projectTreePositions;`,
+  )();
   const rows = [
     { kind: 'directory', depth: 0 },
     { kind: 'directory', depth: 1 },
@@ -30,15 +37,21 @@ test('projectTreePosition reports level and sibling position from visible rows',
     { kind: 'file', depth: 2 },
     { kind: 'file', depth: 1 },
   ];
-  assert.deepEqual(projectTreePosition(rows, 0), { level: 1, posinset: 1, setsize: 1 });
-  assert.deepEqual(projectTreePosition(rows, 1), { level: 2, posinset: 1, setsize: 2 });
-  assert.deepEqual(projectTreePosition(rows, 2), { level: 3, posinset: 1, setsize: 2 });
-  assert.deepEqual(projectTreePosition(rows, 3), { level: 3, posinset: 2, setsize: 2 });
-  assert.deepEqual(projectTreePosition(rows, 4), { level: 2, posinset: 2, setsize: 2 });
+  assert.deepEqual(projectTreePositions(rows), [
+    { level: 1, posinset: 1, setsize: 1 },
+    { level: 2, posinset: 1, setsize: 2 },
+    { level: 3, posinset: 1, setsize: 2 },
+    { level: 3, posinset: 2, setsize: 2 },
+    { level: 2, posinset: 2, setsize: 2 },
+  ]);
 });
 
 test('Project rows expose the computed position set', () => {
-  assert.match(source, /const projectRowPosition = projectTreePosition\(visibleRows, rowIndex\)/);
+  assert.match(
+    source,
+    /const projectRowPositions = React\.useMemo\(\(\) => projectTreePositions\(visibleRows\), \[visibleRows\]\)/,
+  );
+  assert.match(source, /const projectRowPosition = projectRowPositions\[rowIndex\]/);
   assert.match(source, /'aria-posinset': projectRowPosition\.posinset/);
   assert.match(source, /'aria-setsize': projectRowPosition\.setsize/);
 });

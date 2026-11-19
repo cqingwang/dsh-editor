@@ -5,7 +5,10 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = (readFileSync(join(root, 'src/client/components/project/ProjectPanel.tsx'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
+const source =
+  readFileSync(join(root, 'src/client/components/project/ProjectPanel.tsx'), 'utf8') +
+  '\n' +
+  readFileSync(join(root, 'lib/client.js'), 'utf8');
 
 /** Evaluate one shipping helper by brace balance. */
 function load(name) {
@@ -39,11 +42,23 @@ test('a hit (or an empty query) is not a miss', () => {
   assert.equal(treeSearchMiss({ query: '   ', rows: [{ path: '' }] }), false);
 });
 
+test('a failed host search does not also claim there are no matches', () => {
+  assert.equal(
+    treeSearchMiss({
+      query: 'zzz',
+      rows: [{ path: '' }],
+      error: 'Failed to fetch',
+    }),
+    false,
+  );
+});
+
 test('the empty state is driven by the helper, not by a length guess', () => {
   assert.match(source, /treeSearchMiss\(/);
   const start = source.indexOf('treeSearchMiss(');
   const block = source.slice(start, start + 400);
   assert.match(block, /editor\.noMatches/);
+  assert.match(block, /error:\s*searchError/u);
   /* The old proxy must be gone. */
   assert.doesNotMatch(source, /search !== '' && visibleRows\.length <= 1/);
 });

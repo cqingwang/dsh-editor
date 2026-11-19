@@ -87,7 +87,8 @@ test('Recent Files keeps its order; Go to File still ranks by score', () => {
   const palette = source.slice(quickOpenStart, source.indexOf('export { QuickOpen };', quickOpenStart));
   assert.match(palette, /const recent = mode === 'recent';/);
   /* The recent branch must NOT sort: "newest first" is the whole message. */
-  const matchesStart = palette.indexOf('const matches = (');
+  const matchesStart = palette.indexOf('const matches = React.useMemo(');
+  assert.notEqual(matchesStart, -1);
   const recentBranch = palette.slice(matchesStart, palette.indexOf(': files', matchesStart));
   assert.match(recentBranch, /files\s+\.map\(\(path\) => \(\{ path, score:/u);
   assert.doesNotMatch(recentBranch, /\.sort\(/);

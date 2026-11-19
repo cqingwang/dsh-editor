@@ -75,7 +75,10 @@ test('Project speed search requests host matches and feeds the existing navigati
   assert.match(panel, /searchEntryRows\(searchEntries, projectName, compactDirectories, sortMode, manualOrder\)/);
   assert.match(panel, /speedSearchHitRows\(visibleRows, search\)/);
   assert.match(panel, /speedSearchTarget\(visibleRows, search, selectedPath/);
-  assert.match(panel, /treeSearchMiss\(\{\s+query: search,\s+rows: visibleRows,\s+loading: searchPending,\s+\}\)/);
+  assert.match(
+    panel,
+    /treeSearchMiss\(\{[\s\S]*?error: searchError,[\s\S]*?query: search,[\s\S]*?rows: visibleRows,[\s\S]*?loading: searchPending,/u,
+  );
 });
 
 test('the host fs route exposes search beside the existing list operation', () => {

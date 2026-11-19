@@ -76,11 +76,14 @@ test('the diff editor tells revision, commit and clipboard targets apart', () =>
 test('the tree offers compare-with-revision through the commit log, not a free-form hash', () => {
   const client = readClient();
   assert.match(client, /id: 'compareRevision',/);
-  assert.match(client, /const compareWithRevision = React\.useCallback\(async \(path\) => \{/);
+  assert.match(client, /const compareWithRevision = React\.useCallback\(\s*async \(path(?::\s*string)?\) => \{/u);
   /* A picker avoids turning a typo into an "invalid commit id" after two round trips.
      Round 49 replaced the 20-row submenu with a searchable dialog, so the page is
      larger — the point (choose from real commits, never type a hash) is unchanged. */
-  assert.match(client, /const value = await callGit(?:<[^>]+>)?\(\{ op: 'log', limit: 100 \}\);/);
+  assert.match(
+    client,
+    /const value = await callGit(?:<[^>]+>)?\(\s*\{ op: 'log', limit: 100 \},\s*\{ signal: searchAbort\.signal \},?\s*\);/,
+  );
   assert.match(
     client,
     /if \(typeof hash === 'string' && hash !== ''\) setDiffTarget\(\{ path, revision: hash, staged: false \}\)/,
@@ -102,5 +105,6 @@ test('terminal tabs are remembered per session and rebuilt after a host restart'
     client,
     /const created = await createTerminal\(exists \? entry\.shell : undefined, undefined, snapshots\[index\] \?\? ''\);/,
   );
-  assert.match(client, /if \(remembered\.length > 0\) \{\n\s+void restoreTerminals\(remembered\);/);
+  assert.match(client, /const action = terminalAutoOpenAction\(\{/);
+  assert.match(client, /if \(action === 'restore'\) \{[\s\S]*?void restoreTerminals\(remembered\);/);
 });

@@ -43,6 +43,12 @@ function MoveToPicker({
   const visible = needle === '' ? directories : directories.filter((entry) => entry.toLowerCase().includes(needle));
   const index = Math.max(0, Math.min(state.index ?? 0, Math.max(0, visible.length - 1)));
   const listRef = React.useRef<HTMLDivElement | null>(null);
+  const inputRef = React.useRef<HTMLInputElement | null>(null);
+
+  React.useEffect(() => {
+    const timer = window.setTimeout(() => inputRef.current?.focus(), 40);
+    return () => window.clearTimeout(timer);
+  }, []);
 
   React.useEffect(() => {
     const node = listRef.current;
@@ -52,6 +58,7 @@ function MoveToPicker({
   return (
     <div
       style={styles.paletteBackdrop}
+      data-dsh-move-to-picker=''
       onMouseDown={onClose}>
       <div
         style={styles.palette}
@@ -59,12 +66,14 @@ function MoveToPicker({
         aria-label={title}
         onMouseDown={(event) => event.stopPropagation()}>
         <input
+          ref={inputRef}
           style={styles.paletteInput}
           autoFocus={true}
           placeholder={placeholder}
           value={query}
           onChange={(event) => onQuery(event.target.value)}
           onKeyDown={(event) => {
+            if (event.nativeEvent.isComposing === true) return;
             if (event.key === 'ArrowDown') {
               event.preventDefault();
               onMove(1, visible.length);

@@ -12,10 +12,24 @@ test('Enter in speed search opens the hit, not just highlights it', () => {
      the file. Selecting the row and stopping there leaves the editor unchanged. */
   const start = source.indexOf("else if (event.key === 'Enter')");
   assert.notEqual(start, -1);
-  const block = source.slice(start, start + 1300);
+  const block = source.slice(start, start + 2500);
   assert.match(block, /const hit = hits\.find\(\(row\) => row\.path === selectedPath\) \?\? hits\[0\]/);
   assert.match(block, /onSelect\(hit, \{\}\);/);
   assert.match(block, /setSearchOpen\(false\);/);
   assert.match(block, /revealInTree\(\{\s+\.\.\.hit,\s+open: expanded\.has\(hit\.path\),\s+\}\)/);
-  assert.match(block, /action === 'open'\) onOpen\(hit\.path\)/);
+  assert.match(block, /action === 'open'\)\s*\{\s*onOpen\(hit\.path\);/u);
+  assert.match(block, /onRevealPath\?\.\(hit\.path\);/u);
+});
+
+test('Enter in speed search leaves a folded file hit selected with its ancestors expanded', () => {
+  const workspace = readFileSync(join(root, 'src/client/editor-workspace.tsx'), 'utf8');
+  const panel = readFileSync(join(root, 'src/client/components/project/ProjectPanel.tsx'), 'utf8');
+  const start = panel.indexOf("else if (event.key === 'Enter')");
+  assert.notEqual(start, -1);
+  const block = panel.slice(start, start + 2500);
+
+  const openAt = block.indexOf('onOpen(hit.path);');
+  const revealAt = block.indexOf('onRevealPath?.(hit.path);');
+  assert.ok(openAt >= 0 && revealAt > openAt, 'the opened file must be revealed in the real tree');
+  assert.match(workspace, /onRevealPath=\{revealInProjectTree\}/u);
 });

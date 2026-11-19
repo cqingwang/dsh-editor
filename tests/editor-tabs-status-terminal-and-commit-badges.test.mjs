@@ -84,10 +84,15 @@ test('closing a dirty tab asks first and batch close asks once', () => {
   ];
   const closeFile = loadTypeScriptCallback(workspaceSource, 'closeFile', {
     openFilesRef: { current: openFiles },
-    window: { confirm: () => {
-      confirmations += 1;
-      return confirmResult;
-    } },
+    window: {
+      confirm: () => {
+        confirmations += 1;
+        return confirmResult;
+      },
+      setTimeout(callback) {
+        callback();
+      },
+    },
     t: (key) => key,
     closeSplitTab: () => {},
     modelsRef: { current: new Map() },
@@ -98,6 +103,13 @@ test('closing a dirty tab asks first and batch close asks once', () => {
     },
     activePathRef: { current: 'a.ts' },
     setActivePath: () => {},
+    document: {
+      activeElement: null,
+      body: {},
+      querySelectorAll: () => [],
+      querySelector: () => null,
+    },
+    focusWorkspaceFallback: () => true,
   });
   closeFile('a.ts');
   assert.equal(confirmations, 1);
@@ -105,7 +117,10 @@ test('closing a dirty tab asks first and batch close asks once', () => {
   confirmResult = true;
   closeFile('a.ts');
   assert.equal(confirmations, 2);
-  assert.deepEqual(openFiles.map((file) => file.path), ['b.ts']);
+  assert.deepEqual(
+    openFiles.map((file) => file.path),
+    ['b.ts'],
+  );
 });
 
 test('the editor exposes the file path in its status bar, go to line and live facts', () => {
@@ -167,13 +182,15 @@ test('the first shell auto-starts once the retained list settles', () => {
   /* A ref here never re-runs the effect, so the dock stayed empty until a manual "+". */
   assert.match(client, /const \[loaded, setLoaded\] = React\.useState\(false\);/);
   assert.match(client, /setLoaded\(true\)/);
-  assert.match(client, /if \(!loaded \|\| !available \|\| busy \|\| terminals\.length > 0 \|\| error !== null\) return;/);
+  assert.match(client, /const action = terminalAutoOpenAction\(\{/);
+  assert.match(client, /if \(action === 'wait'\) return;/);
+  assert.match(client, /if \(action === 'close'\) \{/);
   /* Round 150: `createTerminal`/`restoreTerminals` left the dependency list.
      Their identity changes on practically every parent render, so an effect
      depending on them re-fired and spawned a shell per render — the dock froze
      when `+` was pressed. `openedRef` keeps the body idempotent instead. */
   assert.match(client, /\}, \[available, busy, loaded, terminals\.length, error, onRequestClose\]\);/);
-  assert.match(client, /if \(openedRef\.current\) \{/);
+  assert.match(client, /openedRef\.current = true;/);
   assert.doesNotMatch(client, /loadedRef/);
 });
 

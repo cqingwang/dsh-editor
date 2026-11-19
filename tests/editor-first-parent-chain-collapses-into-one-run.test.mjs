@@ -7,10 +7,7 @@ import test from 'node:test';
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const source = readFileSync(join(root, 'lib/client.js'), 'utf8');
 const graphSource = readFileSync(join(root, 'src/client/components/commit/CommitGraph.tsx'), 'utf8');
-const foldBarSource = readFileSync(
-  join(root, 'src/client/components/commit/CommitGraphFoldBar.tsx'),
-  'utf8',
-);
+const foldBarSource = readFileSync(join(root, 'src/client/components/commit/CommitGraphFoldBar.tsx'), 'utf8');
 
 /** Evaluate one shipping helper by brace balance. */
 function load(name) {
@@ -39,7 +36,14 @@ test('a first-parent chain collapses into one run', () => {
     { hash: 'c2', parents: ['c1'] },
     { hash: 'c1', parents: [] },
   ];
-  const runs = linearRun(entries, new Map([['c3', 0], ['c2', 0], ['c1', 0]]));
+  const runs = linearRun(
+    entries,
+    new Map([
+      ['c3', 0],
+      ['c2', 0],
+      ['c1', 0],
+    ]),
+  );
   /* Three single-lane commits are ONE run: that is what folding squeezes. */
   assert.equal(runs.length, 1);
   assert.deepEqual(runs[0].hashes, ['c3', 'c2', 'c1']);
@@ -53,7 +57,11 @@ test('a merge breaks the run and a fork starts a new one', () => {
     { hash: 'b1', parents: [] },
     { hash: 'a1', parents: [] },
   ];
-  const lanes = new Map([['m1', 0], ['b1', 1], ['a1', 0]]);
+  const lanes = new Map([
+    ['m1', 0],
+    ['b1', 1],
+    ['a1', 0],
+  ]);
   const runs = linearRun(entries, lanes);
   assert.equal(runs.length, 3);
   /* The merge row is its own run because it has two parents. */
@@ -63,5 +71,5 @@ test('a merge breaks the run and a fork starts a new one', () => {
 test('the graph offers a collapsed view and says how many rows it hides', () => {
   assert.match(foldBarSource, /graphFoldChains/);
   assert.match(foldBarSource, /graphFoldedCount/);
-  assert.match(graphSource, /const lanes = assignGraphLanes\(entries\)/);
+  assert.match(graphSource, /const lanes = React\.useMemo\(\(\) => assignGraphLanes\(entries\), \[entries\]\)/);
 });

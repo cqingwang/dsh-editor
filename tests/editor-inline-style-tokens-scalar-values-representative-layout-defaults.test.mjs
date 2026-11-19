@@ -16,7 +16,7 @@ function loadStyles(source) {
 test('inline style tokens keep scalar values and representative layout defaults', () => {
   const styles = loadStyles(typescriptSource);
 
-  assert.equal(Object.keys(styles).length, 356);
+  assert.equal(Object.keys(styles).length, 358);
   assert.equal(styles.root.display, 'flex');
   assert.equal(styles.root.fontFamily, 'font-under-test');
   assert.equal(styles.treeRow.height, 24);
@@ -24,10 +24,7 @@ test('inline style tokens keep scalar values and representative layout defaults'
   for (const [name, style] of Object.entries(styles)) {
     assert.equal(typeof style, 'object', `${name} must be a style object`);
     for (const [property, value] of Object.entries(style)) {
-      assert.ok(
-        typeof value === 'string' || typeof value === 'number',
-        `${name}.${property} must stay a CSS scalar`,
-      );
+      assert.ok(typeof value === 'string' || typeof value === 'number', `${name}.${property} must stay a CSS scalar`);
     }
   }
 });

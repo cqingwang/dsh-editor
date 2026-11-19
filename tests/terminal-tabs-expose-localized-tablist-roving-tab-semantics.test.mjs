@@ -10,7 +10,10 @@ const source = [
 test('terminal tabs expose a localized tablist and roving tab semantics', () => {
   assert.match(source, /terminalTabs: '终端标签',/);
   assert.match(source, /terminalTabs: 'Terminal tabs',/);
-  assert.match(source, /role='tablist'\s+aria-label=\{t\('editor\.terminalTabs'\)\}/s);
+  assert.match(
+    source,
+    /role='tablist'\s+aria-busy=\{busy \? 'true' : undefined\}\s+aria-label=\{t\('editor\.terminalTabs'\)\}/s,
+  );
   assert.match(
     source,
     /role='tab'\s+aria-label=\{terminal\.title\}\s+aria-selected=\{terminal\.id === activeId\}\s+tabIndex=\{terminal\.id === activeId \? 0 : -1\}\s+data-dsh-terminal-tab-id=\{terminal\.id\}/s,

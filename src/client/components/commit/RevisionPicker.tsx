@@ -28,6 +28,12 @@ function RevisionPicker({ t, state, onQuery, onMove, onPick, onClose }: Revision
   const visible = needle === '' ? commits : commits.filter((commit) => commitSearchScore(commit, needle) >= 0);
   const index = Math.max(0, Math.min(state.index ?? 0, Math.max(0, visible.length - 1)));
   const listRef = React.useRef<HTMLDivElement | null>(null);
+  const inputRef = React.useRef<HTMLInputElement | null>(null);
+
+  React.useEffect(() => {
+    const timer = window.setTimeout(() => inputRef.current?.focus(), 40);
+    return () => window.clearTimeout(timer);
+  }, []);
 
   React.useEffect(() => {
     const node = listRef.current;
@@ -38,6 +44,7 @@ function RevisionPicker({ t, state, onQuery, onMove, onPick, onClose }: Revision
   return (
     <div
       style={styles.paletteBackdrop}
+      data-dsh-revision-picker=''
       onMouseDown={onClose}>
       <div
         style={styles.palette}
@@ -45,12 +52,14 @@ function RevisionPicker({ t, state, onQuery, onMove, onPick, onClose }: Revision
         aria-label={t('editor.compareWithRevision')}
         onMouseDown={(event) => event.stopPropagation()}>
         <input
+          ref={inputRef}
           style={styles.paletteInput}
           autoFocus={true}
           placeholder={t('editor.compareRevisionPlaceholder')}
           value={query}
           onChange={(event) => onQuery(event.target.value)}
           onKeyDown={(event) => {
+            if (event.nativeEvent.isComposing === true) return;
             if (event.key === 'ArrowDown') {
               event.preventDefault();
               onMove(1, visible.length);

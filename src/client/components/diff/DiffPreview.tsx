@@ -23,6 +23,7 @@ import {
 } from '../../diff';
 import { callFs, callGit, ensureDiffTheme, nextDiffLoadSerial, safeLanguage } from '../../editor-core';
 import { hunkAt, lineChangeRangeMappings, readStoredText, restoreUndoStack, selectedCharChanges } from '../../terminal';
+import { startVisibilityGatedPoll } from '../../foundation';
 
 type Translate = (key: string, params?: Record<string, unknown>) => string;
 type DiffCallback = (value: unknown) => void;
@@ -325,7 +326,7 @@ function DiffPreview({
   React.useEffect(() => {
     if (typeof target?.path !== 'string' || target.path === '') return undefined;
     let cancelled = false;
-    const checkLocalPath = () => {
+    const checkLocalPath = () =>
       callFs({
         op: 'exists',
         paths: [target.path],
@@ -338,13 +339,13 @@ function DiffPreview({
           setLocalPathAvailable(entry?.exists === true);
         })
         .catch(() => {});
-    };
     const delay = localPathAvailable === false ? 1500 : 3000;
-    const timer = window.setInterval(checkLocalPath, delay);
+    void checkLocalPath();
+    const stopPolling = startVisibilityGatedPoll(checkLocalPath, delay);
     window.addEventListener('focus', checkLocalPath);
     return () => {
       cancelled = true;
-      window.clearInterval(timer);
+      stopPolling();
       window.removeEventListener('focus', checkLocalPath);
     };
   }, [localPathAvailable, target?.path]);

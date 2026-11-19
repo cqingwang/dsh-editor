@@ -27,6 +27,7 @@ export interface ContextMenuModel {
   title?: string;
   maxHeight?: number;
   fallbackFocus?: () => void;
+  escapeFocus?: () => void;
 }
 
 export interface ContextMenuProps {
@@ -73,6 +74,7 @@ export function ContextMenu({ menu, onClose }: ContextMenuProps) {
   }, [menu]);
 
   React.useEffect(() => {
+    const escapeFocus = menu.escapeFocus;
     const onPointerDown = (event: MouseEvent) => {
       if (ref.current?.contains(event.target as Node)) return;
       onClose();
@@ -138,6 +140,7 @@ export function ContextMenu({ menu, onClose }: ContextMenuProps) {
         event.stopPropagation();
         if (submenu === null) {
           onClose();
+          window.setTimeout(() => escapeFocus?.(), 0);
           return;
         }
         const parentId = submenu;
@@ -151,7 +154,7 @@ export function ContextMenu({ menu, onClose }: ContextMenuProps) {
       document.removeEventListener('mousedown', onPointerDown, true);
       document.removeEventListener('keydown', onKeyDown, true);
     };
-  }, [menu.items, onClose, submenu]);
+  }, [menu.escapeFocus, menu.items, onClose, submenu]);
 
   return (
     <div
@@ -234,7 +237,7 @@ export function ContextMenu({ menu, onClose }: ContextMenuProps) {
                 }
                 return;
               }
-              if (item.restoreFocus === false) skipReturnFocusRef.current = true;
+              if (item.keepOpen !== true && item.restoreFocus === false) skipReturnFocusRef.current = true;
               if (item.keepOpen !== true) onClose();
               item.run?.();
             }}>
@@ -315,8 +318,10 @@ export function ContextMenu({ menu, onClose }: ContextMenuProps) {
                       onClick={(event) => {
                         event.stopPropagation();
                         if (child.disabled === true) return;
-                        if (child.restoreFocus === false) skipReturnFocusRef.current = true;
-                        onClose();
+                        if (child.keepOpen !== true && child.restoreFocus === false) {
+                          skipReturnFocusRef.current = true;
+                        }
+                        if (child.keepOpen !== true) onClose();
                         child.run?.();
                       }}>
                       <span style={styles.menuLabel}>{child.label}</span>

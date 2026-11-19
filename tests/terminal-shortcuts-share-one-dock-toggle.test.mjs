@@ -4,16 +4,12 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
-const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = readFileSync(join(root, 'lib/client.js'), 'utf8');
+import { loadTypeScriptModule } from './ts-source.mjs';
 
-function load(name) {
-  const marker = `    function ${name}(`;
-  const start = source.indexOf(marker);
-  assert.notEqual(start, -1, `${name} is missing`);
-  const end = source.indexOf('\n    }', start) + '\n    }'.length;
-  return new Function(`${source.slice(start, end)}; return ${name};`)();
-}
+const root = join(dirname(fileURLToPath(import.meta.url)), '..');
+const source = readFileSync(join(root, 'src/client/editor-workspace.tsx'), 'utf8');
+const helperSource = readFileSync(join(root, 'src/client/injected-css.ts'), 'utf8');
+const terminalShortcutAction = loadTypeScriptModule(helperSource, ['terminalShortcutAction']).terminalShortcutAction;
 
 test('both terminal shortcuts share one dock toggle', () => {
   const start = source.indexOf('Alt+F12, Alt+1..3 and Ctrl+Shift+`');
@@ -45,10 +41,9 @@ test('a terminal shortcut never creates a new shell just to toggle the dock', ()
   assert.doesNotMatch(toggle, /setTerminalGeneration/);
 });
 
-test('terminalShortcutAction closes an open dock and only restores focus from inside', () => {
-  const action = load('terminalShortcutAction');
-  assert.deepEqual(action(true, true), { open: false, restoreFocus: true });
-  assert.deepEqual(action(true, false), { open: false, restoreFocus: false });
-  assert.deepEqual(action(false, true), { open: true, restoreFocus: false });
-  assert.deepEqual(action(false, false), { open: true, restoreFocus: false });
+test('terminalShortcutAction focuses a visible inactive dock before closing it from inside', () => {
+  assert.deepEqual(terminalShortcutAction(true, true), { open: false, restoreFocus: true, focus: false });
+  assert.deepEqual(terminalShortcutAction(true, false), { open: true, restoreFocus: false, focus: true });
+  assert.deepEqual(terminalShortcutAction(false, true), { open: true, restoreFocus: false, focus: false });
+  assert.deepEqual(terminalShortcutAction(false, false), { open: true, restoreFocus: false, focus: false });
 });

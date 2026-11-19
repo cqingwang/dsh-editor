@@ -11,7 +11,6 @@ test('CommitLogToolbar is a reusable TSX toolbar component', async () => {
   assert.match(component, /interface CommitLogToolbarProps/u);
   assert.match(component, /function CommitLogToolbar\(/u);
   assert.match(component, /t\('editor\.logFilterHint'\)/u);
-  assert.match(component, /event\.key === 'Escape'[\s\S]*?onFilterChange\(''\)[\s\S]*?onFilterVisibleChange\(false\)/u);
   assert.match(component, /filterInputRef\.current\?\.focus\(\)/u);
   assert.match(component, /t\('editor\.graphBranch'\)/u);
   assert.match(component, /t\('editor\.graphAtChip'/u);
@@ -19,8 +18,20 @@ test('CommitLogToolbar is a reusable TSX toolbar component', async () => {
   assert.match(component, /label=\{t\('editor\.logFilter'\)\}/u);
   assert.match(component, /label=\{t\('editor\.logGraph'\)\}/u);
   assert.match(component, /label=\{t\('editor\.refresh'\)\}/u);
+  assert.match(component, /icon='search'[\s\S]*?active=\{filterVisible\}/u);
+  assert.match(component, /icon='graph'[\s\S]*?active=\{graphMode\}/u);
   assert.doesNotMatch(component, /React\.createElement/u);
   assert.match(component, /export \{ CommitLogToolbar \};/u);
+});
+
+test('Escape clears the Log query without closing its field', async () => {
+  const component = await read('src/client/components/commit/CommitLogToolbar.tsx');
+  const escapeStart = component.indexOf("if (event.key === 'Escape')");
+  assert.notEqual(escapeStart, -1);
+  const escapeBlock = component.slice(escapeStart, component.indexOf('}', escapeStart) + 1);
+
+  assert.match(escapeBlock, /onFilterChange\(''\)/u);
+  assert.doesNotMatch(escapeBlock, /onFilterVisibleChange\(false\)/u);
 });
 
 test('CommitLog delegates the list toolbar and graph toggle behavior', async () => {

@@ -20,9 +20,29 @@ export interface NamePromptProps {
 
 function NamePrompt({ t, state, onSubmit, onChange, onClose }: NamePromptProps) {
   const error = typeof state.error === 'string' && state.error !== '' ? state.error : null;
+  const inputRef = React.useRef<HTMLInputElement | null>(null);
+
+  React.useEffect(() => {
+    /* The menu that opened this dialog restores focus after React unmounts it.
+       Reclaim the field afterwards so typed names never land on the old opener. */
+    const timer = window.setTimeout(() => inputRef.current?.focus(), 40);
+    return () => window.clearTimeout(timer);
+  }, []);
+  React.useEffect(() => {
+    /* Validation belongs next to the value the user must correct. This also
+       covers submission by the OK button, where focus is on the button. */
+    if (error === null) return undefined;
+    const timer = window.setTimeout(() => {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [error]);
+
   return (
     <div
       style={styles.paletteBackdrop}
+      data-dsh-name-prompt=''
       onMouseDown={onClose}>
       <div
         style={styles.namePrompt}
@@ -31,6 +51,7 @@ function NamePrompt({ t, state, onSubmit, onChange, onClose }: NamePromptProps) 
         onMouseDown={(event) => event.stopPropagation()}>
         <div style={styles.namePromptTitle}>{state.title}</div>
         <input
+          ref={inputRef}
           style={styles.namePromptInput}
           autoFocus={true}
           value={state.value}
@@ -38,6 +59,7 @@ function NamePrompt({ t, state, onSubmit, onChange, onClose }: NamePromptProps) 
           aria-label={state.title}
           onChange={(event) => onChange(event.target.value)}
           onKeyDown={(event) => {
+            if (event.nativeEvent.isComposing === true) return;
             if (event.key === 'Enter') {
               event.preventDefault();
               onSubmit();

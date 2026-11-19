@@ -29,34 +29,31 @@ function extractFunction(name) {
 }
 
 test('File mask suggestions are derived from known paths by frequency', () => {
-  const suggest = new Function(
-    `${extractFunction('suggestFileMasks')}; return suggestFileMasks;`,
-  )();
+  const suggest = new Function(`${extractFunction('suggestFileMasks')}; return suggestFileMasks;`)();
   assert.deepEqual(
-    suggest([
-      'src/app.ts',
-      'src/main.ts',
-      'README.md',
-      'src/types.ts',
-      'docs/guide.md',
-      'scripts/build.mjs',
-      'Makefile',
-      '.env',
-      'weird.this-extension-is-too-long',
-      'bad.file name',
-    ], [], 10),
+    suggest(
+      [
+        'src/app.ts',
+        'src/main.ts',
+        'README.md',
+        'src/types.ts',
+        'docs/guide.md',
+        'scripts/build.mjs',
+        'Makefile',
+        '.env',
+        'weird.this-extension-is-too-long',
+        'bad.file name',
+      ],
+      [],
+      10,
+    ),
     ['*.ts', '*.md', '*.mjs'],
   );
 });
 
 test('File mask suggestions exclude masks already present in history', () => {
-  const suggest = new Function(
-    `${extractFunction('suggestFileMasks')}; return suggestFileMasks;`,
-  )();
-  assert.deepEqual(
-    suggest(['a.ts', 'b.ts', 'c.md'], ['*.TS'], 10),
-    ['*.md'],
-  );
+  const suggest = new Function(`${extractFunction('suggestFileMasks')}; return suggestFileMasks;`)();
+  assert.deepEqual(suggest(['a.ts', 'b.ts', 'c.md'], ['*.TS'], 10), ['*.md']);
 });
 
 test('File mask menu places history before suggestions and Clear last', () => {
@@ -80,11 +77,13 @@ test('suggestions reuse known workspace paths without another filesystem walk', 
   assert.match(source, /changedFilePaths/);
   assert.match(source, /state\.files/);
   assert.match(source, /state\.matches/);
-  assert.match(source, /const fileMaskSuggestions = suggestFileMasks\(/);
-  assert.doesNotMatch(
-    source.slice(source.indexOf('const fileMaskSuggestions = suggestFileMasks('), source.indexOf('const openFileMaskMenu = (event) =>')),
-    /callFs(?:<[^>]+>)?\(\{ op: 'files'/,
-  );
+  assert.match(source, /const fileMaskSuggestions = React\.useMemo\(\(\) => \{/);
+  const suggestionStart = source.indexOf('const fileMaskSuggestions = React.useMemo(');
+  const suggestionEnd = source.indexOf('const rovingGroupPath =', suggestionStart);
+  assert.ok(suggestionStart >= 0 && suggestionEnd > suggestionStart);
+  const suggestionBlock = source.slice(suggestionStart, suggestionEnd);
+  assert.match(suggestionBlock, /return suggestFileMasks\(fileMaskSuggestionPaths, fileMaskHistory, 12\);/);
+  assert.doesNotMatch(suggestionBlock, /callFs(?:<[^>]+>)?\(\{ op: 'files'/);
 });
 
 test('Git and Recently Viewed scopes expose truthful disabled states', () => {
@@ -108,10 +107,7 @@ test('Git and Recently Viewed scopes expose truthful disabled states', () => {
     source,
     /const selectedScopePresetAvailable = findSearchScopePresetAvailable\(scopePreset, \{\s+gitAvailable,[\s\S]*?\}\);\s+const effectiveScopePreset =\s+selectedCustomScopeMissing \|\| selectedScopePresetAvailable !== true \? 'projectFiles' : scopePreset;/u,
   );
-  assert.match(
-    source,
-    /gitAvailable: git !== null && typeof git\.branch === 'string' && git\.branch !== ''/u,
-  );
+  assert.match(source, /gitAvailable: git !== null && typeof git\.branch === 'string' && git\.branch !== ''/u);
 });
 
 test('Project speed search never claims IDEA Shift+Cmd/Ctrl+F', () => {
@@ -126,10 +122,7 @@ test('Project speed search never claims IDEA Shift+Cmd/Ctrl+F', () => {
     handler,
     /if \(!\(event\.metaKey \|\| event\.ctrlKey\) \|\| event\.altKey \|\| event\.shiftKey \|\| event\.key\.toLowerCase\(\) !== 'f'\)[\s\S]*?return;/u,
   );
-  assert.doesNotMatch(
-    handler,
-    /openFindInFilesFromShortcut|data-dsh-find-tool-window/u,
-  );
+  assert.doesNotMatch(handler, /openFindInFilesFromShortcut|data-dsh-find-tool-window/u);
 });
 
 test('Find menus are clamped inside the dialog hit-testing surface', () => {
@@ -144,8 +137,14 @@ test('Find menus are clamped inside the dialog hit-testing surface', () => {
   assert.equal(clamp.findToolMenuTop(700, 60.5, 596.5), 372);
   assert.equal(clamp.findToolMenuMaxHeight(60.5, 596.5, 135.5), 380.5);
   assert.match(source, /const surfaceRect = event\.currentTarget\.closest\('\[data-dsh-find-tool-window\]'\)/u);
-  assert.match(source, /x: findToolMenuLeft\(rect\.right - 220, surfaceRect\?\.left \?\? 0, surfaceRect\?\.right \?\? window\.innerWidth\)/u);
-  assert.match(source, /x: findToolMenuLeft\(rect\.left, surfaceRect\?\.left \?\? 0, surfaceRect\?\.right \?\? window\.innerWidth\)/u);
+  assert.match(
+    source,
+    /x: findToolMenuLeft\(rect\.right - 220, surfaceRect\?\.left \?\? 0, surfaceRect\?\.right \?\? window\.innerWidth\)/u,
+  );
+  assert.match(
+    source,
+    /x: findToolMenuLeft\(rect\.left, surfaceRect\?\.left \?\? 0, surfaceRect\?\.right \?\? window\.innerWidth\)/u,
+  );
   assert.match(source, /maxHeight: findToolMenuMaxHeight\(/u);
   assert.match(menuSource, /Number\.isFinite\(menu\.maxHeight\)[\s\S]*?overflowY: 'auto'/u);
 });

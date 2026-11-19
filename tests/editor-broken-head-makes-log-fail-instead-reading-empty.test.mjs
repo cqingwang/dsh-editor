@@ -58,6 +58,8 @@ test('the graph clears the previous failure on success', async () => {
   const client = read('src/client/editor-workspace.tsx');
   const errors = [];
   const loadGraph = loadTypeScriptCallback(client, 'loadGraph', {
+    beginLogRequest: () => new AbortController(),
+    finishLogRequest: () => {},
     callGit: async () => ({
       entries: [],
       branches: [],

@@ -1,6 +1,7 @@
 import React from 'react';
 import { styles } from '../../ui/styles';
 import { ToolbarButton } from '../ui/ToolbarButton';
+import { commitLogDisplayTitle } from './commit-log-view-model';
 import { commitLogScopeAnnouncement } from './commit-log-scope-announcement';
 import { commitLogFilterToggle } from './commit-log-view-preferences';
 
@@ -24,6 +25,7 @@ interface CommitLogToolbarProps {
   author?: string;
   graphMode: boolean;
   graph?: CommitLogGraph | null;
+  loading: boolean;
   onFilterChange: (value: string) => void;
   onFilterVisibleChange: (visible: boolean) => void;
   onAuthorChange: (value: string) => void;
@@ -40,6 +42,7 @@ function CommitLogToolbar({
   author,
   graphMode,
   graph,
+  loading,
   onFilterChange,
   onFilterVisibleChange,
   onAuthorChange,
@@ -50,6 +53,8 @@ function CommitLogToolbar({
   const [scopeAnnouncement, setScopeAnnouncement] = React.useState('');
   const previousScopeRef = React.useRef('');
   const scopeHash = typeof graph?.at === 'string' && graph.at !== '' ? graph.at.slice(0, 7) : '';
+  const hasActiveFilter = filter.trim() !== '';
+  const displayTitle = commitLogDisplayTitle(t('editor.tabLog'), filter);
   React.useEffect(() => {
     if (!graphMode) {
       previousScopeRef.current = '';
@@ -81,8 +86,10 @@ function CommitLogToolbar({
       style={styles.logToolbar}>
       <span
         className='dsh-editor-log-title'
-        style={styles.panelTitle}>
-        {t('editor.tabLog')}
+        style={styles.panelTitle}
+        data-dsh-log-filter-active={hasActiveFilter ? '' : undefined}
+        title={displayTitle}>
+        {displayTitle}
       </span>
       {filterVisible ? (
         <input
@@ -94,10 +101,10 @@ function CommitLogToolbar({
           value={filter}
           onChange={(event) => onFilterChange(event.target.value)}
           onKeyDown={(event) => {
+            if (event.nativeEvent.isComposing === true) return;
             if (event.key === 'Escape') {
               event.preventDefault();
               onFilterChange('');
-              onFilterVisibleChange(false);
             }
           }}
         />
@@ -173,16 +180,19 @@ function CommitLogToolbar({
         <ToolbarButton
           icon='search'
           label={t('editor.logFilter')}
+          active={filterVisible}
           onClick={toggleFilter}
         />
         <ToolbarButton
           icon='graph'
           label={t('editor.logGraph')}
+          active={graphMode}
           onClick={onToggleGraph}
         />
         <ToolbarButton
           icon='refresh'
           label={t('editor.refresh')}
+          disabled={loading}
           onClick={onRefresh}
         />
       </span>

@@ -4,6 +4,13 @@ interface CommitLogFilterable {
   hash?: unknown;
 }
 
+export function commitLogDisplayTitle(baseTitle: string, query: string): string {
+  const base = typeof baseTitle === 'string' ? baseTitle.trim() : '';
+  const needle = typeof query === 'string' ? query.trim() : '';
+  if (base === '') return needle === '' ? '' : `'${needle}'`;
+  return needle === '' ? base : `${base}: '${needle}'`;
+}
+
 export function commitLogFilterCommits<T extends CommitLogFilterable>(commits: T[], query: string): T[] {
   const needle = typeof query === 'string' ? query.trim().toLowerCase() : '';
   if (needle === '') return commits;

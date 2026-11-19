@@ -18,7 +18,7 @@ test('CommitLog is a reusable TSX commit component', async () => {
   assert.match(component, /const CommitLog = CommitLogView;/u);
   assert.match(component, /export \{ CommitLog \};/u);
   assert.doesNotMatch(component, /React\.createElement/u);
-  assert.match(component, /return \(\n    <div\n      style=\{styles\.commitLogBody\}/u);
+  assert.match(component, /return \(\s+<div\s+style=\{\{\s+\.\.\.styles\.commitLogBody/u);
 });
 
 test('build embeds CommitLog and removes the legacy definition', async () => {

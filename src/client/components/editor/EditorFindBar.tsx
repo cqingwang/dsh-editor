@@ -63,10 +63,13 @@ function EditorFindBar({
   onReplaceAll,
   onClose,
 }: EditorFindBarProps) {
+  const findInputRef = React.useRef<HTMLInputElement | null>(null);
+  const replaceInputRef = React.useRef<HTMLInputElement | null>(null);
   if (state === null) return null;
   return (
     <div style={styles.findBar}>
       <input
+        ref={findInputRef}
         data-dsh-editor-find-input=''
         style={styles.findInput}
         autoFocus={true}
@@ -74,6 +77,7 @@ function EditorFindBar({
         value={state.find}
         onChange={(event) => onFindChange(event.target.value)}
         onKeyDown={(event) => {
+          if (event.nativeEvent.isComposing === true) return;
           if (event.altKey === true && event.key === 'ArrowDown') {
             onOpenHistory(event, 'query');
           } else if (event.key === 'Enter') {
@@ -159,6 +163,7 @@ function EditorFindBar({
       ) : null}
       {state.withReplace === true ? (
         <input
+          ref={replaceInputRef}
           data-dsh-editor-find-replace-input=''
           style={styles.findInput}
           placeholder={t('editor.replace')}
@@ -214,6 +219,8 @@ function EditorFindBar({
               x: historyMenu.x,
               y: historyMenu.y,
               title: historyMenu.kind === 'query' ? t('editor.findSearchHistory') : t('editor.findReplaceHistory'),
+              escapeFocus: () =>
+                (historyMenu.kind === 'query' ? findInputRef.current : replaceInputRef.current)?.focus?.(),
               items:
                 historyValues.length === 0
                   ? [

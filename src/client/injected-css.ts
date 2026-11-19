@@ -42,6 +42,7 @@ interface ShiftWheelEvent {
 interface TerminalShortcutState {
   open: boolean;
   restoreFocus: boolean;
+  focus: boolean;
 }
 
 interface EditorCaret {
@@ -312,6 +313,7 @@ export function installStyles(): void {
     '@container (max-width: 520px) {',
     '  .dsh-editor-log-toolbar { height: auto !important; min-height: 26px; flex-wrap: wrap !important; padding-top: 1px !important; padding-bottom: 1px !important; row-gap: 2px !important; }',
     '  .dsh-editor-log-title { display: none !important; }',
+    '  .dsh-editor-log-title[data-dsh-log-filter-active] { display: inline-flex !important; order: 0; flex: 1 0 100% !important; max-width: none !important; height: 14px; margin-right: 0 !important; }',
     '  .dsh-editor-log-branch { order: 1; flex: 1 1 72px !important; max-width: none !important; }',
     '  .dsh-editor-log-actions { order: 2; }',
     '  .dsh-editor-log-scope { order: 3; flex: 1 1 80px !important; min-width: 0 !important; max-width: 160px !important; }',
@@ -415,6 +417,15 @@ export function installStyles(): void {
     '  background: #fff;',
     '}',
     '.dsh-editor-checkbox:disabled { opacity: 0.45; cursor: default; }',
+    /* A narrow Find dock keeps the result count in its status row and favors
+           search controls over repeating the window title. Compact the mask and
+           header actions so they stay on one row instead of consuming three. */
+    '.dsh-editor-find-controls[data-dsh-find-controls] { container: dsh-find-dock / inline-size; }',
+    '@container dsh-find-dock (max-width: 360px) {',
+    '  .dsh-editor-find-tool-title, .dsh-editor-find-tool-count, .dsh-editor-find-tool-spacer, .dsh-editor-find-file-mask-label { display: none !important; }',
+    '  .dsh-editor-find-file-mask-input { width: 64px !important; min-width: 64px !important; }',
+    '  .dsh-editor-find-dock-header-actions { flex-basis: 110px !important; width: 110px !important; min-width: 110px !important; }',
+    '}',
     /* A narrow tool window shows the change list only; the diff needs room to be useful. */
     '@container dsh-editor-side (max-width: 520px) { .dsh-editor-diff-pane { display: none !important; } }',
     /* IDEA keeps the row name and one changed-line reading when the Changes
@@ -689,19 +700,40 @@ export function maintenanceDelay(lastAt: number, now: number, minimum = 80): num
 }
 
 /**
- * IDEA's terminal shortcut is a dock toggle, never a shell-creation request.
+ * IDEA activates a visible but inactive tool window before hiding it.
  *
- * A closed dock opens and receives focus. An open dock closes; focus returns
- * to the surface that opened it only when the shortcut was pressed from
- * inside the terminal. Closing from Project/Commit must not pull focus back
- * to an older editor surface.
+ * The first shortcut press raises/focuses the requested tool window; only a
+ * press made while that tool window already owns focus hides it.
+ * @param currentActivity - currently selected side tool window, if any.
+ * @param targetActivity - tool window requested by the shortcut.
+ * @param visible - whether the requested tool window is visible.
+ * @param focusInside - whether keyboard focus is inside that tool window.
+ * @returns {'show' | 'focus' | 'hide'} the requested activation transition.
+ */
+export function toolWindowShortcutAction(
+  currentActivity: string | null,
+  targetActivity: string,
+  visible: boolean,
+  focusInside: boolean,
+): 'show' | 'focus' | 'hide' {
+  if (!visible || currentActivity !== targetActivity) return 'show';
+  return focusInside ? 'hide' : 'focus';
+}
+
+/**
+ * IDEA's terminal shortcut is an activation sequence, never a shell-creation request.
+ *
+ * A closed dock opens and receives focus. A visible dock that does not own focus
+ * is focused without closing. Only a shortcut pressed inside the terminal hides
+ * it, returning focus to the surface that opened it.
  * @param {boolean} open - whether the terminal dock is currently visible.
  * @param {boolean} focusInsideTerminal - whether the active element is inside the terminal.
- * @returns {{open: boolean, restoreFocus: boolean}} the requested dock transition.
+ * @returns {{open: boolean, restoreFocus: boolean, focus: boolean}} the requested dock transition.
  */
 export function terminalShortcutAction(open: boolean, focusInsideTerminal: boolean): TerminalShortcutState {
-  if (open) return { open: false, restoreFocus: focusInsideTerminal === true };
-  return { open: true, restoreFocus: false };
+  const action = toolWindowShortcutAction(open ? 'terminal' : null, 'terminal', open, focusInsideTerminal === true);
+  if (action === 'hide') return { open: false, restoreFocus: true, focus: false };
+  return { open: true, restoreFocus: false, focus: action === 'focus' };
 }
 
 /**

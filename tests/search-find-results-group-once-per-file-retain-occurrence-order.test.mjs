@@ -2,7 +2,12 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = (await readFile(new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url), 'utf8') + '\n' + (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) + '\n' + (await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8')));
+const source =
+  (await readFile(new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url), 'utf8')) +
+  '\n' +
+  (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) +
+  '\n' +
+  (await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8'));
 
 function extract(name) {
   const marker = `    function ${name}(`;
@@ -29,11 +34,14 @@ test('find results group once per file and retain occurrence order', () => {
     { path: '', line: 1, column: 1, preview: 'invalid' },
   ];
   const grouped = group(matches);
-  assert.deepEqual(grouped.map((entry) => entry.path), ['b.txt', 'a.txt']);
-  assert.deepEqual(grouped.map((entry) => entry.matches.map((match) => match.preview)), [
-    ['b1', 'b2'],
-    ['a1'],
-  ]);
+  assert.deepEqual(
+    grouped.map((entry) => entry.path),
+    ['b.txt', 'a.txt'],
+  );
+  assert.deepEqual(
+    grouped.map((entry) => entry.matches.map((match) => match.preview)),
+    [['b1', 'b2'], ['a1']],
+  );
 });
 
 test('Search Everywhere can hand current results to the persistent Find tool window', () => {
@@ -58,10 +66,13 @@ test('Find and Replace in Files use the IDEA-style search popup', () => {
 });
 
 test('persistent replace reuses the guarded host operation', () => {
-  const replace = source.slice(source.indexOf('const replaceInFindTool = React.useCallback'), source.indexOf('const dismissExternal = React.useCallback'));
+  const replace = source.slice(
+    source.indexOf('const replaceInFindTool = React.useCallback'),
+    source.indexOf('const dismissExternal = React.useCallback'),
+  );
   assert.match(replace, /op: 'replaceText'/);
   assert.match(replace, /openFilesRef\.current/);
   assert.match(replace, /searchReplaceDirty/);
-  assert.match(replace, /searchReplaceConfirm/);
+  assert.match(replace, /confirmSearchReplace/);
   assert.match(replace, /reloadFile\(path\)/);
 });

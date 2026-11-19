@@ -5,7 +5,18 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = (readFileSync(join(root, 'src/client/components/terminal/TerminalPanel.tsx'), 'utf8') + '\n' + readFileSync(join(root, 'src/client/components/commit/CommitPanel.tsx'), 'utf8') + '\n' + readFileSync(join(root, 'src/client/components/project/ProjectPanel.tsx'), 'utf8') + '\n' + readFileSync(join(root, 'src/client/components/diff/DiffPreview.tsx'), 'utf8') + '\n' + (readFileSync(join(root, 'lib/client.js'), 'utf8') + '\n' + readFileSync(join(root, 'src/client/components/search/FindToolWindow.tsx'), 'utf8')));
+const source =
+  readFileSync(join(root, 'src/client/components/terminal/TerminalPanel.tsx'), 'utf8') +
+  '\n' +
+  readFileSync(join(root, 'src/client/components/commit/CommitPanel.tsx'), 'utf8') +
+  '\n' +
+  readFileSync(join(root, 'src/client/components/project/ProjectPanel.tsx'), 'utf8') +
+  '\n' +
+  readFileSync(join(root, 'src/client/components/diff/DiffPreview.tsx'), 'utf8') +
+  '\n' +
+  (readFileSync(join(root, 'lib/client.js'), 'utf8') +
+    '\n' +
+    readFileSync(join(root, 'src/client/components/search/FindToolWindow.tsx'), 'utf8'));
 
 /**
  * Find every `useCallback`/`useMemo` that lists a hook declared *after* it as a dependency.
@@ -29,9 +40,12 @@ function lateDependencies(text) {
     const end = position + 1 < starts.length ? starts[position + 1].line : lines.length;
     const declared = new Map();
     for (let index = component.line; index < end; index += 1) {
-      const match = /^\s*(?:const|let)\s+(?:\[([A-Za-z_$][\w$]*)[^\]]*\]|([A-Za-z_$][\w$]*))\s*=\s*React\.use/u.exec(lines[index]);
+      const match = /^\s*(?:const|let)\s+(?:\[([A-Za-z_$][\w$]*)[^\]]*\]|([A-Za-z_$][\w$]*))\s*=\s*React\.use/u.exec(
+        lines[index],
+      );
       if (match === null) continue;
-      for (const name of [match[1], match[2]]) if (typeof name === 'string' && !declared.has(name)) declared.set(name, index);
+      for (const name of [match[1], match[2]])
+        if (typeof name === 'string' && !declared.has(name)) declared.set(name, index);
     }
     for (let index = component.line; index < end; index += 1) {
       if (!/React\.use(Callback|Memo)\(/u.test(lines[index])) continue;
@@ -41,6 +55,10 @@ function lateDependencies(text) {
            [a, b],                 (array on its own line)
          Both must be seen; an earlier version only matched the inline one. */
       for (let cursor = index + 1; cursor < Math.min(index + 600, end); cursor += 1) {
+        /* Inline expression-bodied useMemo calls may not expose a dependency
+           array with the legacy `}, [` shape. Do not associate the next hook's
+           dependencies with this call. */
+        if (/React\.use(?:Callback|Memo)\(/u.test(lines[cursor])) break;
         const inline = /^\s*\}, \[(.*)$/u.exec(lines[cursor]);
         let body = null;
         if (inline !== null) {
@@ -57,11 +75,19 @@ function lateDependencies(text) {
           }
         }
         const closed = /^([\s\S]*)\]\)?;?,?\s*$/u.exec(body);
-        const list = (closed === null ? body : closed[1]).split(',').map((entry) => entry.trim()).filter(Boolean);
+        const list = (closed === null ? body : closed[1])
+          .split(',')
+          .map((entry) => entry.trim())
+          .filter(Boolean);
         for (const name of list) {
           const declaredAt = declared.get(name);
           if (declaredAt !== undefined && declaredAt > index) {
-            violations.push({ component: component.name, dependency: name, hookLine: index + 1, declaredAt: declaredAt + 1 });
+            violations.push({
+              component: component.name,
+              dependency: name,
+              hookLine: index + 1,
+              declaredAt: declaredAt + 1,
+            });
           }
         }
         break;
@@ -156,6 +182,8 @@ test('the scan sees a dependency array that spans several lines', () => {
     '      return null;',
     '    }',
   ].join('\n');
-  const found = lateDependencies(broken).map((entry) => entry.dependency).sort();
+  const found = lateDependencies(broken)
+    .map((entry) => entry.dependency)
+    .sort();
   assert.deepEqual(found, ['helper', 'other']);
 });

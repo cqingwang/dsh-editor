@@ -1,5 +1,4614 @@
 # dsh-editor 工程记忆
 
+## 2026-11-19 — Project speed search 行名称分段重复计算
+
+**作用域**：Project speed search 的匹配名称高亮与活动行切换。
+
+**症状/证据**：
+
+- speed search 可能一次保留大量文件和目录命中；
+- 每个 row 在 render 内直接调用 `highlightParts(row.name, search)`；
+- selection、context menu、drag 和 focus 变化都会让全部行重新分段；
+- 这些分段只依赖 visible rows 与 query。
+
+**根因**：
+
+- 搜索分段没有按可见结果集和查询建立缓存边界，高亮计算耦合在 row
+  JSX 中。
+
+**修复**：
+
+- 新增 `projectNamePartsByPath` memo，依赖 `[search, visibleRows]`；
+- 对每个有字符串名称的 row 只执行一次 `highlightParts`；
+- row 渲染通过 path 读取缓存 parts，保留原 match span 结构和颜色；
+- 空 query 仍直接渲染原始名称，过滤、host walk、选择、打开和拖放
+  语义不变。
+
+**回归**：
+
+- 新增 `tests/project-speed-search-name-parts-memoized.test.mjs`；
+  RED **0 pass / 1 fail**；
+- GREEN：name-parts、host walk abort、关闭清理、busy、颜色与位置派生
+  **18 pass / 0 fail**；
+- DSH Web：`commit` 查询 **235** 个 treeitem；`ArrowDown` 后选中从
+  `commit-200px...` 切到 `commit-annotatepreview...`，搜索框保持
+  focus，alert **0**；
+- Escape 关闭后恢复 **980** 个 treeitem，Project tree 接管 focus，
+  alert **0**；
+- IDEA Project speed search 接受 `commit` type-ahead 查询并保留树选择；
+- 完整测试 **3050 pass / 0 fail**；
+- lint、类型、Prettier、构建一致性与 `git diff --check` 通过。
+
+**适用环境**：macOS、Ego Lite、DSH Web、IDEA Project。
+搜索结果高亮必须按可见 rows 与 query 缓存；活动行切换只更新选择样式，
+不能重新分段全部名称。
+
+## 2026-11-19 — Commit Graph hover/selection 重算全图布局
+
+**作用域**：Commit 工具窗 Graph 的 lanes、linear runs、绘制行和选择态。
+
+**症状/证据**：
+
+- `assignGraphLanes` 和 `linearRun` 直接位于每次 render；
+- `rowsToDraw` 每次重新构造全部 entry 行或 folded run；
+- `selectionHashes.includes(entry.hash)` 在每行执行线性查找；
+- hover、cursor、selected 或详情刷新都会触发这些与图结构无关的重算。
+
+**根因**：
+
+- 图结构只依赖 entries 与 folded 状态，但派生结果没有缓存边界；
+- selection 传入数组，逐行查询没有转换为成员集合。
+
+**修复**：
+
+- `sourceEntries` 以 `graph.entries` 身份 memo；
+- `lanes` 以 `entries` memo，`runs` 以 `entries/laneOf` memo；
+- `rowsToDraw` 以 `entries/folded/laneOf/runs` memo；
+- `selectedHashes` 以 selection 数组 memo 为 `Set`，活动行改用
+  `selectedHashes.has(entry.hash)`；
+- placeholder、HEAD/merge/ref、点击、菜单、fold 与 ARIA 语义不变。
+
+**回归**：
+
+- 新增 `tests/commit-graph-derived-layout-memoized.test.mjs`；
+  RED **0 pass / 1 fail**；
+- GREEN：graph layout、fold、ref badge、右键菜单、busy、lane 与
+  静态顺序 **30 pass / 0 fail**；
+- DSH Web：**27** 个 graph row；第二条点击后 `ArrowDown` 选中
+  `cb16698e03be074d9e932b461aaa8d563ddce16a`，详情同步，listbox
+  保持 focus，alert **0**；
+- 完整测试 **3049 pass / 0 fail**；
+- lint、类型、Prettier、构建一致性与 `git diff --check` 通过。
+
+**适用环境**：macOS、Ego Lite、DSH Web、IDEA Git Log。
+图结构只按 entries/fold 缓存；选择变化只能更新行状态，不能重新分配
+lanes 或重建全部绘制行。
+
+**附加取证**：DSH `searchText` 的 `previewLineStarts` 请求为
+`directory=""`、`recursive=true`、无 `allowedPaths`，跨 `src`/`tests`
+结果正常。`lib/client.js` 为 **2.1 MB**，因既有 **1 MiB** 文本搜索
+文件上限被跳过，不是 scope 丢失。
+
+## 2026-11-19 — Find Preview 内容派生在无关 render 中重复计算
+
+**作用域**：Find in Files popup/dock 的 401 行预览窗口、正则高亮和
+逐行分段。
+
+**症状/证据**：
+
+- 每次 render 都重新执行 `searchEverywherePreviewWindow`；
+- 对整份 `previewState.content` 重新 `split` 并重建全部行起点；
+- 每次重新执行 `editorFindResult`，然后在渲染循环中再次对每行执行
+  `findToolPreviewLineParts`；
+- soft-wrap、菜单和父级布局等无关状态也会触发这些全量派生。
+
+**根因**：
+
+- 稳定内容快照的派生结果没有按 content/path/line/query/search options
+  建立缓存边界，派生工作耦合在 render 中。
+
+**修复**：
+
+- `previewWindow` 依赖 `[previewOpen, content, line]`；
+- `previewLines` 依赖 `[content, previewWindow]`；
+- `previewLineStarts` 只依赖 `content`；
+- `previewMatches` 依赖 content、query、case/word/regex、file-filter 和
+  当前预览 scope；
+- `previewLineParts` 复用稳定行起点与匹配区间；
+- render 只读取 `previewLineParts[index]`，预览读取、居中、soft-wrap、
+  打开结果和替换语义不变。
+
+**回归**：
+
+- 新增 `tests/search-find-preview-content-derived-memoized.test.mjs`；
+  RED **0 pass / 1 fail**；
+- GREEN：preview content、abort、居中、soft-wrap、高亮与静态顺序
+  **20 pass / 0 fail**；
+- DSH Web：`previewLineStarts` 返回 **7** 个 option、**401** 行预览；
+  `ArrowDown` 后活动项切到下一命中，combobox 保持 focus，alert **0**；
+- IDEA Find in Files：同查询 **13 matches in 5 files**，首个命中自动
+  预览，搜索框保持 focus；
+- 完整测试 **3048 pass / 0 fail**；
+- lint、类型、Prettier、构建一致性与 `git diff --check` 通过。
+
+**适用环境**：macOS、Ego Lite、DSH Web、IDEA Find in Files。
+预览 content 不变时，窗口、行索引、匹配区间和逐行分段必须复用；
+无关 render 不得重复扫描整份文件内容。
+
+## 2026-11-19 — Commit Log 导航重复遍历可见 hash 顺序
+
+**作用域**：Commit 工具窗 flat Log 与 Commit Graph 的鼠标选择、
+方向键移动、关系跳转和列表命令。
+
+**症状/证据**：
+
+- `visible` 与 `graphRows` 已按 filter/fold memo；
+- 选择与键盘导航仍反复调用 `visible.map((entry) => entry.hash)` 和
+  `graphRows.map((entry) => entry.hash)`；
+- 历史页较大时，每次 navigation 都会重复进行 O(n) 分配；
+- hash 顺序只依赖当前可见行，与 selected/cursor/hover 无关。
+
+**根因**：
+
+- 选择模型需要稳定的可见 hash 顺序，但顺序数组没有与可见行派生建立
+  相同缓存边界。
+
+**修复**：
+
+- 新增 `visibleOrder`，依赖 `[visible]`；
+- 新增 `graphOrder`，依赖 `[graphRows]`；
+- 所有 `commitSelectionAfterClick`、relation command、flat list command
+  与 context selection 复用缓存数组；
+- flat/graph 的选择、过滤、折叠、详情跟随和上下文菜单语义不变。
+
+**回归**：
+
+- 新增 `tests/commit-log-selection-order-memoized.test.mjs`；
+  RED **0 pass / 1 fail**；
+- GREEN：hash-order、selection 与 flat-row 委托定向测试
+  **11 pass / 0 fail**；
+- DSH Web：Commit Graph **27** 行；第二条按 `ArrowDown` 后第三条选中，
+  Commit listbox 保持焦点，alert **0**；
+- IDEA Git Log：第二条 `update` 按 `Down` 后 `Yesterday 17:56` 成为
+  选中行，详情从 `f93698` 切换到 `cb16698e`；
+- 完整测试 **3047 pass / 0 fail**；
+- lint、类型、Prettier、构建一致性与 `git diff --check` 通过。
+
+**适用环境**：macOS、Ego Lite、DSH Web、IDEA Git Log。
+可见行集合未变化时，选择/导航必须复用同一 hash 顺序；不要在每个
+事件闭包内重新遍历大历史列表。
+
+## 2026-11-19 — Terminal pagehide 可能读到滞后 terminalsRef
+
+**作用域**：Terminal restore 的 pagehide/visibility/unmount 最终快照。
+
+**症状/证据**：
+
+- pagehide 与周期 persistence 都读取 `terminalsRef.current`；
+- ref 原先只在 passive `useEffect` 中同步；
+- passive effect 在 commit/paint 后异步 flush，页面隐藏可能先发生；
+- 紧接创建或关闭操作触发 pagehide 时，最终快照可能仍是旧 tabs。
+
+**根因**：
+
+- 事件监听使用的 ref 更新时机晚于 DOM commit；
+- profile 持久化与 event-critical ref 同步被放在同一个 passive effect。
+
+**修复**：
+
+- 将 `terminalsRef.current = terminals` 移到 `React.useLayoutEffect([terminals])`；
+- profile 持久化继续保留在 passive effect；
+- pagehide、visibilitychange、卸载 cleanup 继续复用同一 ref。
+
+**回归**：
+
+- 新增 `tests/terminal-pagehide-terminals-ref-layout-sync.test.mjs`；
+  RED **1 pass / 1 fail**；
+- GREEN：layout ref、pagehide、restore buffer、profile gate 与静态顺序
+  **24 pass / 0 fail**；
+- DSH Web：pagehide 前后 scrollback 快照长度均为 **3192**，无 alert；
+- 完整测试 **3046 pass / 0 fail**；
+- lint、类型、Prettier、构建一致性与 `git diff --check` 通过。
+
+**适用环境**：macOS、Ego Lite、DSH Web、IDEA Terminal。
+pagehide 等终止事件依赖的 ref 必须在 layout 阶段同步；passive effect 只负责
+非紧急持久化工作。
+
+## 2026-11-19 — Project drop 目标与行颜色重复派生
+
+**作用域**：Project 工具栏 OS drop target、View definitions 与文件行状态颜色。
+
+**症状/证据**：
+
+- `projectToolbarDropDirectory(projectRows, selectedPath)` 直接位于 render；
+- 大型展开树 projectRows 可达数千到接近 20,000 行；
+- speed search、菜单、active row 等无关状态也会重复扫描；
+- 文件行先调用一次 `treeNameColor` 判断 null，再调用第二次取值。
+
+**根因**：
+
+- drop 目标只依赖 projectRows/selectedPath，却没有缓存；
+- View definitions 只依赖 translator，却每次重建；
+- 行颜色判断与赋值没有共享同一个派生值。
+
+**修复**：
+
+- `toolbarDropDirectory` 以 `[projectRows, selectedPath]` 为依赖 memo；
+- `viewDefinitions` 以 `[t]` 为依赖 memo；
+- 每行只计算一次 `statusColor = treeNameColor({ status, selected })`；
+- Project drop、目录 tint、选择态与文件颜色语义保持不变。
+
+**回归**：
+
+- 新增 `tests/project-toolbar-drop-and-row-color-derived-once.test.mjs`；
+  RED **0 pass / 2 fail**；
+- GREEN：Project toolbar、文件 tint、view model、ARIA position 与静态顺序
+  **25 pass / 0 fail**；
+- DSH Web：初始 **975** 个 treeitem；`tests` 目录保持红色；
+- speed search 命中 **2 rows**，无 alert；
+- 完整测试 **3044 pass / 0 fail**；
+- lint、类型、Prettier、构建一致性与 `git diff --check` 通过。
+
+**适用环境**：macOS、Ego Lite、DSH Web、IDEA Project。
+大型树的全局查找必须按真实输入缓存；行内派生颜色应只计算一次。
+
+## 2026-11-19 — Find active row 变化重复计算全部文本高亮
+
+**作用域**：Find in Files popup 与 dock 的文本结果行高亮。
+
+**症状/证据**：
+
+- popup occurrences 与 dock group matches 都在 render 中调用 `previewParts`；
+- `previewParts` 每次直接执行 `highlightParts(match.preview, query)`；
+- active row 变化会让整张共享结果列表重渲染，最多可包含 200 条文本命中；
+- 高亮分段只依赖 occurrences 与 query，与 active row 无关。
+
+**根因**：
+
+- 文本高亮在行渲染闭包内计算，没有按结果集与查询建立缓存边界。
+
+**修复**：
+
+- 新增 `previewPartsByRowKey` memo，以 `[occurrences, query]` 为依赖；
+- 只为 text occurrence 计算一次 `highlightParts`；
+- popup 与 dock 通过 stable rowKey 读取缓存分段；
+- 保留原有 highlight span、空 preview fallback、键盘和打开语义。
+
+**回归**：
+
+- 新增 `tests/search-find-preview-parts-memoized.test.mjs`；
+  RED **0 pass / 1 fail**；
+- GREEN：高亮 memo、Find 派生缓存、occurrence index、分组与静态顺序
+  **13 pass / 0 fail**；
+- DSH Web：`const` 查询返回 **200** 个 option；
+- ArrowDown 后 active descendant 从 `lib/index.js:13:8` 切换到
+  `lib/index.js:14:8`，选中行与文本同步；
+- Find 区域内无可见告警；
+- 完整测试 **3042 pass / 0 fail**；
+- lint、类型、Prettier、构建一致性与 `git diff --check` 通过。
+
+**适用环境**：macOS、Ego Lite、DSH Web、IDEA Find in Files。
+大结果集的文本高亮必须按 occurrences/query 缓存；active row 变化只能切换
+选中样式，不能重算全部高亮分段。
+
+## 2026-11-19 — Terminal host restart 在恢复前清空 profile
+
+**作用域**：Terminal auto-open、shell profile 持久化与 host restart 恢复。
+
+**症状/证据**：
+
+- `shouldPersistTerminalProfile(0, true, true)` 原先返回 true；
+- profile 持久化 effect 先于 auto-open effect 执行；
+- 宿主重启返回空终端列表时，profile 会先被写成 `[]`；
+- auto-open 随后只能读到空 profile，与“重建上次 shell tab”的契约冲突。
+
+**根因**：
+
+- 零终端被统一解释为“用户关闭了最后一个 tab”；
+- 没有区分本地用户关闭与宿主重启导致的空列表。
+
+**修复**：
+
+- 新增 `terminalAutoOpenAction` 状态机：
+  `wait / close / restore / create`；
+- 新增 `userClosedLastRef`，只在用户关闭最后一个 tab 时为 true；
+- profile 清理 gate 增加 `userClosedLast` 条件；
+- host restart 且 profile 非空时先 restore；
+- 权威空列表且无 profile 时清空旧 scrollback，再创建新 shell；
+- 正常创建成功后重置本地关闭标记。
+
+**回归**：
+
+- 新增 `tests/terminal-host-restart-restores-profile.test.mjs`；
+  初始 RED **0 pass / 1 fail**（helper 不存在）；
+- GREEN：Terminal 生命周期、restore buffer、profile gate、auto-open
+  与静态顺序 **29 pass / 0 fail**；
+- 状态机覆盖 restore/close/create/wait 四条路径；
+- DSH Web Terminal 正常打开，profile 与 scrollback 已写入，无 alert；
+- 完整测试 **3041 pass / 0 fail**；
+- lint、类型、Prettier、构建一致性与 `git diff --check` 通过。
+
+**适用环境**：macOS、Ego Lite、DSH Web、IDEA Terminal。
+“列表为空”不等于“用户关闭最后一个 tab”；恢复决策必须携带关闭来源，
+并在清空 profile 之前完成。
+
+## 2026-11-19 — Commit group 选择状态在无关 render 中重复扫描
+
+**作用域**：Commit Changes 每个 group 的 selected paths、tri-state、
+removal-only 与 group action disabled 状态。
+
+**症状/证据**：
+
+- 第 780 轮已缓存 group tree、flatten rows 与 totals；
+- `renderGroup` 仍每次对 group changes 按 `selectedPaths` 过滤；
+- tri-state 与 `pathsScheduledForRemoval` 也在每个 group 的 render 内重算；
+- 提交信息输入会重新执行全部 group 选择扫描。
+
+**根因**：
+
+- 选择派生状态没有按 `changesByPath/selectedPaths/visibleGroups` 建立缓存边界；
+- 数据派生和 group action 渲染耦合在 `renderGroup` 内。
+
+**修复**：
+
+- 新增 `groupSelectionViews` memo，缓存
+  `selectedInGroup/groupState/removableInGroup/removalOnlyInGroup`；
+- `renderGroup` 只读取 keyed view，不再次过滤 group changes 或计算 tri-state；
+- 保留既有 action label、顺序、removal-only、rollback 和 checkbox 语义。
+
+**回归**：
+
+- 新增 `tests/commit-group-selection-views-memoized.test.mjs`；
+  RED **0 pass / 2 fail**；
+- GREEN：selection-view、group action、removal-only、tri-state 与静态顺序
+  **21 pass / 0 fail**；
+- DSH Web：219 个 treeitem；
+- 取消 Unstaged 全选后 action 正确禁用，重新选择后恢复；
+- 输入提交信息前后选择与 action 状态不变，无 alert；
+- 完整测试 **3036 pass / 0 fail**；
+- lint、类型、Prettier、构建一致性与 `git diff --check` 通过。
+
+**适用环境**：macOS、Ego Lite、DSH Web、IDEA Commit 工具窗。
+选择派生状态必须与树构建分开缓存；输入提交信息等无关 render 不能重新扫描
+全部 group changes。
+
+## 2026-11-19 — Project 目录状态对全部 Git changes 重复过滤
+
+**作用域**：Project 树目录行的 Git 状态聚合与目录名称着色。
+
+**症状/证据**：
+
+- `gitChanges` 每次 ProjectPanel render 都重新构建 Map；
+- `directoryStatus(path)` 每次都对完整 `git.changes` 执行
+  `startsWith(path/)` 过滤；
+- 同一目录的 tint 在选择/状态样式分支中被调用两次；
+- Project 可一次渲染 971 个 treeitem，重复成本随目录行和 changes 数增长。
+
+**根因**：
+
+- 目录需要的是“自身及所有后代”的 changes，但实现每次都从全局列表重新筛选；
+- 文件 Map 与目录索引没有按 `git.changes` 作为真实依赖缓存。
+
+**修复**：
+
+- 在 `terminal.ts` 新增纯函数 `indexChangesByDirectory`，一次遍历 changes，
+  为每级祖先目录建立状态列表；
+- ProjectPanel 用 memo 缓存 `gitChanges` 与 `changesByDirectory`；
+- `directoryStatus` 改为 Map 查询后复用现有 `directoryTint` 优先级；
+- 每行只计算一次 `directoryTintState`，不再重复调用目录查询。
+
+**回归**：
+
+- 新增 `tests/project-directory-change-index-memoized.test.mjs`；
+  RED **0 pass / 1 fail**（helper 不存在）；
+- GREEN：目录索引、tint 优先级、Project 接线、ARIA 位置和静态顺序
+  **34 pass / 0 fail**；
+- DSH Web：971 个 treeitem，非法 ARIA position 0；
+- `tests` 目录按删除优先级显示 `rgb(207, 34, 46)`，无 M/A/D 字母；
+- 运行态无 alert；完整测试 **3034 pass / 0 fail**；
+- lint、类型、Prettier、构建一致性与 `git diff --check` 通过。
+
+**适用环境**：macOS、Ego Lite、DSH Web、IDEA Project 工具窗。
+目录聚合状态应按 Git snapshot 一次性建索引；目录行 render 内不能重新过滤
+全部 changes，也不能对同一状态重复计算多次。
+
+## 2026-11-19 — Commit group 树在无关 render 中重复构建
+
+**作用域**：Commit Changes 各 group 的 `changeTreeOf`、`flattenChangeTree`
+与 line totals 派生。
+
+**症状/证据**：
+
+- 第 778 轮已缓存 changes、groups、visibleGroups 和 filteredTargets；
+- `renderGroup` 内仍为每个 group 直接调用 `changeTreeOf` 与
+  `flattenChangeTree`；
+- 提交信息输入等无关 render 会再次触发整棵 Changes group 树构建；
+- DSH Web 当前有 215 个 Changes treeitem。
+
+**根因**：
+
+- group 树和展开行是 renderGroup 的局部变量，没有跨 render 缓存；
+- 树只依赖 `visibleGroups/groupBy`，展开行只依赖树、
+  `collapsedGroups/groupBy`，但此前每次 render 都重算。
+
+**修复**：
+
+- `groupTrees` memo 缓存各 group 的 `changeTreeOf` 结果，依赖
+  `[groupBy, visibleGroups]`；
+- `groupRows` memo 缓存 `groupOpen`、`flattenChangeTree` rows 与
+  `subtotalOf` total，依赖
+  `[collapsedGroups, groupTrees, visibleGroups]`；
+- `renderGroup` 只读取两个 Map，不再直接构建树或 flatten。
+
+**回归**：
+
+- 新增 `tests/commit-change-group-tree-rows-memoized.test.mjs`；
+  RED **0 pass / 2 fail**；
+- GREEN：新增回归、既有 memo、ARIA 位置和静态顺序
+  **12 pass / 0 fail**；
+- DSH Web：输入提交信息前后均 **215 rows**；
+- 折叠 Unstaged：**101 rows**；展开恢复 **215 rows**；
+- path filter 无命中：**0 rows / No matches**；清空恢复 **215 rows**；
+- 重建后复验输入提交信息前后均 **215 rows**，无 alert；
+- `node scripts/build-client.mjs` 成功；
+- 完整测试 **3032 pass / 0 fail**；lint、类型、Prettier、
+  构建一致性与 `git diff --check` 通过。
+
+**适用环境**：macOS、Ego Lite、DSH Web。
+组件 render 函数内的大型树构建/flatten 必须提升到按真实输入依赖的 memo；
+消息、菜单、hover 等无关状态不能重新触发 group 树。
+
+## 2026-11-19 — Find 浮层误用底部 dock 的紧凑响应式规则
+
+**作用域**：Find in Files 浮层与持久 Find dock 的 360px 以下响应式布局。
+
+**症状/证据**：
+
+- DSH Web 将 Find 浮层宽度设为 330px 后，窗口标题、结果计数和
+  `File mask:` 文案全部被隐藏；
+- 同一宽度下的底部 Find dock 隐藏这些重复信息是预期行为；
+- IDEA Replace in Files 在窄窗口仍保留标题与 File mask 文案。
+
+**根因**：
+
+- popup 与 dock 共用 `.dsh-editor-find-controls`；
+- 紧凑规则把 `container-type: inline-size` 挂在共用 class 上，并使用
+  unnamed `@container`；
+- 因此 floating dialog 也被 dock 专用规则命中。
+
+**修复**：
+
+- 只在带 `data-dsh-find-controls` 的 dock 控件上注册
+  `container: dsh-find-dock / inline-size`；
+- 紧凑规则改为 `@container dsh-find-dock (max-width: 360px)`；
+- dock 的隐藏项、64px mask 输入和 110px header action 宽度保持不变。
+
+**回归**：
+
+- 更新 `tests/search-find-narrow-dock-header-compacts.test.mjs`；
+  RED **1 pass / 1 fail**；
+- GREEN：窄 dock、控件滚动与静态顺序 **8 pass / 0 fail**；
+- DSH Web 浮层 330px：title `block`、mask label `block`；
+- DSH Web dock 330px：title/count/mask label 为 `none`，
+  mask input 为 `64px`；`role=alert` 为 0；
+- `node scripts/build-client.mjs` 成功生成 `lib/client.js`。
+
+**适用环境**：macOS、Ego Lite、DSH Web。
+surface 专属的 container query 必须使用命名容器或专属 container selector；
+popup 与 dock 共用 class 时，不能只按宽度推断布局身份。
+
+## 2026-11-19 — Search Everywhere 派生结果每次 render 全量重建
+
+**作用域**：Search Everywhere 的 action ranking、file fuzzy ranking、
+text/history 映射与当前 tab 结果组合。
+
+**症状/证据**：
+
+- actionMatches、fileMatches、textResults、historyResults 与 results
+  均在组件函数体直接计算；
+- ArrowDown/ArrowUp 改变 active index 也会重新排名 action/file 全集；
+- `find` 查询实测可产生 72 个候选，文件候选最多 80 条。
+
+**根因**：
+
+- provider 派生数据没有以 actions/files/text/history/query/tab 等真实输入
+  作为缓存边界；
+- active row、loading、菜单等无关 render 会触发整份结果重建。
+
+**修复**：
+
+- actionMatches、fileMatches、textResults、historyResults 分别 memo；
+- results 以四个 provider 数组、effective tab/query 和 filter 开关为依赖
+  memo；
+- action/file/text/history 的顺序、80/24/40/12/8 上限以及 tab 唯一结果范围
+  语义保持不变。
+
+**回归**：
+
+- 新增 `tests/search-everywhere-derived-results-memoized.test.mjs`；
+  RED **0 pass / 1 fail**；
+- GREEN：派生 memo、busy、category inventory 与静态顺序
+  **11 pass / 0 fail**；
+- DSH Web：`find` 查询 72 个 option；
+  选择性监测 `{path, score}` 排序后，ArrowDown 前后目标 sort 调用
+  **0 次**，activedescendant 正常切换；无 alert；
+- 完整测试：**3028 pass / 0 fail**；
+- lint、类型、Prettier、构建一致性和 `git diff --check` 通过。
+
+**适用环境**：macOS、Node 24.22.2、Chrome/Ego Lite。
+多 provider palette 的排名/过滤结果必须按 provider 输入和 tab/filter
+分别缓存；active row 变化不能触发全量重算。
+
+## 2026-11-19 — Quick Open 每次 render 都重排全部文件
+
+**作用域**：Go to File / Recent Files 的 fuzzy ranking 派生结果。
+
+**症状/证据**：
+
+- `matches` 在组件函数体直接 map/filter/sort 全部文件；
+- ArrowDown/ArrowUp 只改变 active index，也会触发整份文件集重新计分和排序；
+- Go to File 实测一次可显示 60 个候选，文件集增大时导航成本线性增长。
+
+**根因**：
+
+- active row、loading 等无关 render 状态与文件排名共用同一 render-local
+  计算；
+- 派生结果没有以 `files/query/recent` 为依赖缓存。
+
+**修复**：
+
+- 将 matches 计算改为 `React.useMemo`；
+- 依赖收敛为 `[files, query, recent]`；
+- Recent 不排序、Go to File 按 score 排序及 60 条上限保持不变；
+- active descendant 和方向键行为不变。
+
+**回归**：
+
+- 新增 `tests/search-quick-open-matches-memoized.test.mjs`；
+  RED **0 pass / 1 fail**；
+- GREEN：QuickOpen memo、combobox、modal 与静态顺序
+  **7 pass / 0 fail**；
+- DSH Web：Go to File 显示 60 个 option；
+  选择性监测 `{path, score}` 数组排序后，ArrowDown 前后目标 sort 调用
+  **0 次**，activedescendant 正常切换；无 alert；
+- 完整测试：**3027 pass / 0 fail**；
+- lint、类型、Prettier、构建一致性和 `git diff --check` 通过。
+
+**适用环境**：macOS、Node 24.22.2、Chrome/Ego Lite。
+键盘导航只改变 active index 时，不得重新执行文件全集 fuzzy 排序；
+派生结果必须按 files/query/mode 缓存。
+
+## 2026-11-19 — Quick Open 输入与结果缺少 combobox/listbox 关联
+
+**作用域**：Go to File / Recent Files QuickOpen palette。
+
+**症状/证据**：
+
+- 输入框只是普通 input，没有 combobox 语义；
+- 结果列表和行没有 listbox/option role；
+- 键盘上下移动只改变视觉 active row，没有 `aria-activedescendant`；
+- loading 文本存在，但结果集合没有 `aria-busy`。
+
+**根因**：
+
+- QuickOpen 的视觉交互完整，但 ARIA 模型仍停留在普通输入+div 列表；
+- 输入、结果集合和活动项之间没有稳定 id 关联。
+
+**修复**：
+
+- 输入增加 `role="combobox"`、`aria-autocomplete="list"`、
+  `aria-controls` 和 `aria-activedescendant`；
+- 结果容器增加稳定 id、`role="listbox"` 和 loading `aria-busy`；
+- 每个文件行增加稳定 option id、`role="option"` 和
+  `aria-selected`；
+- loading/no-matches 文本增加 status role；
+- 原有模糊过滤、Recent 顺序、方向键、Enter、Escape 和焦点陷阱不变。
+
+**回归**：
+
+- 新增 `tests/search-quick-open-combobox-listbox-semantics.test.mjs`；
+  RED **0 pass / 1 fail**；
+- GREEN：QuickOpen combobox、modal、关闭回焦与静态顺序
+  **10 pass / 0 fail**；
+- DSH Web：Recent Files 有 5 个 option；
+  combobox controls 指向 listbox，ArrowDown 后
+  `aria-activedescendant` 与 selected option 同步更新；无 alert；
+- 完整测试：**3026 pass / 0 fail**；
+- lint、类型、Prettier、构建一致性和 `git diff --check` 通过。
+
+**适用环境**：macOS、Node 24.22.2、Chrome/Ego Lite。
+可实现键盘过滤与活动项切换的 palette 必须使用 combobox/listbox/option
+关系；视觉 active row 不能替代 `aria-activedescendant`。
+
+## 2026-11-19 — Quick Open 是模态遮罩但缺少 aria-modal 和焦点陷阱
+
+**作用域**：Go to File / Recent Files 的 QuickOpen palette。
+
+**症状/证据**：
+
+- QuickOpen 使用全屏 `paletteBackdrop`，点击背景会关闭；
+- dialog 只有 `role="dialog"`，没有 `aria-modal`；
+- Tab 可从输入框离开对话框进入背景应用；
+- 同类 Search Everywhere/Find popup 已有 modal 语义与焦点循环。
+
+**根因**：
+
+- QuickOpen 只实现了 Escape、方向键和 Enter；
+- 未将背景遮罩契约同步为 ARIA modal 与 Tab ownership。
+
+**修复**：
+
+- dialog 增加 `aria-modal="true"`；
+- 复用 `searchEverywhereNextFocusIndex`；
+- 新增 `trapQuickOpenFocus`，Tab/Shift+Tab 在 dialog 可见可聚焦元素内循环；
+- 输入框的过滤、结果导航、Enter 打开和 Escape 关闭保持不变。
+
+**回归**：
+
+- 新增 `tests/search-quick-open-modal-focus-semantics.test.mjs`；
+  RED **0 pass / 1 fail**；
+- GREEN：QuickOpen modal、关闭回焦、stale response 与静态顺序
+  **11 pass / 0 fail**；
+- DSH Web：Recent Files QuickOpen 为
+  `role=dialog / aria-modal=true`；连续 5 次 Tab 均保持在输入框内，
+  未逃逸到背景；无 alert；
+- 完整测试：**3025 pass / 0 fail**；
+- lint、类型、Prettier、构建一致性和 `git diff --check` 通过。
+
+**适用环境**：macOS、Node 24.22.2、Chrome/Ego Lite。
+带全屏遮罩且点击背景关闭的 palette 必须暴露 modal 语义并拥有 Tab 焦点；
+`role=dialog` 本身不能表达背景不可交互。
+
+## 2026-11-19 — Project speed search 未纳入 tree busy
+
+**作用域**：ProjectPanel 递归 speed search 的 `searchPending` 状态与 tree
+集合可访问性。
+
+**症状/证据**：
+
+- speed search 会 `setSearchPending(true)` 并启动 host 递归 walk；
+- Project tree 的 `aria-busy` 只合并了上传和初始 loading；
+- 递归搜索进行时，tree 仍被辅助技术视为稳定空闲集合。
+
+**根因**：
+
+- tree busy 条件没有覆盖第三个异步来源 `searchPending`；
+- 视觉/本地过滤已经工作，但集合级状态遗漏。
+
+**修复**：
+
+- tree busy 改为
+  `uploadBusy || loading || searchPending`；
+- 搜索完成、空查询、本地 filtered view 或失败路径恢复时移除 busy；
+- 本地结果行、typeahead、选择与键盘导航保持不变。
+
+**回归**：
+
+- 新增
+  `tests/project-tree-speed-search-exposes-busy-state.test.mjs`；
+  RED **0 pass / 1 fail**；
+- GREEN：Project speed search、loading、upload、horizontal tree 与静态顺序
+  **12 pass / 0 fail**；
+- DSH Web：`build-client` speed search 时 tree aria-busy
+  `null -> true -> null`；最终 2 个结果行，无 alert；
+- 完整测试：**3024 pass / 0 fail**；
+- lint、类型、Prettier、构建一致性和 `git diff --check` 通过。
+
+**适用环境**：macOS、Node 24.22.2、Chrome/Ego Lite。
+同一 tree 的上传、初始加载、递归搜索等异步来源必须全部并入 `aria-busy`；
+遗漏任一来源都会让辅助技术误判集合稳定。
+
+## 2026-11-19 — Terminal unavailable notice 没有 live-region
+
+**作用域**：TerminalPanel 的 host-unavailable 状态与 Refresh 恢复入口。
+
+**症状/证据**：
+
+- unavailable 分支已有说明文本和 Refresh 按钮；
+- 容器没有 `role="alert"`/live-region；
+- host 从可用变为不可用时，辅助技术不会主动知道终端区域已失效。
+
+**根因**：
+
+- 状态只按视觉 notice 渲染；
+- 可访问性语义没有覆盖 host availability 变化。
+
+**修复**：
+
+- unavailable notice 容器增加 `role="alert"`；
+- 保留现有本地化文本和直接 Refresh 操作；
+- available 分支、终端 tab 和错误条行为保持不变。
+
+**回归**：
+
+- 新增
+  `tests/terminal-unavailable-notice-exposes-alert-status.test.mjs`；
+  RED **0 pass / 1 fail**；
+- GREEN：unavailable alert、Refresh、Terminal error 与静态顺序
+  **7 pass / 0 fail**；
+- 正常运行态不会进入 unavailable 分支，因此本轮以源码回归验证；
+  完整 `npm test`：**3023 pass / 0 fail**；
+- lint、类型、Prettier、构建一致性和 `git diff --check` 通过。
+
+**适用环境**：macOS、Node 24.22.2、Chrome/Ego Lite。
+host availability 变化会使用户失去主要操作面，提示必须进入 alert/live-region；
+恢复按钮与公告语义应同时存在。
+
+## 2026-11-19 — Terminal 错误条只显示红字，未向辅助技术播报
+
+**作用域**：TerminalPanel 底部错误状态条，覆盖创建、rename、shell 列表和
+终端运行错误。
+
+**症状/证据**：
+
+- `error` 状态只在 terminalStatusBar 中显示红色文字；
+- 容器没有 `role="alert"` 或 live-region；
+- 异步失败发生后，视觉用户能看到错误，辅助技术不会主动播报。
+
+**根因**：
+
+- 错误状态只被视为视觉 footer，没有建立可访问性告警语义；
+- `error` 清除逻辑本身正常，但出现时缺少 announcement 边界。
+
+**修复**：
+
+- terminalStatusBar 条件错误区域增加 `role="alert"`；
+- 保留现有错误文案、颜色、清理和布局；
+- 错误清除时整个 alert 区域卸载。
+
+**回归**：
+
+- 新增 `tests/terminal-errors-expose-alert-status.test.mjs`；
+  RED **0 pass / 1 fail**；
+- GREEN：Terminal error、tablist busy 与静态顺序测试
+  **6 pass / 0 fail**；
+- DSH Web：正常 New Terminal 路径无错误、无 alert，tablist busy 恢复；
+  失败播报路径由源码回归覆盖；
+- 完整测试：**3022 pass / 0 fail**；
+- lint、类型、Prettier、构建一致性和 `git diff --check` 通过。
+
+**适用环境**：macOS、Node 24.22.2、Chrome/Ego Lite。
+异步操作失败的可见错误条必须同时提供 alert/live-region 语义；
+仅改变文字颜色不能让辅助技术知道失败已经发生。
+
+## 2026-11-19 — Terminal tablist 创建请求缺少 busy 状态
+
+**作用域**：TerminalPanel 的新建终端/预定义 session 请求与 tablist。
+
+**症状/证据**：
+
+- `busy` 已禁用 New Terminal 和 New Predefined Session 按钮；
+- 空态同时显示 `terminalStarting` 文案；
+- `role="tablist"` 没有 `aria-busy`，辅助技术无法知道终端集合正在创建。
+
+**根因**：
+
+- 创建中的状态只接到按钮 disabled 和空态文本；
+- terminal tab 集合本身没有异步状态绑定。
+
+**修复**：
+
+- `role="tablist"` 增加 `aria-busy={busy ? 'true' : undefined}`；
+- 创建结束或失败后移除 busy；
+- tab 的 roving focus、关闭、拆分、标题和上下文菜单语义保持不变。
+
+**回归**：
+
+- 新增 `tests/terminal-tablist-exposes-create-busy-state.test.mjs`；
+  RED **0 pass / 1 fail**；
+- GREEN：Terminal tablist、tab semantics、command controls 与静态顺序
+  **9 pass / 0 fail**；
+- DSH Web：New Terminal 请求期间 tablist aria-busy 出现 `true` 后恢复 null；
+  无 alert；
+- 完整测试：**3021 pass / 0 fail**；
+- lint、类型、Prettier、构建一致性和 `git diff --check` 通过。
+
+**适用环境**：macOS、Node 24.22.2、Chrome/Ego Lite。
+tablist 创建集合成员时，busy 必须绑定到 tablist 本体；只禁用创建按钮和
+显示 loading 文案不足以表达集合正在变化。
+
+## 2026-11-19 — Changes tree 写入期间缺少集合级 busy
+
+**作用域**：Commit 工具窗 Changes tree 与 `commitBusy` 写操作状态。
+
+**症状/证据**：
+
+- `commitBusy` 已禁用 stage、shelve 和提交操作，并驱动 busy 文案；
+- Changes tree 的 `role="tree"` 没有 `aria-busy`；
+- 分支列表读取等异步操作期间，辅助技术仍把变更树暴露为稳定空闲集合。
+
+**根因**：
+
+- busy 状态只接入按钮 disabled 和可见文案；
+- Changes tree 缺少集合级异步状态绑定。
+
+**修复**：
+
+- Changes tree 增加 `aria-busy={busy ? 'true' : undefined}`；
+- busy 结束自动移除；
+- 不隐藏变更行，保持现有选择、键盘导航和滚动位置。
+
+**回归**：
+
+- 新增 `tests/commit-changes-tree-exposes-busy-during-write.test.mjs`；
+  RED **0 pass / 1 fail**；
+- GREEN：Changes busy、横向滚动和静态顺序测试 **8 pass / 0 fail**；
+- DSH Web：只读打开分支菜单，Changes tree aria-busy 采样为
+  `null -> true -> null`；未执行 checkout；
+  201 个 treeitem 保持，无 alert；
+- 完整测试：**3020 pass / 0 fail**；
+- lint、类型、Prettier、构建一致性和 `git diff --check` 通过。
+
+**适用环境**：macOS、Node 24.22.2、Chrome/Ego Lite。
+集合级写操作 busy 不应只体现在按钮 disabled；tree/listbox 自身必须暴露
+`aria-busy`，同时保留现有行和键盘状态。
+
+## 2026-11-19 — Project tree 加载时只显示文案，未暴露 busy
+
+**作用域**：ProjectPanel 的文件树加载与上传并发状态。
+
+**症状/证据**：
+
+- tree loading 时渲染 `TreeMessage state=loading busy=true`；
+- `role="tree"` 的 `aria-busy` 只绑定 `uploadBusy`；
+- 首次/刷新加载期间辅助技术能读到 loading 文案，但 tree 集合本身未被
+  标记为忙碌；
+- 959 个 treeitem 的最终状态正常。
+
+**根因**：
+
+- upload busy 和 filesystem loading 分属两个来源；
+- 树的可访问性 busy 语义只接入了上传分支。
+
+**修复**：
+
+- Project tree 改为
+  `aria-busy={uploadBusy || loading ? 'true' : undefined}`；
+- 加载完成且无上传时移除 busy；
+- 上传、拖放、键盘 tree 和现有 loading/error/empty 分支保持不变。
+
+**回归**：
+
+- 新增 `tests/project-tree-loading-exposes-busy-state.test.mjs`；
+  RED **0 pass / 1 fail**；
+- GREEN：Project loading、upload、tree focus 与静态顺序测试
+  **8 pass / 0 fail**；
+- DSH Web MutationObserver：Project tree 连续采样 `true`，加载后恢复 null；
+  最终 959 个 treeitem，无 alert；
+- 完整测试：**3019 pass / 0 fail**；
+- lint、类型、Prettier、构建一致性和 `git diff --check` 通过。
+
+**适用环境**：macOS、Node 24.22.2、Chrome/Ego Lite。
+同一集合存在多个异步 busy 来源时，ARIA busy 必须合并全部真实来源；
+仅子级 loading message 的 busy 不能替代 tree/listbox 集合级状态。
+
+## 2026-11-19 — Search Everywhere listbox 缺少 text loading busy
+
+**作用域**：Search Everywhere 的 All/Text 搜索结果集合与 Actions tab
+loading 语义。
+
+**症状/证据**：
+
+- `textLoading` 已驱动 loading message 和 result status；
+- Search Everywhere listbox 没有 `aria-busy`；
+- Actions tab 是本地同步结果，不能在 text request 进行时被误标为 busy。
+
+**根因**：
+
+- loading 只绑定到可见 message，没有绑定到 listbox 集合；
+- busy 条件需要同时包含 `textLoading` 和当前 tab 是否使用 text provider。
+
+**修复**：
+
+- listbox 增加
+  `aria-busy={textLoading && effectiveTab !== 'actions' ? true : undefined}`；
+- text search 完成或失败后移除 busy；
+- All/Files/Text 下保留结果、active row 和键盘导航语义；
+- Actions tab 不因后台 textLoading 被标记 busy。
+
+**回归**：
+
+- 新增
+  `tests/search-everywhere-listbox-exposes-text-loading-busy.test.mjs`；
+  RED **0 pass / 1 fail**；
+- GREEN：Search Everywhere busy、Find busy 与静态顺序测试
+  **6 pass / 0 fail**；
+- DSH Web MutationObserver：aria-busy 采样出现 `true` 后恢复 `null`；
+  最终搜索结果正常，无 alert；
+- 完整测试：**3018 pass / 0 fail**；
+- lint、类型、Prettier、构建一致性和 `git diff --check` 通过。
+
+**适用环境**：macOS、Node 24.22.2、Chrome/Ego Lite。
+Search Everywhere 的忙碌状态必须同时受 provider loading 和当前 tab 约束；
+纯本地 Actions 列表不能被后台文本搜索标记为 busy。
+
+## 2026-11-19 — Find listbox 加载时缺少 aria-busy
+
+**作用域**：Find in Files popup 与 dock 的 result listbox loading 状态。
+
+**症状/证据**：
+
+- `state.loading` 已驱动标题文案、Replace 禁用和 sr-only status；
+- result listbox 没有 `aria-busy`，辅助技术无法知道当前结果正在更新；
+- loading 时旧结果按设计继续保留，不能通过清空列表宣示忙碌。
+
+**根因**：
+
+- 只提供了视觉和 live-region 文案，没有把加载状态绑定到结果集合本体；
+- listbox 的 `aria-activedescendant`、selected row 和 retained data 均正常，
+  缺少的是集合级 busy 语义。
+
+**修复**：
+
+- listbox 增加
+  `aria-busy={state.loading === true ? true : undefined}`；
+- loading 完成或失败后移除 busy，不影响 retained rows、active row、
+  aria-activedescendant 和键盘导航；
+- popup/dock 共用同一语义。
+
+**回归**：
+
+- 新增
+  `tests/search-find-listbox-exposes-loading-busy-state.test.mjs`；
+  RED **0 pass / 1 fail**；
+- GREEN：busy、dialog semantics、Tab trap 和静态顺序测试
+  **8 pass / 0 fail**；
+- DSH Web MutationObserver：aria-busy 采样为
+  `null -> true -> null`，最终 10 个结果、busy 移除、无 alert；
+- 完整测试：**3017 pass / 0 fail**；
+- lint、类型、Prettier、构建一致性和 `git diff --check` 通过。
+
+**适用环境**：macOS、Node 24.22.2、Chrome/Ego Lite。
+结果集合加载时必须暴露集合级 `aria-busy`；retained rows 继续存在，
+不能用清空 DOM 代替忙碌状态。
+
+## 2026-11-19 — Find popup 缺少 dialog / aria-modal 语义
+
+**作用域**：transient Find in Files popup 与持久 Find dock 的根节点 ARIA
+语义。
+
+**症状/证据**：
+
+- popup 已启用 Tab 焦点循环，但根节点仍是 `role="region"`；
+- 根节点没有 `aria-modal`，辅助技术无法识别其为瞬时对话框；
+- Search Everywhere、Quick Open、Show Usages、Find Scope Editor 均正确使用
+  `role="dialog"`；
+- 同一个 FindToolWindow 切换到 dock 后必须继续保持非模态 region。
+
+**根因**：
+
+- Find popup 和 dock 共用同一组件，但根 ARIA 语义没有随 `floating`
+  模式分流；
+- 之前只补了焦点陷阱，没有同步修正可访问性契约。
+
+**修复**：
+
+- floating popup 使用 `role="dialog"` 和 `aria-modal="true"`；
+- dock 使用 `role="region"`，且不输出 `aria-modal`；
+- 原有 surface `aria-label`、焦点陷阱、Escape 和外部点击关闭保持不变。
+
+**回归**：
+
+- 新增 `tests/search-find-popup-dialog-semantics.test.mjs`；
+  RED **0 pass / 1 fail**；
+- GREEN：popup semantics、Tab trap、Escape root、popup dimensions 和静态顺序
+  定向测试 **16 pass / 0 fail**；
+- DSH Web：popup DOM 为
+  `role=dialog / aria-modal=true / aria-label=Find in Files`；
+  Open in Find Window 后 dock DOM 为 `role=region`，无 `aria-modal`；
+  无 alert；
+- 完整测试：**3016 pass / 0 fail**；
+- lint、类型、Prettier、构建一致性和 `git diff --check` 通过。
+
+**适用环境**：macOS、Node 24.22.2、Chrome/Ego Lite。
+同一组件承载 modal popup 与非 modal dock 时，ARIA role 和 `aria-modal`
+必须随承载模式分流；焦点陷阱不能替代 dialog 语义。
+
+## 2026-11-19 — 首次 workspace root 加载会关闭刚打开的 Find
+
+**作用域**：`editor-workspace.tsx` 的 `[root]` search/reset effect，
+以及 Find / Search Everywhere / Quick Open / Show Usages 等 workspace-bound
+transient surface。
+
+**症状/证据**：
+
+- 点击 Open Editor Workspace 后立即按 `Meta+Shift+F`；
+- Find popup 初始出现且查询框获得焦点；
+- 约 40–60ms 后 popup 消失，activeElement 先变 BODY，再回到 Monaco；
+- 等待 workspace 稳定后再打开 Find 则正常；
+- `[root]` effect 在首次从空 root 获取真实 workspace 时无条件
+  `setFindTool(null)`，把挂载竞态窗口内刚打开的工具窗清掉。
+
+**根因**：
+
+- “首次 host handshake 取得 root”和“用户真正切换 workspace”共用同一套
+  destructive reset；
+- root effect 的 cleanup 也在该首次加载时中止刚启动的 transient 请求。
+
+**修复**：
+
+- foundation 新增
+  `workspaceSearchSurfacesShouldReset(previousRoot, nextRoot)`；
+- 仅 `previousRoot !== '' && previousRoot !== nextRoot` 时执行完整 reset；
+- 首次空 root 到真实 root 只加载 workspace-scoped histories，不清 transient UI；
+- 所有请求 generation/abort 收敛到 `cancelWorkspaceSearchRequests()`；
+- 真正 workspace 切换时先取消请求，再清 Search Everywhere、Show Usages、
+  Find、文件候选和 replace history；
+- 组件卸载仍通过独立 cleanup 取消所有在途请求。
+
+**回归**：
+
+- 新增
+  `tests/search-find-immediate-open-survives-initial-workspace-acquisition.test.mjs`；
+  RED **0 pass / 2 fail**；
+- GREEN：workspace reset、Search Everywhere abort、Find workspace guard 与
+  新 helper 定向测试 **15 pass / 0 fail**；
+- DSH Web：Editor Workspace 出现后立即打开 Find；
+  0–900ms 十个采样点 popup 均存在，activeElement 始终是
+  `Find in files…`；修复前同一路径在约 40–60ms 关闭；
+- 真正 workspace 变化仍取消请求并清空旧 transient surfaces；
+- 完整测试：**3015 pass / 0 fail**；
+- lint、类型、Prettier、构建一致性和 `git diff --check` 通过。
+
+**适用环境**：macOS、Node 24.22.2、Chrome/Ego Lite。
+首次 host handshake 不是 workspace switch；挂载期间的 root 获取不能执行
+与用户切换项目相同的 destructive reset。请求取消和 UI reset 应在真实变化
+下保持“先取消、后清空”，卸载则只做资源清理。
+
+## 2026-11-19 — Find popup 的 Tab 焦点逃逸到背景应用
+
+**作用域**：transient Find in Files popup 的键盘焦点边界与根级键盘处理。
+
+**症状/证据**：
+
+- 查询框获得焦点后，从结果列表继续按 Tab；
+- 焦点依次进入弹窗背后的 BODY、Editor、Activity Stripe、Chat 和 workspace；
+- 弹窗仍保持打开，但用户已经无法继续在搜索控件中操作；
+- Find dock 是持久非模态工具窗，不应套用相同限制。
+
+**根因**：
+
+- Find popup 没有像 Search Everywhere 一样建立焦点循环；
+- 根节点只处理 Group By 快捷键和 Escape，没有消费 Tab；
+- 键盘逻辑内联在 JSX 中，无法和现有共享焦点索引 helper 复用。
+
+**修复**：
+
+- 复用 `searchEverywhereNextFocusIndex`；
+- 新增 `trapFindToolPopupFocus`，只在 `floating === true` 时启用；
+- 收集弹窗内可聚焦、可见且未禁用的 button/input/textarea/select/tabindex=0；
+- Tab 和 Shift+Tab 在控件之间循环并阻止背景焦点；
+- 将根级键盘逻辑提取为 `handleFindToolRootKeyDown`，保持 Ctrl+D/Ctrl+S、
+  Escape 和菜单自身处理顺序；
+- Find dock 保持非模态，不启用焦点陷阱。
+
+**回归**：
+
+- 新增 `tests/search-find-popup-tab-focus-trap.test.mjs`；
+  RED **0 pass / 2 fail**；
+- GREEN：popup 焦点、Escape root、Group By、键盘与静态顺序定向测试
+  **13 pass / 0 fail**；
+- DSH Web：Find popup 连续 Tab 30 次均未逃逸；
+  焦点在 13 个弹窗控件间循环并回到查询框；
+  Shift+Tab 仍位于弹窗内，无 alert；
+- Find dock 无焦点陷阱，保持可切换到 Editor；
+- 完整测试：**3013 pass / 0 fail**；
+- lint、类型、Prettier、构建一致性和 `git diff --check` 通过。
+
+**适用环境**：macOS、Node 24.22.2、Chrome/Ego Lite。
+瞬时对话框必须把 Tab 循环限制在自身可见控件内；持久 dock 不能误用
+模态焦点陷阱。键盘逻辑从 JSX 提取后，应保留原有 Group By 与 Escape 优先级。
+
+## 2026-11-19 — Find 每行重复 findIndex 导致 O(n²) 渲染扫描
+
+**作用域**：`FindToolWindow.tsx` 的结果渲染、handoff 收敛、文件组键盘进入
+和 active occurrence 查找。
+
+**症状/证据**：
+
+- 每个文件结果行和文本结果行都在 render 中执行
+  `occurrences.findIndex((entry) => entry.rowKey === rowKey)`；
+- 200 条结果时单次 render 最多执行约 4 万次 rowKey 比较，结果数增长时
+  成本按平方增长；
+- handoff effect、文件组 ArrowDown 和渲染层重复同一扫描；
+- DSH Web 使用 `const` 查询得到 200 matches / 1 file，dock 完整渲染
+  200 个 option。
+
+**根因**：
+
+- 把搜索顺序中的 index 当作每行的即时查询，而不是一次性索引；
+- 结果行的 `rowKey` 本身唯一，适合在一次 O(n) 扫描后 O(1) 查找。
+
+**修复**：
+
+- 新增 memo 化 `occurrenceIndexByKey` Map，保留首个 rowKey 位置；
+- 结果行、handoff、文件组键盘进入和 rerun 收敛全部改用 Map；
+- 保留原有 active index、折叠、handoff 和键盘导航顺序。
+
+**回归**：
+
+- 新增
+  `tests/search-find-occurrence-index-map-avoids-quadratic-row-scans.test.mjs`；
+  RED **0 pass / 1 fail**；
+- GREEN：handoff、键盘、静态顺序和 Map 回归 **18 pass / 0 fail**；
+- DSH Web：200 matches / 1 file、200 options、1 group；
+  本地重渲染 MutationObserver 采样中位数约 **2.6ms**，无 alert；
+- 完整测试：**3011 pass / 0 fail**；
+- lint、类型、Prettier、构建一致性和 `git diff --check` 通过。
+
+**适用环境**：macOS、Node 24.22.2、Chrome/Ego Lite。
+列表行需要按顺序 index 时，应在结果数组变化时建立一次 Map；
+禁止在每个 render callback 内对完整结果数组执行 findIndex。
+
+## 2026-11-19 — Find dock 的 Show Replace 不显示也不聚焦替换框
+
+**作用域**：`FindToolWindow.tsx` 持久 Find dock 的 Show/Hide Replace 工具栏
+按钮。
+
+**症状/证据**：
+
+- 点击 Show Replace 只执行
+  `setReplaceExpanded((current) => !current)`；
+- 310px 窄 dock 中控制区已可滚动，但新增 Replace 行位于可视区下方；
+- 焦点仍停留在 Show Replace 按钮，用户看不到也无法直接输入替换值；
+- 组件已有 `focusReplaceInput()`、pending focus 和 rerender 后聚焦链路，
+  该入口没有复用。
+
+**根因**：
+
+- Show Replace 按钮绕过了替换模式既有的聚焦入口；
+- 仅切换可见性，没有触发浏览器把新输入框滚入可滚动控制区。
+
+**修复**：
+
+- 折叠状态改为调用 `focusReplaceInput()`；
+- 展开状态仍点击同一按钮时收起 Replace 行；
+- 复用已有 `replaceFocusPendingRef` 和 effect，渲染后聚焦替换输入；
+- 浏览器把聚焦输入滚入 controls 可视区，结果区和底部操作栏分配不变。
+
+**回归**：
+
+- 新增 `tests/search-find-show-replace-focuses-visible-input.test.mjs`；
+  RED **0 pass / 1 fail**；
+- GREEN：Replace row、popup content、dock controls 和静态顺序定向测试
+  **16 pass / 0 fail**；
+- DSH Web：10 个结果；Show Replace 后 activeElement 为
+  `Replace in files with…`，controls `scrollTop: 100`；
+  替换框位于 controls 可视区内，controls 124px、listbox 105px、
+  底部 Replace All/Replace 可见；无 alert；
+- IDEA 只读对照：Replace 入口直接进入可编辑替换字段，而不是只展开空行；
+- 完整测试：**3010 pass / 0 fail**；
+- lint、类型、构建一致性与 `git diff --check` 通过。
+
+**适用环境**：macOS、Node 24.22.2、Chrome/Ego Lite。
+工具栏切换若新增输入行，必须复用输入聚焦入口；仅切换 `open` 状态不能
+保证新字段可见、可输入，尤其在可滚动和窄工具窗布局中。
+
+## 2026-11-19 — Find 大结果集重复派生与窄 dock 结果区消失
+
+**作用域**：`FindToolWindow.tsx` 的 scoped results、分组、计数、handoff、
+替换路径与文件掩码建议；Find dock 的控制区和结果区垂直分配。
+
+**症状/证据**：
+
+- 每次 render 都会重新执行 scope path Set、文件/文本过滤、
+  `findToolVisibleRows`、分组、popup rows、计数和 replacement path Set；
+- 10 个匹配、5 个文件时这些数组仍会随无关 render 重建；
+- DSH Web 默认 908×554、Find dock 宽 310px、高 281px；
+- 展开 Replace 后，10 个 result option 仍存在，但 listbox 实测仅
+  `height: 6px`，结果滚到操作栏下方且不可见。
+
+**根因**：
+
+- 只依赖搜索结果、scope、collapsed set 和 Group By 的派生数据没有
+  `useMemo`，导致每次 render 全量重复；
+- dock 的标题、搜索、Replace、scope 行全部 `flex:none`，窄宽和窄高时
+  自然换行占满高度，结果区和底部操作区没有最低空间保障。
+
+**修复**：
+
+- 新增稳定的 `scopeFilterOptions`，同一对象同时用于 file/match scope；
+- memo 化 `scopedFileResults`、`scopedMatches`、`dockVisibleRows`、
+  `popupOccurrences`、`displayGroups`、`handoffTarget`、
+  `fileMaskSuggestions`、结果计数和 `scopedReplacementPaths`；
+- 保留 loading/error 时旧结果、scope 顺序、折叠、active row、
+  Replace All 目标和 busy/focus 语义；
+- Find dock 顶部控件统一放入可纵向滚动的控制区，最大高度
+  `calc(100% - 150px)`；
+- 结果 split 保持 `minHeight: 96px`，底部 Replace 操作栏继续固定可见。
+
+**回归**：
+
+- 新增 `tests/search-find-large-results-derived-data-memoized.test.mjs`；
+  RED **0 pass / 3 fail**；
+- 新增 `tests/search-find-dock-controls-scroll-results-visible.test.mjs`；
+  RED **0 pass / 2 fail**；
+- 相关 Find、scope、group、handoff、Replace 和静态顺序定向测试全部通过；
+- DSH Web：10 matches / 5 files、5 groups；
+  折叠首组 10→7 options，展开恢复 10；
+  Preview 含 `scopedReplacementPaths`；
+  Replace All 使用 `alertdialog`，Cancel 初始聚焦，Escape 后结果仍为 10；
+  修复后 Replace 展开时 controls 高 124px 可滚动、listbox 高 105px、
+  底部 Replace All/Replace 完整可见；无 alert/error boundary；
+- IDEA 只读对照：同样显示匹配/文件计数、文件分组、代码 Preview 和
+  Replace 操作区；本轮词项 IDEA 为 14 matches / 7 files，DSH 为
+  10 matches / 5 files，差异来自两边搜索文件集合，不是结果渲染丢失；
+- 完整测试：**3009 pass / 0 fail**；
+- lint、类型、全 client Prettier、构建一致性和 `git diff --check` 通过。
+
+**适用环境**：macOS、Node 24.22.2、Chrome/Ego Lite。
+Find 的结果派生必须以真实结果/scope/group 输入为依赖；窄工具窗必须让
+控制区滚动而不是压缩结果 listbox，同时始终给底部 Replace 操作保留空间。
+
+## 2026-11-19 — Commit 派生数据在无关 render 中全量重建
+
+**作用域**：`src/client/components/commit/CommitPanel.tsx` 的 changes 分组、
+path 过滤目标和全选状态。
+
+**症状/证据**：
+
+- changes 拆分、path map、tracked targets、groups、visibleGroups 和
+  allSelected 都在组件函数体直接计算；
+- 每次提交信息输入都会重做这些派生，即使 git changes 和 path filter 未变；
+- `filteredTargets` 依赖 git/groupBy/pathQuery，而不是实际使用的 groups；
+- 运行态 Changes 列表有 176 个 treeitem，重复成本随变更量增长。
+
+**根因**：
+
+- 把只依赖 props 的派生数据当成普通 render-local 中间值；
+- memo 依赖没有收敛到真实输入。
+
+**修复**：
+
+- changes 以 git?.changes 为依赖；
+- changesByPath、tracked targets、split 结果以 changes 为依赖；
+- groups 依赖 staged/unstaged/unversioned 和 translator；
+- visibleGroups 依赖 groups/pathQuery；
+- filteredTargets 依赖 visibleGroups；
+- allSelected 依赖 changes/selectedPaths。
+
+**回归**：
+
+- 新增
+  `tests/commit-panel-derived-change-groups-memoized.test.mjs`；
+- RED：**1 pass / 1 fail**；
+- GREEN：CommitPanel 派生与工具栏定向测试 **12 pass / 0 fail**；
+- DSH Web：输入提交信息前后 Changes rows 均为 176；
+- 不存在 path filter 显示 0 rows/No matches，清空后恢复 176 rows；
+- 无 alert；
+- 完整测试：**3004 pass / 0 fail**。
+
+**适用环境**：macOS、Node 24.22.2、Chrome/Ego Lite。
+高频输入区域的派生列表、Map 和 selection 扫描必须隔离到其真实 props，
+不能随每次 textarea render 全量重建。
+
+## 2026-11-19 — Project 树每行重复扫描导致 O(n²) 渲染成本
+
+**作用域**：`ProjectPanel` 的 treeitem ARIA 位置计算与
+`terminal.ts` 的 `projectTreePosition`。
+
+**症状/证据**：
+
+- 每渲染一行都会调用
+  `projectTreePosition(visibleRows, rowIndex)`；
+- 该函数向前查找父节点、向后统计兄弟，整体 O(n²)；
+- DSH 展开 tests 后一次渲染 **948** 个 treeitem；
+- 位置元数据只依赖 visibleRows，却是每行重复计算。
+
+**根因**：
+
+- 扁平行模型在渲染阶段才临时恢复层级；
+- 没有把整组 ARIA 位置作为 visibleRows 的派生缓存。
+
+**修复**：
+
+- 新增 `projectTreePositions(rows)`：
+  深度栈一次识别 parent，再按 parent 分组填充 posinset/setsize；
+- `projectTreePosition` 保留为兼容 wrapper；
+- ProjectPanel 用 `useMemo` 只在 visibleRows 变化时计算一次；
+- 行渲染按 index 读取结果，不再扫描。
+
+**回归**：
+
+- 新增
+  `tests/project-tree-accessibility-positions-linear-precompute.test.mjs`；
+- RED：**0 pass / 2 fail**；
+- GREEN：Project position、ARIA level 与接线定向测试
+  **7 pass / 0 fail**；
+- DSH Web：948 个 treeitem，非法 ARIA position **0**；
+- 完整测试：**3002 pass / 0 fail**。
+
+**适用环境**：macOS、Node 24.22.2、Chrome/Ego Lite。
+扁平树的派生层级/兄弟位置应在行列表变化时批量计算，不能在每个行的
+render callback 中重复扫描整棵树。
+
+## 2026-11-19 — 隐藏页面仍保留三个周期轮询 timer
+
+**作用域**：Editor workspace 签名轮询、Commit Log 本地文件检查、
+Diff 本地路径检查。
+
+**症状/证据**：
+
+- 三处 effect 都用 `window.setInterval`；
+- 回调虽然检查 `visibilityState === 'hidden'`，但 timer 本身仍周期唤醒；
+- 隐藏标签页仍承担无意义的回调调度；
+- 三份实现重复维护可见性、取消和重新调度语义。
+
+**根因**：
+
+- 只把 visibility 当作网络请求 guard，没有把它当作 timer ownership；
+- 没有共享的可暂停轮询 helper。
+
+**修复**：
+
+- foundation 新增 `startVisibilityGatedPoll()`；
+- 单次 `setTimeout` 自调度，任务结束后才安排下一次；
+- 隐藏时清除 timer；恢复可见时立即运行并恢复原间隔；
+- Editor 8 秒、Commit 3 秒、Diff 1.5/3 秒间隔保持不变；
+- 卸载、focus、cancelled 和错误抑制语义保持不变。
+
+**回归**：
+
+- 新增
+  `tests/editor-visibility-polls-stop-hidden-scheduling.test.mjs`；
+- RED：**0 pass / 2 fail**；
+- GREEN：helper、Commit 和 Diff 可见性定向测试 **9 pass / 0 fail**；
+- DSH Web：隐藏 9 秒内 `signature` 请求 **0** 次；
+  恢复可见后立即请求 **1** 次；
+- Editor、Commit、Terminal 冒烟正常，无 alert/error boundary；
+- 完整测试：**3000 pass / 0 fail**。
+
+**适用环境**：macOS、Node 24.22.2、Chrome/Ego Lite。
+visibility guard 不能只放在 interval 回调内；后台页面应清除 timer，
+并在恢复时立即补一次状态检查。
+
+## 2026-11-19 — 历史菜单 Escape 后回到按钮而非输入框
+
+**作用域**：`ContextMenu` 及 Search Everywhere、Find 工具、
+Editor Find 的查询/替换历史菜单。
+
+**症状/证据**：
+
+- Find in Files 从 `Search History` 按钮打开菜单后按 Escape，
+  activeElement 仍是历史按钮；
+- 查询框、替换框和编辑器 Find 输入框都不会重获焦点；
+- ContextMenu 的 `fallbackFocus` 只在 opener 失联时使用，按钮仍连接时
+  总是恢复按钮。
+
+**根因**：
+
+- “关闭菜单”没有区分 Escape 与外部点击；
+- 历史菜单缺少字段级 Escape 回焦目标；
+- 编辑器 Find 没有输入 refs，无法指定历史 kind 对应的字段。
+
+**修复**：
+
+- ContextMenu 模型新增 `escapeFocus`，只在根菜单 Escape 后延迟执行；
+- Search Everywhere 查询/Find Usages 回查询框，替换历史回替换框；
+- Find 工具按 `kind` 回查询或替换框；
+- Editor Find 增加字段 refs，并按历史 kind 回对应输入；
+- 外部点击、菜单项执行与 opener 恢复路径保持不变。
+
+**回归**：
+
+- 新增
+  `tests/search-history-menu-escape-returns-owning-field.test.mjs`；
+- RED：**0 pass / 4 fail**；
+- GREEN：ContextMenu、Search Everywhere、Find 工具与编辑器历史定向测试
+  **17 pass / 0 fail**；
+- DSH Web：查询历史 Escape 回 `Find in files…`；
+  替换历史 Escape 回 `Replace in files with…`；
+  编辑器 Find 历史 Escape 回 find input；
+- 三处均无 alert，历史值与被搜索字段保持；
+- 完整测试：**2998 pass / 0 fail**。
+
+**适用环境**：macOS、Node 24.22.2、Chrome/Ego Lite。
+菜单关闭必须区分 Escape 与背景点击；Escape 应回业务输入继续编辑，
+背景点击仍应尊重上下文 opener。
+
+## 2026-11-19 — 超长 Replace 详情无法用键盘滚动
+
+**作用域**：`src/client/components/search/search-replace-confirmation.ts`
+的可滚动 Replace 详情区。
+
+**症状/证据**：
+
+- 详情区已有 `overflowY:auto`，但 div 没有 `tabIndex`；
+- Tab 只在 Cancel/Replace 按钮间循环，键盘无法进入详情区；
+- 超长 query/replacement 因此只能依赖鼠标滚轮查看；
+- 滚动容器与 `aria-describedby` 文本节点原本是同一个元素。
+
+**根因**：
+
+- 只处理了鼠标/触控滚动，没有建立完整键盘焦点模型；
+- 两个按钮的手写 Tab 分支无法容纳第三个焦点目标；
+- 可聚焦区域标签和 alertdialog 描述文本没有分离。
+
+**修复**：
+
+- 外层详情容器改为 `role=region`、`tabIndex=0`，使用本地化标签；
+- 完整文本移入内部 `messageId` 节点，继续作为 alertdialog 描述；
+- Tab 顺序为 Cancel → Replace → Replace details → Cancel，
+  Shift+Tab 反向循环；
+- 保留 Cancel 首焦、Escape/Enter 取消和既有滚动尺寸约束。
+
+**回归**：
+
+- 新增
+  `tests/search-replace-confirmation-keyboard-scroll-focus.test.mjs`；
+- RED：**0 pass / 3 fail**；
+- GREEN：确认框、尺寸与键盘焦点定向测试 **9 pass / 0 fail**；
+- DSH Web：焦点顺序 `cancel → accept → details`；
+  PageDown 后 scrollTop **0 → 602**；
+- Escape 后焦点回到 replace 输入框，匹配保留且无 alert；
+- 完整测试：**2994 pass / 0 fail**。
+
+**适用环境**：macOS、Node 24.22.2、Chrome/Ego Lite。
+可滚动只读详情必须进入键盘焦点闭环；焦点标签和描述正文应分离，
+避免为滚动区域命名时覆盖 alertdialog 的完整描述。
+
+## 2026-11-19 — 超长 Replace 确认内容把操作按钮推出视口
+
+**作用域**：`src/client/components/search/search-replace-confirmation.ts`
+的应用内 Replace All 确认框。
+
+**症状/证据**：
+
+- 5009 字符 query 与 16329 字符多行 replacement 使确认框高度达到
+  **8066px**；
+- 908×554 视口中 dialog top 为 **-3756px**、bottom 为 **4310px**，
+  Cancel/Replace 位于 top **4282px**，完全不可操作；
+- dialog 内容盒宽为 548px，没有 `border-box` 约束；
+- 消息区 `overflowY=visible`，缺少 `minHeight: 0` 和可收缩 flex 边界。
+
+**根因**：
+
+- 确认框将完整 query/replacement 放进单行 flex column，却没有总高度上限；
+- 消息 div 的默认 `min-height:auto` 阻止 flex 收缩；
+- 外层 `overflow:hidden` 缺失，按钮被内容推到视口外。
+
+**修复**：
+
+- dialog 使用 `box-sizing:border-box`；
+- 高度上限为 `min(72vh, 640px)`，外层 overflow hidden；
+- 标题、按钮不收缩；消息区 `flex:1 1 auto`、`minHeight:0`、
+  `overflowY:auto`；
+- 保留完整文本、`pre-wrap`、`overflowWrap:anywhere`、Cancel 首焦和键盘语义。
+
+**回归**：
+
+- 新增
+  `tests/search-replace-confirmation-long-multiline-bounded.test.mjs`；
+- RED：**1 pass / 1 fail**；
+- GREEN：确认框与上下文定向测试 **6 pass / 0 fail**；
+- DSH Web 908×554：dialog **520×398.875px**，按钮在视口内；
+  消息 clientHeight **341px**、scrollHeight **8116px**、overflow auto；
+- DSH Web 320×480：dialog **288×345.59px**，仍完整位于视口；
+- 完整测试：**2991 pass / 0 fail**。
+
+**适用环境**：macOS、Node 24.22.2、Chrome/Ego Lite。
+确认框应限制整体高度并让只读正文独立滚动；长文本不能推走安全动作，
+也不能为了布局截断真实 query/replacement。
+
+## 2026-11-19 — Terminal 恢复快照定时器在页面隐藏后仍持续运行
+
+**作用域**：`src/client/components/terminal/TerminalPanel.tsx` 的
+scrollback 恢复快照持久化 effect。
+
+**症状/证据**：
+
+- 原实现使用永久 `window.setInterval(persist, 1000)`；
+- 内容未变化时虽然不会写 sessionStorage，但隐藏标签页仍每秒唤醒回调并
+  构造快照；
+- visibilitychange 只在隐藏时补写一次，没有停止 interval。
+
+**根因**：
+
+- 持久化节流使用了不可暂停的 interval；
+- 可见性和页面生命周期事件只承担“补写一次”，没有承担调度 ownership。
+
+**修复**：
+
+- 改为单次 `setTimeout` 自调度；
+- 可见时每秒持久化并继续调度；
+- 隐藏时立即持久化一次、清除当前 timer，并不再安排后台回调；
+- 恢复可见时立即持久化暂停期间的新终端输出，再恢复每秒调度；
+- pagehide 与卸载继续执行最终写入，卸载同时取消 timer。
+
+**回归**：
+
+- 新增 `tests/terminal-restore-timer-pauses-hidden-page.test.mjs`；
+- 同步更新 restore buffer 的定时器接线契约；
+- RED：**0 pass / 2 fail**；
+- GREEN：Terminal restore、缓存和隐藏调度定向测试
+  **10 pass / 0 fail**；
+- DSH Web：隐藏 1.6 秒期间 sessionStorage 长度保持 `2420`；
+  恢复可见后立即变为 `2458` 并包含隐藏期间输出；
+- 可见状态下新输出仍在既有 1 秒节流内写入；
+- 完整测试：**2989 pass / 0 fail**。
+
+**适用环境**：macOS、Node 24.22.2、Chrome/Ego Lite。
+后台页面应按 visibility 主动暂停周期任务，而不是只依赖浏览器 throttle；
+暂停前、恢复时、pagehide 和卸载都必须保留最终权威快照。
+
+## 2026-11-19 — Replace All 原生确认缺少上下文且默认接受动作
+
+**作用域**：`src/client/components/search/search-replace-confirmation.ts`、
+持久 Find 与 Search Everywhere 的两个 Replace All 调用点。
+
+**症状/证据**：
+
+- IDEA Replace All 确认框显示精确 query、replacement、occurrence 数和文件数，
+  初始焦点在 Cancel；
+- DSH 使用 `window.confirm` 时只显示计数，缺少替换上下文；
+- 浏览器原生确认默认接受，Enter 可能直接开始批量写入；
+- 点击确认层会被 Find 弹窗的全局 outside-click 监听当作窗口外点击，
+  导致 Find 被关闭。
+
+**根因**：
+
+- 原生 confirm 只能提供单行消息，无法控制默认按钮和安全首焦；
+- Find 弹窗的外部点击守卫不认识应用内替换确认层；
+- 两个 Replace All 路径没有共享一个可测试的确认组件。
+
+**修复**：
+
+- 新增共享 `confirmSearchReplace()`，使用 `role="alertdialog"`、
+  `aria-modal="true"` 和精确 query/replacement/count 文案；
+- 初始焦点固定到 Cancel；Cancel 上按 Enter 取消，Escape 取消，
+  Tab 在两个动作间循环；
+- 关闭后先恢复 opener，再由既有 `replaceFocusRequest` 回到替换输入框；
+- Find outside-click 守卫加入 `data-dsh-search-replace-confirm` 例外；
+- 写入计划、dirty transaction、host history、busy guard 和结果计数不变。
+
+**回归**：
+
+- 新增
+  `tests/search-replace-confirmation-context-cancel-focus.test.mjs`；
+- 同步更新取消回焦、写入守卫、count-unit、Pin Window 和持久替换契约；
+- RED：确认模块尚不存在；
+- GREEN：确认、Find outside-click、替换守卫与 count-unit 定向测试
+  **25 pass / 0 fail**；
+- DSH Web：Cancel 持焦；Enter/Escape 均不写入并回到 replace 输入框；
+  确认后显示 `Replaced 3 occurrences in 2 files`，Find 保持打开且无 alert；
+- IDEA Computer Use：确认文案与 Cancel 首焦一致；
+- 完整测试：**2987 pass / 0 fail**。
+
+**适用环境**：macOS、Node 24.22.2、TypeScript 5.9.3、React 18、
+IntelliJ IDEA 2026.2。批量写入确认必须显式控制安全首焦，并让所有
+浮层 outside-click 守卫识别确认层；原生 `window.confirm` 不能满足该交互契约。
+
+## 2026-11-19 — 已打开的 Replace in Files 再次快捷键会清空草稿
+
+**作用域**：`src/client/editor-workspace.tsx` 的
+`openReplaceInFilesFromEditor`。
+
+**症状/证据**：
+
+- IDEA 在 Replace in Files 已输入 query/replace 时再次按 `⇧⌘R`，
+  字段保留并重新展示结果；
+- DSH 同一操作后 query 与 replace 都变为空；
+- 已打开分支无条件写 `query: selectedQuery` 和 `replace: ''`，并清空结果。
+
+**根因**：
+
+- 快捷键分支把“新编辑器选区”和“重复按快捷键”当成同一种重建；
+- 没有区分 query 是否真正变化，导致无选区时也销毁当前草稿和结果。
+
+**修复**：
+
+- 无选区时沿用当前 query/replace、结果和 generation；
+- 有非空选区且 query 真正变化时，只覆盖 query；
+- replace 始终保留，旧结果仅在 query 变化时失效；
+- 始终切换到 replace 模式和 popup surface，并聚焦 query；
+- 直接关闭后重开的草稿恢复与 Search Everywhere 空白入口不受影响。
+
+**回归**：
+
+- 新增 `tests/search-replace-open-shortcut-preserves-current-draft.test.mjs`；
+- 覆盖无选区保留、选区覆盖 query、replace 保持、结果失效和 surface 切换；
+- RED：**0 pass / 2 fail**；
+- GREEN：草稿、直接快捷键、handoff、作用域与模块规模定向测试
+  **39 pass / 0 fail**；
+- DSH Web：重复快捷键后 query/replace 原样保留，无 alert/error boundary；
+- IDEA Computer Use：确认字段和结果保留；
+- 完整测试：**2983 pass / 0 fail**。
+
+**适用环境**：macOS、Node 24.22.2、TypeScript 5.9.3、React 18、
+IntelliJ IDEA 2026.2。快捷键重复执行必须比较真实输入差异，不能把无变化的
+重复操作当成新查询并清空草稿。
+
+## 2026-11-19 — Replace in Files 重开后丢失上次查询与替换
+
+**作用域**：`src/client/editor-workspace.tsx` 的 Find/Replace 直接快捷键、
+`openFindTool` 与 `src/client/find-tool.ts` 的重开草稿模型。
+
+**症状/证据**：
+
+- IDEA Replace in Files 输入 query/replace 后 Escape，再按 `⇧⌘R`，
+  两个字段均保留；
+- DSH 同一流程关闭后焦点正确回到 Monaco，但重开后 query/replace 均为空；
+- `openFindTool` 每次创建状态都写 `replace: ''`，并且只使用调用方传入查询。
+
+**根因**：
+
+- Find 工具关闭时直接 `setFindTool(null)`，没有保存最后一个直接快捷键草稿；
+- 打开逻辑没有区分“编辑器直接快捷键恢复草稿”和
+  “Search Everywhere Actions 的显式空白入口”。
+
+**修复**：
+
+- 新增 `findToolReopenDraft` 纯函数，空白查询恢复草稿，编辑器选区覆盖 query；
+- Editor 会话保存最后的 query/replace；
+- 直接 Find/Replace in Files 快捷键传入 `restoreDraft=true`；
+- Search Everywhere Actions 保持 `restoreDraft=false`，继续打开空白替换；
+- 关闭、搜索请求、结果、历史和 Replace All 语义不变。
+
+**回归**：
+
+- 新增 `tests/search-replace-reopen-retains-last-draft.test.mjs`；
+- 同步更新直接快捷键、handoff 和组件规模契约；
+- RED：草稿函数缺失；
+- GREEN：草稿、handoff、快捷键、Escape 与模块规模定向测试
+  **48 pass / 0 fail**；
+- DSH Web：直接重开后 query/replace 精确恢复；Search Everywhere 入口仍空白；
+- IDEA Computer Use：确认 query/replace 跨关闭保留；
+- 完整测试：**2981 pass / 0 fail**。
+
+**适用环境**：macOS、Node 24.22.2、TypeScript 5.9.3、React 18、
+IntelliJ IDEA 2026.2。草稿恢复必须是入口能力，不能让所有打开路径共享同一
+恢复策略；显式空白入口与直接快捷键需要保持不同语义。
+
+## 2026-11-19 — 静态资产流被中止后积累 Gzip drain 监听器
+
+**作用域**：`lib/index.js` 的 `assetFileResponse`，用于 Monaco、xterm 和
+shared 只读静态资产。
+
+**症状/证据**：
+
+- DSH 服务在页面反复加载或资源下载中断后持续输出
+  `MaxListenersExceededWarning: 11 drain listeners added to [Gzip]`；
+- 使用认证 cookie 对 `editor.main.js` 连续发起 24 个 Gzip 请求并在 20ms
+  后中止，稳定复现 24 条同类警告；
+- 修复前 `assetFileResponse` 返回 `new Response(createReadStream(file))`。
+
+**根因**：
+
+- 插件把 Node `fs.ReadStream` 直接作为 Fetch Response body；
+- 客户端中途断开时，宿主 Gzip 压缩层无法按该流生命周期及时释放 drain
+  监听器；
+- 原 HEAD 响应也没有显式 `content-length`。
+
+**修复**：
+
+- 只读静态资产在 GET 时先 `await readFile(file)`，返回有界内存正文；
+- GET 的 `content-length` 使用实际正文长度；
+- HEAD 不读取正文，使用 stat 大小返回 `content-length`；
+- 路由、媒体类型、缓存头、越界检查与文件内容保持不变；
+- 工作区图片仍保持流式响应，避免任意大图被无界读入内存。
+
+**回归**：
+
+- 新增
+  `tests/plugin-asset-responses-buffer-gzip-abort.test.mjs`；
+- 覆盖 GET 无 `createReadStream`、完整正文、媒体类型与长度；
+  覆盖 HEAD 不读取正文但保留长度；
+- RED：**0 pass / 2 fail**；
+- GREEN：资产响应与插件合同定向测试 **18 pass / 0 fail**；
+- 修复前 24 个中止 Gzip 请求产生 24 条警告；修复后为 **0 条**；
+- DSH Web：Monaco/xterm 资源正常加载，Editor 与 Terminal 可用；
+- 完整测试：**2977 pass / 0 fail**。
+
+**适用环境**：macOS、Node 24.22.2、DSH compare profile。
+对可预期大小的静态第三方资产，优先返回有界内存正文，避免把 Node 文件流
+直接交给宿主压缩层后因客户端中断而积累 drain 监听器。
+
+## 2026-11-19 — Commit Log 搜索后标题不反映当前查询
+
+**作用域**：`src/client/components/commit/CommitLogToolbar.tsx`、
+`commit-log-view-model.ts` 与 Commit Log 窄宽容器规则。
+
+**症状/证据**：
+
+- IDEA Git Log 输入并应用 `no-such-commit-query` 后，工具窗标题变为
+  `Log: 'no-such-commit-query'`；
+- DSH 同一查询时过滤框和空结果正确，但 `.dsh-editor-log-title` 始终为
+  `Commit`；
+- 既有 `@container (max-width: 520px)` 规则会隐藏标题，以优先保留过滤动作，
+  因此只修改文本仍无法在默认窄工具窗中提供可见反馈。
+
+**根因**：
+
+- 标题直接读取静态 `tabLog` locale，没有使用当前 filter state；
+- 标题是内容工具栏的一部分，窄宽布局没有“活动查询标题行”的概念。
+
+**修复**：
+
+- 新增 `commitLogDisplayTitle(baseTitle, query)`，空白查询返回基础标题，
+  非空查询返回 `Commit: '<trimmed-query>'`；
+- 标题同时提供完整 `title` tooltip；
+- 非空查询增加 `data-dsh-log-filter-active`；
+- 窄宽容器仅在活动查询时让标题独占一行，不挤压过滤、Graph、Refresh 动作；
+- 查询清空后恢复原响应式隐藏行为。
+
+**回归**：
+
+- 新增 `tests/commit-log-title-shows-active-filter.test.mjs`；
+- 覆盖空白/非空/trim、组件接线、tooltip 与窄宽 CSS；
+- RED：首次函数缺失；窄宽补偿另取得 **2 fail / 2 pass**；
+- GREEN：标题、过滤、Escape、Graph、工具栏与 CSS 定向测试
+  **13 pass / 0 fail**；
+- DSH Web：约 399px 工具窗中标题宽约 385px，三个动作仍各 24px；
+  Escape 后标题隐藏、列表恢复 27 行且输入框持焦；
+- IDEA Computer Use：确认 `Log: 'query'` 标题语义；
+- 完整测试：**2975 pass / 0 fail**。
+
+**适用环境**：macOS、Node 24.22.2、TypeScript 5.9.3、React 18、
+IntelliJ IDEA 2026.2。窄工具窗中的标题反馈必须把“显示查询状态”和
+“保留主要动作”一起设计，不能只改标题文本。
+
+## 2026-11-19 — Terminal restore 每秒仍重复读取并解析快照
+
+**作用域**：`src/client/terminal.ts` 的 `persistTerminalRestoreSnapshots`
+与 TerminalPanel 1 秒持久化 timer。
+
+**症状/证据**：
+
+- 第 954 轮已消除相同快照的重复 `setItem`，但 persist 仍每秒执行
+  `getItem` + `JSON.parse`；
+- 可执行 harness 连续 3 次 persist 后统计到 3 次 restore key 读取；
+- 终端空闲时旧快照仍被周期性解析，单次最多涉及 4×64KiB 数据。
+
+**根因**：
+
+- 新旧快照比较之前总是从 `sessionStorage` 读取权威值；
+- 页面内只有 terminal restore 模块写该 key，却没有复用最后一次读取/写入结果。
+
+**修复**：
+
+- 增加按 terminal scope 失效的单槽内存缓存；
+- 首次 persist 仍从 `sessionStorage` 恢复权威快照；
+- 本模块写入成功后同步更新缓存；
+- 后续 persist 直接复用缓存做等值比较；
+- storage key、4 标签/64KiB 上限、timer 和恢复内容保持不变。
+
+**回归**：
+
+- 扩展现有 terminal restore 可执行 harness 的 `getItem`/`setItem` 计数；
+- 覆盖首次读取、无变化、内容变化后一次写入和 scope 切换；
+- RED：**6 pass / 1 fail**，3 次 persist 读取 3 次；
+- GREEN：restore/reopen/close/cwd 定向测试 **14 pass / 0 fail**；
+- DSH Web 空闲 3.3 秒 restore key 读取 **0**；
+- 执行 `echo restore-cache-766` 后 scoped snapshot 正确包含输出；
+- 完整测试：**2971 pass / 0 fail**。
+
+**适用环境**：macOS、Node 24.22.2、TypeScript 5.9.3、React 18、
+IntelliJ IDEA 2026.2。周期持久化不仅要避免同值写入，也应在单一所有者场景下
+避免每秒重新读取和解析由本模块刚写入的数据。
+
+## 2026-11-19 — Commit Log 重渲染重复扫描非活动视图
+
+**作用域**：`src/client/components/commit/CommitLog.tsx` 的平面/Git Graph
+过滤与折叠派生数据。
+
+**症状/证据**：
+
+- 平面模式每次 render 仍过滤整个 Graph payload 并执行折叠计算；
+- Graph 模式也重复过滤平面提交列表；
+- Graph hover、详情刷新和局部选择等无关状态变化都会触发全量扫描；
+- 当前工作区有 27 条提交，无法测出可感知延迟，但算法复杂度会随历史页增长。
+
+**根因**：
+
+- `commitLogFilterCommits` 与 `graphDisplayEntries` 直接写在 render 中；
+- 派生集合没有按数据集、查询和视图模式缓存；
+- 非活动视图的数据也参与了当前视图的每次计算。
+
+**修复**：
+
+- 平面过滤使用 `React.useMemo`，依赖 `commits` 与 `filter`；
+- Graph entries 使用稳定 memo；
+- 仅 Graph 模式过滤 Graph entries 和折叠可见行；
+- 过滤匹配、排序、游标、菜单与空状态语义不变。
+
+**回归**：
+
+- 新增 `tests/commit-log-filter-memoization-skips-inactive-view.test.mjs`；
+- 同步更新三处既有源码契约，继续验证过滤仍来自同一 view model；
+- RED：**3 fail / 2 pass**；
+- GREEN：Commit Log 定向测试 **18 pass / 0 fail**；
+- DSH Web：平面 `27 → 0`、Escape 恢复 27 且持焦；Graph `0 → 27`；
+- IDEA Git Log：无匹配时空表、搜索框持焦，Escape 清空后仍持焦；
+- 完整测试：**2969 pass / 0 fail**。
+
+**适用环境**：macOS、Node 24.22.2、TypeScript 5.9.3、React 18、
+IntelliJ IDEA 2026.2。高频 render 中的派生集合必须按真实输入 memo，并且
+不要让非活动视图的数据参与当前视图计算。
+
+## 2026-11-19 — OSC 7 未变化仍入队 Terminal 状态更新
+
+**作用域**：`src/client/components/terminal/TerminalPanel.tsx` 的
+`syncTerminalCwd`。
+
+**症状/证据**：
+
+- shell 每个 prompt 都可能重复报告相同 OSC 7 cwd；
+- 原实现每次都调用 `setTerminals` updater；
+- updater 内虽然返回原数组，但 React 仍收到一次更新请求并执行 updater；
+- cwd Map 也每次重复写入。
+
+**根因**：
+
+- 去重发生在 React state updater 内，而不是进入更新前；
+- 没有先检查 live terminal 与当前 cwd 缓存。
+
+**修复**：
+
+- 先从 `terminalsRef` 查找 terminal；未列出的 id 直接忽略；
+- `target.cwd` 与 `terminalCwdRef` 都等于新 cwd 时直接返回；
+- 只有 cwd 真正变化时才 `setTerminals`；
+- 保留 live cwd 缓存和现有菜单/README 语义。
+
+**回归**：
+
+- 新增 `tests/terminal-cwd-sync-skips-unchanged-osc7.test.mjs`；
+- 覆盖 unchanged、changed、unlisted terminal；
+- RED：**1 pass / 2 fail**；
+- GREEN：OSC 7、cwd 菜单、README、close prune 定向测试
+  **18 pass / 0 fail**；
+- DSH Web 连续 3 次 Enter 后 Terminal 菜单正常，无 error boundary；
+- 完整测试：**2967 pass / 0 fail**。
+
+**适用环境**：macOS、Node 24.22.2、TypeScript 5.9.3、React 18。
+高频事件的状态去重要放在 React 更新入口之前；在 updater 内返回同一引用只能
+避免提交，不能避免更新请求本身。
+
+## 2026-11-19 — 其余文本输入仍误处理 IME 组合键
+
+**作用域**：Commit 消息、Project 新建/重命名、Terminal 重命名、
+Revision/Move 选择器、NamePrompt、Find Scope 与 Go to Line。
+
+**症状/证据**：
+
+- 搜索主路径已加 composition 守卫，但上述输入仍直接处理
+  Enter/Escape/Arrow；
+- Commit 消息的 `Meta+Enter` 在组合态有提前提交风险；
+- Project/Terminal rename 与 prompt 在组合态 Escape 会直接退出编辑。
+
+**根因**：
+
+- 文本输入各自维护键盘处理，没有统一采用 composition 规则；
+- IME 取消候选的 Enter/Escape 被业务动作拦截。
+
+**修复**：
+
+- 所有目标输入 onKeyDown 顶部检查 `nativeEvent.isComposing`；
+- Find Scope 对话框根 Escape 也跳过 composition；
+- 普通 Enter/Escape、提交、重命名与焦点恢复保持不变。
+
+**回归**：
+
+- 新增 `tests/editor-text-inputs-ime-composition-guards.test.mjs`；
+- RED：**0 pass / 5 fail**；
+- GREEN：Commit、Project、Terminal、picker、Find Scope、Go to Line
+  定向测试 **19 pass / 0 fail**；
+- DSH Web 实测 Project `.idea` inline rename：
+  组合态 Escape 保留 INPUT，普通 Escape 取消并回焦 `role=tree`；
+- 完整测试：**2964 pass / 0 fail**。
+
+**适用环境**：macOS、Node 24.22.2、TypeScript 5.9.3、React 18。
+不仅搜索框，所有可提交/可取消的文本输入都必须正确让出 IME composition
+期间的 Enter 和 Escape。
+
+## 2026-11-19 — QuickOpen 等高频入口仍误处理 IME Escape
+
+**作用域**：QuickOpen、Project speed search、Changes path filter 与
+Find file mask。
+
+**症状/证据**：
+
+- DSH Web 打开 Go to File；
+- 对 QuickOpen 输入派发
+  `KeyboardEvent({key:'Escape', isComposing:true})`；
+- 修复前 dialog 在 100ms 内关闭，焦点从 INPUT 落到 BUTTON；
+- 其余三个输入同样只判断 key，没有 composition 守卫。
+
+**根因**：
+
+- 主搜索输入已修复，但其他条件过滤/快速打开入口没有统一采用相同规则；
+- IME 取消候选时的事件会触发关闭、清空、导航或提前 Accept。
+
+**修复**：
+
+- QuickOpen 在 composition 期间不处理 Escape/方向键/Enter；
+- Project speed search 不处理 Escape/方向键/Enter；
+- Changes path filter 不处理 Escape/方向键；
+- Find file mask 不处理 Enter；
+- 普通键、关闭和焦点恢复语义保持不变。
+
+**回归**：
+
+- 新增 `tests/search-ime-composition-guards-cover-project-quickopen-filters.test.mjs`；
+- 初版 RED：**3 fail / 1 pass**，file mask 断言曾假阳性并已收紧；
+- GREEN：四个入口与焦点生命周期定向测试
+  **14 pass / 0 fail**；
+- DSH Web 在新插件实例上实测 QuickOpen 组合态 Escape 保留 dialog，
+  普通 Escape 正常关闭；
+- 完整测试：**2959 pass / 0 fail**。
+
+**适用环境**：macOS、Node 24.22.2、TypeScript 5.9.3、React 18。
+IME 守卫不能只覆盖主搜索框；所有快速打开、树内搜索和条件过滤输入都应在
+处理键盘命令前检查 composition。
+
+## 2026-11-19 — 搜索输入在 IME 组合期间误响应 Escape
+
+**作用域**：Search Everywhere、Find tool、编辑器 Find 与 Commit Log filter
+的查询/替换输入键盘处理。
+
+**症状/证据**：
+
+- DSH Web 对 Search Everywhere 查询框派发
+  `KeyboardEvent({key:'Escape', isComposing:true})`；
+- 修复前 dialog 在 120ms 内关闭，焦点回到 Terminal；
+- Commit Log filter 的同类事件会清空查询；
+- 编辑器 Replace 已有 `nativeEvent.isComposing` 守卫，其他搜索面不一致。
+
+**根因**：
+
+- Escape handler 只检查 key，没有区分 IME composition；
+- 中文输入法用 Escape 取消候选时，事件冒泡到搜索面板关闭/清空逻辑。
+
+**修复**：
+
+- Search Everywhere query/replace、Find tool root/query/replace、
+  编辑器 Find query、Commit Log filter 均增加 composition 守卫；
+- composition 期间不消费 Escape/Enter/历史/结果导航；
+- 普通 Escape 的关闭、清空与焦点恢复保持不变。
+
+**回归**：
+
+- 新增 `tests/search-ime-composition-escape-preserves-open-surfaces.test.mjs`；
+- RED：**0 pass / 3 fail**；
+- GREEN：Search/Find/Commit Log 焦点与快捷键定向测试
+  **13 pass / 0 fail**；
+- DSH Web 在新插件实例上实测组合态 Escape 保留 Search Everywhere，
+  普通 Escape 正常关闭；Commit Log 查询组合态保留、普通态清空；
+- 完整测试：**2955 pass / 0 fail**。
+
+**适用环境**：macOS、Node 24.22.2、TypeScript 5.9.3、React 18。
+所有文本搜索/替换输入在处理 Escape、Enter、历史或结果导航前都要检查
+`nativeEvent.isComposing`，否则会破坏中文/日文等 IME 交互。
+
+## 2026-11-19 — Terminal README 缓存保留已离开目录
+
+**作用域**：`src/client/components/terminal/TerminalPanel.tsx` 的
+`readmePaths`、`closeTerminal`、`closeOtherTerminals` 与 `refresh`。
+
+**症状/证据**：
+
+- 打开某个 cwd 的 README 后，结果按绝对目录写入 `readmePaths`；
+- terminal `cd` 到新目录、关闭或被宿主回收时，旧目录 key 仍永久保留；
+- 与 terminal id Map 不同，该缓存按目录累积，长期跨目录操作会持续增长。
+
+**根因**：
+
+- README 缓存只增不减；
+- 生命周期清理只处理颜色、restore buffer 和 terminal id cwd Map。
+
+**修复**：
+
+- 新增 `terminalLiveCwds` 汇总仍存活 terminal 的当前目录；
+- 新增 `pruneTerminalReadmeMetadata`，无 stale key 时复用原对象引用；
+- 单标签关闭、Close Other Terminals、host refresh 三条路径统一剪枝；
+- 多个 terminal 共用同一目录时保留 README 缓存。
+
+**回归**：
+
+- 新增 `tests/terminal-close-prunes-stale-readme-cache.test.mjs`；
+- 覆盖 stale cwd、共享 cwd、引用复用和关闭回调；
+- RED：**0 pass / 4 fail**；
+- GREEN：close/reopen/refresh/menu/README/split 定向测试
+  **18 pass / 0 fail**；
+- DSH Web 标签菜单正常显示 README 动作，初始焦点在 `Rename Tab`；
+- 完整测试：**2952 pass / 0 fail**。
+
+**适用环境**：macOS、Node 24.22.2、TypeScript 5.9.3、React 18。
+按目录缓存的旁路状态必须以当前 live terminal 的目录集合为生命周期边界；
+共享目录只有在最后一个使用者离开后才能删除。
+
+## 2026-11-19 — 已关闭 Terminal 的 CWD 元数据无界残留
+
+**作用域**：`src/client/components/terminal/TerminalPanel.tsx` 的
+`terminalCwdRef`、`closeTerminal`、`closeOtherTerminals` 和 `refresh`。
+
+**症状/证据**：
+
+- 每次创建 Terminal 都会生成新 id，OSC 7 会把 cwd 写入
+  `terminalCwdRef.current`；
+- 关闭单个 tab、Close Other Terminals、宿主刷新移除 shell 时，只清理颜色、
+  restore buffer 和列表，未删除对应 cwd 条目；
+- id 不可复用，因此长会话反复创建/关闭 shell 时该 Map 单调增长。
+
+**根因**：
+
+- cwd Map 的写入生命周期是 shell 级，但读取路径只依赖 live tab；
+- 三个会移除 live tab 的权威路径没有共享剪枝。
+
+**修复**：
+
+- 新增纯函数 `pruneTerminalCwdMetadata(cwdById, liveIds)`；
+- 单标签关闭后按 remaining ids 剪枝；
+- Close Other Terminals 后仅保留 keepId；
+- host `list` 刷新时以宿主列表为权威剪枝；
+- OSC 7 行为、cwd 菜单、shell reopen 历史和 host API 不变。
+
+**回归**：
+
+- 新增 `tests/terminal-close-prunes-stale-cwd-metadata.test.mjs`；
+- 覆盖纯函数、单标签关闭、Close Other Terminals、host refresh；
+- RED：**0 pass / 2 fail**；
+- GREEN：close/reopen/refresh/split/restore 定向测试
+  **17 pass / 0 fail**；
+- DSH Web：Terminal 总数 `5 → 4 → 5`，关闭与 `⌘⇧T` 重开后焦点均在
+  `Terminal input`；
+- 完整测试：**2948 pass / 0 fail**。
+
+**适用环境**：macOS、Node 24.22.2、TypeScript 5.9.3、React 18。
+按实体 id 建立的运行时缓存必须在本地关闭和宿主权威刷新两条路径上同步剪枝；
+只从 React 列表移除对象不等于释放旁路 Map。
+
+## 2026-11-19 — Terminal 重开成功但焦点仍停在旧标签
+
+**作用域**：`src/client/components/terminal/TerminalPanel.tsx` 的
+`reopenClosed`。
+
+**症状/证据**：
+
+- DSH Web 关闭 Terminal 标签后按 `⌘⇧T`；
+- 新 shell 成功创建并成为 `aria-selected=true` 的活动标签；
+- `document.activeElement` 仍是旧 Terminal 标签，不在恢复后的终端屏幕；
+- 标签数量从 1 visible + 3 hidden 增加到 1 visible + 4 hidden，排除创建失败。
+
+**根因**：
+
+- `createTerminal` 成功后会 `setActiveId(created.id)`；
+- `reopenClosed` 等待创建完成，但没有在 React commit 后把焦点交给当前 emulator；
+- 活动状态与键盘焦点因此分叉。
+
+**修复**：
+
+- `reopenClosed` 接收 `createTerminal` 的返回值；
+- 仅在创建成功时于下一 tick 聚焦当前 `emulatorRef`；
+- 创建失败仍保留现有错误提示与焦点。
+
+**回归**：
+
+- 新增 `tests/terminal-reopen-closed-terminal-focuses-restored-shell.test.mjs`；
+- RED：成功重开未聚焦，**1 pass / 1 fail**；
+- GREEN：reopen、duplicate、tab roving、restore buffer 与 close
+  定向测试 **16 pass / 0 fail**；
+- DSH Web 实测活动标签与 `.xterm-helper-textarea` 焦点一致；
+- 完整测试：**2944 pass / 0 fail**。
+
+**适用环境**：macOS、Node 24.22.2、TypeScript 5.9.3、React 18。
+异步创建并切换活动项后，必须显式把焦点转移到新活动表面；
+`aria-selected` 不能替代键盘焦点。
+
+## 2026-11-19 — 关闭非活动 Terminal 标签后焦点掉到 BODY
+
+**作用域**：`src/client/components/terminal/TerminalPanel.tsx` 的
+`closeTerminal` 与 Terminal tab strip。
+
+**症状/证据**：
+
+- DSH Web 展开编辑器宽度，使 Terminal 同时显示多个标签；
+- 激活第一个标签，把焦点放到第二个标签的 `Close Terminal` 按钮并关闭；
+- 关闭后焦点变成 `BODY`，但活动 Terminal 标签仍然存在；
+- 原来只有“关闭当前 active pane”时才聚焦 emulator。
+
+**根因**：
+
+- 关闭按钮随标签一起卸载，浏览器将焦点退回 `BODY`；
+- `closeTerminal` 没有识别“焦点原本位于被关闭标签内部”，也没有恢复 roving tab。
+
+**修复**：
+
+- 关闭前记录活动元素是否位于目标 `data-dsh-terminal-tab-id` 内；
+- 若被关闭标签持有焦点且它不是 active pane，则在 React commit 后聚焦
+  当前 active Terminal tab；
+- 抽出 `focusTerminalTabById`，复用原有 tab roving 聚焦逻辑；
+- 焦点在终端屏幕等其他表面时，关闭非活动标签不会抢焦点。
+
+**回归**：
+
+- 新增 `tests/terminal-close-non-active-tab-restores-active-tab.test.mjs`；
+- RED：活动标签未恢复焦点，**1 pass / 1 fail**；
+- GREEN：Terminal close、split、tab roving 与 Activity Stripe
+  定向测试 **16 pass / 0 fail**；
+- DSH Web 实测关闭后焦点从 `Close Terminal` 回到
+  `role=tab[aria-selected=true]`，不再落到 `BODY`。
+- 完整测试：**2944 pass / 0 fail**。
+
+**适用环境**：macOS、Node 24.22.2、TypeScript 5.9.3、React 18。
+移除当前焦点控件时必须显式选择替代焦点目标；不能依赖浏览器把焦点留在
+可用的相邻控件上。
+
+## 2026-11-19 — Commit Log 刷新时同时显示 Loading 与 No matches
+
+**作用域**：`src/client/components/commit/CommitLogListState.tsx` 的状态分支。
+
+**症状/证据**：
+
+- DSH Web 在 Commit Log 中输入无匹配查询后看到 `No matches`；
+- 切到 Change 再回到 Commit 会触发日志刷新；
+- 刷新首帧的同一个 listbox 同时出现 `Loading…` 与 `No matches`，状态互相矛盾。
+
+**根因**：
+
+- no-match 条件只检查 `commitCount > 0 && visibleCount === 0`；
+- 刷新期间旧数据仍可用于过滤，因此页面保留了 no-match 结果；
+- loading 分支同时挂载，两个状态没有互斥。
+
+**修复**：
+
+- no-match 分支增加 `!loading` 守卫；
+- Loading 期间只显示刷新状态，请求结束后重新按真实过滤结果显示 no-match；
+- 不改变过滤值、页签持久挂载、Graph 或任何 host 请求。
+
+**回归**：
+
+- 更新 `tests/commit-commitlogliststate-owns-loading-errors-empty-states-footer.test.mjs`；
+- RED：**1 pass / 1 fail**；
+- GREEN：列表状态、页签持久、隐藏轮询与 Escape 定向测试
+  **8 pass / 0 fail**；
+- 完整测试：**2940 pass / 0 fail**；
+- DSH Web MutationObserver 实测列表依次为 `No matches → Loading… → No matches`，
+  `simultaneous=false`，查询值保持。
+
+**适用环境**：macOS、Node 24.22.2、TypeScript 5.9.3、React 18。
+列表刷新状态与空态必须互斥；保留旧查询结果可以作为过渡，但不能同时宣布
+“正在加载”和“没有匹配”。
+
+## 2026-11-19 — 工作区切换后旧 Stash/Shelve 菜单仍可回写
+
+**作用域**：`src/client/editor-workspace.tsx` 的 `openStashMenu` /
+`openShelveMenu` 与 workspace root 重置 effect。
+
+**症状/证据**：
+
+- Stash/Shelve 列表请求已有 `commitMenuRequestRef`，但 root reset 只递增了
+  Branch、Revision、Move To、Show Usages 等请求代次；
+- 切换工作区后，旧工作区仍在途的 `stash/shelve list` 响应可覆盖新菜单、
+  写入旧错误，或提前清理共享 `commitBusy`；
+- 多次打开之间的隔离测试已存在，但 workspace reset 边界没有被覆盖。
+
+**根因**：
+
+- 菜单请求身份只在同一工作区内的下一次 open 时失效；
+- root 变化没有让上述身份失效，异步成功、失败和 finally 仍可进入当前状态。
+
+**修复**：
+
+- 在既有的 `[root]` reset effect 中递增 `commitMenuRequestRef.current`；
+- 保留原有 open 代次、菜单内容、确认框、Git API 和 busy 语义；
+- 不新增轮询或额外工作区状态。
+
+**回归**：
+
+- 扩展 `tests/commit-stash-shelve-menu-stale-request-isolation.test.mjs`；
+- 新增 root reset 必须失效 pending Stash/Shelve request 的断言；
+- RED：**2 pass / 1 fail**；
+- GREEN：Stash/Shelve、Branch、Move To、Revision Picker、Show Usages
+  定向测试 **10 pass / 0 fail**；
+- 完整测试：**2940 pass / 0 fail**；
+- DSH Web 重新加载后打开 Editor → Commit → 选中更改 → `Shelve Silently…`，
+  菜单正常显示且无 error boundary / 残留 loading；
+- 当前 profile 只有一个工作区，真实“请求在途时切 root”未做 UI 竞态复现，
+  该边界由 reset generation 回归证明。
+
+**适用环境**：macOS、Node 24.22.2、TypeScript 5.9.3、React 18。
+所有带 request generation 的异步 popup 都必须在 workspace/root 生命周期
+中失效，不能只处理同一页面内的下一次 open。
+
+## 2026-11-19 — 旧 Branch 菜单请求会覆盖新菜单
+
+**作用域**：`src/client/editor-workspace.tsx` 的 `openBranchMenu` 本地分支
+列表加载。
+
+**症状/证据**：
+
+- 分支 popup 每次打开都异步读取 `git branches`；
+- 原实现无 request generation，重复触发时旧请求可以：
+  - 在新菜单打开后覆盖 menu；
+  - 在新请求成功后写入旧 Commit error；
+  - 提前把共享 commitBusy 清零；
+- 分支列表本身相同也不能消除错误/时序污染。
+
+**根因**：
+
+- 异步结果没有 open 会话身份；
+- catch/finally 不判断是否仍属于当前请求。
+
+**修复**：
+
+- 新增 branchMenuRequestRef；
+- 每次 open 递增 generation；
+- await 成功后、catch 错误和 finally busy 清理都只在 generation 匹配时执行；
+- workspace reset 递增 generation，阻止旧 workspace 菜单回写；
+- 菜单内容/checkout/new branch 语义保持不变。
+
+**回归**：
+
+- 新增 `tests/commit-branch-menu-stale-request-does-not-overwrite-new-menu.test.mjs`；
+- callback 模拟旧请求失败、新请求成功，最终保留新 menu 且无 stale error；
+- 更新既有 branch-menu harness；
+- RED：旧错误写入；
+- GREEN：branch menu、checkout、new branch 与 module-size 定向测试
+  **16 pass / 0 fail**；
+- 完整测试：**2937 pass / 0 fail**；
+- Ego TaskSpace 2 仍结束，本轮不重建，因此不声明浏览器运行态结果。
+
+**适用环境**：macOS、Node 24.22.2、TypeScript 5.9.3、React 18。
+共享 busy/error 的异步菜单必须把成功、失败和 finally 都绑定到 request
+generation。
+
+## 2026-11-19 — Project 树错误态没有直接恢复动作
+
+**作用域**：`src/client/components/project/ProjectPanel.tsx` 的 tree error
+`TreeMessage`。
+
+**症状/证据**：
+
+- Project 文件系统/操作失败时只显示 role=alert 的错误文字；
+- 用户需要自行猜测 Options/Refresh 才能恢复；
+- 恢复后也没有显式把焦点交给树；
+- ProjectPanel 已有 `onRefresh` prop，但先前未解构使用。
+
+**根因**：
+
+- 错误态只实现文本，没有绑定现有刷新生命周期；
+- 恢复路径与当前阻塞状态没有直接关联。
+
+**修复**：
+
+- Tree error 内增加 Refresh 按钮；
+- 点击调用现有 onRefresh；
+- 下一 tick 聚焦 Project tree，恢复方向键/typeahead；
+- 复用 conflictAction 样式，不新增数据或 API。
+
+**回归**：
+
+- 新增 `tests/project-tree-error-offers-refresh-action.test.mjs`；
+- 同时运行 TreeMessage 与 speed-search close 回归；
+- RED：错误态没有 refresh action；
+- GREEN：Project error、TreeMessage 与 speed-search 定向测试
+  **6 pass / 0 fail**；
+- 完整测试：**2936 pass / 0 fail**；
+- Ego TaskSpace 2 仍结束，本轮不重建，因此不声明浏览器运行态结果。
+
+**适用环境**：macOS、Node 24.22.2、TypeScript 5.9.3、React 18。
+错误空状态若存在安全刷新路径，应在同一界面直接提供并恢复键盘域。
+
+## 2026-11-19 — Terminal host 不可用提示缺少直接恢复入口
+
+**作用域**：`src/client/components/terminal/TerminalPanel.tsx` 的
+`available === false` 内容分支。
+
+**症状/证据**：
+
+- subprocess provider 不存在时只显示“不支持”文案；
+- provider 随后挂载时，用户只能在 Options 菜单里寻找 Refresh；
+- 空状态没有可发现的重试 affordance，恢复路径不透明。
+
+**根因**：
+
+- 不可用状态只实现了说明文字，没有复用现有 `refresh()` 生命周期；
+- Refresh 被埋在 Options 菜单中，和当前阻塞状态没有直接关联。
+
+**修复**：
+
+- 在 terminalUnavailable 提示旁增加直接 Refresh 按钮；
+- 按钮调用现有 `refresh()`，复用 available/list/error/profile 更新；
+- 布局使用 flex 居中与 gap，沿用 conflictAction 视觉；
+- 不新增 provider 自动轮询，避免空闲 I/O。
+
+**回归**：
+
+- 新增 `tests/terminal-unavailable-offers-host-refresh.test.mjs`；
+- 同时运行 profile persistence 与 measured-grid 回归；
+- RED：不可用提示没有 refresh action；
+- GREEN：Terminal unavailable/profile/grid 定向测试
+  **10 pass / 0 fail**；
+- 完整测试：**2935 pass / 0 fail**；
+- Ego TaskSpace 2 仍结束，本轮不重建，因此不声明浏览器运行态结果。
+
+**适用环境**：macOS、Node 24.22.2、TypeScript 5.9.3、React 18。
+阻塞态必须提供直接、可发现的恢复动作；不能要求用户猜测深层菜单。
+
+## 2026-11-19 — Search Everywhere 关闭后文件枚举仍继续
+
+**作用域**：`src/client/editor-workspace.tsx` 的 `closeSearchEverywhere` /
+`dismissSearchEverywhere` 与 file-list 请求。
+
+**症状/证据**：
+
+- Search Everywhere 的 Files 候选通过有界 `{op:'files'}` 加载；
+- requestId 能阻止旧结果写回，但 close/dismiss 没有 abort；
+- 关闭弹框后 host workspace 枚举仍可能继续；
+- action-driven close 与 dismiss 已有区分，可复用同一取消而不改变语义。
+
+**根因**：
+
+- file request 仅在 root reset 或下一次请求时取消；
+- close/dismiss 只清 UI，没有失效当前 request generation。
+
+**修复**：
+
+- closeSearchEverywhere 递增 request generation 并 abort file enumeration；
+- dismissSearchEverywhere 同样取消后再恢复 opener；
+- action-driven close 路径保持原焦点/导航语义；
+- root reset 的取消逻辑保留。
+
+**回归**：
+
+- 新增 `tests/search-everywhere-close-aborts-file-enumeration.test.mjs`；
+- 同时运行 Search Everywhere dismissal 与 origin focus 回归；
+- RED：close/dismiss block 缺少 generation/abort；
+- GREEN：Search Everywhere close/dismiss、file enumeration 与 origin 定向测试
+  **8 pass / 0 fail**；
+- 完整测试：**2934 pass / 0 fail**；
+- Ego TaskSpace 2 仍结束，本轮不重建，因此不声明浏览器运行态结果。
+
+**适用环境**：macOS、Node 24.22.2、TypeScript 5.9.3、React 18。
+弹出 palette 的候选枚举也应服从 close 生命周期；只阻止写回不等于取消
+后台工作。
+
+## 2026-11-19 — Show Usages 关闭后搜索请求仍继续
+
+**作用域**：`src/client/editor-workspace.tsx` 的 `openShowUsages` 与
+ShowUsagesPopup 全部关闭入口。
+
+**症状/证据**：
+
+- Show Usages 用 `searchText` 发起 usage 搜索；
+- requestId 可阻止陈旧响应写回，但关闭 popup 后 host 扫描仍继续；
+- 原关闭入口分散为多个 `setShowUsages(null)`，没有统一请求取消；
+- 在大型 workspace 上关闭 popup 不会释放正在进行的文本搜索。
+
+**根因**：
+
+- 只做了 stale-response 防护，没有 AbortController；
+- 关闭语义分散，无法统一失效 request/abort。
+
+**修复**：
+
+- 新增 showUsagesAbortRef；
+- openShowUsages 每次取消旧请求，并把 signal 传给 callFs；
+- catch 忽略 AbortError/CanceledError，finally 只清理当前 controller；
+- 新增 closeShowUsages，统一递增 generation、abort 并清 UI；
+- open、pin、right-split、reveal、Escape/backdrop 都复用该 close；
+- workspace/root reset 同步 abort。
+
+**回归**：
+
+- 新增 `tests/search-show-usages-close-aborts-search.test.mjs`；
+- callback 验证关闭时 generation 递增、controller abort、state 清空；
+- 更新 usage context-menu 与 Find pin harness；
+- RED：**2 fail**；
+- GREEN：Show Usages、Find handoff 与 context-menu 定向测试
+  **11 pass / 0 fail**；
+- 完整测试：**2933 pass / 0 fail**；
+- Ego TaskSpace 2 仍结束，本轮不重建，因此不声明浏览器运行态结果。
+
+**适用环境**：macOS、Node 24.22.2、TypeScript 5.9.3、React 18。
+stale-response 防护和取消是两件事；关闭 transient search surface 时应同时
+阻止回写并停止 host 工作。
+
+## 2026-11-19 — 旧 Move To 目录请求失败会关闭新 picker
+
+**作用域**：`src/client/editor-workspace.tsx` 的 `openMoveTo` /
+`closeMoveTo` 目录枚举。
+
+**症状/证据**：
+
+- Move To 异步请求 `{op:'directories'}`；
+- 原实现无 requestId/AbortController；
+- 关闭后快速重开另一个目标时，旧请求成功可覆盖新 directories；
+- 旧请求失败会 closeMoveTo 并写 treeError，直接关闭用户刚打开的新 picker。
+
+**根因**：
+
+- 请求结果只判断 current 非 null，无法识别 open generations；
+- close/root reset 没有取消目录枚举；
+- 失败路径没有请求身份检查。
+
+**修复**：
+
+- 新增 moveToRequestRef/moveToAbortRef；
+- 每次 open abort 旧请求并发起新 generation；
+- 响应/错误只在 generation 匹配时更新或关闭；
+- close/root reset 立即递增 generation 并 abort；
+- callFs 接收 AbortSignal。
+
+**回归**：
+
+- 新增 `tests/project-move-to-picker-stale-load-does-not-close-new-picker.test.mjs`；
+- callback 模拟两次打开，验证旧 signal abort、旧失败不关闭新 picker、
+  新目录正常显示；
+- 更新 host directory list 既有断言；
+- RED：**2 fail**；
+- GREEN：Move To、Project EditSource、palette origin 定向测试
+  **9 pass / 0 fail**；
+- 完整测试：**2931 pass / 0 fail**；
+- Ego TaskSpace 2 仍结束，本轮不重建，因此不声明浏览器运行态结果。
+
+**适用环境**：macOS、Node 24.22.2、TypeScript 5.9.3、React 18。
+所有 F6/palette dialog 的失败关闭都必须绑定当前 request generation。
+
+## 2026-11-19 — 旧 Revision Picker 请求失败会关闭新 picker
+
+**作用域**：`src/client/editor-workspace.tsx` 的 Compare with Revision
+提交列表加载与关闭路径。
+
+**症状/证据**：
+
+- compareWithRevision 异步请求最近 100 个提交；
+- 原实现没有 request generation 或 AbortController；
+- 关闭后重开另一个文件时，旧请求成功可覆盖新 commits；
+- 更严重的是旧请求失败会 setEditorError 并 closeRevisionPicker，直接关闭
+  用户刚打开的新 picker。
+
+**根因**：
+
+- 请求结果只判断 current 是否非 null，无法区分不同 open 会话；
+- closeRevisionPicker 只清 UI，不取消在途请求；
+- workspace/root reset 也没有取消该列表请求。
+
+**修复**：
+
+- 新增 revisionPickerRequestRef/revisionPickerAbortRef；
+- 每次 compare 递增 generation、abort 旧请求并绑定 AbortSignal；
+- 响应/错误只有 generation 匹配时才能更新或关闭；
+- close 与 root reset 立即递增 generation 并 abort；
+- finally 只清理由当前请求持有的 controller。
+
+**回归**：
+
+- 新增 `tests/commit-revision-picker-stale-load-does-not-close-new-picker.test.mjs`；
+- callback 模拟两次打开，验证旧 signal abort、旧失败不关闭新 picker、
+  新 commits 正常落盘；
+- 更新 Compare with Revision 既有请求断言；
+- RED：**2 fail**；
+- GREEN：Revision Picker、Compare with Revision 与 palette origin 定向测试
+  **12 pass / 0 fail**；
+- 完整测试：**2929 pass / 0 fail**；
+- Ego TaskSpace 2 仍结束，本轮不重建，因此不声明浏览器运行态结果。
+
+**适用环境**：macOS、Node 24.22.2、TypeScript 5.9.3、React 18。
+可重开的 dialog 必须让旧请求只能影响自己的 generation；失败处理不能调用
+不带身份判断的全局 close。
+
+## 2026-11-19 — Quick Open 重开后旧文件枚举仍可覆盖新状态
+
+**作用域**：`src/client/editor-workspace.tsx` 的 `openQuickOpen` /
+`closeQuickOpen` 文件候选加载。
+
+**症状/证据**：
+
+- Quick Open 的文件清单通过异步 `callFs({op:'files'})` 加载；
+- 原实现没有 requestId 或 AbortController；
+- 快速关闭并重开时，旧响应仍可在新面板挂载后写回旧 files/error；
+- Search Everywhere 与 Find Tool Window 的同类列表请求已有取消/代际保护，
+  Quick Open 是明显例外。
+
+**根因**：
+
+- openQuickOpen 的异步结果只判断 current 是否为 null，无法区分多次 open；
+- closeQuickOpen 只清 UI，不失效在途请求；
+- workspace/root 切换 cleanup 也没有取消 Quick Open request。
+
+**修复**：
+
+- 新增 quickOpenFilesRequestRef 与 quickOpenFilesAbortRef；
+- 每次 open 递增 generation、abort 上一请求，并把 signal 传给 callFs；
+- 响应/错误只有在 generation 仍匹配时才能更新；
+- close 与 workspace/root reset 立即递增 generation 并 abort；
+- 原 loading、host error 与 opener focus 行为不变。
+
+**回归**：
+
+- 新增 `tests/search-quick-open-stale-files-response-is-ignored.test.mjs`；
+- callback 直接模拟两次 open，验证第一次 signal 被 abort 且最终保留第二次 files；
+- 更新 Quick Open loading/error 与 close harness；
+- RED：**2 fail**；
+- GREEN：Quick Open stale/loading/error/close 定向测试
+  **8 pass / 0 fail**；
+- 完整测试：**2927 pass / 0 fail**；
+- Ego TaskSpace 2 仍结束，本轮不重建，因此不声明浏览器运行态结果。
+
+**适用环境**：macOS、Node 24.22.2、TypeScript 5.9.3、React 18。
+任何可被重复 open 的异步候选列表都必须带 request generation 和取消信号；
+关闭/重开不能只依赖 current===null。
+
+## 2026-11-19 — Diff 本地路径在隐藏浏览器 tab 中继续轮询
+
+**作用域**：`src/client/components/diff/DiffPreview.tsx` 的 local-path
+可用性 effect。
+
+**症状/证据**：
+
+- Diff 打开后每 1.5/3 秒调用 `fs.exists`，用于 F4/Open Local 状态；
+- 浏览器 tab hidden 时 interval 仍继续请求；
+- 原 effect 只监听 window focus，恢复可见不一定立即触发；
+- 与刚修复的 Commit 详情轮询缺少同一 visibility guard。
+
+**根因**：
+
+- 轮询只考虑组件生命周期和目标路径，不考虑 document visibility；
+- 可见性恢复没有绑定 visibilitychange。
+
+**修复**：
+
+- checkLocalPath 在 hidden 时直接 return；
+- 增加 visibilitychange listener，visible 时立即复查；
+- cleanup 移除 listener，原有 interval/focus/1.5s/3s 周期不变。
+
+**回归**：
+
+- 新增 `tests/editor-diff-local-path-poll-skips-hidden-document.test.mjs`；
+- 同步运行 Commit detail visibility 回归和 test naming guard；
+- RED：Diff visibility guard/listener 缺失；
+- GREEN：Diff/Commit hidden-tab 与 naming 定向测试通过；
+- 完整测试：**2925 pass / 0 fail**；
+- Ego TaskSpace 2 仍结束，本轮不重建，因此不声明浏览器运行态结果。
+
+**适用环境**：macOS、Node 24.22.2、TypeScript 5.9.3、React 18。
+所有后台文件存在性轮询都应遵循 document visibility；focus 事件不是恢复
+可见性的唯一入口。
+
+## 2026-11-19 — Commit 详情在隐藏浏览器 tab 中仍轮询文件存在性
+
+**作用域**：`src/client/components/commit/CommitLog.tsx` 详情文件可用性
+effect。
+
+**症状/证据**：
+
+- 可见 Log 每 3000ms 调一次 `fs.exists`；
+- 即使整个浏览器 tab 已 hidden，interval 仍继续发起 host I/O；
+- 结果不会立即展示，hidden 期间也没有用户价值；
+- 原逻辑只在面板 `hidden`（Change tab）时停止，没有覆盖浏览器 tab 可见性。
+
+**根因**：
+
+- poll guard 只考虑组件内部 hidden，不考虑 document visibility；
+- 恢复可见时只有 focus 事件会触发即时检查，不够可靠。
+
+**修复**：
+
+- checkLocalFiles 在 document.visibilityState === 'hidden' 时直接返回；
+- 增加 visibilitychange 监听，恢复 visible 时立即复查；
+- interval、focus listener 与 cleanup 保持一致；
+- 详情路径、availability Map 和 3 秒周期不变。
+
+**回归**：
+
+- 新增 `tests/commit-log-detail-poll-skips-hidden-document.test.mjs`；
+- 同时运行 hidden-pane poll/focus 回归；
+- RED：visibility guard/listener 缺失；
+- GREEN：visibility、hidden pane 和 restore focus 定向测试
+  **4 pass / 0 fail**；
+- 完整测试：**2924 pass / 0 fail**；
+- Ego TaskSpace 2 仍结束，本轮不重建，因此不声明浏览器运行态结果。
+
+**适用环境**：macOS、Node 24.22.2、TypeScript 5.9.3、React 18。
+视觉隐藏要同时考虑组件 hidden 和 document hidden；后台轮询应在任一隐藏维度
+下停止。
+
+## 2026-11-19 — 关闭全部 Terminal 后旧 profile 仍会在下次挂载重建
+
+**作用域**：`TerminalPanel` 的 terminals profile 记忆 effect 与
+`src/client/terminal.ts` 的 profile 持久化判断。
+
+**症状/证据**：
+
+- profile effect 只在 `terminals.length > 0` 时写入；
+- 用户关闭最后一个 terminal 后，localStorage 仍保留旧 shell profile；
+- 下次 Editor 挂载 restore profile 时会把已关闭的终端重新建回来；
+- 初始 mount 的 terminals 也为空，不能简单无条件清空，否则会在 host list
+  返回前丢掉恢复信息。
+
+**根因**：
+
+- 代码无法区分“尚未加载”和“宿主已确认没有终端”；
+- 统一用 `length > 0` 保护初始空列表，导致用户关闭全部也落入同一分支。
+
+**修复**：
+
+- 新增 `shouldPersistTerminalProfile(count, loaded, available)`：
+  - 有 terminal：可持久化；
+  - 0 terminal 但 loaded=false：保留旧 profile；
+  - 0 terminal、loaded=true、available=true：写入空 profile；
+  - host unavailable：保留旧 profile 供恢复；
+- TerminalPanel effect 使用该 gate，并依赖 available/loaded/terminals；
+- 关闭全部后 profile 为空，下次挂载不会再重建已关闭 tab。
+
+**回归**：
+
+- 新增 `tests/terminal-profile-clears-after-user-closes-all-tabs.test.mjs`；
+- 覆盖初始未加载、确认 0、宿主不可用和 Panel wiring；
+- RED：profile gate 缺失；
+- GREEN：profile/profile restore/bounded buffer 定向测试
+  **10 pass / 0 fail**；
+- 完整测试：**2923 pass / 0 fail**；
+- Ego TaskSpace 2 仍结束，本轮不重建，因此不声明浏览器运行态结果。
+
+**适用环境**：macOS、Node 24.22.2、TypeScript 5.9.3、React 18。
+空列表只有在数据源确认“确实是空”时才能覆盖持久化状态；初始占位空列表
+不能作为删除依据。
+
+## 2026-11-19 — Terminal restore snapshot 每秒重复写入未变化的大缓冲
+
+**作用域**：`src/client/terminal.ts` 的
+`persistTerminalRestoreSnapshots` 与 TerminalPanel 1 秒持久化 timer。
+
+**症状/证据**：
+
+- timer 每秒都可能处理最多 4×64KiB 的 restore buffers；
+- persist 每次读取旧快照后仍无条件 `JSON.stringify` 并
+  `sessionStorage.setItem`；
+- Terminal 输出停顿、面板隐藏或页面空闲时仍持续写入同值；
+- 恢复数据范围和 sessionStorage key 保持不变，只是缺少等值短路。
+
+**根因**：
+
+- 持久化没有比较新快照与当前存储内容；
+- “数据未变化”仍走了完整写盘路径。
+
+**修复**：
+
+- 新增 `terminalRestoreSnapshotsEqual` 纯 helper；
+- persist 在边界裁剪和顺序映射后先比较新旧快照；
+- 完全相同时直接 return，不序列化、不 setItem；
+- 有变化时仍复用原 `writeTerminalRestoreSnapshots`。
+
+**回归**：
+
+- 新增 `tests/terminal-restore-persist-skips-unchanged-snapshots.test.mjs`；
+- helper 覆盖相等、长度不同和内容不同；
+- 更新 bounded restore harness 加载新 helper；
+- RED：helper 缺失且 persist 无等值短路；
+- GREEN：restore persistence、bounded buffer 与 reopen 定向测试
+  **6 pass / 0 fail**；
+- 完整测试：**2919 pass / 0 fail**；
+- Ego TaskSpace 2 仍结束，本轮不重建，因此不声明浏览器运行态结果。
+
+**适用环境**：macOS、Node 24.22.2、TypeScript 5.9.3、React 18。
+周期持久化必须在写盘前做值比较；有界不代表频繁写同值是可接受的。
+
+## 2026-11-19 — Project speed search 关闭后旧请求仍可回写
+
+**作用域**：`src/client/components/project/ProjectPanel.tsx` 的
+`clearTreeSearchState` 与 host recursive name search。
+
+**症状/证据**：
+
+- 关闭 Project speed search 会同步清空 query/pending/error/truncated；
+- 请求防陈旧只依赖 effect cleanup 中的 requestId/AbortController；
+- 同一 tick 内旧请求先返回、cleanup 尚未运行时，仍可能重新写回 results
+  或截断状态；
+- 关闭不是普通 query 变化，必须立即让旧 generation 失效。
+
+**根因**：
+
+- `clearTreeSearchState` 只处理 React state，没有同步更新 request generation；
+- 陈旧响应防护依赖 React effect 的后续 cleanup 时序。
+
+**修复**：
+
+- 将 clearTreeSearchState 改为稳定 callback；
+- 清理 state 前同步 `searchRequestRef.current += 1`；
+- Esc、关闭按钮与 Enter 三条关闭路径继续复用同一 helper；
+- AbortController、宿主 abort signal 与 UI state 文案保持不变。
+
+**回归**：
+
+- 新增 `tests/project-speed-search-close-invalidates-pending-request.test.mjs`；
+- callback 直接验证 generation 从 4 增至 5；
+- 更新 Project list-state 关闭路径回归；
+- RED：helper 尚不存在/未递增 generation；
+- GREEN：speed-search close、abort、Enter 命中定向测试
+  **7 pass / 0 fail**；
+- 完整测试：**2918 pass / 0 fail**；
+- Ego TaskSpace 2 仍结束，本轮不重建，因此不声明浏览器运行态结果。
+
+**适用环境**：macOS、Node 24.22.2、TypeScript 5.9.3、React 18。
+“关闭/取消”必须同步使请求代际失效；只清 UI state 无法阻止同一 tick 的
+陈旧异步回调。
+
+## 2026-11-19 — 待执行的 author 防抖会立即关闭刚打开的 File History
+
+**作用域**：`src/client/editor-workspace.tsx` 的 author debounce 与
+`showFileHistory`。
+
+**症状/证据**：
+
+- author 输入通过 350ms timer 清空 historyPath 并加载 flat Log；
+- 用户输入 author 后立即点击 Show History，File History 请求已经启动；
+- 旧 timer 随后仍会触发，把刚打开的 File History scope 清掉并 abort 请求；
+- authorTimer 在 showFileHistory 之后声明，File History 无法在入口处取消它。
+
+**根因**：
+
+- 两个用户意图竞争同一个 timer/scope，没有“显式 File History 优先”规则；
+- debounce 定时器不代表当前 UI 意图，但未在 scope 切换时失效。
+
+**修复**：
+
+- 将 authorTimer 声明提前到 showFileHistory 之前；
+- showFileHistory 启动前 clearTimeout 并清空 authorTimer；
+- author 文本保留，之后清除 File History 时仍按当前 author reload；
+- 分页取消、请求 key 和错误归属保持不变。
+
+**回归**：
+
+- 新增 `tests/editor-file-history-cancels-pending-author-reload.test.mjs`；
+- callback 直接验证 pending timer 被清除并置 null；
+- RED：timer 未清理且声明顺序错误；
+- GREEN：File History、Refresh/Retry、错误归属和过滤退出定向测试
+  **9 pass / 0 fail**；
+- 完整测试：**2917 pass / 0 fail**；
+- Ego TaskSpace 2 仍结束，本轮不重建，因此不声明浏览器运行态结果。
+
+**适用环境**：macOS、Node 24.22.2、TypeScript 5.9.3、React 18。
+显式 navigation/scope action 必须使尚未执行的延迟输入任务失效，否则旧 timer
+会反向覆盖更新的用户意图。
+
+## 2026-11-19 — File History 下的 Refresh/Retry 退回整个仓库日志
+
+**作用域**：`CommitPanel` 的 `onLoadLog` / `onRetry` 与 workspace 的
+File History scope。
+
+**症状/证据**：
+
+- `historyPath` 非空时，Log 继续显示文件历史 chip；
+- toolbar Refresh 和 Log Retry 仍调用 flat `loadLog`；
+- 这会加载整个仓库 commits，却保留文件历史 chip，数据与可见 scope 冲突；
+- 原有 `onLoadLog={loadLog}`、`onRetry=loadLog` 没有读取 history scope。
+
+**根因**：
+
+- 日志刷新入口只知道 Graph/flat，不知道 File History；
+- File History 仅通过 `showFileHistory` 首次进入，没有纳入 Refresh/Retry。
+
+**修复**：
+
+- 新增 `reloadVisibleLog`：
+  - `historyPath !== null` 时调用 `showFileHistory(historyPath)`；
+  - 否则调用 flat `loadLog()`；
+- CommitPanel 的 `onLoadLog` 和 `onRetry` 都复用该 scope-aware callback；
+- Graph 模式仍由 CommitLog 先路由到 `onLoadGraph`。
+
+**回归**：
+
+- 新增 `tests/editor-file-history-refresh-retries-file-scope.test.mjs`；
+- callback 直接验证：有 history 调 file scope，无 history 调 flat；
+- RED：reload callback 尚不存在，且 CommitPanel 仍接收 flat loadLog；
+- GREEN：File History、Refresh/Retry、错误归属与过滤退出定向测试
+  **9 pass / 0 fail**；
+- 完整测试：**2915 pass / 0 fail**；
+- Ego TaskSpace 2 仍结束，本轮不重建，因此不声明浏览器运行态结果。
+
+**适用环境**：macOS、Node 24.22.2、TypeScript 5.9.3、React 18。
+刷新/重试必须重放当前可见 scope；保留 scope chip 却加载另一种数据集属于
+状态与标签相互矛盾。
+
+## 2026-11-19 — Graph Refresh 失败会清空仍可用的同 scope 旧图
+
+**作用域**：`src/client/editor-workspace.tsx` 的 `loadGraph` 失败路径。
+
+**症状/证据**：
+
+- 同一 branch/tag scope 的 Graph Refresh 失败时，catch 无条件用空 entries
+  替换 `graph`；
+- 旧图本来仍可阅读，但一次网络/Git 错误会立即清空；
+- Graph error placeholder 随后隐藏图内容，只留下错误；
+- 对真正切换 branch/tag 的失败，保留旧图又会误导 scope，因此两种失败不能
+  同样处理。
+
+**根因**：
+
+- 失败路径没有比较当前 graph scope 与请求 scope；
+- “刷新已有视图”和“切换视图首次加载”共用同一个空结果写入。
+
+**修复**：
+
+- 失败时用 functional `setGraph` 比较当前 branch/at 与请求 scope；
+- 同 scope 且已有 Graph：保留当前数据，只显示 `logError`；
+- 不同 scope 或当前无数据：写入请求 scope 的空结果，避免旧图冒充新范围；
+- `graph` state 显式使用 `CommitGraphPayload | null`，并补充 graph API
+  响应类型，保持 TypeScript 严格检查。
+
+**回归**：
+
+- 新增 `tests/editor-graph-refresh-failure-preserves-same-scope.test.mjs`；
+- 同 scope 失败与切换 scope 失败分别直接执行真实 `loadGraph`；
+- RED：同 scope 旧图被清空；
+- GREEN：Graph 错误、busy、Retry 与 scope 失败定向测试
+  **11 pass / 0 fail**；
+- 完整测试：**2913 pass / 0 fail**；
+- Ego TaskSpace 2 仍结束，本轮不重建，因此不声明浏览器运行态结果。
+
+**适用环境**：macOS、Node 24.22.2、TypeScript 5.9.3、React 18。
+刷新失败应保留同一 scope 的可用数据；切换 scope 失败则必须清掉旧 scope，
+否则错误提示与仍在展示的数据语义冲突。
+
+## 2026-11-19 — 已有 Graph 刷新时没有 busy 语义
+
+**作用域**：`CommitGraph` listbox 与 `CommitLog` 的 Graph loading 传递。
+
+**症状/证据**：
+
+- Graph 初次加载有 placeholder `aria-busy`；
+- 已有 Graph 后点击 Refresh，工具栏按钮 disabled，但 Graph listbox 没有
+  `aria-busy`；
+- 辅助技术只能看到按钮暂时不可用，无法得知当前 Graph 数据正在刷新；
+- 前一轮限制 Graph 模式列表不渲染第二个 loading 后，已有图刷新只剩按钮
+  disabled 一个信号。
+
+**根因**：
+
+- `loading` 状态只传给 toolbar 和列表状态，没有传给已有 Graph 的 listbox；
+- Graph placeholder 的 aria-busy 只覆盖无数据加载，不覆盖旧图刷新。
+
+**修复**：
+
+- CommitGraphProps 新增可选 `busy`；
+- Graph listbox 在 busy 时设置 `aria-busy=true`；
+- CommitLog 将 `loading` 传给 busy；
+- placeholder、rows、Fold 和错误提示保持原样。
+
+**回归**：
+
+- 新增 `tests/commit-graph-refresh-exposes-busy-listbox.test.mjs`；
+- RED：CommitGraph 尚无 busy prop/aria-busy；
+- GREEN：Graph busy、placeholder 与行菜单定向测试
+  **9 pass / 0 fail**；
+- 完整测试：**2911 pass / 0 fail**；
+- Ego TaskSpace 2 仍结束，本轮不重建，因此不声明浏览器运行态结果。
+
+**适用环境**：macOS、Node 24.22.2、TypeScript 5.9.3、React 18。
+无数据 loading 和旧数据 refresh 是两种 busy 生命周期；前者由占位内容
+表达，后者必须落在现有数据容器上。
+
+## 2026-11-19 — Graph 初次加载同时出现两个 Loading 状态
+
+**作用域**：`src/client/components/commit/CommitLogListState.tsx` 与
+`CommitGraph.tsx` 的加载占位。
+
+**症状/证据**：
+
+- Graph 首次打开时 `graph == null`，CommitGraph 渲染 polite status
+  “Loading”；
+- 同一帧 CommitLogListState 的 status section 也因 `loading` 渲染第二份
+  “Loading”；
+- 两个相同提示没有额外信息，只造成视觉重复和潜在重复播报。
+
+**根因**：
+
+- 列表状态没有区分 flat 与 Graph 的 loading owner；
+- Graph placeholder 已经拥有 Graph 加载/错误/空结果语义，但列表状态仍
+  无条件展示 loading。
+
+**修复**：
+
+- CommitLogListState 的 loading 消息限定为 `!graphMode`；
+- Graph 模式由 CommitGraph placeholder 单独拥有 loading；
+- flat Log、Graph 错误、No matches、No commits 和 footer 条件保持不变。
+
+**回归**：
+
+- 新增 `tests/commit-log-graph-loading-has-single-status.test.mjs`；
+- 更新 list-state 组件回归；
+- RED：旧的 loading 条件不含 graphMode；
+- GREEN：Graph placeholder、list-state、Retry 路由定向测试
+  **10 pass / 0 fail**；
+- 完整测试：**2910 pass / 0 fail**；
+- Ego TaskSpace 2 仍结束，本轮不重建，因此不声明浏览器运行态结果。
+
+**适用环境**：macOS、Node 24.22.2、TypeScript 5.9.3、React 18。
+同一加载状态只能有一个语义 owner；子视图已提供 status 时，外层容器不应
+再渲染同文案。
+
+## 2026-11-19 — flat Log Retry 同时启动 Graph，反而取消自己的重试
+
+**作用域**：`src/client/editor-workspace.tsx` 传给 CommitPanel 的
+`onRetry`，以及 `CommitLog.retryList` 的视图路由。
+
+**症状/证据**：
+
+- CommitLog 已按 GraphMode 决定 Retry 走 `onLoadGraph` 或 `onRetry`；
+- workspace 的 flat `onRetry` 仍会执行 `loadLog()`，并在 `graph !== null`
+  时继续执行 `loadGraph()`；
+- 新 request lifecycle 会让后发的 Graph 请求 abort 前一个 flat 请求；
+- 因此用户看到 flat Log Retry 后，实际只重载 Graph，flat 失败消失条件
+  无法由 Retry 修复。
+
+**根因**：
+
+- Retry 路由同时存在于 CommitLog 和 workspace 两层；
+- 旧实现试图“顺手刷新 graph”，但 Graph 已经由 CommitLog 按可见视图路由；
+- 共享单请求槽让这个双重启动从浪费请求变成真实语义错误。
+
+**修复**：
+
+- workspace 的 `onRetry` 只调用 `loadLog()`；
+- Graph Retry 继续由 CommitLog 的 `retryList` 调用 `onLoadGraph`；
+- 两种视图都只启动自己的请求，不再互相取消。
+
+**回归**：
+
+- 新增 `tests/editor-log-retry-routes-visible-view-only.test.mjs`；
+- RED：flat Retry block 仍匹配 `loadGraph(`；
+- GREEN：Retry、Refresh、File History 与 Graph 定向测试
+  **11 pass / 0 fail**；
+- 完整测试：**2909 pass / 0 fail**；
+- Ego TaskSpace 2 仍结束，本轮不重建，因此不声明浏览器运行态结果。
+
+**适用环境**：macOS、Node 24.22.2、TypeScript 5.9.3、React 18。
+重试必须在与原始失败相同的视图语境中发生；上层不应猜测并预启动其它
+可能共享单请求槽的视图。
+
+## 2026-11-19 — File History 成功不清错误、失败写错错误通道
+
+**作用域**：`src/client/editor-workspace.tsx` 的 `showFileHistory`。
+
+**症状/证据**：
+
+- File History 成功返回 commits 后只更新列表、exhausted 和详情，没有清除
+  上一次 `logError`；
+- 失败时写入 `commitError`，于是错误出现在通用 Commit 状态条，并绑定
+  `loadGit` Retry，而不是 Log 自己的失败条与 log Retry；
+- 同一区域已有明确的 `logError` 生命周期，File History 却没有遵守。
+
+**根因**：
+
+- File History 被当作普通 Commit 命令处理；
+- 成功路径漏掉日志健康状态，失败路径复用了错误归属不同的 state。
+
+**修复**：
+
+- File History 成功时 `setLogError(null)`；
+- 失败时 `setLogError(message)`，不再写 `commitError`；
+- 列表清空、loading、abort、历史 chip 和错误 Retry 路由保持现有语义。
+
+**回归**：
+
+- 新增 `tests/editor-file-history-owns-log-error-state.test.mjs`；
+- 成功与失败 callback 均直接执行真实 `showFileHistory`；
+- RED：**2 fail**；
+- GREEN：File History、Refresh、分页和 filtered-history 定向测试
+  **10 pass / 0 fail**；
+- 完整测试：**2907 pass / 0 fail**；
+- Ego TaskSpace 2 仍处于结束态，本轮不重建空间，因此不声明浏览器运行态
+  结果；错误通道归属由 callback 回归直接证明。
+
+**适用环境**：macOS、Node 24.22.2、TypeScript 5.9.3、React 18。
+同一视图的异步来源必须写回该视图自己的错误/健康状态；通用工具窗错误不能
+替代具备专属 Retry 语义的局部错误。
+
+## 2026-11-19 — 旧 author 的 Load More 页可能追加到新查询
+
+**作用域**：`src/client/editor-workspace.tsx` 的 Log 分页、author 过滤、
+Refresh 与 Graph/File History 请求代际。
+
+**症状/证据**：
+
+- `loadMoreLog` 只用 `loadingMoreRef` 防同一分页重复，没有 AbortController；
+- 首屏 `loadLog` 与 Graph 已接入 request key/取消，但分页不在同一生命周期；
+- author 变化或 Refresh 启动后，旧分页响应仍可执行 `setCommits`，把上一
+  author 的 commits 追加到新结果；
+- 旧分页异常也可能在新请求期间写入错误状态。
+
+**根因**：
+
+- 分页请求没有共享查询代际和取消边界；
+- `changeLogAuthor` 只延迟首屏 reload，没有立即取消已发出的旧分页；
+- `beginLogRequest` 只 abort 主请求，不影响 Load More。
+
+**修复**：
+
+- 新增 `logMoreRequestRef`、`cancelLogMoreRequest()`；
+- Load More 捕获 requestAuthor/requestSkip，并发送 AbortSignal；
+- author 输入变化立即取消在途分页；首屏、Graph、File History 启动时也先
+  取消分页；
+- 分页响应只有在未 abort 且 author 仍匹配时才允许 append；
+- 被取消的分页恢复 `loadingMoreRef`，不让后续滚动永久停住；
+- 组件卸载同时取消主日志和分页请求。
+
+**回归**：
+
+- 新增 `tests/editor-log-pagination-cancels-stale-page.test.mjs`；
+- RED：**2 fail**；
+- GREEN：分页、Refresh single-flight 与 Scroll Append 定向测试
+  **15 pass / 0 fail**；
+- 完整测试：**2905 pass / 0 fail**；
+- 本轮 Ego TaskSpace 2 已被结束；按 Ego 规则未擅自重建空间，因此不声明
+  未执行的浏览器运行态结果，使用可执行 callback 回归证明 abort/append
+  边界。
+
+**适用环境**：macOS、Node 24.22.2、TypeScript 5.9.3、React 18。
+分页也属于查询结果，必须与首屏共用取消/代际规则；只要响应能修改列表，
+就不能例外于 request lifecycle。
+
+## 2026-11-19 — Commit Log Refresh 可并发发多个 Git 进程且 Graph 模式刷错视图
+
+**作用域**：`CommitLogToolbar`、`CommitLog` 的 Refresh 路径，以及
+`editor-workspace.tsx` 的 log/graph/file-history 请求生命周期。
+
+**症状/证据**：
+
+- DSH Web 连续触发三次 Log Refresh 后，拦截到 **3 个并发 `log` 请求**；
+- Refresh 按钮没有 disabled / busy 状态；
+- Graph 模式下工具栏 Refresh 仍调用 flat `onRefresh`，只重载隐藏的
+  flat log，不刷新用户正在看的 Graph；
+- 原 `setLogLoading(true/false)` 没有请求身份，重复或交错请求可能提前清除
+  loading，旧响应也可能覆盖新查询。
+
+**根因**：
+
+- Refresh 只是普通命令按钮，缺少 single-flight；
+- log、graph、file history 共用 loading，但没有共享请求 key/AbortController；
+- Graph 的错误 Retry 已按视图路由，普通 Refresh 没有复用同一判断。
+
+**修复**：
+
+- `loadLog`、`loadGraph`、`showFileHistory` 统一通过 `beginLogRequest` /
+  `finishLogRequest`：
+  - 相同 request key 已 in-flight 时直接复用，不发新请求；
+  - 不同 key 先 abort 旧请求，再启动新请求；
+  - stale/aborted 响应不得写回列表或清除新请求的 loading；
+- `CommitLogToolbar` 接收 `loading`，请求期间原生禁用 Refresh；
+- `CommitLog` 的 Refresh 在 Graph 模式调用 `onLoadGraph`，flat 模式才调用
+  `onRefresh`；
+- Graph Retry、Filter、折叠、详情和页签状态保持不变。
+
+**回归**：
+
+- 新增 `tests/commit-log-refresh-single-flight-and-graph-aware.test.mjs`；
+- RED：**3 fail**；
+- GREEN：Refresh、工具栏、Graph toggle 和 Retry 定向测试
+  **13 pass / 0 fail**；
+- 完整测试：**2903 pass / 0 fail**；
+- DSH Web（500ms 人工延迟）：连续三次 Refresh 只产生 **1 个 `log`**；
+  请求期间 Refresh disabled，完成后恢复；
+- DSH Web Graph 模式 Refresh：**0 个 `log` / 1 个 `graph`**，期间同样
+  disabled；完成后恢复。
+
+**适用环境**：macOS、Node 24.22.2、TypeScript 5.9.3、React 18。
+共享 loading 的多个数据源必须携带请求身份与取消信号；只设置布尔 loading
+既不能防重复，也不能保证最后响应属于最新查询。
+
+## 2026-11-19 — Commit Log 的 Filter/Graph 切换没有可访问或视觉状态
+
+**作用域**：`src/client/components/commit/CommitLogToolbar.tsx` 的 Log
+工具栏切换按钮。
+
+**症状/证据**：
+
+- Filter commits 与 Commit Graph 是二态切换控件，但运行态按钮既没有
+  `aria-pressed`，也没有 active class；
+- 打开过滤框或 Graph 后，屏幕阅读器和视觉样式都无法从按钮本身判断当前状态；
+- `ToolbarButton` 已支持 `active`，但 CommitLogToolbar 没有传入。
+
+**根因**：
+
+- 工具栏只把切换控件当成普通命令按钮渲染；
+- 状态只存在于条件挂载的搜索框和 Graph 内容里，没有同步回按钮语义。
+
+**修复**：
+
+- Filter 按钮传入 `active={filterVisible}`；
+- Graph 按钮传入 `active={graphMode}`；
+- 交由共用 ToolbarButton 同时生成 active 样式和 `aria-pressed`。
+
+**回归**：
+
+- 扩展 `tests/commit-commitlogtoolbar-reusable-tsx-toolbar-component.test.mjs`；
+- RED：工具栏切换状态断言失败；
+- GREEN：工具栏、Escape、Graph toggle 和过滤状态定向测试
+  **7 pass / 0 fail**；
+- 完整测试：**2900 pass / 0 fail**；
+- DSH Web：初始两按钮 `false`；打开 Filter 后仅 Filter 为 `true`；
+  打开 Graph 后两者为 `true`；关闭 Filter 仅 Filter 回 `false`；
+  关闭 Graph 后两者均回 `false`；active class 同步变化。
+
+**适用环境**：macOS、Node 24.22.2、TypeScript 5.9.3、React 18。
+二态工具按钮必须让可见样式、`aria-pressed` 和真实 UI 状态来自同一 prop，
+不能用条件渲染内容代替按钮状态。
+
+## 2026-11-19 — Commit Log 的 Escape 错误地关闭了 IDEA 式搜索框
+
+**作用域**：`src/client/components/commit/CommitLogToolbar.tsx` 的日志文本
+过滤输入，以及 `CommitLog.tsx` 的过滤框关闭回焦回调。
+
+**症状/证据**：
+
+- IDEA Computer Use：Git Log 搜索框输入无匹配查询后表格为空；
+  按 Escape 只清空查询，搜索框仍可见且焦点仍在字段内；
+- DSH 旧实现按 Escape 同时清空并卸载输入框，随后把焦点交给日志列表；
+- 两者都能恢复结果，但 DSH 丢失了 IDEA 中“继续修正同一搜索”的键盘上下文。
+
+**根因**：
+
+- Escape 分支复用了工具栏关闭按钮的 `clear + hide` 语义；
+- 上一轮为避免焦点落到 `BODY` 增加的 `onFilterClosed` 回调，只修补了
+  关闭后的焦点，没有对齐 Escape 本身不应关闭字段的行为。
+
+**修复**：
+
+- Escape 只调用 `onFilterChange('')`，保持输入框挂载并由浏览器自然保留焦点；
+- 工具栏 Filter 按钮仍执行现有 clear + hide，点击后焦点留在按钮；
+- 删除 `onFilterClosed` 及 CommitLog 中的列表回焦回调；
+- Graph/Flat 过滤结果、`No matches`、cursor 收敛和 Tab 状态保持逻辑不变。
+
+**回归**：
+
+- 新增 `tests/commit-log-filter-escape-clears-query-keeps-field-focused.test.mjs`；
+- 更新 `commit-commitlogtoolbar-reusable-tsx-toolbar-component.test.mjs`
+  与 `search-closing-log-search-clears-invisible-query.test.mjs`；
+- RED：**3 fail**；
+- GREEN：过滤/工具栏/页签状态定向测试 **11 pass / 0 fail**；
+- 完整测试：**2900 pass / 0 fail**；
+- DSH Web：Graph 输入无匹配查询为 0 行并显示 `No matches`；
+  第一次和第二次 Escape 后字段都保持可见、持焦，查询为空且恢复 27 行；
+  点击 Filter 按钮后字段收起、焦点回到按钮；
+- IDEA CUA：确认 Escape 清空查询后焦点仍在 Git Log 搜索框。
+
+**适用环境**：macOS、Node 24.22.2、TypeScript 5.9.3、React 18、
+IntelliJ IDEA 2026.2。搜索框的 Escape 与工具栏关闭是不同语义：前者是
+清理查询，后者才是收起 surface；不要用同一个 close path 合并两者。
+
+## 2026-11-19 — Commit Graph 文本过滤只作用于键盘 cursor，Escape 关闭后焦点落回 BODY
+
+**作用域**：`src/client/components/commit/CommitLog.tsx`、
+`CommitGraph.tsx`、`CommitLogListState.tsx` 与 `CommitLogToolbar.tsx`
+的 Log 文本过滤路径。
+
+**症状/证据**：
+
+- Graph 模式输入 `no-such-commit-query` 后过滤框值正确、React `filter`
+  state 也已更新，但页面仍渲染 27 行原始 Graph 提交；
+- 根因定位时确认键盘 `graphRows` 已过滤为 0，视觉层却仍读取
+  `graph.entries`；
+- DSH Web 按 Escape 关闭过滤框并恢复 27 行后，`activeElement` 为
+  `BODY`；下一次方向键没有操作对象；
+- IDEA Computer Use 对照：Git Log 无命中时表格为空且搜索框保持焦点；
+  Escape 清空查询后仍保留搜索框焦点。
+
+**根因**：
+
+- Graph 的 cursor/命令模型使用过滤后的 `graphRows`，但 `CommitGraph`
+  组件接收原始 graph payload，渲染与键盘模型各用了不同数据源；
+- `CommitLogListState` 只在 flat 模式统计 `No matches`，Graph 空结果只能
+  看到空的 fold bar；
+- 过滤框 Escape 分支只关闭字段，没有把焦点交还给日志列表。
+
+**修复**：
+
+- 先计算唯一的 `filteredGraphEntries`，再由它派生 `graphRows`；
+- `CommitGraph` 增加 `visibleEntries`，只替换可见 entries，不改变原始
+  graph 的 loading/branch/ref/error 判定；
+- Graph 模式用过滤后的可见行数驱动 `No matches`；
+- `CommitLogToolbar` Escape 关闭后调用 `onFilterClosed`，CommitLog 在
+  下一 tick 聚焦日志 listbox；
+- 过滤、cursor 收敛、Fold、详情和右键菜单仍共享同一可见行集。
+
+**回归**：
+
+- 扩展 `tests/commit-graph-text-filter-narrows-visible-rows.test.mjs`；
+- 新增 `tests/commit-log-filter-escape-returns-focus-to-list.test.mjs`；
+- RED：Graph 渲染与焦点回归均失败；
+- GREEN：相关 Graph、过滤、菜单和工具栏定向测试 **15 pass / 0 fail**；
+- 完整测试：**2899 pass / 0 fail**；
+- DSH Web：无匹配查询 27 → 0 行且显示 `No matches`；
+  Escape 后恢复 27 行、过滤框关闭、焦点回到 `Commit` listbox，
+  `ArrowDown` 从 `f93698f…` 移到 `cb16698…`；
+- IDEA CUA：确认 Git Log 的空过滤结果和 Escape 清空查询行为。
+
+**适用环境**：macOS、Node 24.22.2、TypeScript 5.9.3、React 18、
+IntelliJ IDEA 2026.2。只要同时维护“可见行”和“键盘命令行”，就必须
+让二者从同一个过滤后集合派生；关闭搜索 surface 后应显式恢复日志域焦点，
+不能依赖浏览器默认的 `BODY` 聚焦。
+
+## 2026-11-19 — 隐藏 Commit Log 错误恢复抢走焦点
+
+**作用域**：`src/client/components/commit/CommitLog.tsx` 的 logFailure
+恢复聚焦 effect。
+
+**症状/证据**：
+
+- `logFailedRef` effect 检测 failed → recovered 后调用隐藏列表的 focus；
+- 持久挂载后 Change 模式仍保留该 effect；
+- 后台刷新使 logFailure 清空时，`display:none` 列表可能抢走 Change 页签焦点；
+- effect 依赖只有 logFailure，没有 hidden。
+
+**根因**：
+
+- 焦点恢复属于可见 UI 交互，却被放在与可见性无关的副作用中；
+- 隐藏状态没有参与 effect 生命周期判断。
+
+**修复**：
+
+- 恢复聚焦条件改为 `recovered && !hidden`；
+- 依赖数组加入 hidden；
+- Retry、live alert、错误文案和 logFailedRef 状态不变。
+
+**回归**：
+
+- 新增 `tests/commit-log-hidden-pane-does-not-steal-focus.test.mjs`；
+- RED：**0 pass / 1 fail**；
+- GREEN：隐藏恢复、隐藏轮询、页签状态与 CommitLog 组件定向测试
+  **7 pass / 0 fail**；
+- 完整测试：**2895 pass / 0 fail**；
+- 后台恢复难以从当前 UI 稳定诱导，本轮不声明未执行的运行态结果。
+
+**适用环境**：macOS、Node 24.22.2、TypeScript 5.9.3、React 18。
+隐藏挂载组件中任何 `focus()`、scroll-into-view 和 live announcement 都要
+先判断可见性，否则后台状态变化会破坏当前活动键盘域。
+
+## 2026-11-19 — 隐藏 Commit Log 仍每 3 秒轮询文件状态
+
+**作用域**：`src/client/components/commit/CommitLog.tsx` 的详情文件可用性
+effect，以及 Change/Commit 隐藏挂载方案。
+
+**症状/证据**：
+
+- 为保证页签状态而保持 CommitLog 挂载后，Change 模式下列表为 `display:none`；
+- 但详情文件可用性 effect 仍每 3000ms 调用 `callFs({ op: 'exists' })`；
+- 隐藏面板中的详情用户不可见，轮询结果也没有即时用途；
+- 依赖数组只包含 `detail?.hash` 与 `detailPathKey`，没有 hidden。
+
+**根因**：
+
+- 持久挂载解决状态丢失，但没有让可见性参与副作用生命周期；
+- 隐藏面板仍执行与“正在阅读提交详情”绑定的 I/O。
+
+**修复**：
+
+- effect 在 `hidden` 时立即返回，不创建 interval 或 focus listener；
+- 依赖加入 hidden，返回 Log 时 effect 重启，立即检查一次并恢复 3 秒轮询；
+- 保留已有 availability Map，避免恢复首帧闪烁；
+- 可见状态下的刷新语义不变。
+
+**回归**：
+
+- 新增 `tests/commit-log-hidden-pane-pauses-local-file-polls.test.mjs`；
+- RED：**0 pass / 2 fail**；
+- GREEN：隐藏轮询、页签状态和 CommitLog 组件定向测试 **6 pass / 0 fail**；
+- 完整测试：**2894 pass / 0 fail**；
+- DSH Web：选中提交详情后切到 Change，7.2 秒内
+  `/api/dsh-editor/fs` resource 数保持 15 → 15，新增请求为 0。
+
+**适用环境**：macOS、Node 24.22.2、TypeScript 5.9.3、React 18。
+为了保留 UI state 而隐藏挂载组件时，必须同时审计 interval、focus listener、
+网络轮询和订阅副作用，把 hidden 纳入 effect 生命周期。
+
+## 2026-11-19 — Project speed search 关闭后残留截断状态
+
+**作用域**：`src/client/components/project/ProjectPanel.tsx` 的
+`closeTreeSearch`、Enter 命中关闭路径与 search-owned status。
+
+**症状/证据**：
+
+- speed search 查询 `test` 后显示 `Search results were truncated`；
+- Escape 只清空 query 和 search-open，truncated/error/pending/entries 要等
+  query effect 后续运行才清理；
+- 关闭后的首帧仍可能渲染旧 truncated 文案；
+- Enter 打开命中时也只设置 query 为空和搜索框关闭，没有共享清理路径。
+
+**根因**：
+
+- “关闭搜索”只处理可见框开关，没有把同一 owner 的派生状态一起收敛；
+- 多个关闭入口重复写部分 setter，更新策略不一致。
+
+**修复**：
+
+- 新增 `clearTreeSearchState()`，一次清空 query、searchEntries、pending、
+  error 和 truncated；
+- Esc、× 与 Enter 命中路径都复用该 helper；
+- query effect 的 abort cleanup、tree 焦点和 reveal 行为保持不变。
+
+**回归**：
+
+- 新增 `tests/project-speed-search-close-clears-stale-status.test.mjs`；
+- RED：**0 pass / 2 fail**；
+- GREEN：truncated、Enter 跳转和 View 搜索焦点定向测试 **6 pass / 0 fail**；
+- 完整测试：**2892 pass / 0 fail**；
+- DSH Web：`test` 截断提示存在；Escape 后 20ms 内搜索框关闭、tree 接管焦点、
+  tree messages 为空；重新搜索并 Enter 后无残留状态或 error boundary。
+
+**适用环境**：macOS、Node 24.22.2、TypeScript 5.9.3、React 18。
+关闭搜索时应在同一事件中同步清空 query-owned 状态，不能把首帧正确性
+寄托在后续 effect 的执行时机上。
+
+## 2026-11-19 — 切换 Change 后 Commit Log 过滤器被清空
+
+**作用域**：`src/client/components/commit/CommitPanel.tsx` 的 Change/Commit
+模式渲染，以及 `src/client/components/commit/CommitLog.tsx` 的页签内状态。
+
+**症状/证据**：
+
+- DSH Web 在 Commit 页打开日志过滤框并输入 `no-such-commit-query`；
+- 过滤结果显示 `No matches`；
+- 切到 Change 再回 Commit 后，过滤框消失、值清空、列表恢复为全部提交；
+- 父层虽然单独记住滚动位置，但日志过滤、Graph 模式/折叠/cursor 都随组件卸载。
+
+**根因**：
+
+- CommitPanel 条件渲染 `mode === 'log' ? <CommitLog/> : <Changes/>`；
+- CommitLog 的 filter、showFilter、graphMode、graphFolded、graphCursor 和
+  selection anchor 都是组件内部 state；
+- 条件渲染会卸载整个组件树，内部状态没有持久层。
+
+**修复**：
+
+- CommitLog 始终挂载；Change 模式使用 `display:none` 和
+  `aria-hidden=true`，不占布局也不进入辅助技术树；
+- CommitLog 新增 `hidden` prop，保留同一 React 实例和内部状态；
+- Change 面板仍按原逻辑只在非 Log 模式挂载；
+- 页签 roving focus、日志查询、分页和详情状态不变。
+
+**回归**：
+
+- 新增 `tests/commit-log-filter-survives-change-tab-toggle.test.mjs`；
+- 日志过滤、页签 roving focus 和模式切换定向测试 **14 pass / 0 fail**；
+- 完整测试：**2890 pass / 0 fail**；
+- DSH Web：过滤值 `no-such-commit-query`、Filter 可见状态和 `No matches`
+  往返后完整保留；Change 模式下列表 `display:none`、`aria-hidden=true`；
+- IDEA CUA：查看 Commit 工具窗当前结构；DSH 日志页签按独立持久 tab state 处理。
+
+**适用环境**：macOS、Node 24.22.2、TypeScript 5.9.3、React 18。
+页签内容如果需要保留局部筛选、图表或 cursor 状态，应保持组件实例挂载并用
+隐藏语义移出布局与 AX 树，而不是条件卸载后逐项重建状态。
+
+## 2026-11-19 — Changes View Options 选完 Group By 就关闭
+
+**作用域**：`src/client/components/ui/Menu.tsx` 的子菜单动作、Changes View
+Options 菜单模型和 `openChangesViewMenu`。
+
+**症状/证据**：
+
+- IDEA CUA 的 View Options 是持续打开的设置弹层，切换 Group By 后立即更新勾选；
+- DSH 修复前选择任意 Group By 后整个菜单关闭；
+- Group By 子项都声明 `restoreFocus: false`，ContextMenu 子菜单路径却完全忽略
+  `keepOpen` 并直接 `onClose()`；
+- 菜单模型只在打开时生成一次，分组改变后无法刷新 `✓`。
+
+**根因**：
+
+- 子菜单 action 的关闭语义固定，只有顶层 action 支持 `keepOpen`；
+- View Options 的 onApply 回调直接走普通 Group By 路径；
+- 普通路径会关闭菜单并把焦点交给 Change 行/Changes tree。
+
+**修复**：
+
+- ContextMenu 子菜单 action 遵循 `keepOpen`，并且只在真正关闭时设置
+  `skipReturnFocus`；
+- Changes View Options 的 Group By 子项声明 `keepOpen: true`；
+- 菜单 owner 内用 `build(mode)` 重建模型，使 `✓` 立即跟随新分组；
+- View Options 路径调用 `applyChangeGroupBy(mode, false)`，更新分组和可见行但
+  不抢菜单焦点；Commit Options 与普通入口仍保留原来的单次选择和行焦点恢复。
+
+**回归**：
+
+- 扩展 `tests/commit-change-group-menu-preserves-modes-current-check-mark.test.mjs`
+  与 `tests/editor-menu-item-open-submenu.test.mjs`；
+- 菜单模型、keep-open、View Options 重建与子菜单导航定向测试
+  **17 pass / 0 fail**；
+- 完整测试：**2888 pass / 0 fail**；
+- DSH Web：菜单和子菜单保持打开，active 项仍为 `groupBy:*`，勾选从 Module
+  更新到 Nothing；第一次 Escape 回父项，第二次关闭并回焦 View Options；
+- IDEA CUA 的持续打开与即时勾选行为一致。
+
+**适用环境**：macOS、Node 24.22.2、TypeScript 5.9.3、React 18。
+设置类菜单不能复用普通命令的“点击即关闭”语义；持续打开动作还必须同步重建
+菜单模型，否则视觉勾选会落后于真实状态。
+
+## 2026-11-19 — 分屏 Terminal Find 使用左 pane 并与 Project 抢 ⌘F
+
+**作用域**：`src/client/components/terminal/TerminalPanel.tsx` 的 Terminal
+Find 生命周期、`src/client/terminal.ts` 的 pane resolver，以及
+`src/client/components/project/ProjectPanel.tsx` 的全局 `⌘F`。
+
+**症状/证据**：
+
+- DSH Web 打开左右终端分屏，焦点在右侧 xterm；
+- 按 `⌘F` 后 Terminal Find 与 Project speed search 同时打开；
+- Project 搜索框抢走最终焦点；
+- Terminal Find 的计数 effect 和 Enter/上下步进仍固定使用左侧 emulator；
+- Escape 也把焦点还给左 pane。
+
+**根因**：
+
+- Find 状态只保存 query/index/total，没有记录打开它的 pane；
+- 多个动作直接写死 `emulatorRef.current`；
+- ProjectPanel 的 window-capture `⌘F` 只让位 Monaco，Terminal handler 后注册，
+  无法阻止 Project 已经 `preventDefault + stopPropagation`。
+
+**修复**：
+
+- 新增 `terminalFindPaneEmulator`，右 pane 存在时选择右侧，否则回退左侧；
+- `findPaneRef` 在打开 Find 时记录 pane；
+- 计数、Enter、Find Next/Previous、Escape 和 × 都通过同一 `findEmulator()`；
+- 屏幕菜单、键盘快捷键和工具栏 Find 都传入真实聚焦 pane；
+- Project `⌘F` 在 `[data-dsh-terminal-pane]` 内直接返回，让 Terminal 接管。
+
+**回归**：
+
+- 新增 `tests/terminal-split-find-targets-focused-pane.test.mjs`；
+- RED：**0 pass / 2 fail**；
+- GREEN：Terminal Find、Project `⌘F`、菜单定向测试 **14 pass / 0 fail**；
+- 完整测试：**2887 pass / 0 fail**；
+- DSH Web：右侧输入 `RIGHTONLY` 后 `⌘F` 只打开 Terminal Find，计数 `1/4`，
+  Project 搜索保持关闭；Escape 后焦点回到右侧 Terminal input。
+
+**适用环境**：macOS、Node 24.22.2、TypeScript 5.9.3、React 18。
+多 pane UI 的查询会话必须记录所属 pane；全局快捷键冲突要在更早注册的
+handler 中显式让位，不能依赖后注册 handler 的 `stopPropagation`。
+
+## 2026-11-19 — Changes 切换 Group By 后无选中行时焦点落到 BODY
+
+**作用域**：`src/client/editor-workspace.tsx` 的 `applyChangeGroupBy`，以及
+Changes View Options / Commit Options 中的 Group By 子菜单。
+
+**症状/证据**：
+
+- DSH Web 的 Changes 当前没有选中行；
+- View Options → Group By → Module 后菜单正常关闭，但 activeElement 为 `BODY`；
+- Changes 树仍显示，方向键和行快捷键失去上下文；
+- 有选中行时现有逻辑能正确展开分组并恢复该行焦点。
+
+**根因**：
+
+- Group By 子项声明 `restoreFocus: false`，由业务回调负责选择最终焦点；
+- `applyChangeGroupBy` 在 `selectedChangeRef.current === null` 时直接返回；
+- 泛型菜单因 `restoreFocus: false` 也不恢复 opener，最终无人接管焦点。
+
+**修复**：
+
+- 无选中行时在菜单卸载后的下一 tick 聚焦 `commitChangesRef`；
+- Changes 树不存在或已卸载时使用现有 `focusWorkspaceFallback`；
+- 有选中行时继续复用 `groupByFocusRef + revealChangeRow`，保持行焦点和滚动；
+- 不修改分组值、持久化、折叠键和菜单模型。
+
+**回归**：
+
+- 扩展 `tests/commit-change-row-unversioned-identity-independent-selection-side.test.mjs`；
+- RED：**3 pass / 1 fail**；
+- GREEN：Group By / reveal / 菜单模型定向测试 **11 pass / 0 fail**；
+- 完整测试：**2885 pass / 0 fail**；
+- DSH Web：无选中行选择 Module 后 activeElement 为 `role="tree"` 的 Changes，
+  菜单已关闭且无 Editor error boundary；
+- IDEA CUA：View Options 显示 Group By / Show 分组；IDEA 弹层切换后保持打开，
+  本轮只修 DSH 中已复现的焦点丢失，不擅自扩大菜单行为。
+
+**适用环境**：macOS、Node 24.22.2、TypeScript 5.9.3、React 18。
+菜单项关闭 opener 恢复（`restoreFocus: false`）时，业务回调必须在所有分支
+提供稳定焦点目标，包括没有选中对象的分支。
+
+## 2026-11-19 — Project 搜索失败同时误报 No matches
+
+**作用域**：`src/client/components/project/ProjectPanel.tsx` 的 Project speed
+search 状态渲染，以及 `src/client/terminal.ts` 的 `treeSearchMiss`。
+
+**症状/证据**：
+
+- DSH Web 使用 CDP 临时离线后输入 `zzzz-no-such-file`；
+- Project 树同时出现 `Search failed: Failed to fetch` 和 `No matches`；
+- 两个状态分别为 assertive alert 和普通状态，表达互相冲突的结论；
+- 恢复网络后查询 `test` 正常返回 200 条截断结果。
+
+**根因**：
+
+- `treeSearchMiss` 只判断 loading、query 与 filtered rows；
+- 宿主搜索失败时结果是未知，不是已确认的零匹配；
+- 渲染层没有把已有 `searchError` 传给 miss 判定。
+
+**修复**：
+
+- `treeSearchMiss` 接受 `error`，任何非空错误都返回 false；
+- ProjectPanel 调用时传入现有 `searchError`；
+- search-error 继续作为唯一 assertive alert；
+- 真实成功零结果、loading 抑制、空 query 和截断文案保持原语义。
+
+**回归**：
+
+- 扩展 `tests/search-only-root-row-counts-miss.test.mjs`；
+- RED：**2 pass / 2 fail**，错误状态仍被判为 miss；
+- GREEN：定向测试 **9 pass / 0 fail**；
+- 完整测试：**2884 pass / 0 fail**；
+- DSH Web：离线时只剩一个 `search-error` 状态和一个 alert；恢复网络后
+  `test` 返回 200 行并显示截断提示，搜索框保持焦点，无 Editor error boundary。
+
+**适用环境**：macOS、Node 24.22.2、TypeScript 5.9.3、React 18。
+“没有结果”和“无法取得结果”必须是互斥状态；任何 alert/error 存在时，
+否则会显示空结果文案，形成错误结论。
+
+## 2026-11-19 — Project speed search 被替换后仍继续宿主遍历
+
+**作用域**：`src/client/components/project/ProjectPanel.tsx` 的 Project speed
+search effect，以及 `lib/index.js` 的 `searchWorkspaceEntries` / fs search 路由。
+
+**症状/证据**：
+
+- Project speed search 已有 160ms 去抖和 requestId 防覆盖；
+- 但查询变化时只清 timer，已发出的 `fs.search` fetch 没有 AbortSignal；
+- 宿主递归名称搜索也没有取消检查，旧查询会继续进行目录 BFS 和 `readdir`；
+- requestId 只能阻止旧结果写回 UI，不能停止磁盘 I/O。
+
+**根因**：
+
+- 客户端把“结果失效”当成“请求取消”，没有传递取消信号；
+- 宿主虽然有 request.signal，但 search 分支没有把它带入遍历。
+
+**修复**：
+
+- 每次有效 Project search 创建独立 `AbortController`；
+- effect cleanup 清 timer 并 abort，fetch 使用 `{ signal: controller.signal }`；
+- abort rejection 直接退出，不写搜索错误；
+- fs search 路由传入 `request.signal`，`searchWorkspaceEntries` 在开始和每个
+  目录之间检查 `aborted`，停止后续遍历；
+- 保留 200 命中、50,000 访问预算、排序、视图和返回结构。
+
+**回归**：
+
+- 新增 `tests/project-speed-search-aborts-superseded-host-walk.test.mjs`；
+- RED：**1 pass / 1 fail**，预取消搜索仍返回 `nested/needle.txt`；
+- GREEN：**2 pass / 0 fail**；
+- Project speed search 定向测试：**8 pass / 0 fail**；
+- 完整测试：**2883 pass / 0 fail**；
+- DSH Web：快速输入 `test`、追加 `x`、Backspace 恢复 `test` 后结果正常，
+  search input 保持焦点，无 loading 残留或 Editor error boundary。
+
+**适用环境**：macOS、Node 24.22.2、TypeScript 5.9.3、React 18。
+递归搜索的去抖只能减少请求数量；查询 generation 被替换后还必须取消在途
+请求，宿主侧也要在遍历边界检查 signal，否则 UI 防覆盖不等于停止资源消耗。
+
+## 2026-11-19 — Project View 切换抢走 speed search 焦点
+
+**作用域**：`src/client/components/project/ProjectPanel.tsx` 的
+`closeProjectViewMenu()`、search state 与 Project View 菜单组合路径。
+
+**症状/证据**：
+
+- DSH Web 打开 Project speed search，查询为 `test`；
+- 切到 All Changed Files 后列表仍按 `test` 过滤，搜索框和查询都保留；
+- 但 activeElement 被强制移到 Project tree，继续输入不会更新查询；
+- 首次实现还把 `closeProjectViewMenu` 放在 `searchOpen` 声明之前，运行时
+  产生 `Cannot access 'searchOpen' before initialization` 并触发 Editor
+  Error Boundary，已由重载后的运行态发现并修复。
+
+**根因**：
+
+- Project View 关闭 helper 无条件聚焦 tree；
+- helper 的 hook 声明顺序位于 search state 之前，dependency array 求值时
+  访问了尚未初始化的 `searchOpen`。
+
+**修复**：
+
+- 把 `closeProjectViewMenu` 移到 search state/ref 声明之后；
+- helper 在 `searchOpen` 时优先聚焦 search input，否则聚焦 tree；
+- 依赖数组更新为 `[searchOpen, treeRef]`；
+- 新增 helper 顺序断言，防止再次引入 TDZ。
+
+**回归**：
+
+- 新增 `tests/project-view-menu-preserves-speed-search-focus.test.mjs`；
+- helper 顺序断言先 RED，修复后 GREEN；
+- Project View 搜索/焦点定向测试：**6 pass / 0 fail**；
+- DSH Web：切到 All Changed Files 后 activeElement 为 `Search in Project`，
+  查询仍为 `test`；继续键入后值变为 `testx`，Editor 未进入错误边界；
+- IDEA 对照：Project speed search 显示独立文本字段并持有当前查询。
+
+**适用环境**：macOS、Node 24.22.2、TypeScript 5.9.3、React 18。
+组合交互需保留更具体的键盘域；close helper 必须放在其依赖的 state 之后，
+并用顺序回归守卫 hook 初始化。
+
+## 2026-11-19 — 关闭非最后编辑 tab 后焦点仍落到 BODY
+
+**作用域**：`src/client/editor-workspace.tsx` 的 `closeFile()` 与 editor tab
+关闭后的焦点收敛。
+
+**症状/证据**：
+
+- Open Files 同时有 package.json 和 README.md，active 为 package.json；
+- 关闭非 active 的 README.md 后，列表正确只剩 package.json；
+- 但 activeElement 变为 BODY，键盘无法继续在同组 tab/编辑区操作；
+- 上一轮只处理了 `remaining.length === 0`，非最后 tab 没有焦点接管。
+
+**根因**：
+
+- 点击的 tab close button 随 tab 更新卸载；
+- closeFile 只更新 openFiles/activePath，没有判断浏览器是否已经恢复其他有效焦点。
+
+**修复**：
+
+- 关闭后下一 tick 检查 activeElement；
+- 若菜单/树等已恢复有效连接焦点，保持不动；
+- 若焦点在 body 或已卸载控件，则优先聚焦剩余 active file tab；
+- 无剩余 file 时继续使用 focusWorkspaceFallback。
+
+**回归**：
+
+- 新增 `tests/editor-close-non-last-file-restores-tab-focus.test.mjs`；
+- 目标测试先 RED（1 fail），修复后 GREEN（1 pass）；
+- 最后 tab / 非最后 tab 焦点定向测试：**4 pass / 0 fail**；
+- DSH Web：关闭 README.md 后 activeElement 为 `role="tab"` 的
+  package.json，Open Files 选中行保持 package.json；
+- IDEA Open Files 空状态对照保持工具窗/编辑器稳定上下文。
+
+**适用环境**：macOS、Node 24.22.2、TypeScript 5.9.3、React 18。
+动态 tab 关闭后不能只处理零剩余特例；必须先尊重已恢复的有效焦点，再为
+body/卸载控件提供 active tab 或 workspace fallback。
+
+## 2026-11-19 — Open Files 关闭最后一个 tab 后焦点落到 BODY
+
+**作用域**：`src/client/editor-workspace.tsx` 的 `closeFile()`。
+
+**症状/证据**：
+
+- DSH Web 切到 Open Files，只有一个 README.md tab；
+- 点击 `Close README.md` 后，列表正确清空并显示 `No open files`；
+- 但 activeElement 为 `BODY`，Project/编辑器快捷键失去上下文；
+- IDEA 对照：关闭最后编辑 tab 后 Open Files 工具窗进入空/禁用状态，
+  焦点不会留在已卸载 tab。
+
+**根因**：
+
+- `closeFile()` 移除 tab 和 activePath 后，没有处理“剩余 tab 为零”时的焦点；
+- 被点击的关闭按钮随 tab strip 卸载，浏览器将焦点退到 body。
+
+**修复**：
+
+- 当 `remaining.length === 0` 时，在 React 提交后调用现有
+  `focusWorkspaceFallback()`；
+- fallback 优先聚焦可见 Project tree / Changes list，再回落到 Activity Stripe；
+- 仅在最后一个文件关闭时触发，不改变非末页 tab 的相邻激活逻辑。
+
+**回归**：
+
+- 新增 `tests/editor-close-last-file-restores-workspace-focus.test.mjs`；
+- 目标测试先 RED（1 fail），修复后 GREEN（1 pass）；
+- Project View / tab close 定向测试：**4 pass / 0 fail**；
+- DSH Web：Open Files 关闭最后 README.md 后，空状态为 `No open files`，
+  activeElement 为 Project `role="tree"`；
+- IDEA 对照：最后编辑 tab 关闭后工具窗为空/禁用，焦点未落到已卸载 tab。
+
+**适用环境**：macOS、Node 24.22.2、TypeScript 5.9.3、React 18。
+关闭最后一个动态 tab 时必须显式选择稳定 fallback，不能依赖被删除控件的
+浏览器默认焦点。
+
+## 2026-11-19 — Project 视图菜单 Escape 把焦点还给按钮
+
+**作用域**：`src/client/components/project/ProjectPanel.tsx` 的 Project View
+ContextMenu 关闭路径。
+
+**症状/证据**：
+
+- DSH Web 打开 Project View 菜单后按 Escape；
+- 菜单正确关闭，但 activeElement 回到 Project View 下拉按钮；
+- 随后按 `↓` 不移动 Project 选中行；
+- IDEA 对照：视图菜单 Escape 后按 `↓`，选中行从 `docs` 移动到 `lib`，
+  说明取消菜单应保留 Project 树键盘上下文。
+
+**根因**：
+
+- ContextMenu 的通用取消行为恢复 opener，即 Project View 按钮；
+- 该菜单的 opener 对选择操作只是工具栏控件，不是取消后的持久工作区。
+
+**修复**：
+
+- 增加 `closeProjectViewMenu()`：关闭菜单后下一 tick 聚焦 `treeRef.current`；
+- ContextMenu 的 `onClose` 统一使用该 helper；
+- 菜单项只负责 `onProjectViewChange`，选择与取消两条路径都由同一关闭
+  helper 收敛焦点到树；
+- 不改变菜单选择、过滤视图和持久化语义。
+
+**回归**：
+
+- 新增 `tests/project-view-menu-cancel-restores-tree-focus.test.mjs`；
+- 目标测试先 RED（1 fail），修复后 GREEN（1 pass）；
+- Project View 焦点定向测试：**10 pass / 0 fail**；
+- DSH Web：Escape 后 activeElement 为 Project tree，ArrowDown 选中行从
+  空选择移动到 `.idea`；
+- IDEA：Escape 后 ArrowDown 将选中行从 `docs` 移到 `lib`。
+
+**适用环境**：macOS、Node 24.22.2、TypeScript 5.9.3、React 18。
+Project View 这类工具窗局部菜单取消后应回到树，而不是工具条 opener。
+
+## 2026-11-19 — Project 视图切换后焦点留在下拉按钮
+
+**作用域**：`src/client/components/project/ProjectPanel.tsx` 的 Project View
+菜单切换动作。
+
+**症状/证据**：
+
+- DSH Web 从 Project Files 切到 All Changed Files 后，选中行已更新；
+- activeElement 仍是 `Project View: All Changed Files` 按钮；
+- 按 `↓` 不会移动新过滤列表的选择，键盘上下文断开；
+- IDEA 对照：用 Project 视图选择器切到 All Changed Files 后直接按 `↓`，
+  选择从项目根移动到 `docs`，说明键盘仍由树拥有。
+
+**根因**：
+
+- ContextMenu 关闭时按通用规则恢复 opener，即 Project 视图按钮；
+- 菜单 item 的 `run` 只调用 `onProjectViewChange`，没有把焦点交给切换后的
+  Project 树容器。
+
+**修复**：
+
+- 视图菜单项执行后，在下一 tick 聚焦 `treeRef.current`；
+- 保留 ContextMenu 的正常 opener 恢复，再由 timeout 把最终焦点收敛到树；
+- 不改变视图数据源、选择清理、持久化或菜单关闭语义。
+
+**回归**：
+
+- 新增 `tests/project-view-change-focuses-filtered-tree.test.mjs`；
+- 目标测试先 RED（1 fail），修复后 GREEN（1 pass）；
+- Project View 定向测试：**17 pass / 0 fail**；
+- DSH Web 运行态：
+  - 切到 All Changed Files 后 activeElement 为 `role="tree"`；
+  - 按 `↓`，选中行从 `.think_plan.md` 移到 `engineering-memory.md`；
+  - 切回 Project Files 后仍为 tree 焦点，持久化值为 `projectFiles`；
+- IDEA 对照：All Changed Files 切换完成后 `↓` 同样直接移动树选择。
+
+**适用环境**：macOS、Node 24.22.2、TypeScript 5.9.3、React 18。
+视图选择属于 Project 工具窗的持久键盘上下文；菜单关闭后应回到新视图的树，
+而不是停在工具栏 opener。
+
+## 2026-11-19 — Go to File 加载中误报空结果、失败静默吞错
+
+**作用域**：`src/client/editor-workspace.tsx` 的 `openQuickOpen()`、QuickOpen state
+和 `src/client/components/search/QuickOpen.tsx` 的结果区。
+
+**症状/证据**：
+
+- Go to File 打开时文件列表尚未返回，弹框立刻显示 `No matches`；
+- 宿主文件枚举失败时 catch 分支只把 files 设为空、loading 设为 false；
+- 用户无法区分“没有匹配”“工作区为空”和“文件 API 失败”；
+- 人为延迟 `api/dsh-editor/fs` 并返回 `ok:false` 时，旧实现只会留下伪空列表。
+
+**根因**：
+
+- 初始 QuickOpen state 没有 `loading: true`；
+- 失败分支没有保存错误，也没有可渲染的 error state。
+
+**修复**：
+
+- QuickOpen state 增加 `error`，打开时初始化 `loading: true` / `error: null`；
+- 成功和失败都显式收敛 loading；
+- 失败保留 host 的异常文本并传给 QuickOpen；
+- QuickOpen 使用 `role="alert"` 和现有错误色 token 渲染，错误存在时不再渲染
+  empty/no-matches。
+
+**回归**：
+
+- 新增 `tests/search-quick-open-reports-loading-and-host-failure.test.mjs`；
+- 目标测试先 RED（2 fail），修复后 GREEN（2 pass）；
+- QuickOpen/MRU 定向测试：**22 pass / 0 fail**；
+- DSH Web 运行态临时拦截并延迟文件枚举：
+  - 延迟期间只显示 `Loading…`；
+  - 失败后显示 `synthetic file enumeration failure`；
+  - 不出现 `No matches`，查询框保持焦点；
+- IDEA 对照：`⇧⌘O` 打开 Files 搜索，文本输入框持有焦点；输入 `README` 后
+  首个 `README.md` 结果被选中，Escape 关闭并回到编辑器。
+
+**适用环境**：macOS、Node 24.22.2、TypeScript 5.9.3、React 18。
+异步列表必须区分 loading、empty、error 三态；失败不能伪装成“无结果”，否则用户会
+误改查询而非处理服务故障。
+
+## 2026-11-19 — 读取失败的文件被错误提升到 Recent Files 顶部
+
+**作用域**：`src/client/editor-workspace.tsx` 的 `openFile()` 与 Recent Files MRU 写入。
+
+**症状/证据**：
+
+- Recent Files 按约定保留已删除文件；
+- 点击已删除路径时正常报错，但该路径会被再次 `noteRecent()`；
+- 原本位于第二/第三位的失效路径被提升到 MRU 第一位，用户连续点击只会反复强化坏条目；
+- 目标回归用失败 `callFs` 复现：返回 `false` 的同时 recent 列表收到该路径。
+
+**根因**：
+
+- `openFile()` 在检查已有 tab、读取磁盘之前就调用 `noteRecent(path)`；
+- “尝试打开”与“成功打开”被错误当成同一个 MRU 事件。
+
+**修复**：
+
+- 删除函数入口处的提前 `noteRecent()`；
+- 已打开文件重新激活成功时更新 MRU；
+- 新文件只在 `callFs` 成功、tab 状态建立且 `setEditorError(null)` 后更新 MRU；
+- 读取失败仍保留原有 stale 列表项和错误提示，不删除用户历史。
+
+**回归**：
+
+- 新增 `tests/editor-openfile-failed-read-does-not-promote-recent.test.mjs`；
+- 目标测试先 RED（1 fail），修复后 GREEN（2 pass）；
+- 定向 MRU/Recent Files 测试：**16 pass / 0 fail**；
+- DSH Web 运行态：临时 recent 为
+  `["README.md","deleted/recent-missing.ts","package.json"]`，从第二位打开失效路径后
+  列表顺序保持不变；随后恢复原 recent 存储；
+- IDEA 对照：`⌘E` 的 Recent Files 列表以已访问文件/工具窗口分组呈现，方向键选中
+  当前项、Escape 关闭并回到编辑器。
+
+**适用环境**：macOS、Node 24.22.2、TypeScript 5.9.3、React 18。
+MRU 只能在操作真正成功后提交；失败尝试可以提示错误，但不得修改用户“最近使用”事实。
+
+## 2026-11-19 — NamePrompt 校验失败后焦点留在提交按钮
+
+**作用域**：`src/client/components/commit/NamePrompt.tsx`。
+
+**症状/证据**：
+
+- DSH Web：Commit -> 分支菜单 -> New Branch，输入
+  `invalid branch` 后点击 OK；
+- host 返回 `a branch name may not contain spaces`，错误提示正常出现；
+- 但焦点仍停在 OK 按钮，用户继续键入不会修改名称；
+- 通过 Enter 提交时通常看不出问题，因为 input 原本就持焦；鼠标点击 OK
+  才暴露。
+
+**根因**：
+
+- NamePrompt 只在首次挂载时聚焦 input；
+- `state.error` 更新后没有把键盘所有权交回需要修正的字段。
+
+**修复**：
+
+- 增加以 `error` 为依赖的 focus effect；
+- 错误出现后下一 tick 聚焦 input 并 `select()` 全选原名称，方便直接覆盖；
+- 初次无错误时不额外抢焦，保留上一轮菜单 reclaim 逻辑。
+
+**回归**：
+
+- 新增 `tests/commit-nameprompt-error-reclaims-input-focus.test.mjs`；
+- 目标测试先 RED（1 fail），修复后 GREEN（1 pass）；
+- DSH Web 运行态：点击 OK 后错误条出现，activeElement 为名称 input，
+  `selectionStart=0`、`selectionEnd=14`、值为 `invalid branch`；
+- 取消后回到 `Checkout branch`，未创建分支。
+
+**适用环境**：macOS、Node 24.22.2、TypeScript 5.9.3、React 18。
+异步表单校验失败要把焦点放回错误字段，而不是只显示 alert；对名称类单字段
+输入同时全选旧值，便于直接替换。
+
+## 2026-11-19 — Commit NamePrompt 被来源菜单回焦覆盖
+
+**作用域**：`src/client/components/commit/NamePrompt.tsx`、
+`src/client/editor-workspace.tsx` 的分支菜单、Commit Log 菜单及
+`openNamePrompt()` / `dismissNamePrompt()`。
+
+**症状/证据**：
+
+- DSH Web：Commit -> `Checkout branch` -> `New Branch…` 后对话框可见，但
+  `document.activeElement` 仍是已卸载菜单里的 `Checkout branch` 按钮；
+- 直接键入分支名不会进入 NamePrompt，Escape 也不走对话框的取消分支；
+- Commit Log 右键 -> `New Branch from …` 同样被来源菜单的卸载回焦覆盖；
+- 普通 `autoFocus` 发生在菜单 cleanup 之前，不能保证最终焦点。
+
+**根因**：
+
+- ContextMenu 关闭时会把焦点恢复到打开菜单前的控件；
+- NamePrompt 挂载时只依赖 `autoFocus`，来源菜单的 cleanup 随后覆盖输入框焦点；
+- 取消 NamePrompt 时没有保存可直接回到的分支按钮 / 日志列表锚点。
+
+**修复**：
+
+- NamePrompt 持有 `inputRef` 与 `data-dsh-name-prompt`，挂载后 40ms 再
+  reclaim 输入焦点，绕开菜单卸载回焦；
+- 分支弹窗记录 `branchPromptOriginRef`，Commit Log 菜单记录
+  `logPromptOriginRef`；打开 NamePrompt 时把可连接的来源写入
+  `namePromptReturnFocusRef`；
+- Escape / 背景 / Cancel 统一走 `dismissNamePrompt()`，优先恢复来源，失效时
+  回落到当前编辑器 / workspace；
+- 创建成功统一走 `finishNamePrompt()`，只清空来源，不把焦点抢回旧菜单。
+
+**回归**：
+
+- 新增 `tests/commit-nameprompt-reclaims-focus-and-restores-menu-origin.test.mjs`；
+- 目标测试先 RED（2 fail），修复后 GREEN（2 pass）；
+- branch / NamePrompt 定向测试：**12 pass / 0 fail**；
+- DSH Web 运行态：
+  - 分支菜单 -> New Branch：输入框持焦，键入 `focus-probe` 后 Escape，
+    回到 `Checkout branch`；
+  - Commit Log 菜单 -> New Branch from commit：输入框持焦，Escape 后回到
+    Commit `listbox`；
+- IDEA 对照：`Git -> New Branch…` 的 Branch Name 文本输入默认持焦并选中现有
+  名称，Escape 关闭对话框；取消后 IDEA 回到主编辑器，不把键盘留在关闭菜单。
+
+**适用环境**：macOS、Node 24.22.2、TypeScript 5.9.3、React 18。
+菜单触发的模态输入必须晚于来源菜单 cleanup 再次 reclaim 焦点；取消路径要保存
+真实的业务 opener，而不是只记录即将卸载的 menuitem。
+
+## 2026-11-19 — 菜单驱动 palette / 输入框的回焦竞争
+
+**作用域**：`src/client/editor-workspace.tsx` 的共享 palette origin、
+`RevisionPicker.tsx`、`MoveToPicker.tsx`、`QuickOpen.tsx`、
+`ProjectPanel.tsx` 内联创建/重命名行及 Project/F6 菜单入口。
+
+**症状/证据**：
+
+- Project tree -> F6 Move to… -> Escape 后 picker 关闭，但 activeElement
+  变为 `BODY`；
+- Project 文件右键 -> Compare with Revision… 后 picker 虽已挂载，activeElement
+  仍停在 Project tree；
+- Project Options -> Go to File 时焦点回到 More actions，QuickOpen 输入框没有
+  reclaim；
+- Project Options -> New File 时焦点同样留在 More actions，内联创建输入框没有
+  reclaim；
+- Project 文件右键 -> Rename 时 input autoFocus 后立刻被 ContextMenu 回焦抢走；
+  无条件 `onBlur` 随即提交同名状态并关闭输入框，用户实际看不到 Rename 编辑态；
+- ContextMenu 的动作关闭回焦晚于 picker autoFocus，导致输入框被旧 opener 覆盖；
+- F6 直接打开 Move To 时输入框正常持焦，说明问题是菜单驱动入口的焦点竞争。
+
+**根因**：
+
+- 两个共享 picker 的 `onClose` 都直接清空 state，没有保存打开前的 Project /
+  Commit / editor；
+- ContextMenu 动作结束后恢复 opener，覆盖了 picker 首次 autoFocus；
+- 没有统一的 palette origin/restore 路径。
+
+**修复**：
+
+- 增加共享 `paletteReturnFocusRef`、`rememberPaletteOrigin()`、
+  `restorePaletteFocus()`；
+- Move To / Compare with Revision 打开前记录 activeElement；
+- Escape/backdrop 和加载失败恢复该 origin，缺失时走 editor/workspace fallback；
+- 成功选择目录/修订时先清空 origin 再执行导航；
+- 两个 picker 记录 input ref，并在挂载 40ms 后再次聚焦输入框，绕开
+  ContextMenu 的延迟回焦；
+- QuickOpen 同样记录 input ref 并在 40ms 后 reclaim；
+- Project 内联创建行记录 input ref，菜单关闭后 reclaim；Escape 取消创建时延迟
+  聚焦 Project tree；
+- Rename 增加 `renameInputRef` / `renameReadyRef`：40ms 后 reclaim，并在初始
+  焦点稳定前禁止 blur commit；Enter/Escape 会先关闭 ready 再提交/取消；
+- Rename Escape 取消后延迟聚焦 Project tree；
+- Revision/MoveTo 增加 `data-dsh-*` 稳定标识。
+
+**回归**：
+
+- 新增 `tests/project-shared-palette-escape-restores-tree.test.mjs`；
+- Project/Commit palette 定向测试：**24 pass / 0 fail**；
+- 菜单驱动 palette/QuickOpen/New File 定向测试：**20 pass / 0 fail**；
+- Rename/Create/菜单入口定向测试：**11 pass / 0 fail**；
+- 完整 `npm test`：**2869 pass / 0 fail**；
+- DSH Web 运行态：
+  - Project tree -> F6 Move to… -> Escape -> Project tree；
+  - Project 右键 Move to… -> 输入框持焦 -> Escape -> Project tree；
+  - Project 右键 Compare with Revision… -> 输入框持焦 -> Escape ->
+    Project tree；
+  - Project Options -> Go to File -> QuickOpen 输入框持焦 -> Escape ->
+    Project tree；
+  - Project Options -> New File -> 内联输入框持焦 -> Escape ->
+    Project tree；
+  - Project 右键 Rename -> 内联输入框持焦且不消失 -> Escape ->
+    Project tree；
+
+**适用环境**：macOS、Node 24.22.2、TypeScript 5.9.3、React 18。
+菜单驱动的模态 picker / 内联输入必须在 ContextMenu 恢复 opener 后重新
+reclaim 自身输入焦点；存在 blur 提交语义时还要在初始 reclaim 窗口内抑制 blur，
+取消关闭时再恢复 opener。
+
+## 2026-11-19 — Go to File / Recent Files 关闭落到 BODY
+
+**作用域**：`src/client/editor-workspace.tsx` 的 `openQuickOpen()`、
+`openRecent()`、`closeQuickOpen()`，以及 QuickOpen 的稳定 DOM 标识。
+
+**症状/证据**：
+
+- DSH Web：Project tree 持焦、无打开文件时按 `Cmd/Ctrl+Shift+O`；
+- Go to File 打开并自动聚焦输入框；
+- Escape 后对话框关闭，但 `document.activeElement` 变成 `BODY`；
+- `Cmd/Ctrl+E` 的 Recent Files 使用同一 QuickOpen，也存在相同风险。
+
+**根因**：
+
+- QuickOpen 的 `onClose` 只执行 `setQuickOpen(null)`；
+- Go to File / Recent Files 没有记录打开前的 Project tree / Commit row / editor；
+- autoFocus 输入框卸载后没有恢复目标。
+
+**修复**：
+
+- 新增 `quickOpenReturnFocusRef` 与 `rememberQuickOpenOrigin()`；
+- Go to File、Recent Files 打开前记录 origin；
+- 新增 `closeQuickOpen()`：优先恢复仍连接 opener，其次当前编辑器，最后
+  workspace fallback；
+- 打开结果时先清空 origin 再执行导航，避免回抢已完成导航的旧控件；
+- QuickOpen 增加 `data-dsh-quick-open` 稳定标识。
+
+**回归**：
+
+- 新增 `tests/search-quick-open-close-restores-project-tree-without-editor.test.mjs`；
+- Go to File / Recent Files / fallback 定向测试：**23 pass / 0 fail**；
+- 完整 `npm test`：**2860 pass / 0 fail**；
+- DSH Web 运行态：
+  - Project tree -> Go to File -> Escape -> Project tree 持焦；
+  - Project tree -> Recent Files -> Escape -> Project tree 持焦；
+- 结果打开文件路径仍继续导航，不恢复旧 opener。
+
+**适用环境**：macOS、Node 24.22.2、TypeScript 5.9.3、React 18。
+后续所有 palette/popup 的取消关闭必须恢复 opener；语义打开结果时不得回抢焦点。
+
+## 2026-11-19 — Find in Files 无编辑器关闭落到 BODY
+
+**作用域**：`src/client/editor-workspace.tsx` 的 `openFindTool()`、
+`closeFindToolWindow()`、`findToolReturnFocusRef` 与 Find 定向回归。
+
+**症状/证据**：
+
+- DSH Web：Project tree 持焦且没有打开文件时按 `Cmd/Ctrl+Shift+F`；
+- Find in Files 正常打开并聚焦查询框；
+- 按 Escape 后 Find 正常关闭，但 `document.activeElement` 为 `BODY`；
+- 有编辑器时旧路径会回到 Monaco，因此缺陷只在无编辑器 opener 场景出现。
+
+**根因**：
+
+- 关闭 Find 时无条件调用 `currentCodeEditor()?.focus?.()`；
+- 没有文件时普通 Monaco 不存在或不可聚焦，最终浏览器把焦点移到 `BODY`；
+- Find 没有像 Search Everywhere 一样记录打开前的 Project tree / Commit row。
+
+**修复**：
+
+- `openFindTool()` 在 Find 尚未打开时记录 activeElement 到
+  `findToolReturnFocusRef`；
+- `closeFindToolWindow()` 优先恢复仍连接的 opener；
+- opener 已卸载时，有 active path 则聚焦当前 Monaco；
+- 无 editor path 时调用 `focusWorkspaceFallback()`，回落到工具窗口或 Activity
+  Stripe，绝不留下 `BODY`；
+- 现有从编辑器打开、`Hide`、Escape 和工具栏溢出关闭路径继续共用同一函数。
+
+**回归**：
+
+- 新增 `tests/search-find-close-restores-project-tree-without-editor.test.mjs`；
+- Find/Search/fallback 定向测试：**20 pass / 0 fail**；
+- 完整 `npm test`：**2857 pass / 0 fail**；
+- DSH Web 运行态：Project tree -> Find in Files -> Escape ->
+  `[data-dsh-project-tree]` 恢复持焦；
+- 完整测试确认无编辑器以外的 Find 关闭路径保持通过。
+
+**适用环境**：macOS、Node 24.22.2、TypeScript 5.9.3、React 18、
+Monaco Editor 0.52.2。
+后续搜索浮层的取消关闭必须先恢复 opener；只有 opener 已卸载时才走 editor /
+workspace fallback。
+
+## 2026-11-19 — 无文件/无工具窗口时关闭 Diff 落入 BODY
+
+**作用域**：`src/client/editor-workspace.tsx` 的 `closeDiff()`、
+`closeEditorTabs()` 空目标路径，以及 Project/Activity Stripe 的稳定 DOM 标识。
+
+**症状/证据**：
+
+- DSH Web：先关闭普通文件标签，只保留 Commit Diff；
+- 用 Activity Stripe 隐藏 Commit 后，在 Diff 中按 Escape，Diff 正常关闭；
+- 此时 `document.activeElement` 为 `BODY`，Project/Commit 面板均隐藏，
+  工作区键盘模型失去宿主；
+- Commit 可见且有编辑器的同类路径仍能正常回焦，问题只在来源行与编辑器都不存在时。
+
+**根因**：
+
+- `closeDiff()` 只尝试来源 Changes 行与普通 editor ref；
+- 无文件时 `activePathRef` 为空，来源 Changes 行又随工具窗口一起卸载；
+- 两条路径都失败后函数直接返回，没有 Activity Stripe 等稳定 fallback。
+
+**修复**：
+
+- Activity Stripe 与 Project tree 增加稳定 `data-dsh-*` 标识，避免依赖本地化
+  `aria-label`；
+- 新增 `focusWorkspaceFallback()`，优先聚焦可见 Changes list / Project tree，
+  其次 Commit Activity Stripe，最后 Project Activity Stripe；
+- `closeDiff()` 与无剩余文件的 Tab 关闭路径复用该 fallback；
+- 正常优先级仍为来源 Changes 行 / 当前编辑器，不改变既有成功路径。
+
+**回归**：
+
+- 新增 `tests/commit-diff-close-falls-back-to-activity-stripe.test.mjs`；
+- 相关 Diff/Project/Commit/Tab 定向测试：**19 pass / 0 fail**；
+- 完整 `npm test`：**2856 pass / 0 fail**；
+- DSH Web 运行态：无文件标签、Commit/Project 均隐藏时关闭 Diff，
+  Commit Activity Stripe 恢复持焦，`BODY` 不再成为 activeElement；
+- 有文件编辑器和 Changes 行的既有 Diff 关闭路径保持通过。
+
+**适用环境**：macOS、Node 24.22.2、TypeScript 5.9.3、React 18、
+Monaco Editor 0.52.2。
+后续关闭全屏编辑表面时必须保证至少一个 workspace 内可聚焦目标存活；不能
+只依赖业务 opener 或 Monaco ref。
+
+## 2026-11-19 — Commit Diff 下收起工具窗口丢失焦点
+
+**作用域**：`src/client/editor-workspace.tsx` 的 `selectActivity()` 键盘收起
+分支，以及 `focusEditorFromTerminal()` 对可见 Diff 的焦点路由。
+
+**症状/证据**：
+
+- DSH Web：Commit Changes 打开 Diff 后，Diff textarea 持焦；
+- 第一次 `Alt+2` 正常聚焦 Changes，第二次 `Alt+2` 收起 Commit 面板；
+- 收起后 Diff 仍然可见，但 `document.activeElement` 落到 `BODY`，Diff 键盘
+  快捷键失去上下文。
+
+**根因**：
+
+- 侧栏收起 fallback 只调用 `currentCodeEditor()` / hidden main Monaco；
+- 可见 Commit Diff 使用独立 Monaco 实例，必须通过 DiffPreview 的 scoped event
+  聚焦 modified editor；
+- 项目已有 `focusEditorFromTerminal()` 能正确路由 Diff，但工具窗口收起分支
+  没有复用它。
+
+**修复**：
+
+- Project/Commit 工具窗口由键盘收起时延迟调用
+  `focusEditorFromTerminal()`；
+- 可见 Diff 时向 workspace 派发 `dsh-editor-focus-diff`，由 DiffPreview 聚焦
+  modified editor；
+- 无 Diff 时仍聚焦普通 Monaco；
+- Terminal origin 已卸载时的 fallback 也复用同一焦点路径。
+
+**回归**：
+
+- 新增 `tests/commit-diff-alt-2-hide-restores-diff-focus.test.mjs`；
+- 工具窗口/Terminal/Diff 定向测试：**21 pass / 0 fail**；
+- 完整 `npm test`：**2854 pass / 0 fail**；
+- DSH Web 运行态：
+  - Diff focus -> `Alt+2` -> Changes focus；
+  - Changes focus -> `Alt+2` -> Commit 隐藏且 Diff textarea 持焦；
+  - 再按 `Alt+2` -> Commit 打开且 Changes focus；
+- IDEA 2026.2 实窗对照 Commit Diff 打开/关闭与工具窗口焦点路径。
+
+**适用环境**：macOS、Node 24.22.2、TypeScript 5.9.3、React 18、
+Monaco Editor 0.52.2。
+后续隐藏任何工具窗口时必须先判断当前可见编辑表面；Diff 焦点不能走 hidden
+main editor fallback。
+
+## 2026-11-19 — Activity Stripe 打开 Terminal 丢失 Project/Commit origin
+
+**作用域**：`src/client/components/ui/ActivityStripe.tsx` 的 pointerdown
+回调、`src/client/editor-workspace.tsx` 的 Terminal Activity 分支和
+`terminalReturnFocusRef`。
+
+**症状/证据**：
+
+- DSH Web：Project tree 持焦时用 Activity Stripe 打开 Terminal，再由终端内
+  `Alt+F12` 关闭，焦点回到编辑器而不是 Project tree；
+- 同一路径的 Activity Stripe 关闭按钮也可能只看到 `BODY` 短暂持焦；
+- Commit Changes 持焦时存在相同风险；
+- IDEA 实窗中工具窗口关闭会回到原工具窗口焦点上下文。
+
+**根因**：
+
+- Activity Stripe 的 Terminal 分支只切换 `terminalOpen`，没有记录打开前的
+  activeElement；
+- 按钮 click 时焦点可能已经转移到按钮本身，click handler 内再读取焦点已经
+  太晚；
+- 直接点击 Activity Stripe 关闭 Terminal 也没有主动恢复 origin。
+
+**修复**：
+
+- Activity Stripe 增加通用 `onItemPointerDown(id)`，在浏览器默认焦点迁移前
+  转发 pointerdown；
+- 工作区只在 Terminal 当前关闭时记录 origin，且排除 Terminal 与 Activity
+  Stripe 内部节点；
+- Activity Stripe 打开 Terminal 时设置 origin 并递增 focus generation；
+- Activity Stripe 关闭 Terminal 时异步恢复 origin，origin 已卸载才回落当前
+  editor/diff；
+- `Alt+F12 / Alt+3 / Ctrl+Shift+\`` 继续复用同一 origin 字段。
+
+**回归**：
+
+- 新增 `tests/terminal-activity-stripe-open-close-restores-origin.test.mjs`；
+- Terminal/Project 定向测试：**31 pass / 0 fail**；
+- 完整 `npm test`：**2852 pass / 0 fail**；
+- DSH Web 运行态：
+  - Project tree -> 鼠标 Terminal -> `Alt+F12` -> Project tree 持焦；
+  - Project tree -> 鼠标 Terminal -> 鼠标 Terminal 关闭 -> Project tree 持焦；
+  - Commit Changes -> 鼠标 Terminal -> 鼠标关闭 -> Changes tree 持焦；
+
+**适用环境**：macOS、Node 24.22.2、TypeScript 5.9.3、React 18、
+Monaco Editor 0.52.2、xterm 6.0.0。
+后续任何通过 Activity Stripe 打开 Terminal 的入口都必须在 pointerdown 阶段
+保存 origin，不能依赖 click 时的 activeElement。
+
+## 2026-11-19 — Babel retainLines 自动 compact 破坏生成源码契约
+
+**作用域**：`scripts/build-client.mjs` 的 `moduleSourceForBuild()` Babel
+generator 配置、`lib/client.js` 生成产物和源码形状回归。
+
+**症状/证据**：
+
+- 一次完整构建后 `lib/client.js` 从约 2076 KB 降到约 1991 KB；
+- Babel 输出从 `const applyPatchText = React.useCallback(` 变成
+  `const applyPatchText=React.useCallback(`；
+- 大量无关源码断言同时失败，表现为 `onSwitchFocusToEditor`、Apply Patch、
+  typeahead 等既有入口“消失”，但 TS/lint 与业务模块本身正常；
+- Babel 提示 `editor-workspace.tsx` 超过 500KB 后 deoptimise styling。
+
+**根因**：
+
+- Babel `retainLines` generator 在超大输入上会自动切换 compact/deoptimized
+  code style；生成文件仍可执行，但测试与构建契约依赖可读的源码形状；
+- 工作区文件的持续增长刚刚触发该自动阈值，导致构建结果随文件体积漂移。
+
+**修复**：
+
+- `moduleSourceForBuild()` 固定 `generatorOpts.compact = false`；
+- 保留 `retainLines` 与单引号输出，不对任何业务语义或运行时代码做压缩；
+- 新增 `tests/client-build-generator-disables-automatic-compaction.test.mjs`，
+  同时验证生成产物仍包含关键可读入口。
+
+**回归**：
+
+- 重建后 `lib/client.js` 恢复约 **2076 KB**；
+- 代表性 Apply Patch 与 Terminal focus 测试恢复通过；
+- 完整 `npm test`：**2852 pass / 0 fail**；
+- `check:client-build`、Node bundle syntax 与 `git diff --check` 通过。
+
+**适用环境**：Node 24.22.2、Babel 7.29.13、TypeScript 5.9.3。
+后续调整 `src/client/editor-workspace.tsx` 体积或 generator 配置时，必须保证
+构建不会因自动 compact 阈值改变生成源码形态。
+
+## 2026-11-19 — IDEA 工具窗口快捷键先聚焦再收起
+
+**作用域**：`src/client/injected-css.ts` 的工具窗口 activation helper、
+`src/client/editor-workspace.tsx` 的 `selectActivity()` / Terminal shortcut
+handler，以及 `EditorToolWindowPanel` 的焦点边界引用。
+
+**症状/证据**：
+
+- DSH 的 Project/Commit/Terminal 已打开但焦点在编辑器时，`Alt+1 / Alt+2 /
+Alt+F12` 第一次按键会直接收起工具窗口；
+- IDEA 2026.2 实窗中 Terminal 已打开但编辑器持焦时，第一次 `Alt+F12` 只聚焦
+  Terminal，窗口保持打开；第二次 `Alt+F12` 才收起并把焦点还给编辑器；
+- DSH `Alt+3` 也表现为普通可见性 toggle，与 `Alt+F12` 不一致。
+
+**根因**：
+
+- 快捷键状态机只读取 `panelVisible/terminalOpen`，没有读取当前焦点是否位于
+  对应工具窗口；
+- Project/Commit 鼠标按钮与键盘快捷键共用无焦点上下文的 toggle 分支；
+- Terminal helper 把“已打开”直接解释成“应收起”，跳过了 IDEA 的激活阶段。
+
+**修复**：
+
+- 新增纯函数 `toolWindowShortcutAction()`，明确返回
+  `show / focus / hide`；
+- `selectActivity()` 增加仅键盘路径使用的 `{ keyboard: true }`；鼠标点击保持
+  原行为；
+- Project 聚焦现有 tree 键盘域；Commit 优先聚焦当前 Changes/Log 列表或选中
+  行；工具窗口由键盘收起后，焦点回到当前 editor/diff；
+- `terminalShortcutAction()` 增加 `focus` 状态；已打开但焦点在外时只递增
+  Terminal focus generation，不关闭 Dock；
+- `Alt+3` 与 `Alt+F12`、`Ctrl+Shift+\`` 共用同一条 Terminal activation 路径。
+
+**回归**：
+
+- 新增 `tests/editor-tool-window-shortcuts-focus-visible-inactive-panel-before-hide.test.mjs`；
+- 更新 Terminal/Project helper 与 wiring 回归；
+- 定向工具窗口测试：**38 pass / 0 fail**；
+- 完整 `npm test`：**2848 pass / 0 fail**；
+- DSH Web `127.0.0.1:3082` 运行态：
+  - Project 已打开且编辑器持焦：`Alt+1` 聚焦 Project tree；再次 `Alt+1`
+    收起并回焦编辑器；第三次重新打开并聚焦 tree；
+  - Commit 已打开且编辑器持焦：`Alt+2` 聚焦 Changes；再次 `Alt+2` 收起并
+    回焦编辑器；
+  - Terminal 已打开且编辑器持焦：`Alt+F12` 与 `Alt+3` 均只聚焦 Terminal；
+    再次按键才收起并回焦编辑器；
+- IDEA 2026.2 实窗 Terminal 对照与上述两段式行为一致。
+
+**适用环境**：macOS、Node 24.22.2、TypeScript 5.9.3、React 18、
+Monaco Editor 0.52.2、xterm 6.0.0、IntelliJ IDEA 2026.2。
+后续新增工具窗口快捷键必须按 `hidden/show+focus → visible inactive/focus →
+active/hide` 顺序处理，不能仅用可见性布尔值 toggle。
+
+## 2026-11-18 — Search Everywhere Escape/遮罩关闭丢失编辑器焦点
+
+**作用域**：`src/client/components/search/SearchEverywhere.tsx` 的 Escape 与
+backdrop 关闭路径、`src/client/editor-workspace.tsx` 的 opener 记录和回焦逻辑，
+以及 Search Everywhere 焦点回归。
+
+**症状/证据**：
+
+- 从源码编辑器双击 Shift 打开 Search Everywhere 时查询框正常持焦；
+- 在查询框按 Escape 后弹框关闭，但 `document.activeElement` 变为 `BODY`；
+- Search Everywhere 的 backdrop 点击也走同一错误关闭路径，关闭后编辑器快捷
+  键失去焦点上下文。
+
+**根因**：
+
+- Search Everywhere 的所有 dismiss 路径都直接调用 `onClose()`，只清空弹框
+  state，没有保存或恢复打开前的焦点；
+- Action/结果激活等语义关闭也需要 `onClose()`，不能把“关闭并执行动作”和
+  “用户取消弹框”混成同一条回焦路径。
+
+**修复**：
+
+- `SearchEverywhere` 新增可选 `onDismiss`，Escape 和 backdrop `mousedown`
+  改走 dismiss；显式动作仍使用 `onClose`；
+- `EditorWorkspace` 在打开前记录 `activeElement`，若当前焦点已经在 Search
+  Everywhere 内则不覆盖 opener；
+- dismiss 时先清空引用并关闭弹框，再异步优先恢复仍连接的 opener；opener
+  已卸载时回落到当前 Monaco 编辑器；
+- 动作驱动关闭继续清空引用，不回焦到已经完成导航的旧控件。
+
+**回归**：
+
+- 新增 `tests/search-everywhere-escape-restores-origin-focus.test.mjs`；
+- 定向 Search Everywhere 测试：**9 pass / 0 fail**；
+- `npm run build:client` 后置 lint 与完整 `npm test`：
+  **2846 pass / 0 fail**；
+- DSH Web `127.0.0.1:3082` 运行态：双击 Shift 后查询框持焦，Escape 和
+  backdrop 点击后均为源码 `textarea[aria-label="编辑器内容"]` 持焦；
+- 同一运行态 `Ctrl/Cmd+Shift+F` 打开 Find in Files 后 Escape，焦点也回到
+  同一编辑器；
+- IntelliJ IDEA 2026.2 实窗对照：Search Everywhere Escape 关闭后回到原文件
+  编辑上下文。
+
+**适用环境**：macOS、Node 24.22.2、TypeScript 5.9.3、React 18、
+Monaco Editor 0.52.2、IntelliJ IDEA 2026.2。
+后续新增 Search Everywhere 关闭入口时必须区分 dismiss 与语义 close；用户取消
+应恢复 opener，动作关闭不得把焦点抢回旧控件。
+
+## 2026-11-18 — Terminal Split 后 DOM 焦点与 focusedPane 分离
+
+**作用域**：`src/client/components/terminal/TerminalPanel.tsx` 的
+`toggleSplit()`、左右 pane focus 描边和终端快捷键路由。
+
+**症状/证据**：
+
+- 有候选 tab 时点击 `Split Terminal`，右侧 pane 的 xterm textarea 获得 DOM
+  焦点；
+- 左侧 pane 仍保留 accent focus 描边，右侧没有；
+- 键盘输入进入右 pane，但依赖 `focusedPaneRef` 的终端快捷键仍路由到左 pane。
+
+**根因**：
+
+- 有候选 tab 的 split 分支调用 `setFocusedPane('left')`；
+- 右 TerminalScreen 可见后自动聚焦自身，造成视觉 focus、`focusedPane` 和
+  DOM activeElement 三者不一致；
+- 新建 shell 的 split 分支原本已设置为 right，所以只有复用已有 tab 的路径
+  出问题。
+
+**修复**：
+
+- 有候选 tab 的 split 分支改为 `setFocusedPane('right')`；
+- 方向键、输入和快捷键统一指向右侧 pane；
+- 不修改候选选择、取消分屏、pane 交换或 PTY 绑定。
+
+**回归**：
+
+- 新增 `tests/terminal-split-focuses-visible-right-pane.test.mjs`，先 RED
+  后 GREEN；
+- 完整 `npm test`：**2844 pass / 0 fail**；
+- DSH Web `127.0.0.1:3082` 运行态：右 pane `Terminal input` 持焦，右 pane
+  有 accent 描边，左 pane 无描边，工具栏显示 `Unsplit Terminal`。
+
+**适用环境**：macOS、Node 24.22.2、TypeScript 5.9.3、React 18、xterm 6.0.0。
+后续分屏可见性、DOM focus 和 `focusedPane` state 必须同时收敛，不能只依赖
+TerminalScreen 的自动聚焦。
+
+## 2026-11-18 — Terminal 标签重命名 Escape 丢失键盘焦点
+
+**作用域**：`src/client/components/terminal/TerminalPanel.tsx` 的 Terminal tab
+inline rename、`focusTerminalTab()` 与相关回归。
+
+**症状/证据**：
+
+- 双击 Terminal 标签后 rename input 正常出现并持焦；
+- 修改标题后按 Escape，输入框卸载且值未提交，但 `document.activeElement`
+  变为 `BODY`；
+- 此时方向键、`⇧F6`、终端快捷键和 tab roving focus 全部失去上下文。
+
+**根因**：
+
+- Escape 分支只调用 `setRenaming(null)`，React 卸载输入框后没有把焦点交还
+  原 tab；
+- Enter 提交路径走 host rename，不需要相同恢复逻辑。
+
+**修复**：
+
+- Escape 后 `window.setTimeout(() => focusTerminalTab(terminal.id), 0)`；
+- 复用现有 roving tab focus helper，不新增焦点状态或 DOM 结构；
+- 不修改重命名保存、标签顺序、PTY 或菜单。
+
+**回归**：
+
+- 新增 `tests/terminal-rename-escape-returns-focus-tab.test.mjs`，
+  先确认 RED（**0 pass / 1 fail**），修复后 GREEN（**1 pass / 0 fail**）；
+- Terminal 定向测试：**8 pass / 0 fail**；
+- 完整 `npm test`：**2842 pass / 0 fail**；
+- DSH Web `127.0.0.1:3082` 运行态：Escape 后 activeElement 为原
+  `role="tab"`，标签标题恢复，修改值未提交。
+
+**适用环境**：macOS、Node 24.22.2、TypeScript 5.9.3、React 18、xterm 6.0.0。
+后续内联重命名取消路径必须在输入框卸载后恢复触发控件的焦点。
+
+## 2026-11-18 — Project 键盘上下文菜单回焦到树容器是既定模型
+
+**作用域**：`src/client/components/project/ProjectPanel.tsx` 的
+`openSelectedContextMenuFromKeyboard()`、Project tree 键盘上下文菜单和
+ContextMenu opener/focus 恢复。
+
+**现象**：
+
+- 选中 Project 行后按 `Shift+F10`，菜单正常打开并聚焦首个 menuitem；
+- Escape 关闭菜单后 activeElement 回到 `role="tree"` 容器，而不是选中行；
+- 一度尝试强制 `rowRefs.current.get(path).focus()` 和 row menu
+  `fallbackFocus`，运行态仍回到 tree 容器。
+
+**证据/根因**：
+
+- Project 选中行 DOM 的 `tabIndex=-1` 且没有 `tabindex` 属性，程序化
+  `row.focus()` 不会获得焦点；
+- Project 的 roving 键盘域由 tree 容器统一持有，方向键、typeahead 和
+  ContextMenu 都从 `selectedPath` 解析当前行；
+- 行本身只负责 `aria-selected` 和视觉选中，不是第二套 focus 节点。
+
+**结论**：
+
+- 不修改代码；回退实验性的行焦点/fallback 改动；
+- Escape 回焦 tree 容器是当前架构的既定行为，选中行仍保持正确；
+- 若未来改为逐行 roving focus，需要整体迁移 Project 键盘模型并补完整焦点、
+  选择、typeahead、拖放和辅助技术回归，不能只改 ContextMenu。
+
+**验证**：
+
+- 聚焦实验后 `document.activeElement` 仍为 tree，证明不是 opener 失效；
+- 回退后 `npm test`：**2841 pass / 0 fail**；
+- Project 键盘/Options 定向测试通过。
+
+## 2026-11-18 — Project Speed Search Enter 丢失文件命中选中
+
+**作用域**：`src/client/components/project/ProjectPanel.tsx` 的 Project
+speed search Enter 路径、`src/client/editor-workspace.tsx` 的 ProjectPanel
+回调接线与相关回归。
+
+**症状/证据**：
+
+- Project `⌘F` 搜索 `TerminalPanel`，ArrowDown 后 Enter 能打开匹配测试文件；
+- 搜索框关闭后唯一选中行却变成祖先目录 `tests`；
+- 活动文件标签已是
+  `terminal-terminalpanel-guards-duplicate-close-requests-terminal-id.test.mjs`，
+  但 Project 树没有保留该文件的选择，用户无法从树继续键盘导航。
+
+**根因**：
+
+- speed search 使用合成的 hit rows 展示折叠目录中的结果；
+- Enter 对文件只调用 `onOpen(hit.path)`，搜索关闭后合成祖先链消失，
+  选择协调逻辑只能回落到最近的可见祖先目录；
+- 已有 `revealInProjectTree(path)` 能加载并展开每一个祖先、选择和滚动目标，
+  但没有接入 ProjectPanel 的 speed-search Enter 路径。
+
+**修复**：
+
+- ProjectPanel 新增 `onRevealPath` 回调；
+- 文件命中打开后调用 `onRevealPath(hit.path)`，复用
+  `revealInProjectTree()` 展开真实祖先链并保留目标选择；
+- 目录命中继续沿用 `revealInTree()` 的 expand/keep 语义；
+- 搜索查询、结果上限、排序、过滤和 Project View 模式不变。
+
+**回归**：
+
+- 扩展 `tests/search-enter-speed-search-opens-hit-not-just-highlights.test.mjs`，
+  先确认 RED，修复后目标 GREEN；
+- Project/Search 定向测试：**9 pass / 0 fail**；
+- `npm run lint:client-types`、Prettier、`npm run build:client`、
+  `npm run check:client-build`、Node 语法与 `git diff --check`；
+- 完整 `npm test`：**2841 pass / 0 fail**；
+- DSH Web `127.0.0.1:3082` 运行态：Enter 后活动标签、唯一选中行均为刚打开的
+  测试文件，`tests` 目录 `aria-expanded=true`，搜索框关闭且 Project 树持焦。
+
+**适用环境**：macOS、Node 24.22.2、TypeScript 5.9.3、React 18、
+Monaco Editor 0.52.2。
+后续 speed search 打开折叠目标时必须确保真实树中的祖先链和选择同时收敛，
+不能只打开编辑器标签后让选择回落到祖先目录。
+
+## 2026-11-18 — Terminal 窄 Dock 关闭按钮被新建按钮覆盖
+
+**作用域**：`src/client/components/terminal/TerminalPanel.tsx` 的标签标题/关闭
+控件、`src/client/ui/styles.ts` 与 `src/client/inline-styles.ts` 的 Terminal
+tab 样式。
+
+**症状/证据**：
+
+- DSH Web 窄 Terminal Dock 中，活动 tab 宽 `180px`，tablist 宽
+  `155.75px`；
+- Close Terminal 的 rect 为 `x=468.703..479`，与 New Terminal 的
+  `x=466.75..490.75` 重叠；
+- `document.elementFromPoint()` 在关闭按钮中心返回
+  `button[aria-label="New Terminal"]` 的 path，点击 `×` 实际会新建终端；
+- tab 计算样式为旧值 `flex: 0 0 auto`、`box-sizing: content-box`、
+  `overflow: visible`。
+
+**根因**：
+
+- `.terminalTab` 不允许收缩，长 shell 标题把关闭控件推出 tablist；
+- 关闭按钮没有固定 flex size，也没有稳定的 16×18 点击面；
+- 仓库同时保留 `src/client/ui/styles.ts` 与
+  `src/client/inline-styles.ts` 两份样式表：UI TSX 模块使用前者，外层
+  TerminalPanel 当前解析到后者。只改一份会出现测试通过但运行态仍旧的假象。
+
+**修复**：
+
+- 两份样式表同步将 terminal tab 改为
+  `flex: 0 1 168px`、`minWidth: 0`、`boxSizing: border-box`、
+  `overflow: hidden`；
+- 标题 span 使用 `flex: 1 1 auto`，关闭按钮使用 `flex: none` 和固定
+  `16×18px` 命中面；
+- 不改标签溢出算法、PTY、标签菜单、拖拽重排或其他 Terminal 行为。
+
+**回归**：
+
+- 新增 `tests/terminal-tab-close-shrinks-inside-narrow-strip.test.mjs`，
+  先确认 RED（**0 pass / 2 fail**），修复后 GREEN（**2 pass / 0 fail**）；
+- Terminal 定向测试：**181 pass / 0 fail**；
+- `npm run lint:client-types`、`npm run build:client`、
+  `npm run check:client-build`、Prettier、Node 语法与 `git diff --check`；
+- 完整 `npm test`：**2840 pass / 0 fail**；
+- DSH Web `127.0.0.1:3082` 运行态：tab 与 tablist 右缘均为 `458.75px`，
+  Close Terminal 为 `16×18px` 且中心 `elementFromPoint` 返回自身；
+  点击后 Terminal Dock 含最后 shell 正常关闭，stripe 变为
+  `aria-pressed=false`。
+
+**适用环境**：macOS、Node 24.22.2、TypeScript 5.9.3、React 18、
+Monaco Editor 0.52.2、xterm 6.0.0。
+后续修改 Terminal tab 布局时必须同步检查两份样式表，并以真实
+`elementFromPoint` 和 tablist 边界作为运行态证据；不得只用单文件源码断言。
+
+## 2026-11-18 — IDEA 双击 Shift 路由与空 Shelve 状态修复
+
+**作用域**：`src/client/editor-workspace.tsx` 的双击 Shift 全局手势、
+`src/client/components/commit/CommitPanel.tsx` 的 Changes 工具条 Shelve 状态、
+Search Everywhere / Find in Files / Commit 相关回归。
+
+**症状/证据**：
+
+- 同一 `dsh-editor` 工作区实窗对照：IDEA 的双击 Shift / Search Everywhere 打开
+  `All / Files / Text / Actions`，DSH 双击裸 Shift 却打开 Find in Files；
+- IDEA 在 Changes 为 0 时把 `Shelve Silently` 显示为 disabled；DSH 同状态
+  `button[aria-label="Shelve Silently…"]` 的 `disabled=false`；
+- 旧测试把“双击 Shift 与 Cmd/Ctrl+Shift+F 共用 Find opener”固化为预期，
+  因而无法发现该 IDEA 交互回退。
+
+**根因**：
+
+- 双击 Shift 的监听器仍在，但命令体被改成调用
+  `openFindInFilesFromShortcut()`；
+- Shelve 只检查 `busy` 和 callback 是否存在，没有把“没有可搁置更改”纳入
+  disabled 条件。
+
+**修复**：
+
+- 双击 Shift 恢复调用现有 `openSearchEverywhere('all')`，并聚焦
+  `[data-dsh-search-query]`；`Cmd/Ctrl+Shift+F` 仍独立打开 Find in Files；
+- 新增纯函数 `commitShelveActionDisabled(changeCount, busy, onShelve)`，
+  零个可搁置更改、busy 或缺少 opener 时禁用 Shelve；
+- 不改 Search Everywhere provider、Find 数据流或 stash/shelve 后端；
+- 同步修正 README 与旧错误 oracle，测试文件改名为
+  `tests/search-double-shift-opens-search-everywhere.test.mjs`。
+
+**回归**：
+
+- 修复前目标集：**25 pass / 6 fail**（Red）；
+- 修复后目标集：**31 pass / 0 fail**（Green）；
+- `npm run lint:client-types`：ESLint + 118 modules + `tsc` 通过；
+- `npm run check:format:client-components`：通过；
+- `npm run build:client` 后置完整 `npm test`：**2838 pass / 0 fail**；
+- DSH Web `127.0.0.1:3081` 运行态：双击 Shift 后
+  `searchEverywhereOpen=true`、`findToolOpen=false`、页签
+  `All / Files / Text / Actions`、查询框实际持焦；随后
+  `Cmd/Ctrl+Shift+F` 打开 `findToolOpen=true`；Commit 在 0 个已勾选更改时
+  Shelve 的 DOM `disabled=true`。
+
+**适用环境**：macOS、Node 24.22.2、TypeScript 5.9.3、React 18、
+Monaco Editor 0.52.2、IntelliJ IDEA 2026.2。
+后续不得把双击 Shift 重新绑定到 Find in Files；Search Everywhere 是 IDEA
+默认语义，Find in Files 只由 `Cmd/Ctrl+Shift+F`（Replace 为 `⇧⌘R`）打开。
+
 ## 2026-11-18 — Rust import-aware 跳转与修饰键悬浮链接
 
 **作用域**：`src/client/code-navigation.ts`、`src/client/editor-core.ts`、
@@ -78,7 +4687,7 @@
 - `commit.ts` 的 query/save transition 改为泛型保留输入状态，
   `DirtyReplaceModel` 直接使用 Monaco `ITextModel`；
 - `openFindTool` 改为 `{ surface, ...savedOptions, query, mode, files, matches,
-  index, ... }`，显式 handoff 字段最后写入；
+index, ... }`，显式 handoff 字段最后写入；
 - `tests/ts-source.mjs` 增加 TS callback/effect 提取和带依赖作用域执行；
   原失败测试改为直接执行转译后的回调，断言状态、菜单项、导航参数和副作用；
 - 构建一致性仍由 `check:client-build` 验证，不再让测试依赖生成文件格式判断源码。
@@ -258,7 +4867,7 @@ pane/close/reorder 状态类型完整，不得退回 unknown/any 或忽略注释
 **修复**：
 
 - `SearchResult` 统一 action/file/text/history 字段，包括 `label/description/category/
-  shortcut/icon/line/column/preview/dirty/ariaKeyShortcuts`；
+shortcut/icon/line/column/preview/dirty/ariaKeyShortcuts`；
 - 为 tooltip/context menu/history/Scope mode/preset/Directory picker/XML transfer
   回调补显式参数与返回类型；
 - `FindScopeEditor` 使用 `ScopeTransferState` 和 typed drafts，channels 保持原数据；
@@ -420,7 +5029,7 @@ Search Everywhere/Find/Find Usages 源码测试和增量严格编译门禁。
 **症状/证据**：
 
 - 编辑器仍报告 `TS2580 Cannot find name 'require'`、`TS2349 This expression
-  is not callable` 和 `onCreatePatch: unknown`；命令行只跑自定义
+is not callable` 和 `onCreatePatch: unknown`；命令行只跑自定义
   `tsconfig.client.json` 时没有工作区根配置，编辑器语言服务无法稳定复用同一
   套 Node/React/DOM 类型；
 - ESLint 配置明确关闭了 `no-undef` 和 `@typescript-eslint/no-unused-vars`，
@@ -481,7 +5090,7 @@ Search Everywhere/Find/Find Usages 源码测试和增量严格编译门禁。
 - 新增 ESLint 门禁回归验证 `no-undef`、`no-unused-vars` 为错误级且源码无
   `@ts-ignore` / `eslint-disable`；
 - `npm run build:client`、`npm run check:client-build`、`node --check
-  lib/client.js`：通过；
+lib/client.js`：通过；
 - 全量 `npm test`：**2819 pass / 0 fail**；
 - `git diff --check`、TS/TSX Prettier：通过。
 
@@ -5959,7 +10568,7 @@ live region 与 Replace 可用性。
 **根因**：
 
 - 搜索错误和正常零结果是两个不同语义，但共用 `loading=false +
-  occurrences=0` 的展示路径；
+occurrences=0` 的展示路径；
 - error 优先于 loading 的状态优先级缺失；
 - catch 主动丢弃上一代结果；
 - Replace disabled reason 没有覆盖搜索失败。
@@ -6366,7 +10975,7 @@ Find/Replace 的 selection scope。
 **用户目标**：
 
 - 正文右键移除 `命令面板 / 增量搜索 / 仅在选区内搜索 /
-  仅在选区内替换`；
+仅在选区内替换`；
 - 有选区时按 `Cmd/Ctrl+F` 或 `Cmd/Ctrl+R` 自动只在选区搜索/替换；
 - 无选区时同一快捷键回到整个文件；
 - 不删除 Incremental Search、selection-only 的 Search Everywhere
@@ -6408,7 +11017,7 @@ Find/Replace 的 selection scope。
 - Ego Browser / 隔离 r526：
   - Monaco 正文右键中
     `Command Palette / Incremental Search / Search in Selection Only /
-    Replace in Selection Only` 均消失；
+Replace in Selection Only` 均消失；
   - 选择 `TerminalHub` 后 `Cmd+F`：query 为该文本，
     Selection Only `aria-pressed=true`；
   - 清除选区后 `Cmd+F`：Selection Only 回到 `false`；
@@ -6476,7 +11085,7 @@ Compact Directories 连续链。
   自动把选区原文填入查询框；
 - 重复快捷键必须用编辑器最新选区覆盖现有 query；
 - 正文右键移除 `Find in Files… / Replace in Files… / Replace… /
-  Find Usages…`；
+Find Usages…`；
 - `Search with Google` 可见文案改为 `Browser Search / 浏览器搜索`。
 
 **缺口/根因**：
@@ -6768,7 +11377,7 @@ Harness composer 的 `@` reference 插入。
   `L行:列`，避免把位置拼进 DSH 文件解析 id；
 - `insertHarnessReferencesIntoComposer()` 优先使用
   `sessions.scope(...) → conversation.input.for(...) →
-  input.insertReference(...)`，保留已有 draft，只追加内容；
+input.insertReference(...)`，保留已有 draft，只追加内容；
 - 菜单 action 设置 `restoreFocus:false`，并在 Lexical 提交 chip 后通过
   timer / animation frame 重新聚焦 `[data-composer-input]`；
 - 旧宿主缺少公开 input shell 时才退回 `execCommand('insertText')`；
@@ -9115,7 +13724,7 @@ git diff --check
 **用户要求**：
 
 - 视图菜单只保留有真实数据源的 `Project Files / Open Files /
-  All Changed Files`；
+All Changed Files`；
 - 写死的 `Project:` 标题改为项目根文件夹名；
 - 点击根文件夹名复制完整项目路径，悬浮显示完整路径；
 - 项目根行不再显示展开/收起箭头，并利用空出的列向左收紧。
@@ -10279,8 +14888,8 @@ Directory scope 的 Replace All 真实写入。
 **IDEA 证据**：
 
 - IDEA 持久 Find 工具栏顺序为 `Rerun / Previous Occurrence /
-  Next Occurrence / Settings… / Group By / Expand All / Collapse All /
-  Preview Source`；
+Next Occurrence / Settings… / Group By / Expand All / Collapse All /
+Preview Source`；
 - `Settings…` 会重新打开当前查询的 Find/Replace 配置弹框；
 - Replace Occurrences 工具窗进入时，弹框保留 Replace 模式与填充文本。
 
@@ -10543,7 +15152,7 @@ git diff --check
 - Ego Browser / r526 fixture / `127.0.0.1:63237`：
   - query=`end`、无 File mask 时 4 matches / 3 files；
   - Directory Structure 显示 `Project root 2 matches / docs 1 match /
-    src 1 match`；
+src 1 match`；
   - File Structure 下目录标题消失，文件组顺序恢复；
   - 菜单 Directory checked=true、File checked=false；
   - `Ctrl+D` 切回 Directory，`dsh-editor.find.groupBy=directory`。
@@ -12013,7 +16622,7 @@ git diff --check
   - `FindUsages = ctrl U; alt F7`；
   - `ShowUsages = ctrl alt U; meta alt F7`；
   - `ShowSettingsAndFindUsages =
-    control shift alt U; meta shift alt F7`。
+control shift alt U; meta shift alt F7`。
 
 **实现**：
 
@@ -16843,7 +21452,7 @@ History 菜单与焦点恢复。
 
 - Header 改用 `CompactActionBar`，动作顺序为
   `Include non-project / Match Case / Whole Words / Regex / Preview /
-   Filter / Open Find`；
+ Filter / Open Find`；
 - Filter、Open Find pinned；窄宽度下其余动作进入 `»`；
 - 页签行保持完整，动作条独占下一行；
 - Filter 直接点击与 overflow 共用 `openFilterAt()`，无 event 时回退到
@@ -17354,7 +21963,7 @@ mtime 冲突和替换后的结果推进。
   - 双击 Shift 后输入 `Needle`，出现 README 与 app.js 文本命中；
   - 活动结果按 `Shift+F10` 出现
     `Open in Right Split / Open in editor / Copy relative path /
-    Path with Line Number / Select in Project View`；
+Path with Line Number / Select in Project View`；
   - 执行 `Copy relative path` 后 Search Everywhere 保持打开，
     `document.activeElement` 回到查询框；
   - 状态栏显示 `Copied to clipboard`。
@@ -17393,7 +22002,7 @@ mtime 冲突和替换后的结果推进。
 - 隔离 DSH Web：
   - `Needle` 文本结果右键菜单顺序为
     `Open in Right Split / Open in editor / Copy relative path /
-    Path with Line Number / Select in Project View`；
+Path with Line Number / Select in Project View`；
   - 选择 Open in Right Split 后 Search Everywhere 关闭；
   - 编辑器出现 2 个 Monaco 实例，Split Close 控件存在。
 
@@ -17768,7 +22377,7 @@ Find Next/Previous 可用状态和激活守卫。
 
 - Find 工具窗口工具栏包含
   `Previous Occurrence / Next Occurrence / Expand All / Collapse All /
-  Preview Source`；
+Preview Source`；
 - 文件结果是可折叠节点，收起后其 occurrence 行不再显示；
 - Preview Source 打开只读源码面板，并显示当前命中文件与行号；
 - 预览编辑器提供软换行开关。
@@ -18257,7 +22866,7 @@ git diff --check
 - host parent=`PIRFFq_mainPanel`，`position=fixed`；
   host 矩形 `280,40,497.59375,617` 与 Chat body 左侧编辑区一致；
 - 连续 3 轮切换 `Commit → Terminal → Project → Harness →
-  Harness` 并等待 12 秒，host probe、React workspace 和
+Harness` 并等待 12 秒，host probe、React workspace 和
   parent probe 均未变化；
 - 在 `dsh-editor` 工作区新建会话后，Chat body probe 消失并出现
   新 body，证明 React 确实替换了 body；Editor host probe、
@@ -18642,7 +23251,7 @@ git diff --check
 
 - IDEA Project 工具栏顺序为
   `New File or Directory… / Select Opened File / Expand Selected /
-  Collapse All / Options / Hide`；
+Collapse All / Options / Hide`；
 - DSH 260px 工具窗仍按既有优先级直接保留后四项，
   `New / Select Opened` 按原顺序进入 `»`；
 - DSH 301px 时六项全部直接恢复；
@@ -19015,7 +23624,7 @@ Project Select Opened File 在 `»` 中的快捷键语义。
 - IDEA 直接工具栏首项为 `New File or Directory…`，
   不是两个并列动作 `New File / New Folder`；
 - 后续顺序为 `Select Opened File / Expand Selected / Collapse All /
-  Options / Hide`。
+Options / Hide`。
 
 **修复**：
 
@@ -19397,8 +24006,8 @@ Changes 文件/目录行、200px 窄布局。
   Changes Action Toolbar；
 - IDEA 直接动作顺序为
   `Refresh / Rollback… / Show Diff / Changelists / Shelve Silently /
-  View Options / Select Opened File in Changes View / Expand All /
-  Collapse All`；
+View Options / Select Opened File in Changes View / Expand All /
+Collapse All`；
 - DSH 已有 Shelf 功能，但此前只藏在 Commit 顶层 Options 中，
   Changes 动作条缺少 IDEA 的 Shelve 入口。
 
@@ -20025,7 +24634,7 @@ git diff --check
   - 过滤值恢复空字符串；
   - 焦点回到
     `dsh-editor-commit-row dsh-editor-commit-row-selected
-    dsh-editor-commit-row-range`；
+dsh-editor-commit-row-range`；
 - 原有 Esc 清空路径仍由既有回归覆盖。
 
 **回归**：
@@ -20350,10 +24959,10 @@ git diff --check
   `/Applications/Intellij.app/Contents/lib/intellij.platform.ide.impl.jar`；
 - 包内 `idea/PlatformActions.xml` 的 `ProjectViewToolbar` 为
   `separator / SelectInProjectView / ExpandRecursively /
-  ExpandAll / CollapseAll`；
+ExpandAll / CollapseAll`；
 - 当前 DSH Project 直接动作顺序与既有 IDEA 实窗证据一致：
   `New File or Directory / Select Opened File / Expand Selected /
-  Collapse All / Options / Hide`；
+Collapse All / Options / Hide`；
 - 200px 运行态直接保留
   `全部收起 / 选项 / 隐藏 / 更多操作`，`»` 为
   `新建文件/新建目录… / 定位当前文件 / 展开所选` 且保持语义分隔；
@@ -20586,7 +25195,7 @@ git diff --check
   - `aria-haspopup=menu`；
   - Shift+F10 后 `aria-expanded=true`；
   - 菜单项 `创建补丁 / 暂存所有已跟踪 / 选择打开文件 /
-    展开所有 / 收起所有`；
+展开所有 / 收起所有`；
   - 2 条语义分隔；
   - 首焦点 `selectOpened`。
 
@@ -20740,7 +25349,7 @@ git diff --check
 
 - IDEA Commit Changes 直接工具栏顺序：
   `Refresh / Rollback / Show Diff / Changelists / Shelve /
-  View Options / Select Opened File / Expand All / Collapse All`；
+View Options / Select Opened File / Expand All / Collapse All`；
 - DSH 旧实现把 Rollback 放在所有视图和还原动作之后；
 - 宽工具栏与溢出菜单都没有反映 IDEA 的高频动作优先级。
 
@@ -20748,8 +25357,8 @@ git diff --check
 
 - DSH 已实现动作统一重排为：
   `Refresh / Rollback / Show Diff / Combined Diff /
-  Copy Patch / Create Patch / Stage All Tracked /
-  View Options / Select Opened / Expand Changes / Collapse Changes`；
+Copy Patch / Create Patch / Stage All Tracked /
+View Options / Select Opened / Expand Changes / Collapse Changes`；
 - Rollback 从 trailing `destructive` 组移到 `local` 组；
 - Refresh / View Options 继续 pinned；
 - disabled、计数文案、二次确认、active 和回调语义不变。
@@ -20760,7 +25369,7 @@ git diff --check
 - Commit Changes 工具栏宽度 `200px`；
 - 直接按钮顺序：
   `刷新 / 还原所选更改 / 显示差异 / 显示所选文件的合并差异 /
-  作为补丁复制到剪贴板 / 视图选项 / 更多操作`；
+作为补丁复制到剪贴板 / 视图选项 / 更多操作`；
 - `»` 菜单顺序：
   - `从本地更改创建补丁…`
   - `暂存所有已跟踪文件`
@@ -21281,10 +25890,13 @@ git diff --check
 
   ```js
   const logScrollRef = scrollRefs?.log ?? null;
-  const setLogListRef = React.useCallback((node) => {
-    listRef.current = node;
-    if (logScrollRef !== null) logScrollRef.current = node;
-  }, [logScrollRef]);
+  const setLogListRef = React.useCallback(
+    (node) => {
+      listRef.current = node;
+      if (logScrollRef !== null) logScrollRef.current = node;
+    },
+    [logScrollRef],
+  );
   ```
 
 - Log list 只保留 `ref: setLogListRef`；
@@ -21671,7 +26283,7 @@ git diff --check
 
 - 从 Project 开始连续 `Tab`：
   `Project → Commit → Terminal → Harness →
-   关闭编辑器工作台 → Project 视图`；
+ 关闭编辑器工作台 → Project 视图`；
 - 关闭按钮获得键盘焦点后：
   - `outline-style=solid`；
   - `outline-width=1px`；
@@ -21721,7 +26333,7 @@ Changes 动作条、过滤框、提交信息和底部提交按钮。
   - 顶部直接按钮 `选项 / 刷新 / 隐藏`，右边缘均不超过 `512px`；
   - Changes 直接按钮包含
     `显示差异 / 合并差异 / 复制补丁 / 创建补丁 / 刷新 /
-    视图选项 / »`；
+视图选项 / »`；
   - 过滤输入框宽度 `172px`，右边缘 `511px`；
   - 提交信息历史按钮右边缘 `509px`；
   - `提交` / `提交并推送…` 位于 `325–509px`，均在面板内。
@@ -22102,18 +26714,18 @@ git diff --check
   - 动作组右边缘 `1039px`，工具栏右边缘 `1043px`，无裁切；
   - 直接动作：
     `打开本地版本 / 切换双栏/单栏对比 / 交换对比方向 /
-    禁用编辑 / 选择对侧差异面板 / »`；
+禁用编辑 / 选择对侧差异面板 / »`；
   - 其余动作在 `»`；
 - 调整 Commit 工具窗口宽度后：
   - `314px`：`打开本地版本 / 切换双栏/单栏对比 /
-    交换对比方向 / »`，无裁切；
+交换对比方向 / »`，无裁切；
   - `394px`、`474px`：与 314px 相同；
   - `514px`：恢复 `禁用编辑 / 选择对侧差异面板`；
 - 所有采样宽度均满足
   `actions.right <= toolbar.right + 0.5px`；
 - Settings 子菜单 DOM：
   `忽略空白差异 / separator / 显示空白字符 / 显示行号✓ /
-  显示缩进参考线 / 自动换行`；
+显示缩进参考线 / 自动换行`；
 - 键盘 `→` 打开 Settings 后焦点落在“忽略空白差异”；
   `↓` 跳过 separator，落到“显示空白字符”；
 - `»` 顶层仍保留 inspect/history 组之间的 separator。
@@ -22165,7 +26777,7 @@ git diff --check
 
 - 既有 Computer Use 读取到的 Project 工具窗口直接顺序为
   `New File or Directory / Select Opened File / Expand Selected /
-  Collapse All / Options / Hide`；
+Collapse All / Options / Hide`；
 - 本机 `intellij.platform.ide.impl.jar` 的 `idea/PlatformActions.xml`
   定义 `ProjectViewToolbar`：前置 separator，随后是
   `SelectInProjectView / ExpandRecursively / ExpandAll / CollapseAll`；
@@ -22337,7 +26949,7 @@ Options/Hide action priority。
 
 - IDEA Project 实窗工具栏顺序为
   `New File or Directory / Select Opened File / Expand Selected /
-  Collapse All / Options / Hide`；
+Collapse All / Options / Hide`；
 - 窄宽度优先保留工具窗口末尾控制与一个 `»`，中部动作进入 overflow；
 - 标题中的 Project View 选择器可以让出文字宽度，不能反过来吞掉
   Options/Hide 的槽位。
@@ -22407,7 +27019,7 @@ ContextMenu 键盘导航。
 
 - IDEA Commit Changes 直接工具栏顺序仍为
   `Refresh / Rollback / Show Diff / Changelists / Shelve /
-  View Options / Select Opened / Expand All / Collapse All`；
+View Options / Select Opened / Expand All / Collapse All`；
 - IDEA action group 是呈现边界，窄宽度进入 overflow 后仍应保留组语义，
   不能把所有隐藏动作混成一个无边界列表。
 
@@ -22449,7 +27061,7 @@ git diff --check
     `显示差异 / 合并差异 / 复制补丁 / 创建补丁 / 刷新 / 视图选项 / »`；
   - `»` 菜单 DOM：
     `暂存所有已跟踪文件(disabled) | separator |
-    选择打开文件 / 展开 / 收起 | separator | 还原(disabled)`；
+选择打开文件 / 展开 / 收起 | separator | 还原(disabled)`；
   - 初始焦点落在首个可用项“选择打开文件”；
   - `↓` 只在可用菜单项间移动，跳过分隔线和 disabled；
 - `node --check lib/client.js` 与 `git diff --check` 通过。
@@ -22572,7 +27184,7 @@ git diff --check
   的 `idea/PlatformActions.xml` 定义 `CopyReferencePopupGroup`；
 - 组内顺序为
   `CopyAbsolutePath / CopyFileName / separator /
-  CopyPathWithLineNumber / CopyContentRootPath / CopySourceRootPath`；
+CopyPathWithLineNumber / CopyContentRootPath / CopySourceRootPath`；
 - 其后才是 `CopyTBXReference` 外部引用组。
 
 **原缺口**：
@@ -22618,7 +27230,7 @@ git diff --check
 - DSH Web 运行态：
   - Project 与 Changes 的 Copy Path/Reference 均显示相同
     `绝对路径 / 文件名 / 带行号的路径 / 来自内容根的路径 /
-    复制绝对路径（可直接粘进终端）`；
+复制绝对路径（可直接粘进终端）`；
   - 多选 README 与 `docs/sort-a.txt` 后：
     绝对路径与文件名 enabled，其余三项 disabled；
   - 拦截 `navigator.clipboard.writeText` 后点击 Absolute Path，
@@ -22653,10 +27265,10 @@ git diff --check
   内 `META-INF/VcsActions.xml` 将 `ChangesViewPopupMenu` 定义为真实动作组；
 - 可用动作顺序为
   `CheckinFiles / Revert / RevertFiles / Move / Diff.ShowDiff /
-  Diff.ShowStandaloneDiff / EditSource / CopyReferencePopupGroup /
-  separator / Delete / AddUnversioned / RemoveDeleted / Edit /
-  separator / changelist actions / CreatePatch / CreatePatchToClipboard /
-  Shelve / separator / Refresh / separator / VersionControlsGroup`；
+Diff.ShowStandaloneDiff / EditSource / CopyReferencePopupGroup /
+separator / Delete / AddUnversioned / RemoveDeleted / Edit /
+separator / changelist actions / CreatePatch / CreatePatchToClipboard /
+Shelve / separator / Refresh / separator / VersionControlsGroup`；
 - 补丁顺序是 `Create Patch` 在前、`Create Patch to Clipboard` 在后；
 - Revision/HEAD/Clipboard 比较属于底部 `VersionControlsGroup`。
 
@@ -22697,8 +27309,8 @@ git diff --check
 - 全量：`npm test` = **1309 pass / 0 fail**；
 - DSH Web 200px 单行菜单实际子项顺序：
   `回滚 › | 显示差异 ⌘D / 合并差异(disabled) / 在编辑器中打开 /
-  复制相对路径 | 取消暂存 ⌥⌘A | Create Patch / Copy Patch |
-  历史 / Project / Terminal | Compare Revision / HEAD / Clipboard`；
+复制相对路径 | 取消暂存 ⌥⌘A | Create Patch / Copy Patch |
+历史 / Project / Terminal | Compare Revision / HEAD / Clipboard`；
 - 菜单 DOM 共 5 条真实分隔线，无连续双分隔；
 - 多选 README + docs/sort-a 后 Combined Diff 启用，
   Revision/HEAD/Clipboard 全部 disabled；
@@ -22729,7 +27341,7 @@ git diff --check
 - IntelliJ Commit 工具窗顶部固定 `Options / Hide`；
 - Changes 直接工具栏顺序为
   `Refresh / Rollback… / Show Diff / Changelists / Shelve /
-  View Options / Select Opened File / Expand All / Collapse All`；
+View Options / Select Opened File / Expand All / Collapse All`；
 - `Show Combined Diff`、补丁与暂存类动作属于较低频动作，不得把
   `Refresh / Show Diff / View Options` 等高频入口挤出直接工具栏。
 
@@ -22770,7 +27382,7 @@ git diff --check
   `显示差异 / 合并差异 / 复制补丁 / 创建补丁 / 刷新 / 视图选项 / »`；
 - 溢出菜单：
   `暂存所有已跟踪文件 / 在更改视图中选择打开的文件 /
-  展开所有更改 / 收起所有更改 / 还原所选更改`；
+展开所有更改 / 收起所有更改 / 还原所选更改`；
 - `视图选项`菜单可打开 `更改列表的分组方式 ›`；
 - 键盘按 Enter 打开 `»` 后方向键可进入可执行菜单项，
   Esc 关闭后焦点回到 `更多操作` 按钮；
@@ -22997,7 +27609,7 @@ git diff --check
 
 - IntelliJ `PlatformActions.xml` 把 Diff 动作拆入
   `Diff.DiffModes / Diff.ViewerToolbar / Diff.ViewerSettings /
-  Diff.ViewerPopupMenu` 等独立 group；
+Diff.ViewerPopupMenu` 等独立 group；
 - 宽工具栏和弹出菜单都不是无边界的一整条平铺命令；
 - 动作分组不改变 `Diff.FocusOppositePane` 的 `⌃⇧Tab`、F7 导航或现有执行链。
 
@@ -23584,7 +28196,7 @@ git diff --check
 
 - IDEA Project 实窗工具栏为：
   `New File or Directory… / Select Opened File (⌥F1, 1) /
-  Expand Selected / Collapse All / Options / Hide`；
+Expand Selected / Collapse All / Options / Hide`；
 - 安装包 `idea/PlatformActions.xml` 的 `ProjectViewToolbar` 仍引用
   `SelectInProjectView / ExpandRecursively / ExpandAll / CollapseAll`；
 - 当前 Experimental UI 实窗以 `Expand Selected` 替代并隐藏 `Expand All`；
@@ -23648,7 +28260,7 @@ git diff --check
 
 - IDEA Project 工具栏的 `Select Opened File` 可访问名称明确包含 `(⌥F1, 1)`；
 - 工具栏顺序为 `New File or Directory… / Select Opened File / Expand Selected /
-  Collapse All / Options / Hide`；
+Collapse All / Options / Hide`；
 - DSH 已有同名按钮和真实 `revealActive()`，但此前没有 IDEA 快捷键。
 
 **实现**：
@@ -23933,7 +28545,7 @@ git diff --check
 
 - 新增 `diffUnavailable`：
   `target === null || state.binary || state.missing ||
-  diffLoadedRef.current === null`；
+diffLoadedRef.current === null`；
 - 以下动作统一使用该状态 disabled：
   - view / swapSides / disableEditing；
   - focusOppositePane / selectPositionInOppositePane；
@@ -24191,7 +28803,7 @@ git diff --check
   `AllIcons.General.GearPlain`；
 - `SetEditorSettingsActionGroup$AppearanceGroup` 的四个显示动作按顺序为：
   `EditorToggleShowWhitespaces / EditorToggleShowLineNumbers /
-  EditorToggleShowIndentLines / EditorToggleUseSoftWraps`；
+EditorToggleShowIndentLines / EditorToggleUseSoftWraps`；
 - `DiffBundle.properties`：
   - `editor.settings=Settings`；
   - `settings.appearance=Appearance`；
@@ -25500,7 +30112,7 @@ git diff --check
 - `closeSplitTabs(paths)` 对一批右侧 tab 只确认一次 dirty，不 dispose
   `openFiles` 中的共享 model；
 - 右侧 tab 右键提供 `Close / Close Others / Close Left / Close Right /
-  Close All / Save / Copy Relative Path / Reveal in Project`；
+Close All / Save / Copy Relative Path / Reveal in Project`；
 - 菜单里的区间关闭只调用 `closeSplitTabs`，不会误用左 editor 的
   `closePaths`；
 - 中键复用单项 `closeSplitTab`；
@@ -25922,7 +30534,7 @@ git diff --check
   `SelectInProjectView / ExpandRecursively / ExpandAll / CollapseAll`；
 - `CopyReferencePopupGroup` 文案为 `Copy Path/Reference…`；
 - 子项包括 `Absolute Path / File Name / Path with Line Number /
-  Path from Content Root / Path from Source Root`；
+Path from Content Root / Path from Source Root`；
 - `OpenInRightSplit` 需要两个编辑器组，当前 DSH Editor host 只有一个代码区，
   本轮不实现假入口。
 
@@ -25959,7 +30571,7 @@ git diff --check
 - README 文件右键出现 `复制路径/引用… ›` 子菜单；
 - 子菜单实际显示：
   `绝对路径 / 文件名 / 带行号的路径 / 来自内容根的路径 /
-  复制绝对路径（可直接粘进终端）`；
+复制绝对路径（可直接粘进终端）`；
 - 点击 `文件名` 后系统剪贴板为 `README.md`。
 
 ## 2026-11-15 — Apply Patch / Apply Patch from Clipboard
@@ -26548,7 +31160,7 @@ git diff --check
   `intellij.platform.ide.impl.jar` 的
   `ProjectView.ToolWindow.Behavior.Actions` 顺序为
   `OpenInPreviewTab / AutoscrollToSource /
-  OpenDirectoriesWithSingleClick / AutoscrollFromSource`；
+OpenDirectoriesWithSingleClick / AutoscrollFromSource`；
 - `Appearance.Actions` 以 `Show` 分区承载显示类动作，再以 `Sort By` 分区承载
   四种排序与 `Folders Always on Top`。
 
@@ -26960,7 +31572,7 @@ git diff --check
 
 - `Terminal.ReworkedTerminalContextMenu`：
   `Find / NewTab / CloseTab / Copy / Paste / PasteFromHistory / SelectAll /
-  ClearBuffer`；
+ClearBuffer`；
 - `Terminal.CloseTab` 复用 `CloseContent`，macOS 为 `⌘W`。
 
 **实现**：
@@ -29130,7 +33742,7 @@ git diff --check
   - 显示历史 → 现有 `showFileHistory(path)`；
   - 在 Project 中定位 → 现有 `revealPath(path)`；
   - 在终端中打开 → `openInTerminal(dirname(path))`。
-  多选时三项禁用；批量 Stage/Rollback 保持原语义。
+    多选时三项禁用；批量 Stage/Rollback 保持原语义。
 - 宿主新增 `terminalScopeForRequest()`：
   - 显式 `workspaceId` → `workspace:<id>`；
   - 否则回落到原 `sessionId`。
@@ -30307,8 +34919,7 @@ round176/178/192/193 静态回归。
 
 **症状/证据**：
 
-- `Ctrl+Shift+\`` 在 Terminal 已打开时仍执行 `setTerminalOpen(true)` 并递增
-  `terminalGeneration`，重复按下会创建新 shell，且没有关闭分支。
+- `Ctrl+Shift+\`` 在 Terminal 已打开时仍执行 `setTerminalOpen(true)`并递增`terminalGeneration`，重复按下会创建新 shell，且没有关闭分支。
 - EditorWorkspace 的快捷键 effect 调用了 `rememberTerminalOrigin()`，但作用域内
   没有定义该函数；ProjectPanel 另有一个同名局部 helper。
 - 旧测试按 `const rememberTerminalOrigin` 搜索源码，命中了前面的 ProjectPanel
@@ -30320,7 +34931,7 @@ round176/178/192/193 静态回归。
   - 已打开 → 关闭；仅当焦点原本在终端内时恢复来源焦点；
   - 已关闭 → 打开，不创建新 shell。
 - EditorWorkspace 快捷键 effect 内定义唯一的 `rememberTerminalOrigin /
-  restoreTerminalOrigin / toggleTerminalDock`，两条快捷键共用。
+restoreTerminalOrigin / toggleTerminalDock`，两条快捷键共用。
 - `Ctrl+Shift+\`` 不再调用 `setTerminalGeneration`。
 - round176/178/192/193 测试改用 `toggleTerminalDock` 与唯一注释锚点，
   不再用可能命中 ProjectPanel 的同名文本。
@@ -30390,8 +35001,8 @@ npm test
 - 固定 Project 分组顺序：
   - 左：`newEntry / reveal`
   - 右：`expandSelected / collapse / options / hide`
-  与 IDEA 的 `New File or Directory… / Select Opened File / Expand Selected /
-  Collapse All / Options / Hide` 一致。
+    与 IDEA 的 `New File or Directory… / Select Opened File / Expand Selected /
+Collapse All / Options / Hide` 一致。
 - diff 两列标题之间加 hairline divider，右侧“索引/当前版本”不再和左侧连成一块。
 - Monaco `diff-hidden-lines-widget` 使用 host surface / tertiary tokens、10px 字号，
   不再使用 Monaco 自带灰色横条。
@@ -30915,7 +35526,7 @@ npm test
   全部收起等常用动作消失。
 - 可见工具条原先平铺刷新、排序、隐藏文件、自动跟随、新建文件、新建目录等动作，
   与 IDEA 的 `New… / Select Opened File / Expand Selected / Collapse All /
-  Options / Hide` 不一致。
+Options / Hide` 不一致。
 
 **根因**：
 
@@ -30928,7 +35539,7 @@ npm test
 - `PanelToolbar` 对右侧组按尾部保留：可见 `right.slice(right.length - fits.right)`，
   隐藏 `right.slice(0, right.length - fits.right)`；左侧仍保留头部动作。
 - Project 工具条收口为 `新建文件/目录… / 定位当前文件 / 展开所选 /
-  全部收起 / 选项 / 隐藏`，低频动作集中到 `Options`。
+全部收起 / 选项 / 隐藏`，低频动作集中到 `Options`。
 - `展开所选` 仅对目录启用，复用 `expandTo`；新建菜单复用
   `startCreate('file'|'directory')`。
 

@@ -100,7 +100,7 @@ test('commit asks before leaving unversioned files behind', () => {
 test('the log pages in on scroll and shows its end', () => {
   const client = clientSource();
   assert.match(client, /const LOG_PAGE = 60;/);
-  assert.match(client, /op: 'log',\s*limit: LOG_PAGE,\s*skip: commits\.length,\s*author: logAuthorRef\.current/);
+  assert.match(client, /op: 'log',\s*limit: LOG_PAGE,\s*skip: requestSkip,\s*author: requestAuthor/);
   assert.match(client, /if \(page\.length < LOG_PAGE\) setLogExhausted\(true\);/);
   assert.match(client, /onScroll=\{\(event\) => \{/);
   assert.match(client, /t\('editor\.logEnd'\)/);
@@ -129,7 +129,10 @@ test('a collapsed directory still shows the strongest descendant state', () => {
   assert.match(client, /return \{ color: '#cf222e' \};/);
   assert.match(client, /return \{ color: '#8250df' \};/);
   /* The tint is computed from paths, so expansion state never gates it. */
-  assert.match(client, /isDirectory && !selected && status === undefined && directoryStatus\(row\.path\) !== null/);
+  assert.match(
+    client,
+    /const directoryTintState =\s+isDirectory && !selected && status === undefined \? directoryStatus\(row\.path\) : null;/,
+  );
 });
 
 test('terminal clipboard shortcuts use the localized multi-line prompt', () => {
@@ -151,6 +154,7 @@ test('⌘F opens exactly one find surface, decided by focus', () => {
     /if \(\s*event\.target instanceof Element &&\s*event\.target\.closest\('\[role="tree"\]'\) !== null\s*\)\s*return;/,
   );
   assert.match(client, /if \(document\.activeElement\?\.closest\('\[role="tree"\]'\) != null\) return;/);
+  assert.match(client, /if \(document\.activeElement\?\.closest\('\[data-dsh-terminal-pane\]'\) != null\) return;/);
 });
 
 test('a short first page already marks the history as ended', () => {

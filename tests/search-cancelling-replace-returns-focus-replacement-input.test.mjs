@@ -2,7 +2,12 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = (await readFile(new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url), 'utf8') + '\n' + (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) + '\n' + (await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8')));
+const source =
+  (await readFile(new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url), 'utf8')) +
+  '\n' +
+  (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) +
+  '\n' +
+  (await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8'));
 const findTool = source.slice(
   source.indexOf('function FindToolWindowView('),
   source.indexOf('const FindToolWindow = FindToolWindowView;'),
@@ -22,7 +27,7 @@ const searchEverywhere = source.slice(
 
 test('Cancelling Replace All returns focus to the replacement input', () => {
   for (const replaceBlock of [replaceInFind, replaceInSearch]) {
-    const cancelAt = replaceBlock.indexOf('window.confirm');
+    const cancelAt = replaceBlock.indexOf('confirmSearchReplace');
     const returnAt = replaceBlock.indexOf('return;', cancelAt);
     const cancelBranch = replaceBlock.slice(cancelAt, returnAt);
     assert.match(cancelBranch, /replaceFocusRequest: \(current\.replaceFocusRequest \?\? 0\) \+ 1/u);
@@ -32,7 +37,10 @@ test('Cancelling Replace All returns focus to the replacement input', () => {
 test('Search Everywhere owns a replacement ref and reacts to focus requests', () => {
   assert.match(searchEverywhere, /const replaceInputRef = React\.useRef\(null\)/u);
   assert.match(searchEverywhere, /ref: replaceInputRef/u);
-  assert.match(searchEverywhere, /const replaceFocusRequest = Math\.max\(0, Number\(state\.replaceFocusRequest\) \|\| 0\)/u);
+  assert.match(
+    searchEverywhere,
+    /const replaceFocusRequest = Math\.max\(0, Number\(state\.replaceFocusRequest\) \|\| 0\)/u,
+  );
   assert.match(searchEverywhere, /state\.withReplace !== true \|\| replaceFocusRequest === 0/u);
   assert.match(searchEverywhere, /replaceInputRef\.current\?\.focus\?\.\(\)/u);
 });

@@ -61,6 +61,7 @@ test('the branch popup offers new-branch and prompts for a name', async () => {
   let menu = null;
   let prompt = null;
   const openBranchMenu = loadTypeScriptCallback(client, 'openBranchMenu', {
+    branchMenuRequestRef: { current: 0 },
     t: (key) => key,
     callGit: async () => ({ branches: ['main'], branch: 'main' }),
     setCommitBusy: () => {},
@@ -68,7 +69,8 @@ test('the branch popup offers new-branch and prompts for a name', async () => {
     setMenu: (value) => {
       menu = value;
     },
-    setNamePrompt: (value) => {
+    branchPromptOriginRef: { current: null },
+    openNamePrompt: (value) => {
       prompt = value;
     },
     checkoutBranch: async () => {},

@@ -44,13 +44,22 @@ const entries = [
 ];
 
 test('graph display entries expose only rendered row representatives', () => {
-  assert.deepEqual(graphDisplayEntries(entries, false).map((entry) => entry.hash), ['c3', 'c2', 'c1']);
-  assert.deepEqual(graphDisplayEntries(entries, true).map((entry) => entry.hash), ['c3']);
+  assert.deepEqual(
+    graphDisplayEntries(entries, false).map((entry) => entry.hash),
+    ['c3', 'c2', 'c1'],
+  );
+  assert.deepEqual(
+    graphDisplayEntries(entries, true).map((entry) => entry.hash),
+    ['c3'],
+  );
 });
 
 test('CommitLog keyboard navigation uses folded graph rows', () => {
   assert.match(logSource, /const \[graphFolded, setGraphFolded\] = React\.useState\(false\)/);
-  assert.match(logSource, /const graphRows = graphDisplayEntries\(graphEntries, graphFolded\)/);
+  assert.match(
+    logSource,
+    /const graphRows = React\.useMemo\(\s*\(\) => \(graphMode \? graphDisplayEntries\(filteredGraphEntries, graphFolded\) : graphEntries\),/,
+  );
   assert.match(logSource, /commitLogGraphCursor\(graphRows, graphCursor\)/);
   assert.match(logSource, /setGraphCursor\(next\.hash\)/);
   assert.match(logSource, /graphLogMenuTarget\(graphRows, graphCursor, selected\)/);
@@ -59,6 +68,6 @@ test('CommitLog keyboard navigation uses folded graph rows', () => {
 
 test('fold state is owned by CommitLog rather than CommitGraph', () => {
   assert.doesNotMatch(graphSource, /React\.useState\(false\)/);
-  assert.match(graphSource, /const rowsToDraw = folded\s+\?\s+runs\s+:\s+entries\.map/);
+  assert.match(graphSource, /const rowsToDraw = React\.useMemo\(\s+\(\) =>\s+folded\s+\?\s+runs\s+:\s+entries\.map/);
   assert.match(graphSource, /onToggleFolded=\{onToggleFolded\}/);
 });

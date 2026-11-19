@@ -26,8 +26,11 @@ test('CommitLog delegates flat rows while retaining selection and menu actions',
   const client = await read('lib/client.js');
 
   assert.match(log, /import \{ CommitLogFlatRow \} from '\.\/CommitLogFlatRow'/u);
-  assert.match(log, /<CommitLogFlatRow[\s\S]*?selectionIncluded=\{selectedCommits\.includes\(commit\.hash\)\}[\s\S]*?rowRef=/u);
-  assert.match(log, /selectCommitRow\(\s*visible\.map\(\(entry\) => entry\.hash\),\s*commit\.hash,\s*event,/u);
+  assert.match(
+    log,
+    /<CommitLogFlatRow[\s\S]*?selectionIncluded=\{selectedCommits\.includes\(commit\.hash\)\}[\s\S]*?rowRef=/u,
+  );
+  assert.match(log, /selectCommitRow\(\s*visibleOrder,\s*commit\.hash,\s*event\s*\)/u);
   assert.match(log, /commitLogContextSelection\(selectedCommits, commit\.hash\)/u);
   assert.doesNotMatch(log, /data-dsh-log-hash=\{commit\.hash\}/u);
   assert.match(build, /CommitLogFlatRow\.tsx/u);

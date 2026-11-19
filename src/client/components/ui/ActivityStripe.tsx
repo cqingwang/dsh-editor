@@ -7,9 +7,10 @@ interface StripeItemProps {
   icon: string;
   active: boolean;
   onClick: (id: string) => void;
+  onPointerDown?: (id: string) => void;
   title?: string;
 }
-function StripeItem({ id, label, icon, active, onClick, title = label }: StripeItemProps) {
+function StripeItem({ id, label, icon, active, onClick, onPointerDown, title = label }: StripeItemProps) {
   return (
     <button
       type='button'
@@ -21,6 +22,8 @@ function StripeItem({ id, label, icon, active, onClick, title = label }: StripeI
       title={title}
       aria-label={label}
       aria-pressed={active}
+      data-dsh-activity-id={id}
+      onPointerDown={() => onPointerDown?.(id)}
       onClick={() => onClick(id)}>
       <Icon
         name={icon}
@@ -36,6 +39,7 @@ export interface ActivityStripeProps {
   terminalOpen: boolean;
   harnessCollapsed: boolean;
   onSelect: (id: string) => void;
+  onItemPointerDown?: (id: string) => void;
   onToggleHarness: () => void;
   onCloseEditor: () => void;
   t: (key: string) => string;
@@ -46,6 +50,7 @@ function ActivityStripe({
   terminalOpen,
   harnessCollapsed,
   onSelect,
+  onItemPointerDown,
   onToggleHarness,
   onCloseEditor,
   t,
@@ -63,6 +68,7 @@ function ActivityStripe({
         icon='project'
         active={activity === 'project' && panelVisible}
         onClick={onSelect}
+        onPointerDown={onItemPointerDown}
       />
       <StripeItem
         id='commit'
@@ -70,6 +76,7 @@ function ActivityStripe({
         icon='commit'
         active={activity === 'commit' && panelVisible}
         onClick={onSelect}
+        onPointerDown={onItemPointerDown}
       />
       <StripeItem
         id='terminal'
@@ -77,6 +84,7 @@ function ActivityStripe({
         icon='terminal'
         active={terminalOpen}
         onClick={onSelect}
+        onPointerDown={onItemPointerDown}
       />
       <StripeItem
         id='harness'

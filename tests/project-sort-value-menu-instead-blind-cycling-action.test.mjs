@@ -65,7 +65,10 @@ test('Commit toolbar aggregates low-frequency commands behind Options', () => {
 });
 
 test('keyboard execution of a submenu child honours restoreFocus=false', () => {
-  assert.match(menuSource, /if \(child\.restoreFocus === false\) skipReturnFocusRef\.current = true;/);
+  assert.match(
+    menuSource,
+    /if \(child\.keepOpen !== true && child\.restoreFocus === false\) \{\s+skipReturnFocusRef\.current = true;\s+\}/,
+  );
   assert.match(menuSource, /const openSubmenu = \(item: MenuAction\) => \{/);
 });
 

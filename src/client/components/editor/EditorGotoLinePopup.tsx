@@ -49,6 +49,7 @@ function EditorGotoLinePopup({ t, state, inputRef, onChange, onSubmit, onClose }
           aria-describedby={state.error === null ? undefined : 'dsh-editor-goto-error'}
           onChange={(event) => onChange(event.target.value)}
           onKeyDown={(event) => {
+            if (event.nativeEvent.isComposing === true) return;
             if (event.key === 'Enter') {
               event.preventDefault();
               onSubmit();

@@ -13,10 +13,7 @@ import {
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const source = readFileSync(join(root, 'src/client/editor-workspace.tsx'), 'utf8');
 const diffModelSource = readFileSync(join(root, 'src/client/diff.ts'), 'utf8');
-const commitOptionsSource = readFileSync(
-  join(root, 'src/client/components/commit/commit-options-menu.ts'),
-  'utf8',
-);
+const commitOptionsSource = readFileSync(join(root, 'src/client/components/commit/commit-options-menu.ts'), 'utf8');
 const changeRowGroup = loadTypeScriptFunction(diffModelSource, 'changeRowGroup');
 
 test('a change row keeps its unversioned identity independent of selection side', () => {
@@ -61,6 +58,32 @@ test('changing Group by reveals and focuses the current Change row', () => {
   assert.equal(focused, true);
   assert.equal(scrolled, true);
   assert.equal(groupByFocusRef.current, null);
+});
+
+test('changing Group by without a selected row keeps keyboard focus in Changes', () => {
+  let focused = false;
+  const applyChangeGroupBy = loadTypeScriptCallback(source, 'applyChangeGroupBy', {
+    setGroupBy: () => {},
+    window: {
+      localStorage: { setItem: () => {} },
+      setTimeout: (callback) => callback(),
+    },
+    selectedChangeRef: { current: null },
+    commitChangesRef: {
+      current: {
+        isConnected: true,
+        focus(options) {
+          assert.deepEqual(options, { preventScroll: true });
+          focused = true;
+        },
+      },
+    },
+    focusWorkspaceFallback: () => false,
+    document: { querySelector: () => null },
+  });
+
+  applyChangeGroupBy('module');
+  assert.equal(focused, true);
 });
 
 test('Group by items call the reveal-aware apply path', () => {

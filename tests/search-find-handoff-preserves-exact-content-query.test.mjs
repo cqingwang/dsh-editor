@@ -19,7 +19,8 @@ const editorFindTool = source.slice(
 test('Find handoff preserves the exact content query', () => {
   assert.match(openFindTool, /const textQuery = findToolContentQuery\(query\)/);
   assert.doesNotMatch(openFindTool, /query\.trim\(\)/);
-  assert.match(openFindTool, /query: textQuery/);
+  assert.match(openFindTool, /findToolReopenDraft\(findToolDraftRef\.current, textQuery, mode,/);
+  assert.match(openFindTool, /query: draft\.query/);
 });
 
 test('Opening a Find result does not write Search Everywhere history', () => {

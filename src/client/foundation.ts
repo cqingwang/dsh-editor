@@ -251,6 +251,20 @@ export function searchEverywhereNextFocusIndex(length: unknown, index: unknown, 
 }
 
 /**
+ * Reset workspace-bound search surfaces only after a real workspace change.
+ *
+ * The first non-empty root is the initial host handshake, not a user switch.
+ * Treating it as a reset closes Find opened immediately after the Editor
+ * workspace becomes visible.
+ * @param {string} previousRoot - root observed by the previous effect run.
+ * @param {string} nextRoot - root from the current render.
+ * @returns {boolean} whether stale workspace search state must be discarded.
+ */
+export function workspaceSearchSurfacesShouldReset(previousRoot: string, nextRoot: string): boolean {
+  return previousRoot !== '' && previousRoot !== nextRoot;
+}
+
+/**
  * Match IDEA's Find Action chord from the default and macOS keymaps.
  * @param {KeyboardEvent|object} event - current keyboard event.
  * @param {boolean} macPlatform - whether the macOS keymap applies.
@@ -369,6 +383,78 @@ export function reportEditorDiagnostic(
   } catch {
     /* diagnostics are strictly best-effort */
   }
+}
+
+export interface VisibilityGatedPollOptions {
+  documentRef?: Document;
+  windowRef?: Window;
+}
+
+/**
+ * Run one asynchronous refresh at a time only while the page is visible.
+ *
+ * Background tabs should not keep waking a poll callback merely to discover
+ * that they are hidden. Visibility changes restart the poll immediately when
+ * the page returns, and the next timeout is scheduled only after the previous
+ * task settles.
+ * @param task - bounded refresh or status check.
+ * @param delay - delay between completed runs, in milliseconds.
+ * @param options - injectable document/window for deterministic tests.
+ * @returns cleanup that stops the timeout and visibility listener.
+ */
+export function startVisibilityGatedPoll(
+  task: () => void | Promise<void>,
+  delay: number,
+  options: VisibilityGatedPollOptions = {},
+): () => void {
+  if (typeof task !== 'function') return () => {};
+  const documentRef = options.documentRef ?? document;
+  const windowRef = options.windowRef ?? window;
+  const interval = Math.max(16, Number.isFinite(delay) && delay > 0 ? Math.round(delay) : 1000);
+  let timer: number | null = null;
+  let running = false;
+  let stopped = false;
+
+  const cancelTimer = (): void => {
+    if (timer === null) return;
+    windowRef.clearTimeout(timer);
+    timer = null;
+  };
+  const schedule = (): void => {
+    cancelTimer();
+    if (stopped || documentRef.visibilityState === 'hidden') return;
+    timer = windowRef.setTimeout(() => {
+      timer = null;
+      void run();
+    }, interval);
+  };
+  const run = async (): Promise<void> => {
+    if (stopped || running || documentRef.visibilityState === 'hidden') return;
+    running = true;
+    try {
+      await task();
+    } catch {
+      /* callers own domain-specific error reporting */
+    } finally {
+      running = false;
+      schedule();
+    }
+  };
+  const onVisibilityChange = (): void => {
+    if (documentRef.visibilityState === 'hidden') {
+      cancelTimer();
+      return;
+    }
+    void run();
+  };
+
+  documentRef.addEventListener('visibilitychange', onVisibilityChange);
+  schedule();
+  return () => {
+    stopped = true;
+    cancelTimer();
+    documentRef.removeEventListener('visibilitychange', onVisibilityChange);
+  };
 }
 
 /** xterm constructors, loaded at most once. */

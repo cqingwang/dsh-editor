@@ -8,6 +8,25 @@ interface FindOccurrence {
   [key: string]: unknown;
 }
 
+export interface FindToolDraft {
+  query: string;
+  replace: string;
+}
+
+export function findToolReopenDraft(
+  draft: FindToolDraft | null | undefined,
+  selectedQuery: string,
+  mode: 'find' | 'replace',
+  restoreDraft: boolean,
+): FindToolDraft {
+  const query = typeof selectedQuery === 'string' ? selectedQuery : '';
+  if (restoreDraft !== true || draft === null || draft === undefined) return { query, replace: '' };
+  return {
+    query: query.trim() !== '' ? query : draft.query,
+    replace: mode === 'replace' ? draft.replace : '',
+  };
+}
+
 interface FindShortcutEvent {
   key?: unknown;
   ctrlKey?: unknown;

@@ -2,7 +2,10 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = (await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8')) + '\n' + (await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8'));
+const source =
+  (await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8')) +
+  '\n' +
+  (await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8'));
 const findTool = source.slice(
   source.lastIndexOf('function FindToolWindowView('),
   source.indexOf('const FindToolWindow = FindToolWindowView;', source.lastIndexOf('function FindToolWindowView(')),
@@ -28,7 +31,10 @@ test('A new Find search generation preserves results instead of blanking them', 
     /current === null\s*\? current\s*: \{ \.\.\.current, files: \[\], loading: true, error: null \}/u,
     'the startup path must not clear files while loading',
   );
-  assert.match(source, /setFindTool\(\(current\) => \(current === null\s+\? current\s+: \{ \.\.\.current, loading: true, error: null \}\)\);/u);
+  assert.match(
+    source,
+    /setFindTool\(\(current\) => \(current === null\s+\? current\s+: \{ \.\.\.current, loading: true, error: null \}\)\);/u,
+  );
 });
 
 test('Loading is reported in the header and only fills an otherwise empty list', () => {
@@ -44,8 +50,14 @@ test('Scope filtering waits for the new generation instead of hiding retained ro
     findTool,
     /const retainPreviousResultsWhileLoading =\s+\(state\.loading === true && state\.loadedGeneration !== state\.searchGeneration\) \|\| state\.error !== null;/u,
   );
-  assert.match(findTool, /const scopedFileResults = retainPreviousResultsWhileLoading\s+\? fileResults\s+: fileResults\.filter/u);
-  assert.match(findTool, /const scopedMatches = retainPreviousResultsWhileLoading\s+\? state\.matches\s+: state\.matches\.filter/u);
+  assert.match(
+    findTool,
+    /const scopedFileResults = React\.useMemo\(\s+\(\) =>\s+retainPreviousResultsWhileLoading\s+\? fileResults\s+: fileResults\.filter/u,
+  );
+  assert.match(
+    findTool,
+    /const scopedMatches = React\.useMemo\(\s+\(\) =>\s+retainPreviousResultsWhileLoading\s+\? textResults\s+: textResults\.filter/u,
+  );
 });
 
 test('Retained rows cannot be replaced before the new scope generation finishes', () => {

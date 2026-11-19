@@ -73,6 +73,8 @@ test('openFindTool stores and clamps the initial active index', () => {
       state = value;
     },
     findToolHandoffSequenceRef: { current: 0 },
+    findToolDraftRef: { current: { query: '', replace: '' } },
+    findToolReopenDraft: (_draft, query) => ({ query, replace: '' }),
     window: { setTimeout: (callback) => callback() },
     document: { querySelector: () => null },
   });

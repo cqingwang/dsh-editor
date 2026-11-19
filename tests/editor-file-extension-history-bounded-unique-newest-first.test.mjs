@@ -2,7 +2,10 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) + '\n' + (await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8'));
+const source =
+  (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) +
+  '\n' +
+  (await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8'));
 
 function extractFunction(name) {
   const start = source.indexOf(`function ${name}(`);
@@ -19,9 +22,7 @@ function extractFunction(name) {
 }
 
 test('File extension history is bounded, unique and newest first', () => {
-  const remember = new Function(
-    `${extractFunction('rememberFileMaskHistory')}; return rememberFileMaskHistory;`,
-  )();
+  const remember = new Function(`${extractFunction('rememberFileMaskHistory')}; return rememberFileMaskHistory;`)();
   assert.deepEqual(remember(['.ts', '.md'], '.ts'), ['.ts', '.md']);
   assert.deepEqual(remember([], '  .ts, .md  '), ['.ts, .md']);
   assert.deepEqual(remember(['.ts'], ''), ['.ts']);
@@ -60,14 +61,12 @@ test('File extension history is written only on an explicit accept or blur', () 
 });
 
 test('Directory and Changed Files scopes stay constrained during Replace All', () => {
-  const scope = new Function(
-    `${extractFunction('findToolPathMatchesScope')}; return findToolPathMatchesScope;`,
-  )();
+  const scope = new Function(`${extractFunction('findToolPathMatchesScope')}; return findToolPathMatchesScope;`)();
   assert.equal(scope('src/nested/a.ts', 'directory', { directory: 'src' }), true);
   assert.equal(scope('docs/a.md', 'directory', { directory: 'src' }), false);
   assert.equal(scope('src/a.ts', 'scope', { allowedPaths: new Set(['src/a.ts']) }), true);
   assert.equal(scope('src/b.ts', 'scope', { allowedPaths: new Set(['src/a.ts']) }), false);
-  assert.match(source, /const scopedReplacementPaths = new Set\(scopedMatches\.map/);
+  assert.match(source, /const scopedReplacementPaths = React\.useMemo\(\s+\(\) => new Set\(scopedMatches\.map/);
   assert.match(source, /onReplaceAll\(scopedReplacementPaths\)/);
 });
 

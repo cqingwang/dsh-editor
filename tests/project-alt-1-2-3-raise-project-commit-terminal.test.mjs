@@ -36,20 +36,26 @@ test('Alt+1/2/3 raise Project, Commit and Terminal', () => {
      with Alt+<digit>. */
   const block = slice('* Alt+F12, Alt+1..3 and Ctrl+Shift+`', '/* Keyboard navigation over the visible flattened rows. */');
   assert.match(block, /event\.key === '1' \|\| event\.key === '2' \|\| event\.key === '3'/);
-  assert.match(block, /selectActivity\(event\.key === '1' \? 'project' : event\.key === '2' \? 'commit' : 'terminal'\)/);
+  assert.match(
+    block,
+    /event\.key === '3'[\s\S]*?toggleTerminalDock\(\);[\s\S]*?selectActivity\(event\.key === '1' \? 'project' : 'commit', \{ keyboard: true \}\)/,
+  );
   /* The handler must not run twice for the same key: modifier-free Alt only. */
   assert.match(block, /if \(event\.altKey && !event\.metaKey && !event\.ctrlKey && event\.key === 'F12'\)/);
-  /* It reads the CURRENT selectActivity, or the first render's closure would
-     keep toggling whatever the activity was at mount time. */
+  /* It reads the CURRENT selectActivity instead of retaining the first render. */
   assert.match(block, /\}, \[selectActivity, terminalOpen\]\);/);
 });
 
-test('switching tool windows keeps the terminal dock open', () => {
+test('switching non-terminal tool windows keeps the terminal dock open', () => {
   /* It used to call setTerminalOpen(false), so looking at a diff killed the
      shells; IDEA keeps the terminal dock where it is. */
   const block = slice('const selectActivity = React.useCallback(', '* Alt+F12, Alt+1..3 and Ctrl+Shift+`');
-  assert.doesNotMatch(block, /setTerminalOpen\(false\)/);
+  const nonTerminalBranch = block.slice(block.indexOf("if (next === 'terminal')") + 1);
+  const projectBranch = nonTerminalBranch.slice(nonTerminalBranch.indexOf('if (next === activity)'));
+  assert.doesNotMatch(projectBranch, /setTerminalOpen\(false\)/);
   assert.match(block, /if \(next === activity\) \{/);
+  assert.match(block, /options\?\.keyboard === true/);
+  assert.match(block, /toolWindowShortcutAction\(activity, next, panelVisibleRef\.current, focusInside\)/);
 });
 
 /* ── Project tree keeps the keyboard ────────────────────────────────────── */

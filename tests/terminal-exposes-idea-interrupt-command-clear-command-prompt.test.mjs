@@ -90,6 +90,6 @@ test('screen context menu passes the clicked pane emulator and terminal', () => 
   assert.match(open, /const model = terminalMenuModel\(\{/);
   assert.match(open, /active: terminal/);
   assert.match(open, /onSelectAll: \(\) => emulator\.selectAll\(\)/);
-  assert.match(open, /onFind: \(\) => openTerminalFind\(emulator\)/);
+  assert.match(open, /onFind: \(\) => openTerminalFind\(emulator, pane\)/);
   assert.match(source, /onContextMenu: \(event\) => openScreenMenu\(event, splitEmulatorRef\.current, splitTerminal, 'right'\)/);
 });

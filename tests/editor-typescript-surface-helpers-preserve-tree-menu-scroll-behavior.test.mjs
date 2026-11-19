@@ -24,6 +24,7 @@ const helpers = loadTypeScriptModule(source, [
   'sidebarNeedsCollapse',
   'snapSplitPercent',
   'terminalShortcutAction',
+  'toolWindowShortcutAction',
   'wheelScrollTop',
 ]);
 
@@ -45,8 +46,23 @@ test('TypeScript surface helpers preserve tree, menu and scroll behavior', () =>
 });
 
 test('TypeScript surface helpers preserve chat and terminal semantics', () => {
-  assert.deepEqual(helpers.terminalShortcutAction(false, false), { open: true, restoreFocus: false });
-  assert.deepEqual(helpers.terminalShortcutAction(true, true), { open: false, restoreFocus: true });
+  assert.deepEqual(helpers.terminalShortcutAction(false, false), {
+    open: true,
+    restoreFocus: false,
+    focus: false,
+  });
+  assert.deepEqual(helpers.terminalShortcutAction(true, false), {
+    open: true,
+    restoreFocus: false,
+    focus: true,
+  });
+  assert.deepEqual(helpers.terminalShortcutAction(true, true), {
+    open: false,
+    restoreFocus: true,
+    focus: false,
+  });
+  assert.equal(helpers.toolWindowShortcutAction('project', 'project', true, false), 'focus');
+  assert.equal(helpers.toolWindowShortcutAction('project', 'project', true, true), 'hide');
   assert.equal(helpers.jumpBadgeLabel(0), '↓');
   assert.equal(helpers.jumpBadgeLabel(120), '↓ 99+');
   assert.equal(helpers.jumpBadgeVisible({ scrollTop: 20, max: 100, hasNew: true }), true);

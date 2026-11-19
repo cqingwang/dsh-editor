@@ -37,7 +37,8 @@ test('double-clicking a Project file opens EditSource and focuses the editor', (
 test('single-click selection and speed-search keep their existing focus boundaries', () => {
   assert.match(panel, /else if \(singleClickOpen === true\) onOpenPreview\(row\.path\);/);
   assert.match(panel, /if \(action === 'expand'\) onToggle\(hit\.path\);/);
-  assert.match(panel, /else if \(action === 'open'\) onOpen\(hit\.path\);/);
+  assert.match(panel, /else if \(action === 'open'\) \{\s*onOpen\(hit\.path\);/u);
+  assert.match(panel, /onRevealPath\?\.\(hit\.path\);/u);
   assert.match(panel, /window\.setTimeout\(\(\) => treeRef\.current\?\.focus\(\), 0\);/);
   assert.match(workspace, /onOpen=\{openFile\}/u);
 });

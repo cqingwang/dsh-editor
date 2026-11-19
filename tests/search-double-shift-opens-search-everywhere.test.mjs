@@ -24,20 +24,19 @@ function extract(name) {
   return new Function(`${transpileTypeScriptFunction(foundationSource, name)}; return ${name};`)();
 }
 
-test('double Shift remains registered but routes to the shared Find handler', () => {
+test('double Shift opens Search Everywhere instead of Find in Files', () => {
   const action = extract('doubleShiftAction');
   const shift = { key: 'Shift', repeat: false, metaKey: false, ctrlKey: false, altKey: false };
   assert.deepEqual(action(0, shift, 100), { lastAt: 100, open: false });
   assert.deepEqual(action(100, shift, 450), { lastAt: 0, open: true });
   assert.deepEqual(action(100, 'Shift', 450), { lastAt: 0, open: false });
-  assert.match(source, /openFindInFilesFromShortcut/);
   const doubleShiftEffect = source.slice(
-    source.indexOf('/* Double Shift remains a registered alias'),
-    source.indexOf('}, [openFindInFilesFromShortcut]);', source.indexOf('/* Double Shift remains a registered alias')) +
-      '}, [openFindInFilesFromShortcut]);'.length,
+    source.indexOf('const next = doubleShiftAction'),
+    source.indexOf('}, [openSearchEverywhere]);', source.indexOf('const next = doubleShiftAction')) +
+      '}, [openSearchEverywhere]);'.length,
   );
-  assert.doesNotMatch(doubleShiftEffect, /openSearchEverywhere\('all'\)/);
-  assert.match(doubleShiftEffect, /openFindInFilesFromShortcut\(\)/);
+  assert.match(doubleShiftEffect, /openSearchEverywhere\('all'\)/);
+  assert.doesNotMatch(doubleShiftEffect, /openFindInFilesFromShortcut\(\)/);
 });
 
 test('Search Everywhere exposes IDEA tabs and search/replace command entries', () => {
@@ -60,7 +59,7 @@ test('Search Everywhere exposes IDEA tabs and search/replace command entries', (
   const replaceInFiles = actions.indexOf("label: t('editor.replaceInFilesAction')");
   assert.ok(find > 0 && replace > find && findInFiles > replace && replaceInFiles > findInFiles);
   assert.match(source, /doubleShiftAction\(/);
-  assert.match(source, /next\.open[\s\S]*?openFindInFilesFromShortcut\(\)/);
+  assert.match(source, /next\.open[\s\S]*?openSearchEverywhere\('all'\)/);
   assert.match(source, /openFindInFilesFromShortcut\(/);
   assert.match(source, /const openFileAtLocation = React\.useCallback/);
   assert.match(source, /openFileAtLocation\(result\.path, result\.line, result\.column\)/);

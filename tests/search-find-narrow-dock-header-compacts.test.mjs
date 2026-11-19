@@ -1,0 +1,42 @@
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import test from 'node:test';
+
+const component = await readFile(
+  new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url),
+  'utf8',
+);
+const injectedCss = await readFile(new URL('../src/client/injected-css.ts', import.meta.url), 'utf8');
+const actionBar = await readFile(new URL('../src/client/components/ui/CompactActionBar.tsx', import.meta.url), 'utf8');
+
+test('narrow Find dock compacts duplicate title, mask and header actions', () => {
+  assert.match(component, /className='dsh-editor-find-controls'/u);
+  assert.match(component, /className='dsh-editor-find-tool-title'/u);
+  assert.match(component, /className='dsh-editor-find-tool-count'/u);
+  assert.match(component, /className='dsh-editor-find-tool-spacer'/u);
+  assert.match(component, /className='dsh-editor-find-file-mask-label'/u);
+  assert.match(component, /className='dsh-editor-find-file-mask-input'/u);
+  assert.match(component, /className=\{floating \? undefined : 'dsh-editor-find-dock-header-actions'\}/u);
+  assert.match(actionBar, /className\?: string;/u);
+  assert.match(actionBar, /className=\{className \?\? undefined\}/u);
+});
+
+test('the compact rules are container-scoped to the narrow dock', () => {
+  assert.match(
+    injectedCss,
+    /\.dsh-editor-find-controls\[data-dsh-find-controls\] \{ container: dsh-find-dock \/ inline-size; \}/u,
+  );
+  assert.match(injectedCss, /@container dsh-find-dock \(max-width: 360px\)/u);
+  assert.match(
+    injectedCss,
+    /\.dsh-editor-find-tool-title,\s+\.dsh-editor-find-tool-count,\s+\.dsh-editor-find-tool-spacer,\s+\.dsh-editor-find-file-mask-label \{ display: none !important; \}/u,
+  );
+  assert.match(
+    injectedCss,
+    /\.dsh-editor-find-file-mask-input \{ width: 64px !important; min-width: 64px !important; \}/u,
+  );
+  assert.match(
+    injectedCss,
+    /\.dsh-editor-find-dock-header-actions \{ flex-basis: 110px !important; width: 110px !important; min-width: 110px !important; \}/u,
+  );
+});

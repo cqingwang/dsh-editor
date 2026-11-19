@@ -49,6 +49,8 @@ test('workspace Find can focus the replacement input after mounting', () => {
       state = value;
     },
     findToolHandoffSequenceRef: { current: 0 },
+    findToolDraftRef: { current: { query: '', replace: '' } },
+    findToolReopenDraft: (_draft, query) => ({ query, replace: '' }),
     window: { setTimeout: (callback) => callback() },
     document: {
       querySelector: (selector) => ({

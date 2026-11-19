@@ -5,6 +5,7 @@ export interface EditorToolWindowPanelProps {
   activity: string;
   widthPercent: number;
   dragging: boolean;
+  panelRef?: React.Ref<HTMLDivElement>;
   toolPanelFlex: (activity: string, value: number) => string;
   children: React.ReactNode;
 }
@@ -13,11 +14,13 @@ function EditorToolWindowPanel({
   activity,
   widthPercent,
   dragging,
+  panelRef,
   toolPanelFlex,
   children,
 }: EditorToolWindowPanelProps) {
   return (
     <div
+      ref={panelRef}
       style={{
         ...styles.sidePanel,
         flex: toolPanelFlex(activity, widthPercent),

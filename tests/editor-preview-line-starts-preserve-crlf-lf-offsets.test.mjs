@@ -21,29 +21,37 @@ test('Preview line starts preserve CRLF and LF offsets', () => {
 
 test('Cross-line matches are clipped into each visible preview line', () => {
   const matches = [{ offset: 0, length: 10 }];
-  assert.deepEqual(findToolPreviewLineParts('alpha', 0, matches), [
-    { text: 'alpha', match: true },
-  ]);
-  assert.deepEqual(findToolPreviewLineParts('beta', 6, matches), [
-    { text: 'beta', match: true },
-  ]);
-  assert.deepEqual(findToolPreviewLineParts('gamma', 11, matches), [
-    { text: 'gamma', match: false },
-  ]);
-  assert.deepEqual(findToolPreviewLineParts('tail', 0, [{ offset: 1, length: 2 }, { offset: 2, length: 2 }]), [
-    { text: 't', match: false },
-    { text: 'ail', match: true },
-  ]);
-  assert.deepEqual(findToolPreviewLineParts('zero', 0, [{ offset: 1, length: 0 }]), [
-    { text: 'zero', match: false },
-  ]);
+  assert.deepEqual(findToolPreviewLineParts('alpha', 0, matches), [{ text: 'alpha', match: true }]);
+  assert.deepEqual(findToolPreviewLineParts('beta', 6, matches), [{ text: 'beta', match: true }]);
+  assert.deepEqual(findToolPreviewLineParts('gamma', 11, matches), [{ text: 'gamma', match: false }]);
+  assert.deepEqual(
+    findToolPreviewLineParts('tail', 0, [
+      { offset: 1, length: 2 },
+      { offset: 2, length: 2 },
+    ]),
+    [
+      { text: 't', match: false },
+      { text: 'ail', match: true },
+    ],
+  );
+  assert.deepEqual(findToolPreviewLineParts('zero', 0, [{ offset: 1, length: 0 }]), [{ text: 'zero', match: false }]);
 });
 
 test('Find Preview computes and renders the active match ranges once', () => {
-  assert.match(findTool, /const previewLineStarts = findToolTextLineStarts\(previewState\.content\)/);
-  assert.match(findTool, /editorFindResult\(previewState\.content, query, \{/);
+  assert.match(
+    findTool,
+    /const previewLineStarts = React\.useMemo\(\(\) => findToolTextLineStarts\(previewState\.content\), \[previewState\.content\]\)/,
+  );
+  assert.match(
+    findTool,
+    /const previewMatches = React\.useMemo\([\s\S]*?editorFindResult\(previewState\.content, query, \{/,
+  );
   assert.match(findTool, /scope: \{[\s\S]*?start: previewScopeStart[\s\S]*?end: previewScopeEnd/);
-  assert.match(findTool, /findToolPreviewLineParts\(code, previewLineStart, previewMatches\)/);
+  assert.match(
+    findTool,
+    /const previewLineParts = React\.useMemo\([\s\S]*?findToolPreviewLineParts\(code, previewLineStart, previewMatches\)/,
+  );
+  assert.match(findTool, /const previewSegments = previewLineParts\[index\] \?\? \[\]/);
   assert.match(findTool, /segments=\{previewSegments\}/);
   assert.match(source, /className = 'dsh-editor-code-preview-match'/);
   assert.match(source, /setAttribute\('data-dsh-find-preview-match', '1'\)/);

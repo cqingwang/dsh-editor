@@ -40,7 +40,7 @@ test('Find scope is stored per workspace and restored when the tool opens', () =
 test('Every scope change persists the same normalized scope used for the search', () => {
   const changeScope = source.slice(
     source.indexOf('const changeFindToolScope = React.useCallback'),
-    source.indexOf('const openBlankReplaceInFilesFromEditor = React.useCallback'),
+    source.indexOf('const openReplaceInFilesFromEditor = React.useCallback'),
   );
   assert.match(changeScope, /writeFindScope\(rootRef\.current/);
   assert.match(changeScope, /mode,/);

@@ -2,7 +2,10 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) + '\n' + (await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8'));
+const source =
+  (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) +
+  '\n' +
+  (await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8'));
 const findTool = source.slice(
   source.lastIndexOf('function FindToolWindowView('),
   source.indexOf('const FindToolWindow = FindToolWindowView;', source.lastIndexOf('function FindToolWindowView(')),
@@ -33,7 +36,10 @@ test('Find groups can be ordered by directory or file without dropping matches',
     ['docs/a.md', 'src/a.ts', 'src/z.ts'],
   );
   const display = helpers.findToolDisplayGroups(groups, 'directory');
-  assert.deepEqual(display.map((entry) => entry.kind), ['directory', 'file', 'directory', 'file', 'file']);
+  assert.deepEqual(
+    display.map((entry) => entry.kind),
+    ['directory', 'file', 'directory', 'file', 'file'],
+  );
   assert.equal(display[0].path, 'docs');
   assert.equal(display[0].count, 2);
   assert.equal(display[2].path, 'src');
@@ -55,9 +61,10 @@ test('Persistent Find exposes truthful Group By choices', () => {
 
 test('Group By keyboard shortcuts stay out of text inputs', () => {
   const rootKeydown = findTool.slice(
-    findTool.indexOf("data-dsh-find-tool-window=''"),
-    findTool.indexOf("data-dsh-find-popup-drag"),
+    findTool.indexOf('const handleFindToolRootKeyDown ='),
+    findTool.indexOf('return (', findTool.indexOf('const handleFindToolRootKeyDown =')),
   );
+  assert.match(findTool, /onKeyDown=\{handleFindToolRootKeyDown\}/);
   assert.match(rootKeydown, /event\.ctrlKey === true/);
   assert.match(rootKeydown, /if \(key === 'd' \|\| key === 's'\)/);
   assert.match(rootKeydown, /closest\('input, textarea, select, \[role="menu"\]'\)/);
@@ -65,7 +72,10 @@ test('Group By keyboard shortcuts stay out of text inputs', () => {
 });
 
 test('Directory grouping renders real directory headers before file groups', () => {
-  assert.match(findTool, /const displayGroups = findToolDisplayGroups\(groups, findGroupBy\)/);
+  assert.match(
+    findTool,
+    /const displayGroups = React\.useMemo\(\(\) => findToolDisplayGroups\(groups, findGroupBy\), \[findGroupBy, groups\]\)/u,
+  );
   assert.match(findTool, /data-dsh-find-directory=\{group\.path\}/u);
   assert.match(findTool, /t\('editor\.findDirectoryRoot'\)/);
   assert.match(findTool, /styles\.findToolDirectoryRow/);

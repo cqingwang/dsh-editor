@@ -3,6 +3,7 @@ import { styles } from '../../ui/styles';
 import { CodePreviewCode } from '../commit/CodePreviewCode';
 import { MoveToPicker } from '../commit/MoveToPicker';
 import { dirname } from '../editor/editor-path-model';
+import { searchEverywhereNextFocusIndex } from '../../foundation';
 import { CompactActionBar } from '../ui/CompactActionBar';
 import { EntryIcon } from '../ui/EntryIcon';
 import { Icon } from '../ui/Icon';
@@ -323,7 +324,8 @@ function FindToolWindowView({
       : t('editor.findToolDockTitle', {
           query,
         });
-  const fileResults = Array.isArray(state.files) ? state.files : [];
+  const fileResults = React.useMemo(() => (Array.isArray(state.files) ? state.files : []), [state.files]);
+  const textResults = React.useMemo(() => (Array.isArray(state.matches) ? state.matches : []), [state.matches]);
   const scopeDirectory = activeFilePath === null ? '' : dirname(activeFilePath);
   const effectiveScopeDirectory = scopeDirectoryDraft.trim() || scopeDirectory;
   const selectedCustomScopeId = scopePreset.startsWith('custom:') ? scopePreset.slice('custom:'.length) : '';
@@ -341,63 +343,96 @@ function FindToolWindowView({
     selectedCustomScopeMissing || selectedScopePresetAvailable !== true ? 'projectFiles' : scopePreset;
   const retainPreviousResultsWhileLoading =
     (state.loading === true && state.loadedGeneration !== state.searchGeneration) || state.error !== null;
-  const scopeAllowedPaths =
-    effectiveScopePreset === 'openFiles'
-      ? new Set(openFilePaths)
-      : effectiveScopePreset === 'recentlyViewedFiles'
-        ? new Set(recentFilePaths)
-        : effectiveScopePreset === 'currentFile'
-          ? new Set(activeFilePath === null ? [] : [activeFilePath])
-          : effectiveScopePreset === 'gitTrackedFiles' || effectiveScopePreset === 'gitNonIgnoredFiles'
-            ? null
-            : new Set(changedFilePaths);
-  const scopedFileResults = retainPreviousResultsWhileLoading
-    ? fileResults
-    : fileResults.filter((file) =>
-        findToolPathMatchesScope(file.path, scopeMode, {
-          directory: effectiveScopeDirectory,
-          preset: effectiveScopePreset,
-          allowedPaths: scopeAllowedPaths,
-          recursive: scopeRecursive,
-          customScope: selectedCustomScope,
-        }),
-      );
-  const scopedMatches = retainPreviousResultsWhileLoading
-    ? state.matches
-    : state.matches.filter((match) =>
-        findToolPathMatchesScope(match.path, scopeMode, {
-          directory: effectiveScopeDirectory,
-          preset: effectiveScopePreset,
-          allowedPaths: scopeAllowedPaths,
-          recursive: scopeRecursive,
-          customScope: selectedCustomScope,
-        }),
-      );
-  const dockVisibleRows = findToolVisibleRows(scopedFileResults, scopedMatches, collapsedFiles, findGroupBy);
+  const scopeFilterOptions = React.useMemo(() => {
+    const allowedPaths =
+      effectiveScopePreset === 'openFiles'
+        ? new Set(openFilePaths)
+        : effectiveScopePreset === 'recentlyViewedFiles'
+          ? new Set(recentFilePaths)
+          : effectiveScopePreset === 'currentFile'
+            ? new Set(activeFilePath === null ? [] : [activeFilePath])
+            : effectiveScopePreset === 'gitTrackedFiles' || effectiveScopePreset === 'gitNonIgnoredFiles'
+              ? null
+              : new Set(changedFilePaths);
+    return {
+      directory: effectiveScopeDirectory,
+      preset: effectiveScopePreset,
+      allowedPaths,
+      recursive: scopeRecursive,
+      customScope: selectedCustomScope,
+    };
+  }, [
+    activeFilePath,
+    changedFilePaths,
+    effectiveScopeDirectory,
+    effectiveScopePreset,
+    openFilePaths,
+    recentFilePaths,
+    scopeRecursive,
+    selectedCustomScope,
+  ]);
+  const scopedFileResults = React.useMemo(
+    () =>
+      retainPreviousResultsWhileLoading
+        ? fileResults
+        : fileResults.filter((file) => findToolPathMatchesScope(file.path, scopeMode, scopeFilterOptions)),
+    [fileResults, retainPreviousResultsWhileLoading, scopeFilterOptions, scopeMode],
+  );
+  const scopedMatches = React.useMemo(
+    () =>
+      retainPreviousResultsWhileLoading
+        ? textResults
+        : textResults.filter((match) => findToolPathMatchesScope(match.path, scopeMode, scopeFilterOptions)),
+    [retainPreviousResultsWhileLoading, scopeFilterOptions, scopeMode, textResults],
+  );
+  const dockVisibleRows = React.useMemo(
+    () => findToolVisibleRows(scopedFileResults, scopedMatches, collapsedFiles, findGroupBy),
+    [collapsedFiles, findGroupBy, scopedFileResults, scopedMatches],
+  );
   const groups = dockVisibleRows.groups;
-  const popupOccurrences: FindToolOccurrenceRow[] = [
-    ...scopedFileResults.map((file) => ({
-      ...file,
-      kind: 'file' as const,
-      rowKey: `file:${file.path}`,
-    })),
-    ...scopedMatches.map((match) => ({
-      ...match,
-      kind: 'text' as const,
-      rowKey: `text:${match.path}:${match.line}:${match.column}`,
-    })),
-  ];
+  const popupOccurrences = React.useMemo(
+    (): FindToolOccurrenceRow[] => [
+      ...scopedFileResults.map((file) => ({
+        ...file,
+        kind: 'file' as const,
+        rowKey: `file:${file.path}`,
+      })),
+      ...scopedMatches.map((match) => ({
+        ...match,
+        kind: 'text' as const,
+        rowKey: `text:${match.path}:${match.line}:${match.column}`,
+      })),
+    ],
+    [scopedFileResults, scopedMatches],
+  );
   const occurrences: FindToolOccurrenceRow[] = floating ? popupOccurrences : dockVisibleRows.rows;
-  const displayGroups = findToolDisplayGroups(groups, findGroupBy);
-  const fileMaskSuggestionPaths = [
-    ...(activeFilePath === null ? [] : [activeFilePath]),
-    ...(Array.isArray(openFilePaths) ? openFilePaths : []),
-    ...(Array.isArray(recentFilePaths) ? recentFilePaths : []),
-    ...(Array.isArray(changedFilePaths) ? changedFilePaths : []),
-    ...(Array.isArray(state.files) ? state.files.map((file) => file?.path) : []),
-    ...(Array.isArray(state.matches) ? state.matches.map((match) => match?.path) : []),
-  ];
-  const fileMaskSuggestions = suggestFileMasks(fileMaskSuggestionPaths, fileMaskHistory, 12);
+  const occurrenceIndexByKey = React.useMemo(() => {
+    const positions = new Map<string, number>();
+    occurrences.forEach((entry, position) => {
+      if (!positions.has(entry.rowKey)) positions.set(entry.rowKey, position);
+    });
+    return positions;
+  }, [occurrences]);
+  const previewPartsByRowKey = React.useMemo(() => {
+    const partsByRowKey = new Map<string, Array<{ text: string; match: boolean }>>();
+    occurrences.forEach((result) => {
+      if (result.kind !== 'text') return;
+      partsByRowKey.set(result.rowKey, highlightParts(result.preview || basename(result.path), query));
+    });
+    return partsByRowKey;
+  }, [occurrences, query]);
+  const displayGroups = React.useMemo(() => findToolDisplayGroups(groups, findGroupBy), [findGroupBy, groups]);
+  const fileMaskSuggestions = React.useMemo(() => {
+    const fileMaskSuggestionPaths = [
+      ...(activeFilePath === null ? [] : [activeFilePath]),
+      ...(Array.isArray(openFilePaths) ? openFilePaths : []),
+      ...(Array.isArray(recentFilePaths) ? recentFilePaths : []),
+      ...(Array.isArray(changedFilePaths) ? changedFilePaths : []),
+      ...fileResults.map((file) => file?.path),
+      ...textResults.map((match) => match?.path),
+    ];
+    return suggestFileMasks(fileMaskSuggestionPaths, fileMaskHistory, 12);
+  }, [activeFilePath, changedFilePaths, fileMaskHistory, fileResults, openFilePaths, recentFilePaths, textResults]);
   const rovingGroupPath = groups.some((group) => group.path === focusedGroupPath)
     ? focusedGroupPath
     : (groups[0]?.path ?? null);
@@ -436,7 +471,10 @@ function FindToolWindowView({
     onQuery(query);
   };
   const handoffRevision = Math.max(0, Number(state.handoffRevision) || 0);
-  const handoffTarget = findToolHandoffTarget(scopedFileResults, scopedMatches, state.index, findGroupBy);
+  const handoffTarget = React.useMemo(
+    () => findToolHandoffTarget(scopedFileResults, scopedMatches, state.index, findGroupBy),
+    [findGroupBy, scopedFileResults, scopedMatches, state.index],
+  );
   const replaceAdvanceRevision = Math.max(0, Number(state.replaceAdvanceRevision) || 0);
   React.useEffect(() => {
     if (replaceMode) setReplaceExpanded(true);
@@ -446,7 +484,7 @@ function FindToolWindowView({
     if (target === null) return;
     if (target.generation !== state.searchGeneration) return;
     if (state.loadedGeneration !== state.searchGeneration) return;
-    const targetIndex = occurrences.findIndex((entry) => entry.rowKey === target.rowKey);
+    const targetIndex = occurrenceIndexByKey.get(target.rowKey) ?? -1;
     if (targetIndex < 0 && collapsedFiles.has(target.path)) {
       setCollapsedFiles((current) => {
         if (!current.has(target.path)) return current;
@@ -461,7 +499,7 @@ function FindToolWindowView({
       onMove(0, occurrences.length, Math.min(restoredIndex, occurrences.length - 1));
     }
     rerunSelectionRef.current = null;
-  }, [collapsedFiles, occurrences, onMove, state.loadedGeneration, state.searchGeneration]);
+  }, [collapsedFiles, occurrenceIndexByKey, occurrences, onMove, state.loadedGeneration, state.searchGeneration]);
   React.useEffect(() => {
     if (state.index !== 0) onMove(0, 0);
   }, [scopeMode, scopePreset, findGroupBy]);
@@ -476,18 +514,30 @@ function FindToolWindowView({
     if (!floating || pinned) return undefined;
     const onMouseDown = (event: MouseEvent) => {
       const target = event.target instanceof Element ? event.target : null;
-      if (target?.closest('[data-dsh-find-tool-window], [role="menu"]') !== null) return;
+      if (target?.closest('[data-dsh-find-tool-window], [role="menu"], [data-dsh-search-replace-confirm]') !== null)
+        return;
       onClose();
     };
     window.addEventListener('mousedown', onMouseDown, true);
     return () => window.removeEventListener('mousedown', onMouseDown, true);
   }, [floating, onClose, pinned]);
-  const resultFiles = fileFilterMode ? scopedFileResults.length : groups.length + scopedFileResults.length;
-  const resultMatches = fileFilterMode
-    ? 0
-    : groups.reduce((total, group) => total + group.matches.length, scopedFileResults.length);
-  const resultRowCount = scopedFileResults.length + scopedMatches.length;
-  const scopedReplacementPaths = new Set(scopedMatches.map((match) => match.path));
+  const resultFiles = React.useMemo(
+    () => (fileFilterMode ? scopedFileResults.length : groups.length + scopedFileResults.length),
+    [fileFilterMode, groups, scopedFileResults],
+  );
+  const resultMatches = React.useMemo(
+    () =>
+      fileFilterMode ? 0 : groups.reduce((total, group) => total + group.matches.length, scopedFileResults.length),
+    [fileFilterMode, groups, scopedFileResults],
+  );
+  const resultRowCount = React.useMemo(
+    () => scopedFileResults.length + scopedMatches.length,
+    [scopedFileResults, scopedMatches],
+  );
+  const scopedReplacementPaths = React.useMemo(
+    () => new Set(scopedMatches.map((match) => match.path)),
+    [scopedMatches],
+  );
   const requestOpenInFindWindow = () => {
     if (!floating || !hasFindToolContentQuery(query)) return;
     if (
@@ -599,28 +649,57 @@ function FindToolWindowView({
     state.fileMask,
   ]);
   const replaceFocusRequest = Math.max(0, Number(state.replaceFocusRequest) || 0);
-  const previewWindow = previewOpen ? searchEverywherePreviewWindow(previewState.content, previewState.line) : null;
-  const previewLines =
-    previewWindow === null || previewState.content === ''
-      ? []
-      : previewState.content.split(/\r?\n/u).slice(previewWindow.start - 1, previewWindow.end);
+  const previewWindow = React.useMemo(
+    () => (previewOpen ? searchEverywherePreviewWindow(previewState.content, previewState.line) : null),
+    [previewOpen, previewState.content, previewState.line],
+  );
+  const previewLines = React.useMemo(
+    () =>
+      previewWindow === null || previewState.content === ''
+        ? []
+        : previewState.content.split(/\r?\n/u).slice(previewWindow.start - 1, previewWindow.end),
+    [previewState.content, previewWindow],
+  );
   const previewColorizedLines = useCodePreviewColorizedLines(previewLines, previewState.path);
-  const previewLineStarts = findToolTextLineStarts(previewState.content);
+  const previewLineStarts = React.useMemo(() => findToolTextLineStarts(previewState.content), [previewState.content]);
   const previewScopeStart = previewWindow === null ? 0 : (previewLineStarts[previewWindow.start - 1] ?? 0);
   const previewScopeEnd =
     previewWindow === null ? 0 : (previewLineStarts[previewWindow.end] ?? previewState.content.length);
-  const previewMatches =
-    fileFilterMode || previewWindow === null || !hasFindToolContentQuery(query)
-      ? []
-      : editorFindResult(previewState.content, query, {
-          caseSensitive: state.caseSensitive === true,
-          wholeWords: state.wholeWords === true,
-          regex: state.regex === true,
-          scope: {
-            start: previewScopeStart,
-            end: previewScopeEnd,
-          },
-        }).matches;
+  const previewMatches = React.useMemo(
+    () =>
+      fileFilterMode || previewWindow === null || !hasFindToolContentQuery(query)
+        ? []
+        : editorFindResult(previewState.content, query, {
+            caseSensitive: state.caseSensitive === true,
+            wholeWords: state.wholeWords === true,
+            regex: state.regex === true,
+            scope: {
+              start: previewScopeStart,
+              end: previewScopeEnd,
+            },
+          }).matches,
+    [
+      fileFilterMode,
+      previewScopeEnd,
+      previewScopeStart,
+      previewState.content,
+      previewWindow,
+      query,
+      state.caseSensitive,
+      state.regex,
+      state.wholeWords,
+    ],
+  );
+  const previewLineParts = React.useMemo(
+    () =>
+      previewWindow === null
+        ? []
+        : previewLines.map((code, index) => {
+            const previewLineStart = previewLineStarts[previewWindow.start - 1 + index] ?? 0;
+            return findToolPreviewLineParts(code, previewLineStart, previewMatches);
+          }),
+    [previewLineStarts, previewLines, previewMatches, previewWindow],
+  );
   const openHistoryMenu = (event: React.SyntheticEvent<HTMLElement>, kind: 'query' | 'replace'): void => {
     event.preventDefault();
     event.stopPropagation();
@@ -641,6 +720,10 @@ function FindToolWindowView({
       maxHeight: findToolMenuMaxHeight(surfaceRect?.top ?? 0, surfaceRect?.bottom ?? window.innerHeight, menuTop),
       title: kind === 'query' ? t('editor.findSearchHistory') : t('editor.findReplaceHistory'),
       fallbackFocus:
+        kind === 'query'
+          ? () => queryInputRef.current?.focus?.()
+          : () => (replaceInputRef.current ?? queryInputRef.current)?.focus?.(),
+      escapeFocus:
         kind === 'query'
           ? () => queryInputRef.current?.focus?.()
           : () => (replaceInputRef.current ?? queryInputRef.current)?.focus?.(),
@@ -1123,7 +1206,7 @@ function FindToolWindowView({
     if (event.key === 'ArrowDown' && !collapsedFiles.has(group.path) && group.matches.length > 0) {
       const first = group.matches[0];
       const rowKey = `text:${first.path}:${first.line}:${first.column}`;
-      const position = occurrences.findIndex((entry) => entry.rowKey === rowKey);
+      const position = occurrenceIndexByKey.get(rowKey) ?? -1;
       if (position >= 0) {
         event.preventDefault();
         event.stopPropagation();
@@ -1317,11 +1400,11 @@ function FindToolWindowView({
       });
       return;
     }
-    const visiblePosition = occurrences.findIndex((entry) => entry.rowKey === handoffTarget.rowKey);
+    const visiblePosition = occurrenceIndexByKey.get(handoffTarget.rowKey) ?? -1;
     if (visiblePosition < 0) return;
     if (state.index !== visiblePosition) onMove(0, occurrences.length, visiblePosition);
     handoffReadyRevisionRef.current = handoffRevision;
-  }, [collapsedFiles, handoffRevision, handoffTarget, occurrences, onMove, state.index]);
+  }, [collapsedFiles, handoffRevision, handoffTarget, occurrenceIndexByKey, occurrences, onMove, state.index]);
   React.useEffect(() => {
     if (replaceAdvanceRevision === 0 || replaceAdvanceRevision === replaceAdvanceReadyRef.current) return;
     if (state.loading === true || state.loadedGeneration !== state.searchGeneration) return;
@@ -1475,7 +1558,7 @@ function FindToolWindowView({
     }
   };
   const previewParts = (match: { path?: string; preview?: string; rowKey?: string }) =>
-    highlightParts(match.preview || basename(match.path), query).map((part, index) => (
+    (previewPartsByRowKey.get(typeof match.rowKey === 'string' ? match.rowKey : '') ?? []).map((part, index) => (
       <span
         key={`${match.rowKey}:${index}`}
         style={part.match ? styles.findToolHighlight : null}>
@@ -1545,6 +1628,53 @@ function FindToolWindowView({
       cursor: `${direction}-resize`,
     };
   };
+  const trapFindToolPopupFocus = (event: React.KeyboardEvent<HTMLDivElement>): boolean => {
+    if (floating !== true || event.key !== 'Tab') return false;
+    const root = event.currentTarget instanceof Element ? event.currentTarget : null;
+    if (root === null) return false;
+    const selector =
+      'button:not([disabled]), input:not([disabled]), select:not([disabled]), ' +
+      'textarea:not([disabled]), [tabindex="0"]:not([disabled])';
+    const focusables = [...new Set(root.querySelectorAll<HTMLElement>(selector))].filter(
+      (element) => element.tabIndex >= 0 && (element.getClientRects?.().length ?? 0) > 0,
+    );
+    const currentElement = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const currentIndex = currentElement === null ? -1 : focusables.indexOf(currentElement);
+    if (currentIndex < 0) return false;
+    const nextIndex = searchEverywhereNextFocusIndex(focusables.length, currentIndex, event.shiftKey === true);
+    if (nextIndex === null) return false;
+    event.preventDefault();
+    event.stopPropagation();
+    focusables[nextIndex]?.focus?.();
+    return true;
+  };
+  const handleFindToolRootKeyDown = (event: React.KeyboardEvent<HTMLDivElement>): void => {
+    if (event.nativeEvent.isComposing === true) return;
+    if (floating === true && trapFindToolPopupFocus(event)) return;
+    const target = event.target instanceof Element ? event.target : null;
+    if (
+      event.ctrlKey === true &&
+      event.metaKey !== true &&
+      event.altKey !== true &&
+      event.shiftKey !== true &&
+      target?.closest('input, textarea, select, [role="menu"]') == null
+    ) {
+      const key = event.key.toLowerCase();
+      if (key === 'd' || key === 's') {
+        event.preventDefault();
+        event.stopPropagation();
+        selectFindGroupBy(key === 'd' ? 'directory' : 'file');
+        return;
+      }
+    }
+    if (event.key !== 'Escape' || event.defaultPrevented) return;
+    /* ContextMenu handles Escape in its capture listener. This guard also
+       makes that ownership explicit if the menu is rendered inline. */
+    if (target !== null && target.closest('[role="menu"]') !== null) return;
+    event.preventDefault();
+    event.stopPropagation();
+    onClose();
+  };
   return (
     <div
       style={
@@ -1557,475 +1687,477 @@ function FindToolWindowView({
       }
       data-dsh-find-tool-window=''
       data-dsh-find-tool-surface={floating ? 'popup' : 'dock'}
-      role='region'
+      role={floating ? 'dialog' : 'region'}
+      aria-modal={floating ? 'true' : undefined}
       aria-label={surfaceTitle}
-      onKeyDown={(event) => {
-        const target = event.target instanceof Element ? event.target : null;
-        if (
-          event.ctrlKey === true &&
-          event.metaKey !== true &&
-          event.altKey !== true &&
-          event.shiftKey !== true &&
-          target?.closest('input, textarea, select, [role="menu"]') == null
-        ) {
-          const key = event.key.toLowerCase();
-          if (key === 'd' || key === 's') {
-            event.preventDefault();
-            event.stopPropagation();
-            selectFindGroupBy(key === 'd' ? 'directory' : 'file');
-            return;
+      onKeyDown={handleFindToolRootKeyDown}>
+      <div
+        style={floating ? styles.findToolPopupControls : styles.findToolDockControls}
+        className='dsh-editor-find-controls'
+        data-dsh-find-controls={floating ? undefined : ''}>
+        <div
+          style={
+            floating
+              ? {
+                  ...styles.findToolToolbar,
+                  ...styles.findToolPopupToolbar,
+                  cursor: 'move',
+                  userSelect: 'none',
+                  touchAction: 'none',
+                }
+              : styles.findToolToolbar
           }
-        }
-        if (event.key !== 'Escape' || event.defaultPrevented) return;
-        /* ContextMenu handles Escape in its capture listener. This guard also
-     makes that ownership explicit if the menu is rendered inline. */
-        if (target !== null && target.closest('[role="menu"]') !== null) return;
-        event.preventDefault();
-        event.stopPropagation();
-        onClose();
-      }}>
-      <div
-        style={
-          floating
-            ? {
-                ...styles.findToolToolbar,
-                ...styles.findToolPopupToolbar,
-                cursor: 'move',
-                userSelect: 'none',
-                touchAction: 'none',
-              }
-            : styles.findToolToolbar
-        }
-        data-dsh-find-popup-drag={floating ? '' : undefined}
-        onPointerDown={
-          floating
-            ? (event) => {
-                const target = event.target instanceof Element ? event.target : null;
-                if (target !== null && target.closest('button, input, textarea, select, a, [role="menuitem"]') !== null)
-                  return;
-                onPopupDragStart?.(event);
-              }
-            : undefined
-        }>
-        {floating ? null : (
-          <Icon
-            name='findWindow'
-            size={13}
-          />
-        )}
-        <span
-          style={styles.findToolTitle}
-          title={query}>
-          {surfaceTitle}
-        </span>
-        {floating && !hasFindToolContentQuery(query) ? null : (
-          <span style={styles.findToolCount}>
-            {state.loading === true
-              ? t('editor.loading')
-              : fileFilterMode
-                ? t('editor.searchResultCount', {
-                    count: occurrences.length,
-                  })
-                : findToolResultSummary(t, resultMatches, resultFiles)}
+          data-dsh-find-popup-drag={floating ? '' : undefined}
+          onPointerDown={
+            floating
+              ? (event) => {
+                  const target = event.target instanceof Element ? event.target : null;
+                  if (
+                    target !== null &&
+                    target.closest('button, input, textarea, select, a, [role="menuitem"]') !== null
+                  )
+                    return;
+                  onPopupDragStart?.(event);
+                }
+              : undefined
+          }>
+          {floating ? null : (
+            <Icon
+              name='findWindow'
+              size={13}
+            />
+          )}
+          <span
+            className='dsh-editor-find-tool-title'
+            style={styles.findToolTitle}
+            title={query}>
+            {surfaceTitle}
           </span>
-        )}
-        <span style={styles.findToolSpacer} />
-        <label style={styles.findToolFileMaskControl}>
-          <input
-            type='checkbox'
-            checked={fileMaskEnabled}
-            aria-label={t('editor.searchFileMaskLabel')}
-            onChange={(event) => {
-              const enabled = event.target.checked;
-              setFileMaskEnabled(enabled);
-              onFileMaskChange(enabled ? fileMaskDraft : '');
-              window.setTimeout(() => {
-                (enabled ? fileMaskInputRef : queryInputRef).current?.focus?.();
-              }, 0);
+          {floating && !hasFindToolContentQuery(query) ? null : (
+            <span
+              className='dsh-editor-find-tool-count'
+              style={styles.findToolCount}>
+              {state.loading === true
+                ? t('editor.loading')
+                : fileFilterMode
+                  ? t('editor.searchResultCount', {
+                      count: occurrences.length,
+                    })
+                  : findToolResultSummary(t, resultMatches, resultFiles)}
+            </span>
+          )}
+          <span
+            className='dsh-editor-find-tool-spacer'
+            style={styles.findToolSpacer}
+          />
+          <label style={styles.findToolFileMaskControl}>
+            <input
+              type='checkbox'
+              checked={fileMaskEnabled}
+              aria-label={t('editor.searchFileMaskLabel')}
+              onChange={(event) => {
+                const enabled = event.target.checked;
+                setFileMaskEnabled(enabled);
+                onFileMaskChange(enabled ? fileMaskDraft : '');
+                window.setTimeout(() => {
+                  (enabled ? fileMaskInputRef : queryInputRef).current?.focus?.();
+                }, 0);
+              }}
+            />
+            <span className='dsh-editor-find-file-mask-label'>{`${t('editor.searchFileMaskLabel')}:`}</span>
+            <input
+              ref={fileMaskInputRef}
+              className='dsh-editor-find-file-mask-input'
+              style={styles.findToolFileMaskInput}
+              value={fileMaskDraft}
+              disabled={fileMaskEnabled !== true}
+              placeholder='.ts, .md'
+              aria-label={t('editor.searchFileMask')}
+              onChange={(event) => {
+                const value = event.target.value;
+                setFileMaskDraft(value);
+                if (fileMaskEnabled) onFileMaskChange(value);
+              }}
+              onBlur={() => {
+                if (fileMaskDraft.trim() !== '') setFileMaskHistory(writeFileMaskHistory(fileMaskDraft));
+              }}
+              onKeyDown={(event) => {
+                if (event.nativeEvent.isComposing === true) return;
+                if (event.key !== 'Enter') return;
+                event.preventDefault();
+                acceptFileMask(fileMaskDraft);
+              }}
+            />
+            <ToolbarButton
+              icon='chevronDown'
+              label={t('editor.findFileMaskHistory')}
+              onClick={openFileMaskMenu}
+              ariaHasPopup='menu'
+              ariaExpanded={fileMaskMenu !== null}
+            />
+          </label>
+          <CompactActionBar
+            actions={floating ? popupHeaderActions : toolbarActions}
+            t={t}
+            ariaLabel={t('editor.findInFilesAction')}
+            className={floating ? undefined : 'dsh-editor-find-dock-header-actions'}
+            style={{
+              ...styles.findToolHeaderActions,
+              ...(floating ? null : styles.findToolDockHeaderActions),
             }}
           />
-          <span>{`${t('editor.searchFileMaskLabel')}:`}</span>
-          <input
-            ref={fileMaskInputRef}
-            style={styles.findToolFileMaskInput}
-            value={fileMaskDraft}
-            disabled={fileMaskEnabled !== true}
-            placeholder='.ts, .md'
-            aria-label={t('editor.searchFileMask')}
-            onChange={(event) => {
-              const value = event.target.value;
-              setFileMaskDraft(value);
-              if (fileMaskEnabled) onFileMaskChange(value);
-            }}
-            onBlur={() => {
-              if (fileMaskDraft.trim() !== '') setFileMaskHistory(writeFileMaskHistory(fileMaskDraft));
-            }}
-            onKeyDown={(event) => {
-              if (event.key !== 'Enter') return;
-              event.preventDefault();
-              acceptFileMask(fileMaskDraft);
-            }}
-          />
-          <ToolbarButton
-            icon='chevronDown'
-            label={t('editor.findFileMaskHistory')}
-            onClick={openFileMaskMenu}
-            ariaHasPopup='menu'
-            ariaExpanded={fileMaskMenu !== null}
-          />
-        </label>
-        <CompactActionBar
-          actions={floating ? popupHeaderActions : toolbarActions}
-          t={t}
-          ariaLabel={t('editor.findInFilesAction')}
-          style={{
-            ...styles.findToolHeaderActions,
-            ...(floating ? null : styles.findToolDockHeaderActions),
-          }}
-        />
-      </div>
-      <div
-        style={
-          floating
-            ? {
-                ...styles.findToolSearchRow,
-                ...styles.findToolPopupSearchRow,
-              }
-            : styles.findToolSearchRow
-        }>
-        <Icon
-          name='search'
-          size={13}
-        />
-        <QueryField
-          ref={queryInputRef}
-          style={{
-            ...styles.findToolInput,
-            ...(searchNewLine ? styles.findToolMultilineInput : null),
-          }}
-          autoFocus={true}
-          value={state.query}
-          placeholder={t(fileFilterMode ? 'editor.findFileFilterPlaceholder' : 'editor.findToolSearchPlaceholder')}
-          aria-label={t(fileFilterMode ? 'editor.findFileFilterPlaceholder' : 'editor.findToolSearchPlaceholder')}
-          role='combobox'
-          aria-autocomplete='list'
-          aria-expanded={occurrences.length > 0}
-          aria-controls={FIND_TOOL_LISTBOX_ID}
-          aria-activedescendant={active === null ? undefined : findToolOptionId(active.rowKey)}
-          onChange={(event) => onQuery(event.target.value)}
-          onKeyDown={(event) => {
-            if (searchNewLine && event.key === 'Enter' && event.metaKey !== true && event.ctrlKey !== true) return;
-            if (
-              floating &&
-              event.key === 'Enter' &&
-              (event.metaKey === true || event.ctrlKey === true) &&
-              event.altKey !== true &&
-              event.shiftKey !== true &&
-              resultRowCount > 0
-            ) {
-              event.preventDefault();
-              event.stopPropagation();
-              requestOpenInFindWindow();
-              return;
-            }
-            if (
-              (event.key === 'ContextMenu' || (event.shiftKey === true && event.key === 'F10')) &&
-              active !== null &&
-              (active.kind === 'file' || active.kind === 'text')
-            ) {
-              event.preventDefault();
-              event.stopPropagation();
-              const rect = occurrenceRefs.current.get(active.rowKey)?.getBoundingClientRect?.();
-              openFindResultMenuAt(rect?.left ?? 20, rect?.bottom ?? 20, active);
-            } else if (event.altKey === true && event.key === 'ArrowDown') {
-              openHistoryMenu(event, 'query');
-              return;
-            } else handleListKeyDown(event);
-          }}></QueryField>
-        {query === '' ? null : (
-          <ToolbarButton
-            icon='close'
-            label={t('editor.findClearSearch')}
-            style={styles.findToolClearSearch}
-            onClick={() => {
-              onQuery('');
-              window.setTimeout(() => queryInputRef.current?.focus?.(), 0);
-            }}
-          />
-        )}
-        <ToolbarButton
-          icon={floating ? 'chevronDown' : 'history'}
-          label={t('editor.findSearchHistory')}
-          ariaHasPopup='menu'
-          ariaExpanded={historyMenu?.title === t('editor.findSearchHistory')}
-          onClick={(event) => openHistoryMenu(event, 'query')}
-        />
-        {floating === false ? (
-          <ToolbarButton
-            icon='replace'
-            label={replaceExpanded ? t('editor.findToolHideReplace') : t('editor.findToolShowReplace')}
-            active={replaceExpanded}
-            onClick={() => setReplaceExpanded((current) => !current)}
-          />
-        ) : null}
-        <label style={styles.findToolNewLine}>
-          <input
-            type='checkbox'
-            data-dsh-find-search-new-line=''
-            aria-label={t('editor.findNewLine')}
-            checked={searchNewLine}
-            onChange={(event) => setSearchNewLine(event.target.checked)}
-          />
-          <span>{t('editor.findNewLine')}</span>
-        </label>
-        <span
-          style={styles.findToolFilterGroup}
-          role='group'
-          aria-label={t('editor.searchFilter')}>
-          <ToolbarButton
-            icon='matchCase'
-            label={t('editor.searchMatchCase')}
-            active={state.caseSensitive === true}
-            onClick={onToggleCaseSensitive}
-          />
-          <ToolbarButton
-            icon='wholeWords'
-            label={t('editor.searchWholeWords')}
-            active={state.wholeWords === true}
-            disabled={state.regex === true}
-            onClick={onToggleWholeWords}
-          />
-          <ToolbarButton
-            icon='regex'
-            label={t('editor.searchRegex')}
-            active={fileFilterMode !== true && state.regex === true}
-            disabled={fileFilterMode}
-            onClick={onToggleRegex}
-          />
-        </span>
-      </div>
-      {replaceExpanded && !fileFilterMode ? (
-        <div style={styles.findToolReplaceRow}>
+        </div>
+        <div
+          style={
+            floating
+              ? {
+                  ...styles.findToolSearchRow,
+                  ...styles.findToolPopupSearchRow,
+                }
+              : styles.findToolSearchRow
+          }>
           <Icon
-            name='replace'
+            name='search'
             size={13}
           />
-          <ReplaceField
-            ref={replaceInputRef}
-            data-dsh-find-replace-input=''
+          <QueryField
+            ref={queryInputRef}
             style={{
               ...styles.findToolInput,
-              ...(replaceNewLine ? styles.findToolMultilineInput : null),
+              ...(searchNewLine ? styles.findToolMultilineInput : null),
             }}
-            value={state.replace}
-            placeholder={t('editor.findToolReplacePlaceholder')}
-            aria-label={t('editor.findToolReplacePlaceholder')}
-            onChange={(event) => onReplace(event.target.value)}
+            autoFocus={true}
+            value={state.query}
+            placeholder={t(fileFilterMode ? 'editor.findFileFilterPlaceholder' : 'editor.findToolSearchPlaceholder')}
+            aria-label={t(fileFilterMode ? 'editor.findFileFilterPlaceholder' : 'editor.findToolSearchPlaceholder')}
+            role='combobox'
+            aria-autocomplete='list'
+            aria-expanded={occurrences.length > 0}
+            aria-controls={FIND_TOOL_LISTBOX_ID}
+            aria-activedescendant={active === null ? undefined : findToolOptionId(active.rowKey)}
+            onChange={(event) => onQuery(event.target.value)}
             onKeyDown={(event) => {
+              if (event.nativeEvent.isComposing === true) return;
+              if (searchNewLine && event.key === 'Enter' && event.metaKey !== true && event.ctrlKey !== true) return;
               if (
-                replaceNewLine &&
+                floating &&
                 event.key === 'Enter' &&
-                event.metaKey !== true &&
-                event.ctrlKey !== true &&
-                !(event.altKey === true && event.shiftKey === true)
-              )
-                return;
-              if (event.altKey === true && event.key === 'ArrowDown') {
-                openHistoryMenu(event, 'replace');
-              } else if (event.key === 'Escape') {
+                (event.metaKey === true || event.ctrlKey === true) &&
+                event.altKey !== true &&
+                event.shiftKey !== true &&
+                resultRowCount > 0
+              ) {
                 event.preventDefault();
                 event.stopPropagation();
-                onClose();
-              } else if (replaceInputAction(event, 'single') !== null) {
-                event.preventDefault();
-                if (state.replaceBusy === true) return;
-                if (replaceInputAction(event, 'single') === 'all') {
-                  if (scopedMatches.length > 0) onReplaceAll(scopedReplacementPaths);
-                } else if (active?.kind === 'text') {
-                  onReplaceOccurrence(active, activeIndex);
-                }
+                requestOpenInFindWindow();
+                return;
               }
-            }}></ReplaceField>
+              if (
+                (event.key === 'ContextMenu' || (event.shiftKey === true && event.key === 'F10')) &&
+                active !== null &&
+                (active.kind === 'file' || active.kind === 'text')
+              ) {
+                event.preventDefault();
+                event.stopPropagation();
+                const rect = occurrenceRefs.current.get(active.rowKey)?.getBoundingClientRect?.();
+                openFindResultMenuAt(rect?.left ?? 20, rect?.bottom ?? 20, active);
+              } else if (event.altKey === true && event.key === 'ArrowDown') {
+                openHistoryMenu(event, 'query');
+                return;
+              } else handleListKeyDown(event);
+            }}></QueryField>
+          {query === '' ? null : (
+            <ToolbarButton
+              icon='close'
+              label={t('editor.findClearSearch')}
+              style={styles.findToolClearSearch}
+              onClick={() => {
+                onQuery('');
+                window.setTimeout(() => queryInputRef.current?.focus?.(), 0);
+              }}
+            />
+          )}
           <ToolbarButton
             icon={floating ? 'chevronDown' : 'history'}
-            label={t('editor.findReplaceHistory')}
+            label={t('editor.findSearchHistory')}
             ariaHasPopup='menu'
-            ariaExpanded={historyMenu?.title === t('editor.findReplaceHistory')}
-            onClick={(event) => openHistoryMenu(event, 'replace')}
+            ariaExpanded={historyMenu?.title === t('editor.findSearchHistory')}
+            onClick={(event) => openHistoryMenu(event, 'query')}
           />
+          {floating === false ? (
+            <ToolbarButton
+              icon='replace'
+              label={replaceExpanded ? t('editor.findToolHideReplace') : t('editor.findToolShowReplace')}
+              active={replaceExpanded}
+              onClick={() => {
+                if (replaceExpanded) {
+                  setReplaceExpanded(false);
+                  return;
+                }
+                focusReplaceInput();
+              }}
+            />
+          ) : null}
           <label style={styles.findToolNewLine}>
             <input
               type='checkbox'
-              data-dsh-find-replace-new-line=''
+              data-dsh-find-search-new-line=''
               aria-label={t('editor.findNewLine')}
-              checked={replaceNewLine}
-              onChange={(event) => setReplaceNewLine(event.target.checked)}
+              checked={searchNewLine}
+              onChange={(event) => setSearchNewLine(event.target.checked)}
             />
             <span>{t('editor.findNewLine')}</span>
           </label>
-          <ToolbarButton
-            icon='preserveCase'
-            label={t('editor.searchPreserveCase')}
-            active={state.preserveCase === true}
-            onClick={onTogglePreserveCase}
-          />
-        </div>
-      ) : null}
-      <div
-        style={
-          floating
-            ? {
-                ...styles.findToolScopeRow,
-                ...styles.findToolPopupScopeRow,
-              }
-            : styles.findToolScopeRow
-        }
-        data-dsh-find-scope=''>
-        <div
-          role='group'
-          aria-label={t('editor.findScopeModeGroup')}
-          style={styles.findToolScopeModeGroup}>
-          {scopeModeOptions.map((scope) => (
-            <button
-              key={scope.id}
-              ref={(node) => {
-                if (node === null) scopeModeButtonRefs.current.delete(scope.id);
-                else scopeModeButtonRefs.current.set(scope.id, node);
-              }}
-              type='button'
-              disabled={scope.disabled}
-              tabIndex={scopeMode === scope.id ? 0 : -1}
-              data-dsh-find-scope-mode={scope.id}
-              aria-pressed={scopeMode === scope.id}
-              style={{
-                ...styles.findToolScopeButton,
-                ...(scopeMode === scope.id ? styles.findToolScopeButtonActive : null),
-              }}
-              onClick={() => {
-                selectFindScopeMode(scope.id);
-                window.setTimeout(() => queryInputRef.current?.focus?.(), 0);
-              }}
-              onKeyDown={(event) => handleFindScopeModeKeyDown(event, scope.id)}>
-              {scope.label}
-            </button>
-          ))}
-        </div>
-        {scopeMode === 'directory' ? (
-          <React.Fragment>
-            <input
-              style={styles.findToolScopeDirectoryInput}
-              value={scopeDirectoryDraft}
-              placeholder={t('editor.findScopeDirectoryPlaceholder')}
-              aria-label={t('editor.findScopeDirectory')}
-              onChange={(event) => {
-                const value = event.target.value;
-                setScopeDirectoryDraft(value);
-                emitFindScopeChange('directory', effectiveScopePreset, value);
-              }}
-              onKeyDown={(event) => {
-                if (event.shiftKey === true && event.key === 'Enter') {
-                  event.preventDefault();
-                  openFindDirectoryPicker();
-                }
-              }}
+          <span
+            style={styles.findToolFilterGroup}
+            role='group'
+            aria-label={t('editor.searchFilter')}>
+            <ToolbarButton
+              icon='matchCase'
+              label={t('editor.searchMatchCase')}
+              active={state.caseSensitive === true}
+              onClick={onToggleCaseSensitive}
             />
-            <button
-              type='button'
-              style={styles.findToolScopeMore}
-              title={`${t('editor.findSelectDirectory')} (⇧⏎)`}
-              aria-label={t('editor.findSelectDirectory')}
-              aria-keyshortcuts='Shift+Enter'
-              onClick={openFindDirectoryPicker}>
-              …
-            </button>
-            <button
-              type='button'
-              style={{
-                ...styles.findToolScopeMore,
-                ...(scopeRecursive === true ? styles.findToolScopeButtonActive : null),
-              }}
-              title={t('editor.findScopeSearchRecursively')}
-              aria-label={t('editor.findScopeSearchRecursively')}
-              aria-pressed={scopeRecursive === true}
-              onClick={toggleFindDirectoryRecursive}>
-              <Icon
-                name='project'
-                size={12}
-              />
-            </button>
-          </React.Fragment>
-        ) : scopeMode === 'scope' ? (
-          <>
-            <select
-              style={styles.findToolScopeSelect}
-              value={effectiveScopePreset}
-              aria-label={t('editor.findScopeScope')}
-              onChange={(event) => selectFindScopePreset(event.target.value)}>
-              <option value='projectFiles'>{t('editor.findScopeProjectFiles')}</option>
-              <option
-                value='gitNonIgnoredFiles'
-                disabled={gitAvailable !== true}>
-                {t('editor.findScopeGitNonIgnoredFiles')}
-              </option>
-              <option
-                value='gitTrackedFiles'
-                disabled={gitAvailable !== true}>
-                {t('editor.findScopeGitTrackedFiles')}
-              </option>
-              <option
-                value='recentlyViewedFiles'
-                disabled={recentFilePaths.length === 0}>
-                {t('editor.findScopeRecentlyViewedFiles')}
-              </option>
-              <option
-                value='openFiles'
-                disabled={openFilePaths.length === 0}>
-                {t('editor.findScopeOpenFiles')}
-              </option>
-              <option
-                value='currentFile'
-                disabled={activeFilePath === null}>
-                {t('editor.findScopeCurrentFile')}
-              </option>
-              <option
-                value='changedFiles'
-                disabled={changedFilePaths.length === 0}>
-                {t('editor.findScopeChangedFiles')}
-              </option>
-              {(Array.isArray(customScopes) ? customScopes : []).map((scope) => (
-                <option
-                  key={scope.id}
-                  value={`custom:${scope.id}`}>
-                  {scope.name}
-                </option>
-              ))}
-            </select>
-            <button
-              type='button'
-              style={styles.findToolScopeMore}
-              title={t('editor.findEditScopes')}
-              aria-label={t('editor.findEditScopes')}
-              onClick={() => setScopeEditorOpen(true)}>
-              …
-            </button>
-          </>
-        ) : null}
-      </div>
-      {state.error !== null ? (
-        <div
-          style={styles.searchEverywhereError}
-          role='alert'>
-          {t('editor.findSearchFailed', {
-            message: state.error,
-          })}
+            <ToolbarButton
+              icon='wholeWords'
+              label={t('editor.searchWholeWords')}
+              active={state.wholeWords === true}
+              disabled={state.regex === true}
+              onClick={onToggleWholeWords}
+            />
+            <ToolbarButton
+              icon='regex'
+              label={t('editor.searchRegex')}
+              active={fileFilterMode !== true && state.regex === true}
+              disabled={fileFilterMode}
+              onClick={onToggleRegex}
+            />
+          </span>
         </div>
-      ) : null}
-      <div
-        role='status'
-        aria-live='polite'
-        aria-atomic='true'
-        style={styles.screenReaderOnly}>
-        {findResultStatus}
+        {replaceExpanded && !fileFilterMode ? (
+          <div style={styles.findToolReplaceRow}>
+            <Icon
+              name='replace'
+              size={13}
+            />
+            <ReplaceField
+              ref={replaceInputRef}
+              data-dsh-find-replace-input=''
+              style={{
+                ...styles.findToolInput,
+                ...(replaceNewLine ? styles.findToolMultilineInput : null),
+              }}
+              value={state.replace}
+              placeholder={t('editor.findToolReplacePlaceholder')}
+              aria-label={t('editor.findToolReplacePlaceholder')}
+              onChange={(event) => onReplace(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.nativeEvent.isComposing === true) return;
+                if (
+                  replaceNewLine &&
+                  event.key === 'Enter' &&
+                  event.metaKey !== true &&
+                  event.ctrlKey !== true &&
+                  !(event.altKey === true && event.shiftKey === true)
+                )
+                  return;
+                if (event.altKey === true && event.key === 'ArrowDown') {
+                  openHistoryMenu(event, 'replace');
+                } else if (event.key === 'Escape') {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  onClose();
+                } else if (replaceInputAction(event, 'single') !== null) {
+                  event.preventDefault();
+                  if (state.replaceBusy === true) return;
+                  if (replaceInputAction(event, 'single') === 'all') {
+                    if (scopedMatches.length > 0) onReplaceAll(scopedReplacementPaths);
+                  } else if (active?.kind === 'text') {
+                    onReplaceOccurrence(active, activeIndex);
+                  }
+                }
+              }}></ReplaceField>
+            <ToolbarButton
+              icon={floating ? 'chevronDown' : 'history'}
+              label={t('editor.findReplaceHistory')}
+              ariaHasPopup='menu'
+              ariaExpanded={historyMenu?.title === t('editor.findReplaceHistory')}
+              onClick={(event) => openHistoryMenu(event, 'replace')}
+            />
+            <label style={styles.findToolNewLine}>
+              <input
+                type='checkbox'
+                data-dsh-find-replace-new-line=''
+                aria-label={t('editor.findNewLine')}
+                checked={replaceNewLine}
+                onChange={(event) => setReplaceNewLine(event.target.checked)}
+              />
+              <span>{t('editor.findNewLine')}</span>
+            </label>
+            <ToolbarButton
+              icon='preserveCase'
+              label={t('editor.searchPreserveCase')}
+              active={state.preserveCase === true}
+              onClick={onTogglePreserveCase}
+            />
+          </div>
+        ) : null}
+        <div
+          style={
+            floating
+              ? {
+                  ...styles.findToolScopeRow,
+                  ...styles.findToolPopupScopeRow,
+                }
+              : styles.findToolScopeRow
+          }
+          data-dsh-find-scope=''>
+          <div
+            role='group'
+            aria-label={t('editor.findScopeModeGroup')}
+            style={styles.findToolScopeModeGroup}>
+            {scopeModeOptions.map((scope) => (
+              <button
+                key={scope.id}
+                ref={(node) => {
+                  if (node === null) scopeModeButtonRefs.current.delete(scope.id);
+                  else scopeModeButtonRefs.current.set(scope.id, node);
+                }}
+                type='button'
+                disabled={scope.disabled}
+                tabIndex={scopeMode === scope.id ? 0 : -1}
+                data-dsh-find-scope-mode={scope.id}
+                aria-pressed={scopeMode === scope.id}
+                style={{
+                  ...styles.findToolScopeButton,
+                  ...(scopeMode === scope.id ? styles.findToolScopeButtonActive : null),
+                }}
+                onClick={() => {
+                  selectFindScopeMode(scope.id);
+                  window.setTimeout(() => queryInputRef.current?.focus?.(), 0);
+                }}
+                onKeyDown={(event) => handleFindScopeModeKeyDown(event, scope.id)}>
+                {scope.label}
+              </button>
+            ))}
+          </div>
+          {scopeMode === 'directory' ? (
+            <React.Fragment>
+              <input
+                style={styles.findToolScopeDirectoryInput}
+                value={scopeDirectoryDraft}
+                placeholder={t('editor.findScopeDirectoryPlaceholder')}
+                aria-label={t('editor.findScopeDirectory')}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  setScopeDirectoryDraft(value);
+                  emitFindScopeChange('directory', effectiveScopePreset, value);
+                }}
+                onKeyDown={(event) => {
+                  if (event.shiftKey === true && event.key === 'Enter') {
+                    event.preventDefault();
+                    openFindDirectoryPicker();
+                  }
+                }}
+              />
+              <button
+                type='button'
+                style={styles.findToolScopeMore}
+                title={`${t('editor.findSelectDirectory')} (⇧⏎)`}
+                aria-label={t('editor.findSelectDirectory')}
+                aria-keyshortcuts='Shift+Enter'
+                onClick={openFindDirectoryPicker}>
+                …
+              </button>
+              <button
+                type='button'
+                style={{
+                  ...styles.findToolScopeMore,
+                  ...(scopeRecursive === true ? styles.findToolScopeButtonActive : null),
+                }}
+                title={t('editor.findScopeSearchRecursively')}
+                aria-label={t('editor.findScopeSearchRecursively')}
+                aria-pressed={scopeRecursive === true}
+                onClick={toggleFindDirectoryRecursive}>
+                <Icon
+                  name='project'
+                  size={12}
+                />
+              </button>
+            </React.Fragment>
+          ) : scopeMode === 'scope' ? (
+            <>
+              <select
+                style={styles.findToolScopeSelect}
+                value={effectiveScopePreset}
+                aria-label={t('editor.findScopeScope')}
+                onChange={(event) => selectFindScopePreset(event.target.value)}>
+                <option value='projectFiles'>{t('editor.findScopeProjectFiles')}</option>
+                <option
+                  value='gitNonIgnoredFiles'
+                  disabled={gitAvailable !== true}>
+                  {t('editor.findScopeGitNonIgnoredFiles')}
+                </option>
+                <option
+                  value='gitTrackedFiles'
+                  disabled={gitAvailable !== true}>
+                  {t('editor.findScopeGitTrackedFiles')}
+                </option>
+                <option
+                  value='recentlyViewedFiles'
+                  disabled={recentFilePaths.length === 0}>
+                  {t('editor.findScopeRecentlyViewedFiles')}
+                </option>
+                <option
+                  value='openFiles'
+                  disabled={openFilePaths.length === 0}>
+                  {t('editor.findScopeOpenFiles')}
+                </option>
+                <option
+                  value='currentFile'
+                  disabled={activeFilePath === null}>
+                  {t('editor.findScopeCurrentFile')}
+                </option>
+                <option
+                  value='changedFiles'
+                  disabled={changedFilePaths.length === 0}>
+                  {t('editor.findScopeChangedFiles')}
+                </option>
+                {(Array.isArray(customScopes) ? customScopes : []).map((scope) => (
+                  <option
+                    key={scope.id}
+                    value={`custom:${scope.id}`}>
+                    {scope.name}
+                  </option>
+                ))}
+              </select>
+              <button
+                type='button'
+                style={styles.findToolScopeMore}
+                title={t('editor.findEditScopes')}
+                aria-label={t('editor.findEditScopes')}
+                onClick={() => setScopeEditorOpen(true)}>
+                …
+              </button>
+            </>
+          ) : null}
+        </div>
+        {state.error !== null ? (
+          <div
+            style={styles.searchEverywhereError}
+            role='alert'>
+            {t('editor.findSearchFailed', {
+              message: state.error,
+            })}
+          </div>
+        ) : null}
+        <div
+          role='status'
+          aria-live='polite'
+          aria-atomic='true'
+          style={styles.screenReaderOnly}>
+          {findResultStatus}
+        </div>
       </div>
       <div
         style={floating ? styles.findToolResultsStack : styles.findToolDockSplit}
@@ -2041,6 +2173,7 @@ function FindToolWindowView({
               ...(occurrences.length === 0 ? styles.findToolListEmpty : null),
             }}
             role='listbox'
+            aria-busy={state.loading === true ? true : undefined}
             aria-label={t('editor.findInFilesAction')}
             aria-activedescendant={active === null ? undefined : findToolOptionId(active.rowKey)}
             tabIndex={0}
@@ -2153,7 +2286,7 @@ function FindToolWindowView({
                     <div style={styles.findToolFileRow}>{t('editor.searchTabFiles')}</div>
                     {scopedFileResults.map((file) => {
                       const rowKey = `file:${file.path}`;
-                      const position = occurrences.findIndex((entry) => entry.rowKey === rowKey);
+                      const position = occurrenceIndexByKey.get(rowKey) ?? -1;
                       return (
                         <div
                           key={`file-result:${file.path}`}
@@ -2281,7 +2414,7 @@ function FindToolWindowView({
                         ? null
                         : group.matches.map((match) => {
                             const rowKey = `text:${match.path}:${match.line}:${match.column}`;
-                            const position = occurrences.findIndex((entry) => entry.rowKey === rowKey);
+                            const position = occurrenceIndexByKey.get(rowKey) ?? -1;
                             return (
                               <div
                                 key={rowKey}
@@ -2393,8 +2526,7 @@ function FindToolWindowView({
                     <div style={styles.searchEverywhereMessage}>{t('editor.searchPreviewEmpty')}</div>
                   ) : (
                     previewLines.map((code, index) => {
-                      const previewLineStart = previewLineStarts[previewWindow.start - 1 + index] ?? 0;
-                      const previewSegments = findToolPreviewLineParts(code, previewLineStart, previewMatches);
+                      const previewSegments = previewLineParts[index] ?? [];
                       return (
                         <div
                           key={previewWindow.start + index}

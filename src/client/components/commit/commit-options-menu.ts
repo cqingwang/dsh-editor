@@ -28,6 +28,7 @@ interface ChangeGroupMenuOptions {
   t: CommitMenuTranslate;
   position: CommitMenuPosition;
   groupBy: string;
+  keepOpen?: boolean;
   onApplyChangeGroupBy: (mode: string) => void;
 }
 
@@ -51,7 +52,13 @@ interface CommitOptionsMenuOptions {
   onShelve: () => void;
 }
 
-export function changeGroupMenu({ t, position, groupBy, onApplyChangeGroupBy }: ChangeGroupMenuOptions): CommitMenu {
+export function changeGroupMenu({
+  t,
+  position,
+  groupBy,
+  keepOpen = false,
+  onApplyChangeGroupBy,
+}: ChangeGroupMenuOptions): CommitMenu {
   return {
     x: position.x,
     y: position.y,
@@ -60,6 +67,7 @@ export function changeGroupMenu({ t, position, groupBy, onApplyChangeGroupBy }: 
       id: `groupBy:${mode}`,
       label: t(`editor.groupBy_${mode}`),
       shortcut: groupBy === mode ? '✓' : '',
+      keepOpen,
       restoreFocus: false,
       run: () => onApplyChangeGroupBy(mode),
     })),
@@ -76,6 +84,7 @@ export function changesViewOptionsMenu({
     t,
     position,
     groupBy,
+    keepOpen: true,
     onApplyChangeGroupBy,
   });
   return {

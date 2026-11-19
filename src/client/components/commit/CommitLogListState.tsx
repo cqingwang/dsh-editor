@@ -28,7 +28,7 @@ function CommitLogListState({
 }: CommitLogListStateProps) {
   return (
     <>
-      {section === 'status' && loading && logFailure === null ? (
+      {section === 'status' && !graphMode && loading && logFailure === null ? (
         <div style={styles.treeMessage}>{t('editor.loading')}</div>
       ) : null}
       {section === 'status' && logFailure !== null ? (
@@ -53,7 +53,7 @@ function CommitLogListState({
           </button>
         </div>
       ) : null}
-      {section === 'status' && !graphMode && commitCount > 0 && visibleCount === 0 ? (
+      {section === 'status' && !loading && commitCount > 0 && visibleCount === 0 ? (
         <div style={styles.treeMessage}>{t('editor.noMatches')}</div>
       ) : null}
       {section === 'status' && !graphMode && commitCount === 0 && !loading && logFailure === null ? (

@@ -34,7 +34,10 @@ test('Project Options commands return focus to the selected tree row', () => {
   assert.match(projectOptions, /id: 'openDirectoriesSingleClick'[\s\S]*?restoreFocus: false/u);
   assert.match(projectOptions, /id: 'appearance'[\s\S]*?id: 'hidden'[\s\S]*?restoreFocus: false/u);
   assert.match(menuSource, /const skipReturnFocusRef = React\.useRef\(false\);/);
-  assert.match(menuSource, /if \(item\.restoreFocus === false\) skipReturnFocusRef\.current = true;/);
+  assert.match(
+    menuSource,
+    /if \(item\.keepOpen !== true && item\.restoreFocus === false\) skipReturnFocusRef\.current = true;/,
+  );
   assert.match(menuSource, /if \(skipReturnFocusRef\.current\) return;/);
 });
 

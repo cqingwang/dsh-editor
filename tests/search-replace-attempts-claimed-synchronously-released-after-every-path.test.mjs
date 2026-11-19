@@ -2,7 +2,10 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = (await readFile(new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
+const source =
+  (await readFile(new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url), 'utf8')) +
+  '\n' +
+  (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
 
 function extractFunction(name) {
   const start = source.indexOf(`function ${name}(`);
@@ -58,7 +61,7 @@ test('Search Everywhere and both Find replace paths share one immediate write gu
 test('confirmation cancel and host failures explicitly release the write guard', () => {
   for (const block of [replaceInFiles, replaceInFindTool]) {
     const claimAt = block.indexOf('claimReplaceAttempt(replaceWriteBusyRef');
-    const confirmAt = block.indexOf('window.confirm');
+    const confirmAt = block.indexOf('confirmSearchReplace');
     const callAt = block.indexOf('await callFs({');
     const writeTryAt = block.indexOf('try {', confirmAt);
     const finallyAt = block.indexOf('finally {');

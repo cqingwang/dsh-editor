@@ -23,8 +23,9 @@ import {
   filterTreeRows,
   guideKind,
   highlightParts,
+  indexChangesByDirectory,
   projectCanExpandSelection,
-  projectTreePosition,
+  projectTreePositions,
   projectViewDefinitions,
   revealInTree,
   searchEntryRows,
@@ -87,6 +88,7 @@ export interface ProjectPanelProps {
   onOpen: ProjectCallback;
   onOpenEditSource: ProjectCallback;
   onOpenPreview: (path: string) => void;
+  onRevealPath: ProjectCallback;
   onSelect: ProjectCallback;
   onOpenCreateMenu: (event?: React.MouseEvent<HTMLElement>) => void;
   onOpenOptions: (event?: React.MouseEvent<HTMLElement>) => void;
@@ -158,6 +160,7 @@ function ProjectPanel({
   onOpen,
   onOpenEditSource,
   onOpenPreview,
+  onRevealPath,
   onSelect,
   onOpenCreateMenu,
   onOpenOptions,
@@ -170,6 +173,7 @@ function ProjectPanel({
   canCollapseAll,
   onCollapseAll,
   onNotify,
+  onRefresh,
   onHide,
   rowRefs,
   treeRef,
@@ -216,7 +220,10 @@ function ProjectPanel({
     const handles = captureDroppedWorkspaceHandles(event.dataTransfer);
     if (typeof onUpload === 'function') onUpload(handles, targetDirectory);
   };
-  const toolbarDropDirectory = projectToolbarDropDirectory(projectRows, selectedPath);
+  const toolbarDropDirectory = React.useMemo(
+    () => projectToolbarDropDirectory(projectRows, selectedPath),
+    [projectRows, selectedPath],
+  );
   const handleToolbarDragOver = (event: React.DragEvent<HTMLElement>): void => {
     if (!dataTransferIncludesFiles(event.dataTransfer)) return;
     event.preventDefault();
@@ -244,6 +251,16 @@ function ProjectPanel({
   const [searchTruncated, setSearchTruncated] = React.useState(false);
   const searchRef = React.useRef(null);
   const searchRequestRef = React.useRef(0);
+  const closeProjectViewMenu = React.useCallback(() => {
+    setViewMenu(null);
+    window.setTimeout(() => {
+      if (searchOpen) {
+        searchRef.current?.focus();
+        return;
+      }
+      treeRef.current?.focus();
+    }, 0);
+  }, [searchOpen, treeRef]);
   React.useEffect(() => bindShiftWheelScroll(treeRef.current), []);
   /* ⌘/Ctrl+F inside the tool window filters the tree in place, like IDEA. */
   React.useEffect(() => {
@@ -256,6 +273,9 @@ function ProjectPanel({
       if (host === null) return;
       /* The editor owns ⌘F when its textarea has focus. */
       if (document.activeElement?.closest('.monaco-editor') != null) return;
+      /* The terminal owns its own Find bar. Its handler runs after this one,
+         so this surface must yield before either handler prevents the event. */
+      if (document.activeElement?.closest('[data-dsh-terminal-pane]') != null) return;
       event.preventDefault();
       event.stopPropagation();
       setSearchOpen(true);
@@ -306,15 +326,19 @@ function ProjectPanel({
     setSearchPending(true);
     setSearchError(null);
     setSearchTruncated(false);
+    const controller = new AbortController();
     const timer = window.setTimeout(() => {
-      callFs({
-        op: 'search',
-        query,
-        showHidden,
-        showExcluded: showExcludedFiles,
-        sort: sortMode,
-        foldersFirst,
-      })
+      callFs(
+        {
+          op: 'search',
+          query,
+          showHidden,
+          showExcluded: showExcludedFiles,
+          sort: sortMode,
+          foldersFirst,
+        },
+        { signal: controller.signal },
+      )
         .then((value) => {
           if (searchRequestRef.current !== requestId) return;
           setSearchEntries(Array.isArray(value?.entries) ? value.entries : []);
@@ -323,6 +347,7 @@ function ProjectPanel({
         })
         .catch((failure) => {
           if (searchRequestRef.current !== requestId) return;
+          if (controller.signal.aborted) return;
           /* Keep the local filtered rows when the recursive walk fails; a
            transient host error must not blank a tree that is still usable. */
           setSearchEntries(null);
@@ -331,9 +356,21 @@ function ProjectPanel({
           setSearchTruncated(false);
         });
     }, 160);
-    return () => window.clearTimeout(timer);
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
   }, [filteredView, foldersFirst, search, showExcludedFiles, showHidden, sortMode]);
   const hits = React.useMemo(() => speedSearchHitRows(visibleRows, search), [search, visibleRows]);
+  const projectNamePartsByPath = React.useMemo(() => {
+    const partsByPath = new Map<string, ReturnType<typeof highlightParts>>();
+    if (search.trim() === '') return partsByPath;
+    for (const row of visibleRows) {
+      if (typeof row.name === 'string') partsByPath.set(row.path, highlightParts(row.name, search));
+    }
+    return partsByPath;
+  }, [search, visibleRows]);
+  const projectRowPositions = React.useMemo(() => projectTreePositions(visibleRows), [visibleRows]);
   const selectSearchHit = React.useCallback(
     (row: ProjectRow) => {
       if (row === null || row === undefined) return;
@@ -355,8 +392,16 @@ function ProjectPanel({
     if (hits.some((row) => row.path === selectedPath)) return;
     selectSearchHit(hits[0]);
   }, [hits, search, selectedPath, selectSearchHit]);
-  const closeTreeSearch = () => {
+  const clearTreeSearchState = React.useCallback((): void => {
+    searchRequestRef.current += 1;
     setSearch('');
+    setSearchEntries(null);
+    setSearchPending(false);
+    setSearchError(null);
+    setSearchTruncated(false);
+  }, []);
+  const closeTreeSearch = () => {
+    clearTreeSearchState();
     setSearchOpen(false);
     window.setTimeout(() => treeRef.current?.focus(), 0);
   };
@@ -378,20 +423,69 @@ function ProjectPanel({
       y,
     });
   };
-  const gitChanges = new Map((git?.changes ?? []).map((change) => [change.path, change.status]));
-  /**
-   * Aggregate one directory's git state from everything below it.
-   *
-   * The order is IDEA's precedence: a conflict outranks a deletion, which
-   * outranks an addition, which outranks a rename, which outranks a plain
-   * modification. The row shows a badge even while the directory is
-   * collapsed — that is the only place the state is visible then.
-   * @param {string} path - workspace-relative directory path.
-   * @returns {{label: string, color: string}|null} badge, or null when clean.
-   */
-  const directoryStatus = (path: string) =>
-    directoryTint((git?.changes ?? []).filter((change) => change.path.startsWith(`${path}/`)));
+  const gitChanges = React.useMemo(
+    () => new Map((git?.changes ?? []).map((change) => [change.path, change.status])),
+    [git?.changes],
+  );
+  const changesByDirectory = React.useMemo(() => indexChangesByDirectory(git?.changes), [git?.changes]);
+  const projectRowPresentationByPath = React.useMemo(() => {
+    const presentations = new Map<
+      string,
+      {
+        directoryTintState: { color: string } | null;
+        indentGuideKinds: string[];
+        isDirectory: boolean;
+        open: boolean;
+        projectRowPosition: (typeof projectRowPositions)[number];
+        statusColor: string | null;
+      }
+    >();
+    visibleRows.forEach((row, rowIndex) => {
+      if (row.kind === 'placeholder') return;
+      const status = gitChanges.get(row.path);
+      const isDirectory = row.kind === 'directory';
+      presentations.set(row.path, {
+        directoryTintState:
+          isDirectory && status === undefined ? directoryTint(changesByDirectory.get(row.path)) : null,
+        indentGuideKinds:
+          row.depth > 0
+            ? Array.from({ length: row.depth }, (_, index) =>
+                guideKind({
+                  continues: row.continues,
+                  index,
+                  depth: row.depth,
+                }),
+              )
+            : [],
+        isDirectory,
+        open: row.searchOpen === true || expanded.has(row.path),
+        projectRowPosition: projectRowPositions[rowIndex],
+        statusColor: treeNameColor({
+          status,
+          selected: false,
+        }),
+      });
+    });
+    return presentations;
+  }, [changesByDirectory, expanded, gitChanges, projectRowPositions, visibleRows]);
   const createParent = createState === null ? '' : createState.parent;
+  const createInputRef = React.useRef<HTMLInputElement | null>(null);
+  React.useEffect(() => {
+    if (createState === null) return undefined;
+    const timer = window.setTimeout(() => createInputRef.current?.focus(), 40);
+    return () => window.clearTimeout(timer);
+  }, [createState?.kind, createState?.parent]);
+  const renameInputRef = React.useRef<HTMLInputElement | null>(null);
+  const renameReadyRef = React.useRef(false);
+  React.useEffect(() => {
+    renameReadyRef.current = false;
+    if (renameState === null) return undefined;
+    const timer = window.setTimeout(() => {
+      renameInputRef.current?.focus();
+      renameReadyRef.current = true;
+    }, 40);
+    return () => window.clearTimeout(timer);
+  }, [renameState?.path]);
   /* Every directory the tree currently knows about, root first. */
   const directoryChoices = React.useMemo(() => {
     const seen = new Set(['']);
@@ -411,7 +505,7 @@ function ProjectPanel({
     }
     return choices;
   }, [projectName, projectRows]);
-  const viewDefinitions = projectViewDefinitions(t);
+  const viewDefinitions = React.useMemo(() => projectViewDefinitions(t), [t]);
   const currentViewLabel =
     viewDefinitions.find((definition) => definition.id === projectView)?.label ?? t('editor.projectViewProjectFiles');
   return (
@@ -419,7 +513,7 @@ function ProjectPanel({
       {viewMenu === null ? null : (
         <ContextMenu
           menu={viewMenu}
-          onClose={() => setViewMenu(null)}
+          onClose={closeProjectViewMenu}
           t={t}
         />
       )}
@@ -661,6 +755,7 @@ function ProjectPanel({
             aria-label={t('editor.treeSearch')}
             onChange={(event) => setSearch(event.target.value)}
             onKeyDown={(event) => {
+              if (event.nativeEvent.isComposing === true) return;
               if (event.key === 'Escape') {
                 event.preventDefault();
                 closeTreeSearch();
@@ -678,7 +773,7 @@ function ProjectPanel({
                 if (hit === undefined) return;
                 onSelect(hit, {});
                 /* Close the box so the opened file (or folder) owns the keyboard. */
-                setSearch('');
+                clearTreeSearchState();
                 setSearchOpen(false);
                 /* Expand a CLOSED folder; an open one stays open (toggling would
              close it, the opposite of "jump to this directory"). */
@@ -687,7 +782,13 @@ function ProjectPanel({
                   open: expanded.has(hit.path),
                 });
                 if (action === 'expand') onToggle(hit.path);
-                else if (action === 'open') onOpen(hit.path);
+                else if (action === 'open') {
+                  onOpen(hit.path);
+                  /* Search rows synthesize their ancestor chain. Once the box
+                     closes that chain disappears, so reveal the real file or the
+                     tree would fall back to its nearest collapsed ancestor. */
+                  onRevealPath?.(hit.path);
+                }
                 /* Hand the keyboard back to the tree: the search box is gone, and
              leaving focus on a detached input strands the arrow keys. */
                 window.setTimeout(() => treeRef.current?.focus(), 0);
@@ -709,18 +810,21 @@ function ProjectPanel({
             size={14}
           />
           <input
+            ref={createInputRef}
             style={styles.createInput}
             value={createState.value}
             placeholder={createState.kind === 'directory' ? t('editor.newFolder') : t('editor.newFile')}
             autoFocus={true}
             onChange={(event) => onCreateChange(event.target.value)}
             onKeyDown={(event) => {
+              if (event.nativeEvent.isComposing === true) return;
               if (event.key === 'Enter') {
                 event.preventDefault();
                 onCreateCommit();
               } else if (event.key === 'Escape') {
                 event.preventDefault();
                 onCreateCancel();
+                window.setTimeout(() => treeRef.current?.focus(), 0);
               }
             }}
           />
@@ -787,8 +891,9 @@ function ProjectPanel({
           });
         }}
         role='tree'
+        aria-busy={uploadBusy || loading || searchPending ? 'true' : undefined}
         aria-label={t('editor.project')}
-        aria-busy={uploadBusy ? 'true' : undefined}
+        data-dsh-project-tree=''
         onDragOver={(event) => {
           const externalFiles = dataTransferIncludesFiles(event.dataTransfer);
           if (!externalFiles && !event.dataTransfer?.types?.includes('text/plain')) return;
@@ -843,7 +948,31 @@ function ProjectPanel({
             state='error'
             role='alert'
             live='assertive'>
-            {error}
+            <span
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 6,
+                minWidth: 0,
+              }}>
+              <span
+                style={{
+                  minWidth: 0,
+                  overflowWrap: 'anywhere',
+                }}>
+                {error}
+              </span>
+              <button
+                type='button'
+                style={styles.conflictAction}
+                onClick={() => {
+                  onRefresh();
+                  window.setTimeout(() => treeRef.current?.focus(), 0);
+                }}>
+                {t('editor.refresh')}
+              </button>
+            </span>
           </TreeMessage>
         ) : null}
         {searchError !== null && search.trim() !== '' ? (
@@ -855,6 +984,7 @@ function ProjectPanel({
           </TreeMessage>
         ) : null}
         {treeSearchMiss({
+          error: searchError,
           query: search,
           rows: visibleRows,
           loading: searchPending,
@@ -862,7 +992,7 @@ function ProjectPanel({
           <TreeMessage state='no-matches'>{t('editor.noMatches')}</TreeMessage>
         ) : null}
         {searchTruncated ? <TreeMessage state='truncated'>{t('editor.treeSearchTruncated')}</TreeMessage> : null}
-        {visibleRows.map((row, rowIndex) => {
+        {visibleRows.map((row) => {
           if (row.kind === 'placeholder') {
             return (
               <div
@@ -882,10 +1012,10 @@ function ProjectPanel({
           }
           const selected = selection.has(row.path);
           const primary = row.path === selectedPath;
-          const status = gitChanges.get(row.path);
-          const isDirectory = row.kind === 'directory';
-          const open = row.searchOpen === true || expanded.has(row.path);
-          const projectRowPosition = projectTreePosition(visibleRows, rowIndex);
+          const projectRowPresentation = projectRowPresentationByPath.get(row.path);
+          if (projectRowPresentation === undefined) return null;
+          const { directoryTintState, indentGuideKinds, isDirectory, open, projectRowPosition, statusColor } =
+            projectRowPresentation;
           return (
             <div
               key={row.path === '' ? '__root__' : row.path}
@@ -1036,25 +1166,13 @@ function ProjectPanel({
                 /* Indentation FIRST, then the chevron: with the guides after it every
              row's arrow sat at the same left edge, so a nested folder looked like a
              sibling and the hierarchy only showed as trailing whitespace. */
-                row.depth > 0
-                  ? Array.from(
-                      {
-                        length: row.depth,
-                      },
-                      (_, index) => {
-                        const kind = guideKind({
-                          continues: row.continues,
-                          index,
-                          depth: row.depth,
-                        });
-                        return (
-                          <span
-                            key={index}
-                            style={kind === 'line' ? styles.indentGuide : styles.indentGuideStop}
-                          />
-                        );
-                      },
-                    )
+                indentGuideKinds.length > 0
+                  ? indentGuideKinds.map((kind, index) => (
+                      <span
+                        key={index}
+                        style={kind === 'line' ? styles.indentGuide : styles.indentGuideStop}
+                      />
+                    ))
                   : null
               }
               {row.root ? null : isDirectory ? (
@@ -1090,19 +1208,29 @@ function ProjectPanel({
               />
               {renameState !== null && renameState.path === row.path ? (
                 <input
+                  ref={renameInputRef}
+                  data-dsh-project-rename=''
                   style={styles.renameInput}
                   value={renameState.value}
                   autoFocus={true}
                   onClick={(event) => event.stopPropagation()}
                   onChange={(event) => onRenameChange(event.target.value)}
-                  onBlur={() => onRenameCommit()}
+                  onBlur={() => {
+                    if (!renameReadyRef.current) return;
+                    renameReadyRef.current = false;
+                    onRenameCommit();
+                  }}
                   onKeyDown={(event) => {
+                    if (event.nativeEvent.isComposing === true) return;
                     if (event.key === 'Enter') {
                       event.preventDefault();
+                      renameReadyRef.current = false;
                       onRenameCommit();
                     } else if (event.key === 'Escape') {
                       event.preventDefault();
+                      renameReadyRef.current = false;
                       onRenameCancel();
+                      window.setTimeout(() => treeRef.current?.focus(), 0);
                     }
                   }}
                 />
@@ -1120,22 +1248,8 @@ function ProjectPanel({
                         }
                       : null),
                     /* Files and folders alike: a change tints the name, never a letter. */
-                    ...(treeNameColor({
-                      status,
-                      selected,
-                    }) === null
-                      ? null
-                      : {
-                          color: treeNameColor({
-                            status,
-                            selected,
-                          }),
-                        }),
-                    ...(isDirectory && !selected && status === undefined && directoryStatus(row.path) !== null
-                      ? {
-                          color: directoryStatus(row.path).color,
-                        }
-                      : null),
+                    ...(selected || statusColor === null ? null : { color: statusColor }),
+                    ...(selected || directoryTintState === null ? null : { color: directoryTintState.color }),
                     /* IDEA strikes through a file that vanished from disk. */
                     ...(deletedPaths?.has?.(row.path)
                       ? {
@@ -1154,7 +1268,7 @@ function ProjectPanel({
                     /* Speed search underlines what matched; the rest keeps its colour. */
                     search.trim() === ''
                       ? row.name
-                      : highlightParts(row.name, search).map((part, index) =>
+                      : (projectNamePartsByPath.get(row.path) ?? []).map((part, index) =>
                           part.match ? (
                             <span
                               key={index}

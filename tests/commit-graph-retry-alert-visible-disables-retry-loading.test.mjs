@@ -22,7 +22,7 @@ test('Graph retry success restores keyboard ownership to the log list', async ()
   assert.match(log, /const logFailedRef = React\.useRef\(logFailure !== null\)/u);
   assert.match(
     log,
-    /const recovered = logFailedRef\.current && !failed;[\s\S]*?logFailedRef\.current = failed;[\s\S]*?if \(recovered\)[\s\S]*?listRef\.current\?\.focus\?\.\(\{ preventScroll: true \}\)/u,
+    /const recovered = logFailedRef\.current && !failed;[\s\S]*?logFailedRef\.current = failed;[\s\S]*?if \(recovered && !hidden\)[\s\S]*?listRef\.current\?\.focus\?\.\(\{ preventScroll: true \}\)/u,
   );
 });
 

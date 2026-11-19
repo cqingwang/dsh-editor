@@ -3,7 +3,10 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { panelToolbarSource } from './ui-sources.mjs';
 
-const source = (await readFile(new URL('../src/client/components/project/ProjectPanel.tsx', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
+const source =
+  (await readFile(new URL('../src/client/components/project/ProjectPanel.tsx', import.meta.url), 'utf8')) +
+  '\n' +
+  (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
 
 function extractFunction(name) {
   const start = source.indexOf(`function ${name}(`);
@@ -33,12 +36,24 @@ test('Project toolbar falls back to the selected directory or workspace root', (
 });
 
 test('PanelToolbar exposes a scoped Files drop underline', () => {
-  assert.match(panelToolbarSource, /function PanelToolbar\(\{[\s\S]*?dropActive = false,[\s\S]*?onDragEnter,[\s\S]*?onDragLeave,[\s\S]*?onDragOver,[\s\S]*?onDrop,/u);
-  assert.match(panelToolbarSource, /dropActive[\s\S]*?boxShadow: 'inset 0 -2px 0 var\(--dsw-alias-state-business-primary\)'/u);
+  assert.match(
+    panelToolbarSource,
+    /function PanelToolbar\(\{[\s\S]*?dropActive = false,[\s\S]*?onDragEnter,[\s\S]*?onDragLeave,[\s\S]*?onDragOver,[\s\S]*?onDrop,/u,
+  );
+  assert.match(
+    panelToolbarSource,
+    /dropActive[\s\S]*?boxShadow: 'inset 0 -2px 0 var\(--dsw-alias-state-business-primary\)'/u,
+  );
 });
 
 test('Project toolbar reuses the existing OS upload path', () => {
-  assert.match(source, /const toolbarDropDirectory = projectToolbarDropDirectory\(projectRows, selectedPath\);/u);
-  assert.match(source, /if \(typeof onUpload === 'function'\) \{\s+onUpload\(captureDroppedWorkspaceHandles\(event\.dataTransfer\), toolbarDropDirectory\);/u);
+  assert.match(
+    source,
+    /const toolbarDropDirectory = React\.useMemo\(\s+\(\) => projectToolbarDropDirectory\(projectRows, selectedPath\),\s+\[projectRows, selectedPath\],\s+\);/u,
+  );
+  assert.match(
+    source,
+    /if \(typeof onUpload === 'function'\) \{\s+onUpload\(captureDroppedWorkspaceHandles\(event\.dataTransfer\), toolbarDropDirectory\);/u,
+  );
   assert.match(source, /dropActive: toolbarDropActive,/u);
 });

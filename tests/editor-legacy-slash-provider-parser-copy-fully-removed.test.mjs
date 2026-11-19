@@ -2,7 +2,10 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = (await readFile(new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
+const source =
+  (await readFile(new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url), 'utf8')) +
+  '\n' +
+  (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
 
 test('legacy slash/provider parser and copy are fully removed', () => {
   for (const helper of [
@@ -26,10 +29,16 @@ test('legacy slash/provider parser and copy are fully removed', () => {
 
 test('workspace changes still reset transient search surfaces', () => {
   const effect = source.slice(
-    source.indexOf('React.useEffect(() => {\n        searchEverywhereFilesRequestRef.current += 1;'),
-    source.indexOf("setRecentReplacements(root === '' ? [] : readReplaceHistory(root));", source.indexOf('searchEverywhereFilesRequestRef.current += 1;')),
+    source.indexOf('const previousWorkspaceSearchRootRef = React.useRef(root);'),
+    source.indexOf(
+      "setRecentReplacements(root === '' ? [] : readReplaceHistory(root));",
+      source.indexOf('searchEverywhereFilesRequestRef.current += 1;'),
+    ),
   );
+  assert.ok(effect.length > 0);
   assert.doesNotMatch(effect, /doubleShift/);
+  assert.match(effect, /workspaceSearchSurfacesShouldReset\(previousWorkspaceRoot, root\)/);
+  assert.match(effect, /cancelWorkspaceSearchRequests\(\)/);
   assert.match(effect, /setSearchEverywhere\(null\)/);
   assert.match(effect, /setShowUsages\(null\)/);
   assert.match(effect, /setFindTool\(null\)/);

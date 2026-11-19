@@ -7,7 +7,7 @@ import { detectTheme } from './editor-core';
 import { currentEditorWorkspaceId, currentSessionId } from './components/editor/editor-path-model';
 import { TYPEAHEAD_RESET_MS } from './diff';
 import { basename, currentTerminalScope, remapPathAfterMove } from './editor-core';
-import { fileExtensionFilterMatches, normalizeFileExtensionFilter } from './find-tool';
+import { fileExtensionFilterMatches, normalizeFileExtensionFilter, type TerminalEmulator } from './find-tool';
 
 export interface TerminalDescription {
   id: string;
@@ -23,6 +23,25 @@ export interface TerminalDescription {
 export interface TerminalShell {
   path: string;
   name: string;
+}
+
+/**
+ * Resolve the emulator owned by the terminal Find session.
+ *
+ * Find is opened from either split pane. The right pane can close while the
+ * bar remains mounted, so a missing right emulator falls back to the left.
+ * @param {'left'|'right'} pane - pane that opened Find.
+ * @param {object|null|undefined} left - left pane emulator.
+ * @param {object|null|undefined} right - right pane emulator.
+ * @returns {object|null} emulator that owns counting, stepping and focus return.
+ */
+export function terminalFindPaneEmulator(
+  pane: 'left' | 'right',
+  left: TerminalEmulator | null | undefined,
+  right: TerminalEmulator | null | undefined,
+): TerminalEmulator | null {
+  if (pane === 'right') return right ?? left ?? null;
+  return left ?? null;
 }
 
 interface EditorSelectionScope {
@@ -1689,6 +1708,52 @@ export function readTerminalProfile() {
   }
 }
 
+/** Whether the live list is authoritative enough to replace the saved profile. */
+export function shouldPersistTerminalProfile(
+  count: unknown,
+  loaded: unknown,
+  available: unknown,
+  userClosedLast = false,
+): boolean {
+  const terminalCount = typeof count === 'number' && Number.isFinite(count) ? count : 0;
+  return terminalCount > 0 || (loaded === true && available !== false && userClosedLast === true);
+}
+
+/**
+ * Decide what Terminal should do after the host returns its retained list.
+ *
+ * An empty list after a host restart is not the same as the user deliberately
+ * closing the last tab. The former must restore the remembered profile; only
+ * the latter closes the tool window.
+ * @param {{loaded?: boolean, available?: boolean, busy?: boolean, count?: number, error?: unknown, opened?: boolean, userClosedLast?: boolean, rememberedCount?: number}} state - terminal lifecycle state.
+ * @returns {'wait'|'close'|'restore'|'create'} next shell action.
+ */
+export function terminalAutoOpenAction(state: {
+  loaded?: unknown;
+  available?: unknown;
+  busy?: unknown;
+  count?: unknown;
+  error?: unknown;
+  opened?: unknown;
+  userClosedLast?: unknown;
+  rememberedCount?: unknown;
+}): 'wait' | 'close' | 'restore' | 'create' {
+  const count = typeof state.count === 'number' && Number.isFinite(state.count) ? state.count : 0;
+  if (
+    state.loaded !== true ||
+    state.available !== true ||
+    state.busy === true ||
+    count > 0 ||
+    (state.error !== null && state.error !== undefined)
+  ) {
+    return 'wait';
+  }
+  if (state.opened === true && state.userClosedLast === true) return 'close';
+  const rememberedCount =
+    typeof state.rememberedCount === 'number' && Number.isFinite(state.rememberedCount) ? state.rememberedCount : 0;
+  return rememberedCount > 0 ? 'restore' : 'create';
+}
+
 /** Maximum restored tabs, matching the existing reopen ceiling. */
 const TERMINAL_RESTORE_TAB_LIMIT = 4;
 /** Maximum retained output per restored tab; sessionStorage-only and bounded. */
@@ -1697,10 +1762,12 @@ const TERMINAL_RESTORE_BUFFER_CHARS = 64 * 1024;
 const terminalLiveBuffers = new Map<string, string>();
 /** One-shot scrollback seeded for terminals recreated after a host restart. */
 const terminalPendingRestoreBuffers = new Map<string, string>();
+/** Last authoritative restore snapshots for the active terminal scope. */
+let terminalRestoreSnapshotCache: { scope: string; snapshots: string[] } | null = null;
 
 /** Stable sessionStorage key for this Editor terminal scope. */
-function terminalRestoreStorageKey(): string {
-  return `dsh-editor.terminal.scrollback:${currentTerminalScope()}`;
+function terminalRestoreStorageKey(scope = currentTerminalScope()): string {
+  return `dsh-editor.terminal.scrollback:${scope}`;
 }
 
 /** Keep only the newest bounded tail of terminal output. */
@@ -1723,18 +1790,22 @@ export function readTerminalRestoreSnapshots(): string[] {
 
 /** Persist bounded scrollback snapshots for the current browser tab. */
 export function writeTerminalRestoreSnapshots(snapshots: unknown): void {
+  const scope = currentTerminalScope();
+  const bounded = (Array.isArray(snapshots) ? snapshots : [])
+    .slice(0, TERMINAL_RESTORE_TAB_LIMIT)
+    .map((entry) => boundTerminalRestoreBuffer(entry));
   try {
-    window.sessionStorage.setItem(
-      terminalRestoreStorageKey(),
-      JSON.stringify(
-        (Array.isArray(snapshots) ? snapshots : [])
-          .slice(0, TERMINAL_RESTORE_TAB_LIMIT)
-          .map((entry) => boundTerminalRestoreBuffer(entry)),
-      ),
-    );
+    window.sessionStorage.setItem(terminalRestoreStorageKey(scope), JSON.stringify(bounded));
+    terminalRestoreSnapshotCache = { scope, snapshots: bounded };
   } catch {
     /* a storage-less browser keeps only the live emulator */
   }
+}
+
+/** Whether two bounded restore snapshot lists would serialize identically. */
+export function terminalRestoreSnapshotsEqual(left: unknown, right: unknown): boolean {
+  if (!Array.isArray(left) || !Array.isArray(right) || left.length !== right.length) return false;
+  return left.every((value, index) => value === right[index]);
 }
 
 /** Seed one recreated terminal with its previous scrollback tail. */
@@ -1787,12 +1858,18 @@ export function persistTerminalRestoreSnapshots(list: unknown): void {
   /* Initial mount has no list yet; keep the previous browser-tab snapshots
          until restoreTerminals has recreated the tabs. */
   if (terminals.length === 0) return;
-  const previous = readTerminalRestoreSnapshots();
+  const scope = currentTerminalScope();
+  const previous =
+    terminalRestoreSnapshotCache?.scope === scope
+      ? terminalRestoreSnapshotCache.snapshots
+      : readTerminalRestoreSnapshots();
+  terminalRestoreSnapshotCache = { scope, snapshots: previous };
   const snapshots = terminals
     .slice(0, TERMINAL_RESTORE_TAB_LIMIT)
     .map((terminal, index) =>
       terminalLiveBuffers.has(terminal.id) ? terminalLiveBuffers.get(terminal.id) : (previous[index] ?? ''),
     );
+  if (terminalRestoreSnapshotsEqual(snapshots, previous)) return;
   writeTerminalRestoreSnapshots(snapshots);
 }
 
@@ -2102,33 +2179,48 @@ export function projectTreePosition(
   rows: ProjectTreeRow[] | null | undefined,
   index: number,
 ): { level: number; posinset: number; setsize: number } {
+  return projectTreePositions(rows)[index] ?? { level: 1, posinset: 1, setsize: 1 };
+}
+
+/**
+ * Compute every visible Project row's accessibility position in one pass.
+ *
+ * The flattened tree already preserves parent-before-child order. A stack of
+ * the last index seen at each depth identifies each parent, then sibling
+ * groups are filled once their final size is known.
+ * @param rows - visible Project rows in render order.
+ * @returns position metadata aligned by row index.
+ */
+export function projectTreePositions(
+  rows: ProjectTreeRow[] | null | undefined,
+): Array<{ level: number; posinset: number; setsize: number }> {
   const list: ProjectTreeRow[] = Array.isArray(rows) ? rows : [];
-  const row = list[index];
-  const depth = Math.max(0, Math.floor(Number(row?.depth) || 0));
-  if (row === undefined || row.kind === 'placeholder') {
+  const positions = list.map((row) => {
+    const depth = Math.max(0, Math.floor(Number(row?.depth) || 0));
     return { level: depth + 1, posinset: 1, setsize: 1 };
+  });
+  const siblingGroups = new Map<number, number[]>();
+  const ancestors: number[] = [];
+  for (let index = 0; index < list.length; index += 1) {
+    const row = list[index];
+    const depth = Math.max(0, Math.floor(Number(row?.depth) || 0));
+    ancestors.length = Math.min(ancestors.length, depth);
+    if (row?.kind === 'placeholder') continue;
+    const parentIndex = depth === 0 ? -1 : (ancestors[depth - 1] ?? -1);
+    ancestors[depth] = index;
+    const siblings = siblingGroups.get(parentIndex);
+    if (siblings === undefined) siblingGroups.set(parentIndex, [index]);
+    else siblings.push(index);
   }
-  let parentIndex = -1;
-  for (let cursor = index - 1; cursor >= 0; cursor -= 1) {
-    const candidateDepth = Math.max(0, Math.floor(Number(list[cursor]?.depth) || 0));
-    if (candidateDepth < depth) {
-      parentIndex = cursor;
-      break;
+  for (const siblings of siblingGroups.values()) {
+    for (let offset = 0; offset < siblings.length; offset += 1) {
+      const position = positions[siblings[offset]];
+      if (position === undefined) continue;
+      position.posinset = offset + 1;
+      position.setsize = siblings.length;
     }
   }
-  const siblings: number[] = [];
-  for (let cursor = parentIndex + 1; cursor < list.length; cursor += 1) {
-    const candidate = list[cursor];
-    const candidateDepth = Math.max(0, Math.floor(Number(candidate?.depth) || 0));
-    if (candidateDepth < depth) break;
-    if (candidateDepth === depth && candidate?.kind !== 'placeholder') siblings.push(cursor);
-  }
-  const position = siblings.indexOf(index);
-  return {
-    level: depth + 1,
-    posinset: position < 0 ? 1 : position + 1,
-    setsize: Math.max(1, siblings.length),
-  };
+  return positions;
 }
 
 /** Normalize the Project views that have a real data source in this plugin. */
@@ -2654,6 +2746,36 @@ export function directoryTint(changes: Array<{ status?: unknown }> | null | unde
 }
 
 /**
+ * Index workspace changes by every ancestor directory they affect.
+ *
+ * A Project row asks only about itself, so filtering the complete change list per
+ * directory row turns one Git snapshot into repeated O(rows × changes) scans.
+ * Build each ancestor bucket once instead while keeping the exact change
+ * objects for the existing directory-tint precedence.
+ * @param {{path?: unknown, status?: unknown}[]|null} changes - workspace Git changes.
+ * @returns {Map<string, object[]>} change lists keyed by workspace-relative directory.
+ */
+export function indexChangesByDirectory(
+  changes: Array<{ path?: unknown; status?: unknown }> | null | undefined,
+): Map<string, Array<{ path?: unknown; status?: unknown }>> {
+  const index = new Map<string, Array<{ path?: unknown; status?: unknown }>>();
+  for (const change of Array.isArray(changes) ? changes : []) {
+    if (change === null || typeof change !== 'object') continue;
+    const path = typeof change.path === 'string' ? change.path : '';
+    if (path === '') continue;
+    let cursor = path.lastIndexOf('/');
+    while (cursor > 0) {
+      const directory = path.slice(0, cursor);
+      const bucket = index.get(directory);
+      if (bucket === undefined) index.set(directory, [change]);
+      else bucket.push(change);
+      cursor = directory.lastIndexOf('/');
+    }
+  }
+  return index;
+}
+
+/**
  * The label a branch chip shows, detached HEAD included.
  *
  * `git rev-parse --abbrev-ref HEAD` answers the literal string "HEAD" when the
@@ -3013,13 +3135,22 @@ export function projectCanCollapseAll(expanded: unknown): boolean {
  * means "no hits" looks like exactly one row — the old `rows.length <= 1` test was a
  * proxy for that. Counting the non-root rows says what it means, and keeps working
  * if the root is ever filtered differently.
- * @param {{query: string, rows: {path: string}[]}|null} state - the query and the filtered rows.
+ * @param {{loading?: boolean, query?: unknown, rows?: {path: string}[]|null, error?: unknown}|null} state - search state.
  * @returns {boolean} true when the query is non-empty and nothing but the root matched.
  */
 export function treeSearchMiss(
-  state: { loading?: boolean; query?: unknown; rows?: ProjectTreeRow[] | null } | null | undefined,
+  state:
+    | {
+        error?: unknown;
+        loading?: boolean;
+        query?: unknown;
+        rows?: ProjectTreeRow[] | null;
+      }
+    | null
+    | undefined,
 ): boolean {
   if (state === null || state === undefined) return false;
+  if (state.error !== null && state.error !== undefined && state.error !== '') return false;
   if (state.loading === true) return false;
   const query = typeof state.query === 'string' ? state.query.trim() : '';
   if (query === '') return false;

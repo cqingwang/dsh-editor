@@ -89,7 +89,7 @@ test('lanes are never reused for a different branch in the same graph', () => {
 test('the graph draws one track per lane and marks the active one', () => {
   /* Round 69 kept the lane map but also needs the run grouping, so the result
      is bound once and `laneOf` is read from it. */
-  assert.match(graphSource, /const lanes = assignGraphLanes\(entries\);/);
+  assert.match(graphSource, /const lanes = React\.useMemo\(\(\) => assignGraphLanes\(entries\), \[entries\]\);/);
   assert.match(graphSource, /const laneOf = lanes\.laneOf;/);
   /* Only the columns up to this row's lane; trailing gutters would waste width. */
   assert.match(rowSource, /Array\.from\([\s\S]*?length: lane \+ 1/);

@@ -50,15 +50,21 @@ test('Cmd/Ctrl+Shift+F uses the visible Editor, not focused Editor controls', ()
   assert.doesNotMatch(shortcut, /host\.contains\(document\.activeElement\)/);
 });
 
-test('double Shift and Cmd/Ctrl+Shift+F share the Find in Files action', () => {
+test('double Shift opens Search Everywhere while Cmd/Ctrl+Shift+F opens Find in Files', () => {
   assert.match(source, /doubleShiftAction\(/);
   assert.doesNotMatch(source, /searchEverywhereOpenRef/);
   assert.match(source, /const openFindInFilesFromShortcut =/);
-  const shortcutEffects = source.slice(
-    source.indexOf('/* Double Shift remains a registered alias'),
-    source.indexOf("if (key === 'f' && event.shiftKey)"),
+  const doubleShiftEffect = source.slice(
+    source.indexOf('const next = doubleShiftAction'),
+    source.indexOf('}, [openSearchEverywhere]);', source.indexOf('const next = doubleShiftAction')),
   );
-  assert.match(shortcutEffects, /openFindInFilesFromShortcut\(\)/);
+  assert.match(doubleShiftEffect, /openSearchEverywhere\('all'\)/);
+  assert.doesNotMatch(doubleShiftEffect, /openFindInFilesFromShortcut\(\)/);
+  const findInFilesShortcut = source.slice(
+    source.indexOf("if (key === 'f' && event.shiftKey)"),
+    source.indexOf("const host = document.querySelector('[data-dsh-editor-workspace]');", source.indexOf("if (key === 'f' && event.shiftKey)")),
+  );
+  assert.match(findInFilesShortcut, /openFindInFilesFromShortcut\(\)/);
   assert.match(source, /onClose=\{closeSearchEverywhere\}/);
 });
 

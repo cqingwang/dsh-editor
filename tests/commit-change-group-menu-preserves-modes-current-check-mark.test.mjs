@@ -62,6 +62,10 @@ test('Changes View Options reuses the Group By value menu', () => {
     menu.items[0]?.items?.map((item) => item?.id),
     ['groupBy:flat', 'groupBy:module', 'groupBy:directory'],
   );
+  assert.equal(
+    menu.items[0]?.items?.every((item) => item?.keepOpen === true),
+    true,
+  );
 });
 
 test('Commit Options preserves busy state, action order and callbacks', () => {
@@ -88,7 +92,20 @@ test('Commit Options preserves busy state, action order and callbacks', () => {
   assert.equal(menu.title, 'editor.commitOptions');
   assert.deepEqual(
     menu.items.map((item) => item?.id ?? null),
-    ['fetch', 'update', null, 'applyPatchFile', 'applyPatchClipboard', null, 'stageAll', null, 'stash', 'shelve', null, 'groupBy'],
+    [
+      'fetch',
+      'update',
+      null,
+      'applyPatchFile',
+      'applyPatchClipboard',
+      null,
+      'stageAll',
+      null,
+      'stash',
+      'shelve',
+      null,
+      'groupBy',
+    ],
   );
   assert.equal(childById(menu, 'fetch')?.label, 'editor.fetchBusy');
   assert.equal(childById(menu, 'fetch')?.disabled, true);
@@ -98,16 +115,9 @@ test('Commit Options preserves busy state, action order and callbacks', () => {
   assert.equal(childById(menu, 'applyPatchClipboard')?.disabled, true);
   assert.equal(childById(menu, 'stageAll')?.disabled, true);
   assert.equal(childById(menu, 'groupBy:flat')?.shortcut, '✓');
+  assert.equal(childById(menu, 'groupBy:flat')?.keepOpen, false);
 
-  for (const id of [
-    'fetch',
-    'update',
-    'applyPatchFile',
-    'applyPatchClipboard',
-    'stageAll',
-    'stash',
-    'shelve',
-  ]) {
+  for (const id of ['fetch', 'update', 'applyPatchFile', 'applyPatchClipboard', 'stageAll', 'stash', 'shelve']) {
     childById(menu, id).run();
   }
   childById(menu, 'groupBy:module').run();
@@ -132,6 +142,16 @@ test('editor workspace reuses the extracted Commit menu model', async () => {
   assert.match(workspace, /from '\.\/components\/commit\/commit-options-menu'/u);
   assert.match(workspace, /changesViewOptionsMenu\(\{/u);
   assert.match(workspace, /commitOptionsMenu\(\{/u);
+  const viewOptions = workspace.slice(
+    workspace.indexOf('const openChangesViewMenu = React.useCallback('),
+    workspace.indexOf(
+      '/**\n   * Open IDEA\'s "Move to…" picker',
+      workspace.indexOf('const openChangesViewMenu = React.useCallback('),
+    ),
+  );
+  assert.match(viewOptions, /const build = \(mode: string\): void =>/u);
+  assert.match(viewOptions, /applyChangeGroupBy\(nextMode, false\);/u);
+  assert.match(viewOptions, /build\(nextMode\);/u);
   assert.doesNotMatch(workspace, /owner: 'changes-view-options'/u);
   assert.doesNotMatch(workspace, /owner: 'commit-options'/u);
   assert.match(build, /commit-options-menu\.ts/u);

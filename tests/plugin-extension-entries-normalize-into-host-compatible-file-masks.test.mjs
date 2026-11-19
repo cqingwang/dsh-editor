@@ -105,22 +105,22 @@ test('all text-search and replace handoffs use normalized extension masks', () =
   assert.match(source, /searchFileSuffixFilter: 'File mask filter'/);
 });
 
-test('double Shift and Cmd/Ctrl+Shift+F call one Find in Files shortcut body', () => {
+test('double Shift opens Search Everywhere while Cmd/Ctrl+Shift+F opens Find in Files', () => {
   const shortcut = workspaceSource.slice(
     workspaceSource.indexOf('const openFindInFilesFromShortcut ='),
     workspaceSource.indexOf('const closeFindToolWindow', workspaceSource.indexOf('const openFindInFilesFromShortcut =')),
   );
   assert.match(shortcut, /if \(findTool !== null\)/);
   assert.match(shortcut, /selectedEditorFindQuery\(currentCodeEditor\(\)\)/);
-  assert.match(shortcut, /openFindTool\(selectedQuery, 'find'\)/);
+  assert.match(shortcut, /openFindTool\(selectedQuery, 'find', null, 'query', 'popup', true\)/);
   const doubleShiftEffect = source.slice(
-    source.indexOf('/* Double Shift remains a registered alias'),
-    source.indexOf('}, [openFindInFilesFromShortcut]);', source.indexOf('/* Double Shift remains a registered alias')) +
-      '}, [openFindInFilesFromShortcut]);'.length,
+    source.indexOf('const next = doubleShiftAction'),
+    source.indexOf('}, [openSearchEverywhere]);', source.indexOf('const next = doubleShiftAction')) +
+      '}, [openSearchEverywhere]);'.length,
   );
   assert.match(doubleShiftEffect, /doubleShiftAction\(/);
-  assert.match(doubleShiftEffect, /openFindInFilesFromShortcut\(\)/);
-  assert.doesNotMatch(doubleShiftEffect, /openSearchEverywhere/);
+  assert.match(doubleShiftEffect, /openSearchEverywhere\('all'\)/);
+  assert.doesNotMatch(doubleShiftEffect, /openFindInFilesFromShortcut\(\)/);
   const cmdShift = source.slice(
     source.indexOf("if (key === 'f' && event.shiftKey)"),
     source.indexOf("const host = document.querySelector('[data-dsh-editor-workspace]');", source.indexOf("if (key === 'f' && event.shiftKey)")),

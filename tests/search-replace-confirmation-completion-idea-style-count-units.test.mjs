@@ -48,9 +48,12 @@ test('Replace confirmation and completion use IDEA-style count units', () => {
 });
 
 test('Every workspace replacement path passes the localized count units', () => {
-  assert.match(source, /searchReplaceConfirm: 'Replace \{matches\} \{matchUnit\} in \{files\} \{fileUnit\}\?'/u);
+  assert.match(
+    source,
+    /searchReplaceConfirm: 'Replace \{matches\} \{matchUnit\} of "\{query\}" across \{files\} \{fileUnit\} with "\{replacement\}"\?'/u,
+  );
   assert.match(source, /searchReplaceDone: 'Replaced \{matches\} \{matchUnit\} in \{files\} \{fileUnit\}'/u);
-  assert.match(source, /searchReplaceCountParams\(t, matches\.length, operationFileCount\)/u);
+  assert.match(source, /searchReplaceCountParams\(t, matches, files\)/u);
   assert.match(source, /searchReplaceCountParams\(t, replacedCount, changed\.length\)/u);
   assert.match(source, /searchReplaceCountParams\(t, replacedCount, changed\.length\)/u);
 });

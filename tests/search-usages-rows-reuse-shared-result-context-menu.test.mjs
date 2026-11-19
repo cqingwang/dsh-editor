@@ -36,9 +36,9 @@ test('copy actions keep the popup while navigation actions close it', () => {
   assert.match(invocation, /onNotify: \(message\) => flashStatus\(message\)/);
   assert.match(
     invocation,
-    /onOpenInRightSplit: \(path, location\) => \{[\s\S]*?setShowUsages\(null\);[\s\S]*?openInRightSplit\(path, location\)/,
+    /onOpenInRightSplit: \(path, location\) => \{[\s\S]*?closeShowUsages\(\);[\s\S]*?openInRightSplit\(path, location\)/,
   );
-  assert.match(invocation, /onRevealResult: \(path\) => \{[\s\S]*?setShowUsages\(null\);[\s\S]*?revealPath\(path\)/);
+  assert.match(invocation, /onRevealResult: \(path\) => \{[\s\S]*?closeShowUsages\(\);[\s\S]*?revealPath\(path\)/);
   assert.doesNotMatch(popup, /id: 'copyRelative'[\s\S]*?onClose\(\)/);
   assert.doesNotMatch(popup, /id: 'copyLocation'[\s\S]*?onClose\(\)/);
 });

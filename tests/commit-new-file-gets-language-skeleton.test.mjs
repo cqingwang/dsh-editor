@@ -74,7 +74,10 @@ test('the destination list comes from the host, not the expanded rows', () => {
     source.indexOf('const openMoveTo = React.useCallback('),
     source.indexOf("/* IDEA's project-tree context menu"),
   );
-  assert.match(open, /await callFs(?:<[^>]+>)?\(\{ op: 'directories' \}\)/);
+  assert.match(
+    open,
+    /await callFs(?:<[^>]+>)?\(\s*\{ op: 'directories' \},\s*\{ signal: searchAbort\.signal \},?\s*\)/,
+  );
   assert.doesNotMatch(open, /rows\.filter/);
   /* The current parent is carried so the picker can mark "already there". */
   assert.match(open, /parent,/);

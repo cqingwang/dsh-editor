@@ -14,21 +14,36 @@ const source = [
 ].join('\n');
 
 test('Commit Log refreshes local file availability while details stay open', () => {
-  const log = source.slice(source.indexOf('function CommitLogView('), source.indexOf('const CommitLog = CommitLogView;'));
-  assert.match(log, /const localQueryPaths = \[\.\.\.new Set\(detail\.files\.flatMap\(\(file\) => \[file\.path, dirname\(file\.path\)\]\)\)\]/);
-  assert.match(log, /const checkLocalFiles = \(\) => \{/);
-  assert.match(log, /window\.setInterval\(checkLocalFiles, 3000\)/);
+  const log = source.slice(
+    source.indexOf('function CommitLogView('),
+    source.indexOf('const CommitLog = CommitLogView;'),
+  );
+  assert.match(
+    log,
+    /const localQueryPaths = \[\.\.\.new Set\(detail\.files\.flatMap\(\(file\) => \[file\.path, dirname\(file\.path\)\]\)\)\]/,
+  );
+  assert.match(log, /const checkLocalFiles = \(\) =>/);
+  assert.match(log, /startVisibilityGatedPoll\(checkLocalFiles, 3000\)/);
   assert.match(log, /window\.addEventListener\('focus', checkLocalFiles\)/);
-  assert.match(log, /window\.clearInterval\(timer\)/);
+  assert.match(log, /stopPolling\(\)/);
 });
 
 test('Commit Log disables Open in Terminal when the containing directory is gone', () => {
-  const log = source.slice(source.indexOf('function CommitLogView('), source.indexOf('const CommitLog = CommitLogView;'));
-  const detail = source.slice(source.indexOf('function CommitLogDetailPane({'), source.indexOf('export { CommitLogDetailPane };'));
+  const log = source.slice(
+    source.indexOf('function CommitLogView('),
+    source.indexOf('const CommitLog = CommitLogView;'),
+  );
+  const detail = source.slice(
+    source.indexOf('function CommitLogDetailPane({'),
+    source.indexOf('export { CommitLogDetailPane };'),
+  );
   assert.match(detail, /const localDirExists = localFileAvailability\.get\(dirname\(file\.path\)\) !== false/);
   assert.match(detail, /localDirExists,/);
 
-  const workspace = source.slice(source.indexOf('function EditorWorkspace('), source.indexOf('function clampChatPercent('));
+  const workspace = source.slice(
+    source.indexOf('function EditorWorkspace('),
+    source.indexOf('function clampChatPercent('),
+  );
   const menu = source;
   assert.match(workspace, /\{ path, hash, localExists, localDirExists, x, y \}/);
   assert.match(menu, /id: 'openTerminal'[\s\S]*?disabled: localDirExists === false/);

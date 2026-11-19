@@ -29,12 +29,21 @@ function extractSource(name) {
   assert.fail(`unterminated ${name}`);
 }
 
-function createHarness() {
-  const store = new Map();
+function createHarness(initialEntries = {}, initialScope = 'workspace:test') {
+  const store = new Map(Object.entries(initialEntries));
+  const scopeState = { value: initialScope };
+  let reads = 0;
+  let writes = 0;
   const window = {
     sessionStorage: {
-      getItem: (key) => store.get(key) ?? null,
-      setItem: (key, value) => store.set(key, String(value)),
+      getItem: (key) => {
+        reads += 1;
+        return store.get(key) ?? null;
+      },
+      setItem: (key, value) => {
+        writes += 1;
+        store.set(key, String(value));
+      },
     },
   };
   const api = new Function(
@@ -44,10 +53,12 @@ function createHarness() {
      const TERMINAL_RESTORE_BUFFER_CHARS = 64 * 1024;
      const terminalLiveBuffers = new Map();
      const terminalPendingRestoreBuffers = new Map();
+     let terminalRestoreSnapshotCache = null;
      ${extractSource('terminalRestoreStorageKey')}
      ${extractSource('boundTerminalRestoreBuffer')}
      ${extractSource('readTerminalRestoreSnapshots')}
      ${extractSource('writeTerminalRestoreSnapshots')}
+     ${extractSource('terminalRestoreSnapshotsEqual')}
      ${extractSource('seedTerminalRestoreBuffer')}
      ${extractSource('takeTerminalRestoreBuffer')}
      ${extractSource('resetTerminalLiveBuffer')}
@@ -69,8 +80,14 @@ function createHarness() {
        terminalLiveBuffers,
        terminalPendingRestoreBuffers,
      };`,
-  )(window, () => 'workspace:test');
-  return { api, store };
+  )(window, () => scopeState.value);
+  return {
+    api,
+    store,
+    scopeState,
+    reads: () => reads,
+    writes: () => writes,
+  };
 }
 
 test('terminal restore buffers are bounded per tab and per browser session', () => {
@@ -114,14 +131,60 @@ test('session persistence follows terminal order and preserves unseen slots', ()
   assert.deepEqual(api.readTerminalRestoreSnapshots(), ['first', 'known\n']);
 });
 
+test('unchanged restore persistence parses the previous snapshot only once', () => {
+  const key = 'dsh-editor.terminal.scrollback:workspace:test';
+  const { api, store, reads, writes } = createHarness({
+    [key]: JSON.stringify(['restored']),
+  });
+  const terminals = [{ id: 'terminal-a' }];
+
+  api.persistTerminalRestoreSnapshots(terminals);
+  api.persistTerminalRestoreSnapshots(terminals);
+  api.persistTerminalRestoreSnapshots(terminals);
+  assert.equal(reads(), 1);
+  assert.equal(writes(), 0);
+
+  api.resetTerminalLiveBuffer('terminal-a', 'new\n');
+  api.persistTerminalRestoreSnapshots(terminals);
+  assert.equal(reads(), 1);
+  assert.equal(writes(), 1);
+  assert.equal(store.get(key), JSON.stringify(['new\n']));
+
+  api.persistTerminalRestoreSnapshots(terminals);
+  assert.equal(reads(), 1);
+  assert.equal(writes(), 1);
+});
+
+test('restore snapshot cache invalidates when the terminal scope changes', () => {
+  const { api, scopeState, reads, writes } = createHarness({
+    'dsh-editor.terminal.scrollback:scope-a': JSON.stringify(['from-a']),
+    'dsh-editor.terminal.scrollback:scope-b': JSON.stringify(['from-b']),
+  });
+  const terminals = [{ id: 'terminal-a' }];
+
+  scopeState.value = 'scope-a';
+  api.persistTerminalRestoreSnapshots(terminals);
+  scopeState.value = 'scope-b';
+  api.persistTerminalRestoreSnapshots(terminals);
+
+  assert.equal(reads(), 2);
+  assert.equal(writes(), 0);
+});
+
 test('TerminalScreen and restore path wire the bounded buffer through the existing stream', () => {
   assert.match(screenSource, /takeTerminalRestoreBuffer\(terminalId\)/);
   assert.match(screenSource, /resetTerminalLiveBuffer\(terminalId, event\.data, restored\)/);
   assert.match(screenSource, /appendTerminalLiveBuffer\(terminalId, event\.data\)/);
   assert.match(panelSource, /const snapshots = readTerminalRestoreSnapshots\(\)/);
-  assert.match(panelSource, /createTerminal\(exists \? entry\.shell : undefined, undefined, snapshots\[index\] \?\? ''\)/);
+  assert.match(
+    panelSource,
+    /createTerminal\(exists \? entry\.shell : undefined, undefined, snapshots\[index\] \?\? ''\)/,
+  );
   assert.match(panelSource, /clearTerminalLiveBuffer\(terminal\.id\)/);
   assert.match(panelSource, /forgetTerminalLiveBuffer\(id\)/);
-  assert.match(panelSource, /if \(remaining\.length === 0\) writeTerminalRestoreSnapshots\(\[\]\)/);
-  assert.match(panelSource, /window\.setInterval\(persist, 1000\)/);
+  assert.match(
+    panelSource,
+    /if \(remaining\.length === 0\) \{\s+userClosedLastRef\.current = true;\s+writeTerminalRestoreSnapshots\(\[\]\);/u,
+  );
+  assert.match(panelSource, /const schedulePersist = \(\): void =>/);
 });

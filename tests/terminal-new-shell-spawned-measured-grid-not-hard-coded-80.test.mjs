@@ -7,18 +7,9 @@ import test from 'node:test';
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const panelSource = readFileSync(join(root, 'src/client/components/terminal/TerminalPanel.tsx'), 'utf8');
 const screenSource = readFileSync(join(root, 'src/client/components/terminal/TerminalScreen.tsx'), 'utf8');
-const measuringSource = readFileSync(
-  join(root, 'src/client/components/terminal/MeasuringScreen.tsx'),
-  'utf8',
-);
+const measuringSource = readFileSync(join(root, 'src/client/components/terminal/MeasuringScreen.tsx'), 'utf8');
 const source =
-  panelSource +
-  '\n' +
-  screenSource +
-  '\n' +
-  readFileSync(join(root, 'lib/client.js'), 'utf8') +
-  '\n' +
-  measuringSource;
+  panelSource + '\n' + screenSource + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8') + '\n' + measuringSource;
 
 /**
  * Slice one callback/JSX block out of the client bundle.
@@ -91,7 +82,10 @@ test('the one-shot new-terminal effect does not depend on an unstable callback',
   /* `createTerminal`'s deps include props the workspace passes inline, so its
      identity changed on nearly every render. An effect depending on it re-fired
      on every render and started a shell each time — the dock froze on `+`. */
-  const generation = slice('/* A "new terminal" request from the dock header or the shortcut. */', '/* The arrow beside "+"');
+  const generation = slice(
+    '/* A "new terminal" request from the dock header or the shortcut. */',
+    '/* The arrow beside "+"',
+  );
   assert.match(generation, /void createTerminalRef\.current\(\);/);
   assert.match(generation, /\}, \[generation\]\);/);
   assert.doesNotMatch(generation, /\}, \[generation, createTerminal\]\);/);
@@ -101,9 +95,11 @@ test('the one-shot new-terminal effect does not depend on an unstable callback',
 
 test('the auto-open effect is idempotent instead of callback-dependent', () => {
   const autoOpen = slice('/* The first terminal starts automatically', '/* The arrow beside "+"');
-  assert.match(autoOpen, /if \(openedRef\.current\) \{/);
+  assert.match(autoOpen, /const action = terminalAutoOpenAction\(\{/);
+  assert.match(autoOpen, /if \(action === 'wait'\) return;/);
+  assert.match(autoOpen, /if \(action === 'close'\) \{/);
   assert.match(autoOpen, /openedRef\.current = true;/);
   /* Still keyed on the state that must settle first. */
-  assert.match(autoOpen, /if \(!loaded \|\| !available \|\| busy \|\| terminals\.length > 0 \|\| error !== null\) return;/);
+  assert.match(autoOpen, /loaded,\s+available,\s+busy,\s+count: terminals\.length,\s+error,/u);
   assert.match(autoOpen, /\}, \[available, busy, loaded, terminals\.length, error, onRequestClose\]\);/);
 });

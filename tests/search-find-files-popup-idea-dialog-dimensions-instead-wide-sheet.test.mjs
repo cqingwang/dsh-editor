@@ -2,7 +2,10 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) + '\n' + (await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8'));
+const source =
+  (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) +
+  '\n' +
+  (await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8'));
 const findTool = source.slice(
   source.lastIndexOf('function FindToolWindowView('),
   source.indexOf('const FindToolWindow = FindToolWindowView;', source.lastIndexOf('function FindToolWindowView(')),
@@ -18,11 +21,11 @@ test('Find in Files popup uses IDEA dialog dimensions instead of a wide sheet', 
 });
 
 test('Find in Files popup uses flat result rows and reserves the tree for the dock', () => {
-  assert.match(findTool, /const popupOccurrences(?::\s*[^=]+)? = \[/);
   assert.match(
     findTool,
-    /const occurrences(?::\s*[^=]+)? = floating \? popupOccurrences : dockVisibleRows\.rows/,
+    /const popupOccurrences = React\.useMemo\([\s\S]*?\.\.\.scopedFileResults\.map[\s\S]*?\.\.\.scopedMatches\.map/u,
   );
+  assert.match(findTool, /const occurrences(?::\s*[^=]+)? = floating \? popupOccurrences : dockVisibleRows\.rows/);
   assert.match(findTool, /floating[\s\S]*?data-dsh-find-popup-result/);
   assert.match(findTool, /displayGroups\.map[\s\S]*?data-dsh-find-group/);
 });

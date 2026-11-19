@@ -59,7 +59,10 @@ test('the terminal find bar reopens with the previous query', () => {
     /const total =\s+query === '' \|\| emulator === null \|\| emulator === undefined \? 0 : countTerminalMatches\(emulator, query\);/,
   );
   assert.match(source, /lastTerminalQuery\.current = find\.query;/);
-  assert.match(source, /onClick=\{\(\) => openTerminalFind\(emulatorRef\.current\)\}/);
+  assert.match(
+    source,
+    /focusedPaneRef\.current === 'right' \? splitEmulatorRef\.current : emulatorRef\.current,\s+focusedPaneRef\.current,/u,
+  );
 });
 
 test('⌘F reopens the find bar without clobbering an open one', () => {

@@ -92,12 +92,14 @@ test('the branch popup reads the list on open and confirms before a dirty checko
   assert.equal(calls.at(-1), 'editor.checkoutDone');
 
   const openBranchMenu = loadTypeScriptCallback(client, 'openBranchMenu', {
+    branchMenuRequestRef: { current: 0 },
     t,
     callGit: async () => ({ branches: ['main', 'feature'], branch: 'main' }),
     setCommitBusy: () => {},
     setCommitError: () => {},
     setMenu: (menu) => menus.push(menu),
-    setNamePrompt: (value) => {
+    branchPromptOriginRef: { current: null },
+    openNamePrompt: (value) => {
       prompt = value;
     },
     checkoutBranch,

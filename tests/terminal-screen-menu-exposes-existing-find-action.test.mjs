@@ -14,5 +14,5 @@ test('the terminal screen menu exposes the existing find action', () => {
   assert.match(block, /label: t\('editor\.find'\)/);
   assert.match(block, /shortcut: '⌘F'/);
   assert.match(block, /run: onFind/);
-  assert.match(source, /onFind: \(\) => openTerminalFind\(emulator\)/);
+  assert.match(source, /onFind: \(\) => openTerminalFind\(emulator, pane\)/);
 });

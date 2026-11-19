@@ -15,9 +15,10 @@ interface CompactActionBarProps {
   ariaLabel: string;
   style?: React.CSSProperties | null;
   slotWidth?: number;
+  className?: string;
 }
 
-function CompactActionBar({ actions, t, ariaLabel, style = null, slotWidth = 26 }: CompactActionBarProps) {
+function CompactActionBar({ actions, t, ariaLabel, style = null, slotWidth = 26, className }: CompactActionBarProps) {
   const ref = React.useRef<HTMLDivElement | null>(null);
   const [visibleCount, setVisibleCount] = React.useState(actions.length);
   const [menuPosition, setMenuPosition] = React.useState<{ x: number; y: number } | null>(null);
@@ -69,6 +70,7 @@ function CompactActionBar({ actions, t, ariaLabel, style = null, slotWidth = 26 
   return (
     <div
       ref={ref}
+      className={className ?? undefined}
       style={{
         ...styles.commitActionBar,
         ...(style ?? {}),

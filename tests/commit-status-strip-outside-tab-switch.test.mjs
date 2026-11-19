@@ -18,10 +18,10 @@ function commitPanelBody() {
 test('the commit status strip renders outside the tab switch', () => {
   const panel = commitPanelBody();
   const stripAt = panel.indexOf('styles.commitStatusStack');
-  /* The branch is the ternary that renders CommitLog, not the tab button's aria check. */
-  const logBranchAt = panel.indexOf("mode === 'log' ? (");
+  /* CommitLog is now kept mounted, so this is the tab's content boundary. */
+  const logBranchAt = panel.indexOf('<CommitLog');
   assert.ok(stripAt > 0, 'status strip missing');
-  /* It must come BEFORE the branch, so the Log tab shows it too. */
+  /* It must come BEFORE the log surface, so the Log tab shows it too. */
   assert.ok(stripAt < logBranchAt, 'status strip must render before the tab branch');
   assert.match(panel, /error !== null \|\| notice !== null \|\| \(pushFailure !== null && pushFailure !== undefined\)/);
 });

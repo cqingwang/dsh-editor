@@ -2,7 +2,10 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) + '\n' + (await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8'));
+const source =
+  (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) +
+  '\n' +
+  (await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8'));
 
 function extractSource(name) {
   const marker = `    function ${name}(`;
@@ -61,14 +64,23 @@ test('handoff target resolves the requested file or text row and clamps invalid 
 
 test('each Find handoff gets a monotonic revision', () => {
   assert.match(source, /const findToolHandoffSequenceRef = React\.useRef\(0\)/);
-  const opener = source.slice(source.indexOf('const openFindTool = React.useCallback'), source.indexOf('React.useEffect(() => {\n        if (searchEverywhere !== null) writeSearchOptions'));
+  const opener = source.slice(
+    source.indexOf('const openFindTool = React.useCallback'),
+    source.indexOf('React.useEffect(() => {\n        if (searchEverywhere !== null) writeSearchOptions'),
+  );
   assert.match(opener, /handoffRevision: \+\+findToolHandoffSequenceRef\.current/);
 });
 
 test('Find expands a collapsed target group before converging the active index', () => {
-  const component = source.slice(source.indexOf('function FindToolWindowView('), source.indexOf('const FindToolWindow = FindToolWindowView;'));
+  const component = source.slice(
+    source.indexOf('function FindToolWindowView('),
+    source.indexOf('const FindToolWindow = FindToolWindowView;'),
+  );
   assert.match(component, /const handoffRevision = Math\.max\(0, Number\(state\.handoffRevision\) \|\| 0\)/);
-  assert.match(component, /const handoffTarget = findToolHandoffTarget\(scopedFileResults, scopedMatches, state\.index, findGroupBy\)/);
+  assert.match(
+    component,
+    /const handoffTarget = React\.useMemo\(\s+\(\) => findToolHandoffTarget\(scopedFileResults, scopedMatches, state\.index, findGroupBy\),/u,
+  );
   assert.match(component, /handoffReadyRevisionRef/);
   assert.match(component, /setCollapsedFiles\(\(current\) => \{[\s\S]*next\.delete\(handoffTarget\.path\)/);
   assert.match(component, /if \(handoffRevision !== handoffReadyRevisionRef\.current\) return;/);
@@ -76,7 +88,10 @@ test('Find expands a collapsed target group before converging the active index',
 });
 
 test('replace mode keeps the same handoff and result state', () => {
-  const replaceMode = source.slice(source.indexOf('onReplaceMode: () => setFindTool'), source.indexOf('onReplaceOccurrence:'));
+  const replaceMode = source.slice(
+    source.indexOf('onReplaceMode: () => setFindTool'),
+    source.indexOf('onReplaceOccurrence:'),
+  );
   assert.match(replaceMode, /\.\.\.current, mode: 'replace'/);
   assert.doesNotMatch(replaceMode, /handoffRevision|files:|matches:|index:/);
 });

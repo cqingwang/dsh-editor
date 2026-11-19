@@ -38,6 +38,8 @@ export interface CommitGraphMenuPayload {
 export interface CommitGraphProps {
   t: Translate;
   graph: CommitGraphPayload | null;
+  visibleEntries?: CommitGraphEntryData[];
+  busy?: boolean;
   onShow?: (hash: string) => void;
   selected?: string | null;
   selectionHashes?: string[];
@@ -57,6 +59,8 @@ export interface CommitGraphProps {
 function CommitGraphView({
   t,
   graph,
+  visibleEntries,
+  busy = false,
   onShow,
   selected,
   selectionHashes = [],
@@ -68,6 +72,26 @@ function CommitGraphView({
   onContextMenu,
   error = null,
 }: CommitGraphProps) {
+  const sourceEntries = React.useMemo(() => (Array.isArray(graph?.entries) ? graph.entries : []), [graph?.entries]);
+  const entries = visibleEntries ?? sourceEntries;
+  const lanes = React.useMemo(() => assignGraphLanes(entries), [entries]);
+  const laneOf = lanes.laneOf;
+  /* Folding is opt-in: IDEA keeps the full graph by default too, and a folded
+     row that hid a branch point would be worse than a long list. */
+  const runs = React.useMemo(() => linearRun(entries, laneOf), [entries, laneOf]);
+  const rowsToDraw = React.useMemo(
+    () =>
+      folded
+        ? runs
+        : entries.map((entry) => ({
+            hashes: [entry.hash],
+            lane: laneOf.get(entry.hash) ?? 0,
+            merge: (entry.parents ?? []).length > 1,
+            first: entry,
+          })),
+    [entries, folded, laneOf, runs],
+  );
+  const selectedHashes = React.useMemo(() => new Set(selectionHashes), [selectionHashes]);
   const placeholder = commitGraphPlaceholder(graph, error);
   if (placeholder !== null) {
     return (
@@ -83,27 +107,14 @@ function CommitGraphView({
     );
   }
   if (graph == null) return null;
-  const entries = Array.isArray(graph.entries) ? graph.entries : [];
-  if (error !== null && error !== '' && entries.length === 0) return null;
-  const lanes = assignGraphLanes(entries);
-  const laneOf = lanes.laneOf;
+  if (error !== null && error !== '' && sourceEntries.length === 0) return null;
   const head = typeof graph?.head === 'string' ? graph.head : null;
-  /* Folding is opt-in: IDEA keeps the full graph by default too, and a folded
-     row that hid a branch point would be worse than a long list. */
-  const runs = linearRun(entries, laneOf);
-  const rowsToDraw = folded
-    ? runs
-    : entries.map((entry) => ({
-        hashes: [entry.hash],
-        lane: laneOf.get(entry.hash) ?? 0,
-        merge: (entry.parents ?? []).length > 1,
-        first: entry,
-      }));
   return (
     <div
       style={styles.commitGraph}
       role='listbox'
       aria-label={t('editor.logGraph')}
+      aria-busy={busy ? true : undefined}
       onMouseLeave={() => onSelect?.(null)}>
       <CommitGraphFoldBar
         t={t}
@@ -115,7 +126,7 @@ function CommitGraphView({
         const entry = run.first;
         const lane = laneOf.get(entry.hash) ?? 0;
         const isMerge = entry.parents.length > 1;
-        const active = selected === entry.hash || selectionHashes.includes(entry.hash);
+        const active = selected === entry.hash || selectedHashes.has(entry.hash);
         /* IDEA marks the checked-out commit with a HEAD badge: without it a row
          with a branch badge looks identical to the row you are standing on. */
         const isHead = head !== null && head === entry.hash;

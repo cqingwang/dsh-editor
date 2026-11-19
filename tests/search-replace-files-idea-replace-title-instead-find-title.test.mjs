@@ -2,7 +2,10 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) + '\n' + (await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8'));
+const source =
+  (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) +
+  '\n' +
+  (await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8'));
 const findTool = source.slice(
   source.lastIndexOf('function FindToolWindowView('),
   source.indexOf('const FindToolWindow = FindToolWindowView;', source.lastIndexOf('function FindToolWindowView(')),
@@ -29,7 +32,10 @@ test('The popup Replace row keeps New Line beside Preserve case', () => {
 });
 
 test('Replace mode keeps the same flat popup chrome and bottom actions', () => {
-  assert.match(findTool, /const popupOccurrences(?::\s*[^=]+)? = \[/);
+  assert.match(
+    findTool,
+    /const popupOccurrences = React\.useMemo\([\s\S]*?\.\.\.scopedFileResults\.map[\s\S]*?\.\.\.scopedMatches\.map/u,
+  );
   assert.match(findTool, /actions=\{floating \? popupHeaderActions : toolbarActions\}/u);
   assert.match(findTool, /t\('editor\.searchReplaceAll'\)/);
   assert.match(findTool, /t\('editor\.replaceCurrent'\)/);

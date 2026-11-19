@@ -368,6 +368,7 @@ function FindScopeEditor({ t, scopes, initialId, onSave, onClose }: FindScopeEdi
           overflow: 'hidden',
         }}
         onKeyDown={(event) => {
+          if (event.nativeEvent.isComposing === true) return;
           if (event.key === 'Escape') {
             event.preventDefault();
             onClose();

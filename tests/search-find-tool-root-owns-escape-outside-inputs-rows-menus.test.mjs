@@ -17,8 +17,9 @@ const panel = source.slice(panelStart, panelEnd + panelClose.length);
 test('Find tool root owns Escape outside inputs, rows and menus', () => {
   assert.match(
     find,
-    /onKeyDown=\{\(event\) => \{[\s\S]*?event\.key !== 'Escape'[\s\S]*?event\.defaultPrevented[\s\S]*?closest\('\[role="menu"\]'\)[\s\S]*?event\.preventDefault\(\)[\s\S]*?event\.stopPropagation\(\)[\s\S]*?onClose\(\)/,
+    /const handleFindToolRootKeyDown = \(event: React\.KeyboardEvent<HTMLDivElement>\): void => \{[\s\S]*?event\.key !== 'Escape'[\s\S]*?event\.defaultPrevented[\s\S]*?closest\('\[role="menu"\]'\)[\s\S]*?event\.preventDefault\(\)[\s\S]*?event\.stopPropagation\(\)[\s\S]*?onClose\(\)/,
   );
+  assert.match(find, /onKeyDown=\{handleFindToolRootKeyDown\}/);
   assert.doesNotMatch(find, /document\.body\.focus/);
 });
 
@@ -32,11 +33,12 @@ test('replacement Escape cannot double-close through the tool root', () => {
   );
 });
 
-test('closing the Find tool returns keyboard ownership to the active editor', () => {
+test('closing the Find tool restores its opener, editor, or workspace fallback', () => {
   assert.match(
     source,
-    /const closeFindToolWindow = React\.useCallback\(\(\) => \{[\s\S]*?setFindTool\(null\);[\s\S]*?window\.setTimeout\([\s\S]*?currentCodeEditor\(\)\?\.focus\?\.\(\)[\s\S]*?0\);[\s\S]*?\}, \[currentCodeEditor\]\);/,
+    /const closeFindToolWindow = React\.useCallback\(\(\) => \{[\s\S]*?const previous = findToolReturnFocusRef\.current;[\s\S]*?if \(previous !== null && previous\.isConnected\)[\s\S]*?currentCodePath\(\) !== null[\s\S]*?focusWorkspaceFallback\(/,
   );
+  assert.match(source, /\}, \[currentCodeEditor, currentCodePath\]\);/);
   assert.match(panel, /onClose=\{closeFindToolWindow\}/);
   assert.doesNotMatch(panel, /onClose=\{\(\) => setFindTool\(null\)\}/);
 });

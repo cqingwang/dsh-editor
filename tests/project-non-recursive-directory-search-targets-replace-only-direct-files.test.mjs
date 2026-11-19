@@ -44,10 +44,7 @@ test('non-recursive Directory search targets replace only direct files', async (
   const replaced = await host.replaceWorkspaceText(root, 'R714_REPLACE_TOKEN', 'R714_REPLACE_DONE', targets, {});
   assert.deepEqual(replaced.files, ['scope/top.txt']);
   assert.equal(await readFile(join(root, 'scope', 'top.txt'), 'utf8'), 'R714_REPLACE_DONE top\n');
-  assert.equal(
-    await readFile(join(root, 'scope', 'nested', 'deep.txt'), 'utf8'),
-    'R714_REPLACE_TOKEN deep\n',
-  );
+  assert.equal(await readFile(join(root, 'scope', 'nested', 'deep.txt'), 'utf8'), 'R714_REPLACE_TOKEN deep\n');
 });
 
 test('dirty merge uses the same direct-child Directory predicate', () => {
@@ -64,14 +61,17 @@ test('dirty merge uses the same direct-child Directory predicate', () => {
 
 test('Find dirty merge and Replace All share the scoped row set', () => {
   assert.match(source, /recursive: findTool\?\.searchScopeRecursive !== false/u);
-  assert.match(source, /const scopedReplacementPaths = new Set\(scopedMatches\.map\(\(match\) => match\.path\)\)/u);
+  assert.match(
+    source,
+    /const scopedReplacementPaths = React\.useMemo\(\s+\(\) => new Set\(scopedMatches\.map\(\(match\) => match\.path\)\),/u,
+  );
   assert.match(source, /if \(scopedMatches\.length > 0\) onReplaceAll\(scopedReplacementPaths\)/u);
 });
 
 test('Scope invalidation keeps the old rows visible until the next generation replaces them', () => {
   const changeScope = source.slice(
     source.indexOf('const changeFindToolScope = React.useCallback'),
-    source.indexOf('/** Persist and reapply IDEA\'s Directory recursion toggle. */'),
+    source.indexOf("/** Persist and reapply IDEA's Directory recursion toggle. */"),
   );
   const changeRecursive = source.slice(
     source.indexOf('const changeFindDirectoryRecursive = React.useCallback'),

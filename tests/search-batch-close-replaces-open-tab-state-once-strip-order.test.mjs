@@ -45,6 +45,8 @@ test('close to left/right uses the combined diff + file tab order', () => {
     },
     openFilesRef: { current: [{ path: 'a.ts' }, { path: 'b.ts' }] },
     diffReturnFocusRef: { current: null },
+    focusWorkspaceFallback: () => false,
+    document: { querySelector: () => null },
     window: { setTimeout: (callback) => callback() },
   });
   closeEditorTabs(['a.ts', '__diff__']);

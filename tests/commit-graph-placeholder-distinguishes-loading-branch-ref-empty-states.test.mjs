@@ -45,7 +45,7 @@ test('Graph graph states are polite atomic status regions', async () => {
   assert.match(graph, /aria-busy=\{placeholder\.kind === 'loading' \? true : undefined\}/u);
   assert.match(graph, /data-dsh-graph-state=\{placeholder\.kind\}/u);
   assert.match(graph, /if \(graph == null\) return null;/u);
-  assert.match(graph, /if \(error !== null && error !== '' && entries\.length === 0\) return null;/u);
+  assert.match(graph, /if \(error !== null && error !== '' && sourceEntries\.length === 0\) return null;/u);
 });
 
 test('Graph empty and error messages are complete in both dictionaries', () => {

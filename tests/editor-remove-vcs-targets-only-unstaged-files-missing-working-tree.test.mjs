@@ -11,7 +11,10 @@ import { loadTypeScriptFunction } from './ts-source.mjs';
 import { gitStage, gitStatus } from '../lib/index.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = (readFileSync(join(root, 'src/client/components/commit/CommitPanel.tsx'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
+const source =
+  readFileSync(join(root, 'src/client/components/commit/CommitPanel.tsx'), 'utf8') +
+  '\n' +
+  readFileSync(join(root, 'lib/client.js'), 'utf8');
 const locales = readFileSync(join(root, 'src/client/locales.ts'), 'utf8');
 const gitChangeModelSource = readFileSync(join(root, 'src/client/components/ui/git-change-model.ts'), 'utf8');
 
@@ -55,7 +58,10 @@ test('Remove from VCS is exposed with IDEA wording and no invented shortcut', ()
 
 test('CommitPanel derives its removal map from props instead of the workspace ref', () => {
   const panel = source.slice(source.indexOf('function CommitPanel('), source.indexOf('export { CommitPanel };'));
-  assert.match(panel, /const changesByPath = new Map\(changes\.map\(\(change\) => \[change\.path, change\]\)\)/);
+  assert.match(
+    panel,
+    /const changesByPath = React\.useMemo\(\(\) => new Map\(changes\.map\(\(change\) => \[change\.path, change\]\)\), \[changes\]\)/,
+  );
   assert.doesNotMatch(panel, /changesByPathRef/);
 });
 
@@ -70,5 +76,8 @@ test('scheduling a deleted path stages the deletion without recreating or deleti
   );
   await assert.rejects(() => access(join(dir, 'deleted.txt')));
   assert.equal(await readFileSync(join(dir, 'other.txt'), 'utf8'), 'keep me\n');
-  assert.equal(execFileSync('git', ['-C', dir, 'diff', '--cached', '--name-status'], { encoding: 'utf8' }).trim(), 'D\tdeleted.txt');
+  assert.equal(
+    execFileSync('git', ['-C', dir, 'diff', '--cached', '--name-status'], { encoding: 'utf8' }).trim(),
+    'D\tdeleted.txt',
+  );
 });

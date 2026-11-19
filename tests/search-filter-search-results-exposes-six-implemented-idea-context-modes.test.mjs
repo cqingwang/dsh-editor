@@ -2,7 +2,10 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) + '\n' + (await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8'));
+const source =
+  (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) +
+  '\n' +
+  (await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8'));
 const findTool = source.slice(
   source.indexOf('function FindToolWindowView('),
   source.indexOf('const FindToolWindow = FindToolWindowView;'),
@@ -27,7 +30,10 @@ test('Pin Window toggles persisted state and controls outside-click closing', ()
   assert.match(findTool, /active: pinned/);
   assert.match(findTool, /dsh-editor\.find\.pinned/);
   assert.match(findTool, /if \(!floating \|\| pinned\) return undefined/);
-  assert.match(findTool, /target\?\.closest\('\[data-dsh-find-tool-window\], \[role="menu"\]'\)/);
+  assert.match(
+    findTool,
+    /target\?\.closest\('\[data-dsh-find-tool-window\], \[role="menu"\], \[data-dsh-search-replace-confirm\]'\)/,
+  );
   assert.match(findTool, /onClose\(\);\n\s+\};/);
   assert.match(source, /findPinWindow: '固定窗口'/);
   assert.match(source, /findUnpinWindow: '取消固定窗口'/);

@@ -139,6 +139,7 @@ export interface SearchEverywhereProps {
   onMove: (delta: number, total?: number, index?: number) => void;
   onActivate: (result: SearchResult) => void;
   onClose: () => void;
+  onDismiss?: () => void;
   onReplaceChange: (value: string) => void;
   onReplaceAll: () => void;
   onRememberQuery: (query: string) => void;
@@ -179,6 +180,7 @@ function SearchEverywhere({
   onMove,
   onActivate,
   onClose,
+  onDismiss,
   onReplaceChange,
   onReplaceAll,
   onRememberQuery,
@@ -203,6 +205,7 @@ function SearchEverywhere({
   const searchTabListRef = React.useRef(null);
   const resultTooltipTimerRef = React.useRef(null);
   const resultInfoCloseRef = React.useRef(null);
+  const dismissSearchEverywhere = onDismiss ?? onClose;
   const SEARCH_EVERYWHERE_LISTBOX_ID = 'dsh-editor-search-everywhere-listbox';
   const [resultTooltip, setResultTooltip] = React.useState(null);
   const [resultMenu, setResultMenu] = React.useState(null);
@@ -301,72 +304,98 @@ function SearchEverywhere({
       label: t('editor.searchTabActions'),
     },
   ];
-  const actionMatches: SearchResult[] = rankSearchActions(actions, effectiveQuery, recentCommands, {
-    caseSensitive: state.caseSensitive === true,
-    wholeWords: state.wholeWords === true,
-  }).map((action) => ({
-    ...action,
-    kind: 'action',
-    rowKey: `action:${action.id}`,
-    subtitle: action.description ?? t('editor.searchActionHint'),
-    category: searchEverywhereActionCategory(action.id, t),
-    ariaKeyShortcuts: searchEverywhereAriaKeyShortcuts(action.shortcut),
-  }));
-  const fileMatches: SearchResult[] = files
-    .filter((file) => fileExtensionFilterMatches(file.path, state.fileMask))
-    .map((file) => ({
-      path: file.path,
-      score: fuzzyScore(file.path, effectiveQuery, {
+  const actionMatches: SearchResult[] = React.useMemo(
+    () =>
+      rankSearchActions(actions, effectiveQuery, recentCommands, {
         caseSensitive: state.caseSensitive === true,
         wholeWords: state.wholeWords === true,
-      }),
-    }))
-    .filter((entry) => entry.score >= 0)
-    .sort((left, right) => right.score - left.score || left.path.length - right.path.length)
-    .slice(0, 80)
-    .map((entry) => ({
-      kind: 'file',
-      rowKey: `file:${entry.path}`,
-      path: entry.path,
-      title: basename(entry.path),
-      subtitle: dirname(entry.path),
-      icon: 'file',
-    }));
-  const textResults: SearchResult[] = textMatches.map((match) => ({
-    kind: 'text',
-    rowKey: `text:${match.path}:${match.line}:${match.column}`,
-    path: match.path,
-    line: match.line,
-    column: match.column,
-    mtime: match.mtime,
-    dirty: match.dirty === true,
-    preview: match.preview ?? '',
-    title: match.preview || basename(match.path),
-    subtitle: `${match.path}:${match.line}:${match.column}`,
-    icon: 'search',
-  }));
-  const historyResults: SearchResult[] = (Array.isArray(recentSearches) ? recentSearches : []).map((entry) => ({
-    kind: 'action',
-    history: true,
-    rowKey: `history:${entry}`,
-    label: entry,
-    title: entry,
-    subtitle: t('editor.searchRecentQuery'),
-    icon: 'history',
-    run: () => onQuery(entry),
-  }));
-  let results: SearchResult[];
-  if (effectiveTab === 'files') results = fileMatches;
-  else if (effectiveTab === 'text') results = textResults;
-  else if (effectiveTab === 'actions') results = actionMatches;
-  else if (effectiveQuery === '')
-    results = [...historyResults.slice(0, 8), ...(searchFilters.actions ? actionMatches.slice(0, 12) : [])];
-  else
-    results = [
+      }).map((action) => ({
+        ...action,
+        kind: 'action',
+        rowKey: `action:${action.id}`,
+        subtitle: action.description ?? t('editor.searchActionHint'),
+        category: searchEverywhereActionCategory(action.id, t),
+        ariaKeyShortcuts: searchEverywhereAriaKeyShortcuts(action.shortcut),
+      })),
+    [actions, effectiveQuery, recentCommands, state.caseSensitive, state.wholeWords, t],
+  );
+  const fileMatches: SearchResult[] = React.useMemo(
+    () =>
+      files
+        .filter((file) => fileExtensionFilterMatches(file.path, state.fileMask))
+        .map((file) => ({
+          path: file.path,
+          score: fuzzyScore(file.path, effectiveQuery, {
+            caseSensitive: state.caseSensitive === true,
+            wholeWords: state.wholeWords === true,
+          }),
+        }))
+        .filter((entry) => entry.score >= 0)
+        .sort((left, right) => right.score - left.score || left.path.length - right.path.length)
+        .slice(0, 80)
+        .map((entry) => ({
+          kind: 'file',
+          rowKey: `file:${entry.path}`,
+          path: entry.path,
+          title: basename(entry.path),
+          subtitle: dirname(entry.path),
+          icon: 'file',
+        })),
+    [effectiveQuery, files, state.caseSensitive, state.fileMask, state.wholeWords],
+  );
+  const textResults: SearchResult[] = React.useMemo(
+    () =>
+      textMatches.map((match) => ({
+        kind: 'text',
+        rowKey: `text:${match.path}:${match.line}:${match.column}`,
+        path: match.path,
+        line: match.line,
+        column: match.column,
+        mtime: match.mtime,
+        dirty: match.dirty === true,
+        preview: match.preview ?? '',
+        title: match.preview || basename(match.path),
+        subtitle: `${match.path}:${match.line}:${match.column}`,
+        icon: 'search',
+      })),
+    [textMatches],
+  );
+  const historyResults: SearchResult[] = React.useMemo(
+    () =>
+      (Array.isArray(recentSearches) ? recentSearches : []).map((entry) => ({
+        kind: 'action',
+        history: true,
+        rowKey: `history:${entry}`,
+        label: entry,
+        title: entry,
+        subtitle: t('editor.searchRecentQuery'),
+        icon: 'history',
+        run: () => onQuery(entry),
+      })),
+    [onQuery, recentSearches, t],
+  );
+  const results: SearchResult[] = React.useMemo(() => {
+    if (effectiveTab === 'files') return fileMatches;
+    if (effectiveTab === 'text') return textResults;
+    if (effectiveTab === 'actions') return actionMatches;
+    if (effectiveQuery === '')
+      return [...historyResults.slice(0, 8), ...(searchFilters.actions ? actionMatches.slice(0, 12) : [])];
+    return [
       ...(searchFilters.actions ? actionMatches.slice(0, 8) : []),
       ...(searchFilters.files ? fileMatches.slice(0, 24) : []),
       ...(searchFilters.text ? textResults.slice(0, 40) : []),
     ];
+  }, [
+    actionMatches,
+    effectiveQuery,
+    effectiveTab,
+    fileMatches,
+    historyResults,
+    searchFilters.actions,
+    searchFilters.files,
+    searchFilters.text,
+    textResults,
+  ]);
   const activeIndex = normalizeSearchResultIndex(results, state.index);
   const activeResult = results[activeIndex] ?? null;
   const searchResultStatus =
@@ -873,7 +902,7 @@ function SearchEverywhere({
       if (activeResult !== null) activateResult(activeResult);
     } else if (event.key === 'Escape') {
       event.preventDefault();
-      onClose();
+      dismissSearchEverywhere();
     }
   };
   const openSearchResultsInFind = (
@@ -1074,7 +1103,7 @@ function SearchEverywhere({
         ...styles.paletteBackdrop,
         paddingTop: '7vh',
       }}
-      onMouseDown={onClose}
+      onMouseDown={dismissSearchEverywhere}
       onKeyDown={handleSearchEverywhereDialogKeyDown}
       data-dsh-search-everywhere=''>
       <div
@@ -1157,6 +1186,7 @@ function SearchEverywhere({
               onQuery(event.target.value);
             }}
             onKeyDown={(event) => {
+              if (event.nativeEvent.isComposing === true) return;
               if (event.altKey === true && event.key === 'ArrowDown') {
                 openQueryHistoryMenu(event);
               } else if (event.key === 'Tab') {
@@ -1219,11 +1249,12 @@ function SearchEverywhere({
               aria-label={t('editor.searchReplacePlaceholder')}
               onChange={(event) => onReplaceChange(event.target.value)}
               onKeyDown={(event) => {
+                if (event.nativeEvent.isComposing === true) return;
                 if (event.altKey === true && event.key === 'ArrowDown') {
                   openReplaceHistoryMenu(event);
                 } else if (event.key === 'Escape') {
                   event.preventDefault();
-                  onClose();
+                  dismissSearchEverywhere();
                 } else if (replaceInputAction(event, 'all') === 'all' && !replaceBusy && textResults.length > 0) {
                   event.preventDefault();
                   onReplaceAll();
@@ -1292,6 +1323,7 @@ function SearchEverywhere({
           id={SEARCH_EVERYWHERE_LISTBOX_ID}
           style={styles.searchEverywhereList}
           role='listbox'
+          aria-busy={textLoading && effectiveTab !== 'actions' ? true : undefined}
           aria-label={t('editor.searchEverywhere')}
           aria-activedescendant={activeResult === null ? undefined : searchEverywhereOptionId(activeResult.rowKey)}
           tabIndex={0}
@@ -1600,6 +1632,7 @@ function SearchEverywhere({
             menu={{
               ...queryHistoryMenu,
               fallbackFocus: () => searchInputRef.current?.focus?.(),
+              escapeFocus: () => searchInputRef.current?.focus?.(),
             }}
           />
         )}
@@ -1610,6 +1643,7 @@ function SearchEverywhere({
             menu={{
               ...findUsagesHistoryMenu,
               fallbackFocus: () => searchInputRef.current?.focus?.(),
+              escapeFocus: () => searchInputRef.current?.focus?.(),
             }}
           />
         )}
@@ -1620,6 +1654,7 @@ function SearchEverywhere({
             menu={{
               ...replaceHistoryMenu,
               fallbackFocus: () => searchInputRef.current?.focus?.(),
+              escapeFocus: () => (replaceInputRef.current ?? searchInputRef.current)?.focus?.(),
             }}
           />
         )}

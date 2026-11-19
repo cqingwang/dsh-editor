@@ -43,9 +43,12 @@ import {
   readTerminalRestoreSnapshots,
   reconcileTerminalDockState,
   seedTerminalRestoreBuffer,
+  shouldPersistTerminalProfile,
   storeFontSize,
   TERMINAL_COLORS,
   terminalActiveAfterClose,
+  terminalAutoOpenAction,
+  terminalFindPaneEmulator,
   terminalFontSize,
   type TerminalDescription,
   writeEditorTerminals,
@@ -97,6 +100,78 @@ export interface TerminalPanelProps {
   onSwitchFocusToEditor?: () => void;
   focusGeneration?: number;
   [key: string]: unknown;
+}
+
+/**
+ * Return focus to one rendered terminal tab by identity.
+ *
+ * Closing a non-active tab removes the focused close button without changing
+ * the active terminal, so the surviving active tab must reclaim its roving
+ * tab stop instead of leaving the workspace on BODY.
+ * @param strip - rendered terminal tab strip.
+ * @param terminalId - terminal id that should own the tab stop.
+ * @returns {void}
+ */
+function focusTerminalTabById(strip: HTMLElement | null, terminalId: string | null): void {
+  if (terminalId === null) return;
+  const node = [...(strip?.querySelectorAll<HTMLElement>('[data-dsh-terminal-tab-id]') ?? [])].find(
+    (candidate) => candidate.getAttribute('data-dsh-terminal-tab-id') === terminalId,
+  );
+  node?.focus({ preventScroll: true });
+}
+
+/**
+ * Drop OSC 7 cwd metadata for terminal ids the host no longer retains.
+ *
+ * Terminal ids are never reused. Without this bounded sweep, every closed shell
+ * leaves a `Map` entry for the lifetime of the Editor workspace.
+ * @param cwdById - live terminal id to cwd map.
+ * @param liveIds - terminal ids still present in the host or local list.
+ * @returns {void}
+ */
+function pruneTerminalCwdMetadata(cwdById: Map<string, string>, liveIds: readonly string[]): void {
+  const live = new Set(liveIds);
+  for (const id of [...cwdById.keys()]) {
+    if (!live.has(id)) cwdById.delete(id);
+  }
+}
+
+/**
+ * Collect the unique live directories represented by the remaining terminals.
+ * @param terminals - terminal descriptors retained by the host or local state.
+ * @param cwdById - latest OSC 7 directory per terminal id.
+ * @returns unique non-empty directory strings.
+ */
+function terminalLiveCwds(terminals: readonly TerminalDescription[], cwdById: Map<string, string>): string[] {
+  const cwds: string[] = [];
+  const seen = new Set<string>();
+  for (const terminal of Array.isArray(terminals) ? terminals : []) {
+    const cwd = cwdById.get(terminal.id) ?? terminal.cwd;
+    if (typeof cwd !== 'string' || cwd === '' || seen.has(cwd)) continue;
+    seen.add(cwd);
+    cwds.push(cwd);
+  }
+  return cwds;
+}
+
+/**
+ * Drop README cache entries for directories no live terminal occupies.
+ * @param readmeByCwd - cached README path keyed by absolute cwd.
+ * @param liveCwds - directories still represented by terminal tabs.
+ * @returns the original object when nothing changed, otherwise a pruned copy.
+ */
+function pruneTerminalReadmeMetadata(
+  readmeByCwd: Record<string, string>,
+  liveCwds: readonly string[],
+): Record<string, string> {
+  const live = new Set(liveCwds);
+  const entries = Object.entries(readmeByCwd);
+  if (entries.every(([cwd]) => live.has(cwd))) return readmeByCwd;
+  const next: Record<string, string> = {};
+  for (const [cwd, path] of entries) {
+    if (live.has(cwd)) next[cwd] = path;
+  }
+  return next;
 }
 
 function TerminalPanel({
@@ -247,6 +322,7 @@ function TerminalPanel({
   const [find, setFind] = React.useState<TerminalFindState | null>(null);
   /* The one-shot key listener needs to know whether the find bar is open. */
   const findRef = React.useRef(null);
+  const findPaneRef = React.useRef<'left' | 'right'>('left');
   const findInputRef = React.useRef(null);
   React.useEffect(() => {
     findRef.current = find;
@@ -376,7 +452,8 @@ function TerminalPanel({
   );
 
   /** Open the terminal find bar pre-filled with the previous query. */
-  const openTerminalFind = (emulator: TerminalEmulator | null | undefined): void => {
+  const openTerminalFind = (emulator: TerminalEmulator | null | undefined, pane: 'left' | 'right' = 'left'): void => {
+    findPaneRef.current = pane;
     const query = lastTerminalQuery.current;
     const total =
       query === '' || emulator === null || emulator === undefined ? 0 : countTerminalMatches(emulator, query);
@@ -393,6 +470,8 @@ function TerminalPanel({
   /* Emulators are owned by TerminalScreen; these mirror them for menus and shortcuts. */
   const emulatorRef = React.useRef<TerminalEmulator | null>(null);
   const splitEmulatorRef = React.useRef<TerminalEmulator | null>(null);
+  const findEmulator = (): TerminalEmulator | null =>
+    terminalFindPaneEmulator(findPaneRef.current, emulatorRef.current, splitEmulatorRef.current);
   const screenSelectionPositionRef = React.useRef<{
     left: TerminalSelectionPosition | null;
     right: TerminalSelectionPosition | null;
@@ -413,6 +492,8 @@ function TerminalPanel({
   const rememberTerminalsRef = React.useRef(null);
   /* Whether this mount already auto-opened its first shell. */
   const openedRef = React.useRef(false);
+  /* Whether the empty list came from the user closing the last tab, not a host restart. */
+  const userClosedLastRef = React.useRef(false);
   /* Recently closed terminals for this Session, newest first. */
   const [closedHistory, setClosedHistory] = React.useState<TerminalRestoreEntry[]>(() => readClosedTerminals());
   /* Per-tab colour, an IDEA grouping aid; stored in the browser, not the host. */
@@ -428,25 +509,47 @@ function TerminalPanel({
   React.useEffect(() => {
     focusedPaneRef.current = focusedPane;
   }, [focusedPane]);
-  React.useEffect(() => {
+  React.useLayoutEffect(() => {
     terminalsRef.current = terminals;
-    /* Keep the remembered profile in step with the live tabs. */
-    if (terminals.length > 0) rememberTerminalsRef.current?.(terminals);
   }, [terminals]);
+  React.useEffect(() => {
+    /* Keep the remembered profile in step with the live tabs. */
+    if (shouldPersistTerminalProfile(terminals.length, loaded, available, userClosedLastRef.current)) {
+      rememberTerminalsRef.current?.(terminals);
+    }
+  }, [available, loaded, terminals]);
   React.useEffect(() => {
     persistTerminalRestoreSnapshots(terminals);
   }, [terminals]);
   React.useEffect(() => {
     const persist = () => persistTerminalRestoreSnapshots(terminalsRef.current);
-    const timer = window.setInterval(persist, 1000);
-    const onVisibility = () => {
-      if (document.visibilityState === 'hidden') persist();
+    let persistTimer: number | null = null;
+    const cancelPersistTimer = (): void => {
+      if (persistTimer === null) return;
+      window.clearTimeout(persistTimer);
+      persistTimer = null;
+    };
+    const persistAndReschedule = (): void => {
+      persistTimer = null;
+      if (document.visibilityState === 'hidden') return;
+      persist();
+      schedulePersist();
+    };
+    const schedulePersist = (): void => {
+      cancelPersistTimer();
+      if (document.visibilityState === 'hidden') return;
+      persistTimer = window.setTimeout(persistAndReschedule, 1000);
+    };
+    const onVisibility = (): void => {
+      persist();
+      schedulePersist();
     };
     window.addEventListener('pagehide', persist);
     document.addEventListener('visibilitychange', onVisibility);
+    schedulePersist();
     return () => {
       persist();
-      window.clearInterval(timer);
+      cancelPersistTimer();
       window.removeEventListener('pagehide', persist);
       document.removeEventListener('visibilitychange', onVisibility);
     };
@@ -460,6 +563,12 @@ function TerminalPanel({
       });
       const listed = Array.isArray(value?.terminals) ? value.terminals : [];
       const reconciled = reconcileTerminalDockState(listed, editorIdsRef.current, activeRef.current);
+      pruneTerminalCwdMetadata(
+        terminalCwdRef.current,
+        listed.map((terminal) => terminal.id),
+      );
+      const liveCwds = terminalLiveCwds(listed, terminalCwdRef.current);
+      setReadmePaths((current) => pruneTerminalReadmeMetadata(current, liveCwds));
       setAvailable(value.available !== false);
       setTerminals(listed);
       setEditorIds(reconciled.editorIds);
@@ -519,21 +628,23 @@ function TerminalPanel({
    */
   const syncTerminalCwd = React.useCallback((id: string, cwd: string): void => {
     if (typeof cwd !== 'string' || cwd === '') return;
-    setTerminals((list) => {
-      const target = list.find((terminal) => terminal.id === id);
-      if (target === undefined || target.cwd === cwd) return list;
-      return list.map((terminal) =>
+    const target = terminalsRef.current.find((terminal) => terminal.id === id);
+    if (target === undefined) return;
+    if (target.cwd === cwd && terminalCwdRef.current.get(id) === cwd) return;
+    /* The tab menu reads `terminal.cwd` from the render snapshot; keep the host
+       description in step too so a later re-read agrees. */
+    terminalCwdRef.current.set(id, cwd);
+    if (target.cwd === cwd) return;
+    setTerminals((list) =>
+      list.map((terminal) =>
         terminal.id === id
           ? {
               ...terminal,
               cwd,
             }
           : terminal,
-      );
-    });
-    /* The tab menu reads `terminal.cwd` from the render snapshot; keep the host
-       description in step too so a later re-read agrees. */
-    terminalCwdRef.current.set(id, cwd);
+      ),
+    );
   }, []);
 
   /** Queue one keystroke behind the previous one so the PTY sees typing order. */
@@ -644,6 +755,7 @@ function TerminalPanel({
                 : '',
         });
         const created = value.terminal;
+        userClosedLastRef.current = false;
         seedTerminalRestoreBuffer(created.id, restoreSnapshot);
         setTerminals((current) => [...current, created]);
         setActiveId(created.id);
@@ -689,7 +801,8 @@ function TerminalPanel({
       })
         .then((value) => (value.shells ?? []).some((shell) => shell.path === entry.shell))
         .catch(() => false);
-      await createTerminal(exists ? entry.shell : undefined, entry.cwd);
+      const created = await createTerminal(exists ? entry.shell : undefined, entry.cwd);
+      if (created !== null) window.setTimeout(() => emulatorRef.current?.focus?.(), 0);
     },
     [createTerminal],
   );
@@ -734,19 +847,32 @@ function TerminalPanel({
 
   /* The first terminal starts automatically, the way IDEA opens a shell tab. */
   React.useEffect(() => {
-    if (!loaded || !available || busy || terminals.length > 0 || error !== null) return;
-    if (openedRef.current) {
+    const remembered = readTerminalProfile();
+    const action = terminalAutoOpenAction({
+      loaded,
+      available,
+      busy,
+      count: terminals.length,
+      error,
+      opened: openedRef.current,
+      userClosedLast: userClosedLastRef.current,
+      rememberedCount: remembered.length,
+    });
+    if (action === 'wait') return;
+    if (action === 'close') {
       /* Closing the last tab closes the tool window, exactly like IDEA. */
       onRequestClose?.();
       return;
     }
     openedRef.current = true;
-    /* After a host restart the tab list is empty: rebuild what was open, with its shell. */
-    const remembered = readTerminalProfile();
-    if (remembered.length > 0) {
+    userClosedLastRef.current = false;
+    if (action === 'restore') {
+      /* After a host restart the tab list is empty: rebuild what was open, with its shell. */
       void restoreTerminals(remembered);
       return;
     }
+    /* An authoritative empty list with no profile cannot consume old scrollback. */
+    writeTerminalRestoreSnapshots([]);
     void createTerminal();
     /* `createTerminal`/`restoreTerminals` are read through the closure on
        purpose: including them re-ran this on every parent render. `openedRef`
@@ -834,6 +960,9 @@ function TerminalPanel({
     async (id: string): Promise<void> => {
       if (closingTerminalIdsRef.current.has(id)) return;
       closingTerminalIdsRef.current.add(id);
+      const closingTabHadFocus =
+        document.activeElement instanceof HTMLElement &&
+        document.activeElement.closest('[data-dsh-terminal-tab-id]')?.getAttribute('data-dsh-terminal-tab-id') === id;
       /* Record it first: after the host reaps it there is nothing left to describe. */
       const closing = terminalsRef.current.find((terminal) => terminal.id === id);
       const focusedId = focusedPaneRef.current === 'right' ? splitIdRef.current : activeRef.current;
@@ -849,12 +978,24 @@ function TerminalPanel({
         return next;
       });
       const remaining = terminalsRef.current.filter((terminal) => terminal.id !== id);
+      pruneTerminalCwdMetadata(
+        terminalCwdRef.current,
+        remaining.map((terminal) => terminal.id),
+      );
+      const liveCwds = terminalLiveCwds(remaining, terminalCwdRef.current);
+      setReadmePaths((current) => pruneTerminalReadmeMetadata(current, liveCwds));
       const nextActive = terminalActiveAfterClose(remaining, splitIdRef.current, editorIdsRef.current);
-      if (remaining.length === 0) writeTerminalRestoreSnapshots([]);
+      if (remaining.length === 0) {
+        userClosedLastRef.current = true;
+        writeTerminalRestoreSnapshots([]);
+      }
       setTerminals(remaining);
       setActiveId((active) => (active === id ? nextActive : active));
       if (focusedId === id) {
         window.setTimeout(() => emulatorRef.current?.focus?.(), 0);
+      } else if (closingTabHadFocus) {
+        const activeTerminalId = activeRef.current;
+        window.setTimeout(() => focusTerminalTabById(tabStripRef.current, activeTerminalId), 0);
       }
       try {
         await callTerminal({
@@ -900,6 +1041,12 @@ function TerminalPanel({
       if (!current.some((terminal) => terminal.id === keepId)) return;
       const doomed = current.filter((terminal) => terminal.id !== keepId);
       const remaining = current.filter((terminal) => terminal.id === keepId);
+      pruneTerminalCwdMetadata(
+        terminalCwdRef.current,
+        remaining.map((terminal) => terminal.id),
+      );
+      const liveCwds = terminalLiveCwds(remaining, terminalCwdRef.current);
+      setReadmePaths((current) => pruneTerminalReadmeMetadata(current, liveCwds));
       for (const terminal of doomed) {
         closingTerminalIdsRef.current.add(terminal.id);
         rememberClosed(terminal);
@@ -968,7 +1115,7 @@ function TerminalPanel({
       active: terminal,
       selectionPosition,
       onSelectAll: () => emulator.selectAll(),
-      onFind: () => openTerminalFind(emulator),
+      onFind: () => openTerminalFind(emulator, pane),
       onClose: () => void closeTerminal(terminal.id),
       onClear: () => emulator.clear(),
       onClipboardError: (message) => setClipboardNotice(message),
@@ -1007,8 +1154,9 @@ function TerminalPanel({
     if (find === null) return;
     /* Remember the query so reopening the bar continues where the user left off. */
     lastTerminalQuery.current = find.query;
-    if (emulatorRef.current === null) return;
-    const total = countTerminalMatches(emulatorRef.current, find.query);
+    const emulator = findEmulator();
+    if (emulator === null) return;
+    const total = countTerminalMatches(emulator, find.query);
     setFind((current) =>
       current === null || current.total === total
         ? current
@@ -1018,7 +1166,7 @@ function TerminalPanel({
             index: Math.min(current.index, Math.max(0, total - 1)),
           },
     );
-  }, [find?.query]);
+  }, [find?.query, splitId]);
 
   /* ⌘/Ctrl+F inside either terminal pane opens the dock's own find bar. */
   React.useEffect(() => {
@@ -1028,7 +1176,10 @@ function TerminalPanel({
       event.preventDefault();
       event.stopPropagation();
       if (findRef.current === null)
-        openTerminalFind(focusedPaneRef.current === 'right' ? splitEmulatorRef.current : emulatorRef.current);
+        openTerminalFind(
+          focusedPaneRef.current === 'right' ? splitEmulatorRef.current : emulatorRef.current,
+          focusedPaneRef.current,
+        );
     };
     window.addEventListener('keydown', onKeyDown, true);
     return () => window.removeEventListener('keydown', onKeyDown, true);
@@ -1329,7 +1480,7 @@ function TerminalPanel({
     const candidate = terminals.find((terminal) => terminal.id !== activeId);
     if (candidate !== undefined) {
       setSplitId(candidate.id);
-      setFocusedPane('left');
+      setFocusedPane('right');
       return;
     }
     /* Keep the existing shell on the left: createTerminal() focuses the new one,
@@ -1426,10 +1577,7 @@ function TerminalPanel({
    * @returns {void}
    */
   const focusTerminalTab = (terminalId: string): void => {
-    const node = [...(tabStripRef.current?.querySelectorAll('[data-dsh-terminal-tab-id]') ?? [])].find(
-      (candidate) => candidate.getAttribute('data-dsh-terminal-tab-id') === terminalId,
-    );
-    node?.focus();
+    focusTerminalTabById(tabStripRef.current, terminalId);
   };
 
   /**
@@ -1573,6 +1721,7 @@ function TerminalPanel({
           ref={tabStripRef}
           style={styles.terminalTabs}
           role='tablist'
+          aria-busy={busy ? 'true' : undefined}
           aria-label={t('editor.terminalTabs')}>
           {
             /* IDEA keeps every tab legible and moves the rest into a `»` list. */
@@ -1683,18 +1832,21 @@ function TerminalPanel({
                     }
                     onBlur={() => void commitRename()}
                     onKeyDown={(event) => {
+                      if (event.nativeEvent.isComposing === true) return;
                       if (event.key === 'Enter') {
                         event.preventDefault();
                         void commitRename();
                       } else if (event.key === 'Escape') {
                         event.preventDefault();
                         setRenaming(null);
+                        window.setTimeout(() => focusTerminalTab(terminal.id), 0);
                       }
                     }}
                   />
                 ) : (
                   <span
                     style={{
+                      flex: '1 1 auto',
                       minWidth: 0,
                       overflow: 'hidden',
                       textOverflow: 'ellipsis',
@@ -1798,7 +1950,12 @@ function TerminalPanel({
         <ToolbarButton
           icon='search'
           label={t('editor.find')}
-          onClick={() => openTerminalFind(emulatorRef.current)}
+          onClick={() =>
+            openTerminalFind(
+              focusedPaneRef.current === 'right' ? splitEmulatorRef.current : emulatorRef.current,
+              focusedPaneRef.current,
+            )
+          }
           disabled={available === false}
         />
         <ToolbarButton
@@ -1878,11 +2035,11 @@ function TerminalPanel({
             onKeyDown={(event) => {
               if (event.key === 'Enter') {
                 event.preventDefault();
-                moveTerminalSelection(emulatorRef.current, find, setFind, event.shiftKey ? -1 : 1);
+                moveTerminalSelection(findEmulator(), find, setFind, event.shiftKey ? -1 : 1);
               } else if (event.key === 'Escape') {
                 event.preventDefault();
                 setFind(null);
-                emulatorRef.current?.focus();
+                findEmulator()?.focus();
               }
             }}
           />
@@ -1892,19 +2049,19 @@ function TerminalPanel({
           <ToolbarButton
             icon='chevronDown'
             label={t('editor.findNext')}
-            onClick={() => moveTerminalSelection(emulatorRef.current, find, setFind, 1)}
+            onClick={() => moveTerminalSelection(findEmulator(), find, setFind, 1)}
           />
           <ToolbarButton
             icon='chevronRight'
             label={t('editor.findPrevious')}
-            onClick={() => moveTerminalSelection(emulatorRef.current, find, setFind, -1)}
+            onClick={() => moveTerminalSelection(findEmulator(), find, setFind, -1)}
           />
           <button
             type='button'
             style={styles.conflictAction}
             onClick={() => {
               setFind(null);
-              emulatorRef.current?.focus();
+              findEmulator()?.focus();
             }}>
             ×
           </button>
@@ -2120,7 +2277,23 @@ function TerminalPanel({
           )}
         </div>
       ) : (
-        <div style={styles.terminalNotice}>{t('editor.terminalUnavailable')}</div>
+        <div
+          style={{
+            ...styles.terminalNotice,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 8,
+          }}
+          role='alert'>
+          <span>{t('editor.terminalUnavailable')}</span>
+          <button
+            type='button'
+            style={styles.conflictAction}
+            onClick={() => void refresh()}>
+            {t('editor.refresh')}
+          </button>
+        </div>
       )}
       {shellMenu === null ? null : (
         <ContextMenu
@@ -2140,7 +2313,9 @@ function TerminalPanel({
         /* No footer row: the cwd is already on the tab's tooltip and the PTY grid
        (`90×10`) is a diagnostic nobody reads. Both cost 20px of a short dock. */
         error === null ? null : (
-          <div style={styles.terminalStatusBar}>
+          <div
+            style={styles.terminalStatusBar}
+            role='alert'>
             <span
               style={{
                 color: 'var(--dsw-alias-state-error-primary)',

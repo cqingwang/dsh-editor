@@ -60,10 +60,10 @@ test('category is presentation metadata and never action filtering input', () =>
 
 test('base tabs are the only result-scope switch', () => {
   const dialog = source.slice(source.indexOf('function SearchEverywhere('), source.indexOf('function FindToolWindowView('));
-  assert.match(dialog, /if \(effectiveTab === 'files'\) results = fileMatches;/);
-  assert.match(dialog, /else if \(effectiveTab === 'text'\) results = textResults;/);
-  assert.match(dialog, /else if \(effectiveTab === 'actions'\) results = actionMatches;/);
-  assert.match(dialog, /else if \(effectiveQuery === ''\)\s+results = \[/u);
+  assert.match(dialog, /if \(effectiveTab === 'files'\) return fileMatches;/);
+  assert.match(dialog, /if \(effectiveTab === 'text'\) return textResults;/);
+  assert.match(dialog, /if \(effectiveTab === 'actions'\) return actionMatches;/);
+  assert.match(dialog, /if \(effectiveQuery === ''\)\s+return \[/u);
   assert.match(dialog, /searchFilters\.files \? fileMatches/);
   assert.match(dialog, /searchFilters\.text \? textResults/);
   assert.match(dialog, /onClick=\{\(event\) => \{[\s\S]*?onTab\(tab\.id\);/);

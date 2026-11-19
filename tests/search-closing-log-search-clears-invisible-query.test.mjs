@@ -20,7 +20,12 @@ test('closing the Log search clears its invisible query', () => {
   assert.match(action, /else if \(next\.clearFilter\) \{[\s\S]*?onFilterChange\(''\);/);
 });
 
-test('Escape and toolbar close share the same clear-and-hide state', () => {
+test('Escape clears the query but does not take the search field away', () => {
   const log = commitLog();
-  assert.match(log, /if \(event\.key === 'Escape'\) \{[\s\S]*?onFilterChange\(''\);[\s\S]*?onFilterVisibleChange\(false\);/);
+  const escapeStart = log.indexOf("if (event.key === 'Escape')");
+  assert.notEqual(escapeStart, -1);
+  const escapeBlock = log.slice(escapeStart, log.indexOf('}', escapeStart) + 1);
+
+  assert.match(escapeBlock, /onFilterChange\(''\);/);
+  assert.doesNotMatch(escapeBlock, /onFilterVisibleChange\(false\)/);
 });
