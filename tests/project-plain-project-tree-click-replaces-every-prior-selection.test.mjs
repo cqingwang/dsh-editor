@@ -5,6 +5,10 @@ import test from 'node:test';
 import { loadTypeScriptFunction } from './ts-source.mjs';
 
 const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+const projectPanelSource = await readFile(
+  new URL('../src/client/components/project/ProjectPanel.tsx', import.meta.url),
+  'utf8',
+);
 const selectionModel = await readFile(
   new URL('../src/client/components/project/project-selection-model.ts', import.meta.url),
   'utf8',
@@ -106,13 +110,13 @@ test('Shift range stays anchored while Command toggles the clicked row', () => {
 });
 
 test('Project rows commit selection on mousedown and do not toggle again on click', () => {
-  const rowBlock = source.slice(
-    source.indexOf('const selected = selection.has(row.path);'),
-    source.indexOf('draggable: !row.root,', source.indexOf('const selected = selection.has(row.path);')),
+  const rowBlock = projectPanelSource.slice(
+    projectPanelSource.indexOf('onRowPointerDown={(state, event) => {'),
+    projectPanelSource.indexOf('onRowClick={(state, event) => {'),
   );
-  assert.match(rowBlock, /onMouseDown: \(event\) => \{[\s\S]*?onSelect\(row, event\);/u);
+  assert.match(rowBlock, /onRowPointerDown=\{\(state, event\) => \{[\s\S]*?onSelect\(row, event\);/u);
   assert.match(rowBlock, /treeRef\.current\?\.focus\(\);/u);
-  assert.doesNotMatch(rowBlock, /onClick: \(event\) => \{\s*onSelect\(row, event\);/u);
+  assert.doesNotMatch(rowBlock, /onClick=\{\(event\) => \{\s*onSelect\(row, event\);/u);
 });
 
 test('Project selection no longer updates another state inside a state updater', () => {

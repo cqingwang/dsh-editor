@@ -1,10 +1,22 @@
 /* controller.ts: dsh-editor DOM host and Harness reference module. Generated into lib/client.js by scripts/build-client.mjs. */
-import { isMonacoCancellation, recordDiagnosticAction, reportEditorDiagnostic } from './foundation';
+import {
+  isMonacoCancellation,
+  recordDiagnosticAction,
+  reportEditorDiagnostic,
+  workspaceIdForUniqueTitle,
+  workspaceIdForConversationSession,
+} from './foundation';
 import { en, flattenDictionary, inject, zh } from './locales';
 import { createRoot } from 'react-dom/client';
 import { EditorMount } from './components/editor/EditorMount';
 import { EDITOR_FONT_SIZE_SCALE } from './components/editor/editor-style-model';
-import { basename, translate } from './editor-core';
+import {
+  WorkspaceDirectoryPicker,
+  type WorkspaceDirectoryPickerCreatedWorkspace,
+} from './components/project/WorkspaceDirectoryPicker';
+import { focusSurfaceWhenReady } from './components/ui/focus-surface';
+import { isDesktopHarnessSurface, isDirectoryBrowseUnavailable } from './components/project/workspace-directory-model';
+import { basename, callWorkspaceDirectoryPicker, translate } from './editor-core';
 import {
   CHAT_WIDTH_DEFAULT,
   chatLayoutWidth,
@@ -71,6 +83,20 @@ interface HarnessReferenceRuntime {
 interface LocaleService {
   bind: (namespace: string) => (key: string) => string;
   register: (namespace: string, dictionaries: { zh: Record<string, string>; en: Record<string, string> }) => unknown;
+}
+
+interface WorkspacesService {
+  create: (input: { path: string }) => Promise<WorkspaceDirectoryPickerCreatedWorkspace>;
+  list?: {
+    getSnapshot?: () => {
+      items?: unknown;
+    };
+  };
+}
+
+interface UiWorkspaceService {
+  startSession?: (workspaceId: string, options?: { clearPreviousDraft?: boolean }) => unknown;
+  listDirectory?: (path?: string, signal?: AbortSignal) => Promise<unknown>;
 }
 
 type ControllerContext = import('@deepseek-ai/cordis').Context & {
@@ -320,6 +346,10 @@ function createController(ctx: ControllerContext): void {
   /* The workspace chosen by the sidebar `... → Editor` entry. Empty means
          "follow the current conversation session" (hero/chat toggle entry). */
   let editorWorkspaceId = '';
+  let editorConversationWorkspaceId = '';
+  let restoreActiveToolWindowOnMount = false;
+  let restoreToolWindowActivity: 'project' | 'commit' = 'project';
+  let workspaceDirectoryProvider: 'unknown' | 'public' | 'bridge' = 'unknown';
   /* Last workspace row under the pointer, used because DSH's menu portal
          does not retain the row identity for cloned items. */
   let lastWorkspaceId = '';
@@ -342,6 +372,16 @@ function createController(ctx: ControllerContext): void {
          exposes a stable host slot, so the Editor gets a real entry point before the
          first message instead of being reachable only from the workspace menu. */
   let heroLaunch: HTMLButtonElement | null = null;
+  let workspaceDirectoryPickerHost: HTMLDivElement | null = null;
+  let workspaceDirectoryPickerRoot: ReturnType<typeof createRoot> | null = null;
+
+  const serviceOf = <T>(name: string): T | undefined => {
+    try {
+      return ctx.get(name, false) as T | undefined;
+    } catch {
+      return undefined;
+    }
+  };
 
   const findBody = (): HTMLElement | null => document.querySelector<HTMLElement>('[data-conversation-region="chat"]');
   const findTablist = (): HTMLElement | null => document.querySelector<HTMLElement>('[data-conversation-tabs]');
@@ -401,12 +441,99 @@ function createController(ctx: ControllerContext): void {
   function openEditorSplit(workspaceId: string = ''): void {
     const nextWorkspaceId = typeof workspaceId === 'string' ? workspaceId : '';
     if (nextWorkspaceId !== editorWorkspaceId) {
+      if (active) {
+        restoreActiveToolWindowOnMount = true;
+        restoreToolWindowActivity =
+          document.querySelector('[data-dsh-activity-id="commit"][aria-pressed="true"]') !== null
+            ? 'commit'
+            : 'project';
+      }
       editorWorkspaceId = nextWorkspaceId;
       /* A different workspace owns a different Project tree, open files and
              terminal placement. Rebuild instead of retaining the previous scope. */
       destroyHost();
     }
     setActive(true);
+  }
+
+  function closeWorkspaceDirectoryPicker(): void {
+    workspaceDirectoryPickerRoot?.render(null);
+  }
+
+  function ensureWorkspaceDirectoryPickerHost(): ReturnType<typeof createRoot> {
+    if (
+      workspaceDirectoryPickerHost === null ||
+      !workspaceDirectoryPickerHost.isConnected ||
+      workspaceDirectoryPickerRoot === null
+    ) {
+      workspaceDirectoryPickerHost?.remove();
+      const hostElement = document.createElement('div');
+      hostElement.setAttribute('data-dsh-workspace-directory-picker-host', '');
+      document.body.appendChild(hostElement);
+      workspaceDirectoryPickerHost = hostElement;
+      workspaceDirectoryPickerRoot = createRoot(hostElement);
+    }
+    return workspaceDirectoryPickerRoot;
+  }
+
+  /**
+   * Open the web directory chooser without replacing any host picker behavior.
+   * Returning false leaves the original button action untouched.
+   */
+  function openWorkspaceDirectoryPicker(opener: HTMLElement | null): boolean {
+    const uiWorkspace = serviceOf<UiWorkspaceService>('uiWorkspace');
+    const workspaces = serviceOf<WorkspacesService>('workspaces');
+    if (workspaces === undefined || typeof workspaces.create !== 'function') {
+      return false;
+    }
+    const listDirectory = uiWorkspace?.listDirectory?.bind(uiWorkspace);
+    const listDirectoryForPicker = async (path?: string, signal?: AbortSignal): Promise<unknown> => {
+      if (workspaceDirectoryProvider !== 'bridge' && listDirectory !== undefined) {
+        try {
+          const listing = await listDirectory(path, signal);
+          workspaceDirectoryProvider = 'public';
+          return listing;
+        } catch (reason) {
+          if (!isDirectoryBrowseUnavailable(reason)) throw reason;
+          workspaceDirectoryProvider = 'bridge';
+        }
+      }
+      workspaceDirectoryProvider = 'bridge';
+      return callWorkspaceDirectoryPicker(path, {
+        signal,
+      });
+    };
+    const pickerRoot = ensureWorkspaceDirectoryPickerHost();
+    pickerRoot.render(
+      React.createElement(WorkspaceDirectoryPicker, {
+        open: true,
+        t,
+        returnFocusElement: opener,
+        listDirectory: listDirectoryForPicker,
+        createWorkspace: (path: string) => workspaces.create({ path }),
+        onWorkspaceCreated: (workspaceId: string) => {
+          if (workspaceId === '' || uiWorkspace === undefined || typeof uiWorkspace.startSession !== 'function') return;
+          const followCreatedWorkspace = active;
+          try {
+            const started = uiWorkspace.startSession(workspaceId, { clearPreviousDraft: false });
+            if (started instanceof Promise) {
+              void started.catch((reason) => {
+                console.warn('dsh-editor: start session in new workspace failed', reason);
+              });
+            }
+            /* The host updates its workspace caption, but an already-mounted
+                 Editor owns its own workspaceId prop. Rebuild it here so the
+                 Project, Commit and Terminal surfaces never remain bound to the
+                 workspace that was active before this create operation. */
+            if (followCreatedWorkspace) openEditorSplit(workspaceId);
+          } catch (reason) {
+            console.warn('dsh-editor: start session in new workspace failed', reason);
+          }
+        },
+        onClose: closeWorkspaceDirectoryPicker,
+      }),
+    );
+    return true;
   }
 
   /**
@@ -932,12 +1059,27 @@ function createController(ctx: ControllerContext): void {
         workspaceComponent: EditorWorkspace,
         t,
         workspaceId: editorWorkspaceId,
+        restoreToolWindowFocus: restoreActiveToolWindowOnMount,
         initialHarnessCollapsed: harnessCollapsed,
         onToggleHarness: toggleHarnessLayout,
         onCloseEditor: () => setActive(false),
         onInsertHarnessReference: (request) => insertHarnessReferencesIntoComposer(ctx, request),
       }),
     );
+    if (restoreActiveToolWindowOnMount && host !== null) {
+      const mountedHost = host;
+      focusSurfaceWhenReady(
+        () => mountedHost.querySelector<HTMLElement>(`[data-dsh-activity-id="${restoreToolWindowActivity}"]`),
+        {
+          reassertFrames: 60,
+          shouldStop: () => {
+            const activeElement = document.activeElement;
+            return activeElement instanceof Element && activeElement.closest('[data-dsh-editor-tool-window]') !== null;
+          },
+        },
+      );
+    }
+    restoreActiveToolWindowOnMount = false;
     observeHostPosition(body);
     return host;
   }
@@ -1080,6 +1222,29 @@ function createController(ctx: ControllerContext): void {
            options slot. Keep the Editor reachable before the first message. */
     ensureHeroLaunch();
     const body = findBody();
+    const conversationSessionId = String(body?.getAttribute('data-conversation-session') ?? '');
+    const conversationWorkspaceId = workspaceIdForConversationSession(
+      serviceOf<WorkspacesService>('workspaces')?.list?.getSnapshot?.().items,
+      conversationSessionId,
+    );
+    if (conversationWorkspaceId !== '') {
+      if (editorConversationWorkspaceId === '') {
+        editorConversationWorkspaceId = conversationWorkspaceId;
+      } else if (conversationWorkspaceId !== editorConversationWorkspaceId) {
+        editorConversationWorkspaceId = conversationWorkspaceId;
+        if (conversationWorkspaceId !== editorWorkspaceId) {
+          if (active) {
+            restoreActiveToolWindowOnMount = true;
+            restoreToolWindowActivity =
+              document.querySelector('[data-dsh-activity-id="commit"][aria-pressed="true"]') !== null
+                ? 'commit'
+                : 'project';
+          }
+          editorWorkspaceId = conversationWorkspaceId;
+          destroyHost();
+        }
+      }
+    }
     if (active) {
       ensureHost(body);
       if (body !== null) {
@@ -1217,6 +1382,51 @@ function createController(ctx: ControllerContext): void {
     }
   }
 
+  /**
+   * Route only the Web Add workspace action through the plugin directory tree.
+   * The desktop App keeps its native directory chooser because it exposes
+   * `data-platform` on the document root.
+   */
+  function onWorkspaceAddClick(event: MouseEvent): void {
+    if (isDesktopHarnessSurface(document.documentElement)) return;
+    const target = event.target instanceof Element ? event.target : null;
+    const button = target?.closest<HTMLButtonElement>('button[aria-keyshortcuts="Alt+Meta+O"]') ?? null;
+    if (button === null || button.disabled || button.closest('[data-slot="sidebar.workspaces"]') === null) return;
+    if (!openWorkspaceDirectoryPicker(button)) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+  }
+
+  function isWorkspacePickerMenu(menu: Element): boolean {
+    return (
+      menu.querySelector('use[href="#dsw-icon-folder-close-regular"]') !== null &&
+      menu.querySelector('use[href="#dsw-icon-plus-outline-regular"]') !== null
+    );
+  }
+
+  /**
+   * Switch the Editor in the same click as the Host workspace picker.
+   *
+   * The Picker item only exposes its visible title. A unique title safely
+   * resolves the Host Workspace id; duplicate titles wait for the session
+   * mapping instead of guessing.
+   */
+  function onWorkspacePickerClick(event: MouseEvent): void {
+    if (!active) return;
+    const target = event.target instanceof Element ? event.target : null;
+    const item = target?.closest('[role="menuitem"]') ?? null;
+    if (item === null || item.closest('[data-dsh-editor-host]') !== null) return;
+    const menu = item.closest('[role="menu"]');
+    if (menu === null || !isWorkspacePickerMenu(menu)) return;
+    const workspaceId = workspaceIdForUniqueTitle(
+      serviceOf<WorkspacesService>('workspaces')?.list?.getSnapshot?.().items,
+      item.textContent,
+    );
+    if (workspaceId === '' || workspaceId === editorWorkspaceId) return;
+    editorConversationWorkspaceId = workspaceId;
+    openEditorSplit(workspaceId);
+  }
+
   /* A click on any real View tab leaves the editor split and lets that View render normally. */
   function onTabClick(event: Event) {
     const target = event.target;
@@ -1335,6 +1545,8 @@ function createController(ctx: ControllerContext): void {
   document.addEventListener('pointerdown', rememberWorkspaceRow, true);
   document.addEventListener('click', rememberWorkspaceRow, true);
   document.addEventListener('keydown', rememberWorkspaceRow, true);
+  document.addEventListener('click', onWorkspaceAddClick, true);
+  document.addEventListener('click', onWorkspacePickerClick, true);
   document.addEventListener('click', onTabClick, true);
   sync();
 
@@ -1352,7 +1564,13 @@ function createController(ctx: ControllerContext): void {
       document.removeEventListener('pointerdown', rememberWorkspaceRow, true);
       document.removeEventListener('click', rememberWorkspaceRow, true);
       document.removeEventListener('keydown', rememberWorkspaceRow, true);
+      document.removeEventListener('click', onWorkspaceAddClick, true);
+      document.removeEventListener('click', onWorkspacePickerClick, true);
       document.removeEventListener('click', onTabClick, true);
+      workspaceDirectoryPickerRoot?.unmount();
+      workspaceDirectoryPickerRoot = null;
+      workspaceDirectoryPickerHost?.remove();
+      workspaceDirectoryPickerHost = null;
       const body = findBody();
       if (body !== null) detachChatChrome(body);
       destroyHost();

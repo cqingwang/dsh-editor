@@ -5,6 +5,8 @@ import test from 'node:test';
 const source =
   (await readFile(new URL('../src/client/components/project/ProjectPanel.tsx', import.meta.url), 'utf8')) +
   '\n' +
+  (await readFile(new URL('../src/client/components/project/FileTreeView.tsx', import.meta.url), 'utf8')) +
+  '\n' +
   (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
 const workspaceShellSource = await readFile(
   new URL('../src/client/components/editor/EditorWorkspaceShell.tsx', import.meta.url),
@@ -43,7 +45,7 @@ test('The Project drop target is a thin accent line anchored to the destination 
   assert.match(source, /'data-dsh-project-file-drop-line': row\.path/u);
   assert.match(
     source,
-    /position: 'absolute',\s+left: 8 \+ row\.depth \* 14 \+ 18,\s+right: 8,\s+bottom: 0,\s+height: 2,/u,
+    /position: 'absolute',\s+left: 8 \+ \(row\.depth \?\? 0\) \* 14 \+ 18,\s+right: 8,\s+bottom: 0,\s+height: 2,/u,
   );
   assert.match(source, /background: 'var\(--dsw-alias-state-business-primary\)'/u);
   assert.doesNotMatch(

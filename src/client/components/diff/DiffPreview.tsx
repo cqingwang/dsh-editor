@@ -887,6 +887,11 @@ function DiffPreview({
       renderOverviewRuler: false,
       fontFamily: EDITOR_UI_FONT,
     });
+    const semanticLightOptions = {
+      'semanticHighlighting.enabled': true,
+    } as unknown as Monaco.editor.IEditorOptions;
+    diff.getOriginalEditor?.()?.updateOptions(semanticLightOptions);
+    diff.getModifiedEditor?.()?.updateOptions(semanticLightOptions);
     diffRef.current = diff;
     const focusDisposables = [
       diff.getOriginalEditor?.()?.onDidFocusEditorText?.(() => {

@@ -1,11 +1,6 @@
 import React from 'react';
 import { styles } from '../../ui/styles';
-import {
-  findActionShortcutMatches,
-  isMacPlatform,
-  searchEverywhereNextFocusIndex,
-  searchHistoryShortcutMatches,
-} from '../../foundation';
+import { findActionShortcutMatches, isMacPlatform, searchHistoryShortcutMatches } from '../../foundation';
 import { CodePreviewCode } from '../commit/CodePreviewCode';
 import { dirname } from '../editor/editor-path-model';
 import { CompactActionBar } from '../ui/CompactActionBar';
@@ -13,6 +8,7 @@ import { ContextMenu } from '../ui/Menu';
 import { badgeFor } from '../ui/git-change-model';
 import { Icon, POPUP_ICON_SIZE } from '../ui/Icon';
 import { ToolbarButton } from '../ui/ToolbarButton';
+import { trapDialogFocus } from '../ui/focus-trap';
 import type { ToolbarActionLike } from '../ui/toolbar-model';
 import { SearchFileResultItem } from './SearchFileResultItem';
 import {
@@ -771,24 +767,8 @@ function SearchEverywhere({
     if (rect !== undefined && rect !== null) openQueryHistoryMenuAt(rect);
   };
   const trapSearchEverywhereFocus = (event: React.KeyboardEvent<HTMLDivElement>) => {
-    if (event.key !== 'Tab') return false;
     const root = event.currentTarget instanceof Element ? event.currentTarget : null;
-    if (root === null) return false;
-    const selector =
-      'button:not([disabled]), input:not([disabled]), select:not([disabled]), ' +
-      'textarea:not([disabled]), [tabindex="0"]:not([disabled])';
-    const focusables = [...new Set(root.querySelectorAll<HTMLElement>(selector))].filter(
-      (element) => element.tabIndex >= 0 && (element.getClientRects?.().length ?? 0) > 0,
-    );
-    const currentElement = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const currentIndex = currentElement === null ? -1 : focusables.indexOf(currentElement);
-    if (currentIndex < 0) return false;
-    const nextIndex = searchEverywhereNextFocusIndex(focusables.length, currentIndex, event.shiftKey === true);
-    if (nextIndex === null) return false;
-    event.preventDefault();
-    event.stopPropagation();
-    focusables[nextIndex]?.focus?.();
-    return true;
+    return trapDialogFocus(event, root);
   };
   const handleSearchEverywhereDialogKeyDown = (event: React.KeyboardEvent<HTMLDivElement>): void => {
     if (trapSearchEverywhereFocus(event)) return;
@@ -1102,12 +1082,14 @@ function SearchEverywhere({
   return (
     <div
       style={{
-        ...styles.palette,
         ...styles.searchEverywhere,
         width: '100%',
         height: '100%',
         maxHeight: 'none',
         minHeight: 0,
+        display: 'flex',
+        flexDirection: 'column',
+        overflow: 'hidden',
         containerType: 'inline-size',
       }}
       role='dialog'

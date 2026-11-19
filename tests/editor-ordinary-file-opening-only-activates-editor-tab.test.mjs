@@ -20,7 +20,7 @@ function sourceBlock(startMarker, endMarker) {
 test('ordinary file opening only activates the editor tab', () => {
   const openFile = sourceBlock(
     'const openFile = React.useCallback(',
-    '/* IDEA\'s EditSource opens the local working copy',
+    "/* IDEA's EditSource opens the local working copy",
   );
   assert.doesNotMatch(openFile, /\bsetSelectedPath\(path\)/u);
   assert.match(openFile, /\bsetActivePath\(path\)/u);
@@ -32,5 +32,5 @@ test('Project tree selection still changes only through explicit tree or reveal 
     'const revealPath = React.useCallback(',
   );
   assert.match(revealInProjectTree, /\bsetSelectedPath\(path\)/u);
-  assert.match(projectPanel, /onMouseDown=\{\(event\) => \{[\s\S]*?onSelect\(row, event\)/u);
+  assert.match(projectPanel, /onRowPointerDown=\{\(state, event\) => \{[\s\S]*?onSelect\(row, event\)/u);
 });

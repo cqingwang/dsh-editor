@@ -5,7 +5,10 @@ import test from 'node:test';
 import { loadTypeScriptFunction } from './ts-source.mjs';
 
 const terminal = await readFile(new URL('../src/client/terminal.ts', import.meta.url), 'utf8');
-const panel = await readFile(new URL('../src/client/components/project/ProjectPanel.tsx', import.meta.url), 'utf8');
+const panel =
+  (await readFile(new URL('../src/client/components/project/ProjectPanel.tsx', import.meta.url), 'utf8')) +
+  '\n' +
+  (await readFile(new URL('../src/client/components/project/FileTreeView.tsx', import.meta.url), 'utf8'));
 
 test('Project tree accessibility positions are computed in one traversal', () => {
   const projectTreePositions = loadTypeScriptFunction(terminal, 'projectTreePositions');
@@ -34,6 +37,6 @@ test('ProjectPanel precomputes positions instead of rescanning the tree per row'
     /const projectRowPositions = React\.useMemo\(\(\) => projectTreePositions\(visibleRows\), \[visibleRows\]\)/u,
   );
   assert.match(panel, /projectRowPosition: projectRowPositions\[rowIndex\]/u);
-  assert.match(panel, /const \{[\s\S]*?projectRowPosition,[\s\S]*?\} =\s*projectRowPresentation/u);
+  assert.match(panel, /projectRowPresentationByPath\.get\(row\.path\)\?\.projectRowPosition/u);
   assert.doesNotMatch(panel, /projectTreePosition\(visibleRows, rowIndex\)/u);
 });

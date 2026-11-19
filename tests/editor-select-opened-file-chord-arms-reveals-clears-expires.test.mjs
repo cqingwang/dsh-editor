@@ -34,9 +34,12 @@ test('the Select Opened File chord arms, reveals, clears and expires', () => {
 test('the Project keyboard listener routes Alt+F1 then 1 through the real reveal action', () => {
   const listener = source.slice(
     source.indexOf('Alt+F12, Alt+1..3 and Ctrl+Shift+`'),
-    source.indexOf("}, [selectActivity, terminalOpen]);", source.indexOf('Alt+F12, Alt+1..3 and Ctrl+Shift+`')),
+    source.indexOf('}, [selectActivity, terminalOpen]);', source.indexOf('Alt+F12, Alt+1..3 and Ctrl+Shift+`')),
   );
-  assert.match(listener, /selectOpenedChordAction\(\s*event,\s*selectOpenedChordAt\.current,\s*Date\.now\(\),\s*activePathRef\.current !== null,?\s*\)/);
+  assert.match(
+    listener,
+    /selectOpenedChordAction\(\s*event,\s*selectOpenedChordAt\.current,\s*Date\.now\(\),\s*activePathRef\.current !== null,?\s*\)/,
+  );
   assert.match(listener, /chordAction === 'arm'[\s\S]{0,220}?selectOpenedChordAt\.current = Date\.now\(\)/);
   assert.match(listener, /chordAction === 'reveal'[\s\S]{0,220}?void revealActiveRef\.current\?\.\(\)/);
 });
@@ -44,7 +47,7 @@ test('the Project keyboard listener routes Alt+F1 then 1 through the real reveal
 test('the reveal callback is exposed through a stable ref without changing the shortcut effect deps', () => {
   assert.match(source, /const revealActiveRef = React\.useRef\(null\);/);
   assert.match(source, /revealActiveRef\.current = revealActive;/);
-  assert.match(source, /\}, \[selectActivity, terminalOpen\]\);/);
+  assert.match(source, /\}, \[focusWorkspaceSurface, selectActivity, terminalOpen\]\);/);
 });
 
 test('Project Select Opened File advertises IDEA shortcut in both languages', () => {

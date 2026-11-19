@@ -6,7 +6,10 @@ import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const workspaceSource = readFileSync(join(root, 'src/client/editor-workspace.tsx'), 'utf8');
-const projectPanelSource = readFileSync(join(root, 'src/client/components/project/ProjectPanel.tsx'), 'utf8');
+const projectPanelSource =
+  readFileSync(join(root, 'src/client/components/project/ProjectPanel.tsx'), 'utf8') +
+  '\n' +
+  readFileSync(join(root, 'src/client/components/project/FileTreeView.tsx'), 'utf8');
 
 test('Project View stores IDEA Open Directories with Single Click off by default', () => {
   assert.match(
@@ -20,10 +23,16 @@ test('Project View stores IDEA Open Directories with Single Click off by default
 });
 
 test('a directory row selects on one click and toggles on double click by default', () => {
-  const start = projectPanelSource.indexOf("const isDirectory = row.kind === 'directory';");
-  const row = projectPanelSource.slice(start, projectPanelSource.indexOf('onContextMenu:', start));
-  assert.match(row, /if \(isDirectory\) \{[\s\S]*?if \(row\.root !== true && openDirectoriesSingleClick === true\) onToggle\(row\.path\);/);
-  assert.match(row, /onDoubleClick=\{\(event\) => \{[\s\S]*?if \(isDirectory && openDirectoriesSingleClick !== true\) onToggle\(row\.path\);/);
+  const start = projectPanelSource.indexOf('onRowClick={(state, event) => {');
+  const row = projectPanelSource.slice(start, projectPanelSource.indexOf('onRowContextMenu=', start));
+  assert.match(
+    row,
+    /if \(isDirectory\) \{[\s\S]*?if \(row\.root !== true && openDirectoriesSingleClick === true\) onToggle\(row\.path\);/,
+  );
+  assert.match(
+    row,
+    /onRowDoubleClick=\{\(state, event\) => \{[\s\S]*?if \(isDirectory && openDirectoriesSingleClick !== true\) onToggle\(row\.path\);/,
+  );
 });
 
 test('the directory chevron remains a direct one-click toggle', () => {
@@ -32,7 +41,7 @@ test('the directory chevron remains a direct one-click toggle', () => {
   const chevron = projectPanelSource.slice(start, projectPanelSource.indexOf('<EntryIcon', start));
   assert.match(chevron, /role='button'/);
   assert.match(chevron, /tabIndex=\{-1\}/);
-  assert.match(chevron, /onClick=\{\(event\) => \{[\s\S]*?event\.stopPropagation\(\);[\s\S]*?onToggle\(row\.path\);/);
+  assert.match(chevron, /onClick=\{\(event\) => \{[\s\S]*?event\.stopPropagation\(\);[\s\S]*?onToggleRow\?\.\(row\);/);
 });
 
 test('the ProjectPanel wiring carries the directory preference', () => {
@@ -43,8 +52,5 @@ test('the ProjectPanel wiring carries the directory preference', () => {
   assert.match(panel, /openDirectoriesSingleClick,/);
   assert.match(projectPanelSource, /onToggleOpenDirectoriesSingleClick: \(\) => void;/);
   assert.match(workspaceSource, /openDirectoriesSingleClick=\{openDirectoriesSingleClick\}/);
-  assert.match(
-    workspaceSource,
-    /onToggleOpenDirectoriesSingleClick=\{\(\) => toggleOpenDirectoriesSingleClick\(\)\}/,
-  );
+  assert.match(workspaceSource, /onToggleOpenDirectoriesSingleClick=\{\(\) => toggleOpenDirectoriesSingleClick\(\)\}/);
 });

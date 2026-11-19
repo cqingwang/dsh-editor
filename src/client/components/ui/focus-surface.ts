@@ -8,12 +8,19 @@
 export interface FocusableSurface {
   focus(options?: { preventScroll?: boolean }): void;
   isConnected?: boolean;
+  contains?: (node: Node) => boolean;
 }
 
 export interface FocusSurfaceWhenReadyOptions {
   requestFrame?: (callback: (timestamp: number) => void) => number;
   cancelFrame?: (handle: number) => void;
   maxAttempts?: number;
+  /** Reassert focus for this many frames after the surface first resolves. */
+  reassertFrames?: number;
+  /** Stable fallback focused while the primary surface is not mounted yet. */
+  fallbackSurface?: () => FocusableSurface | null | undefined;
+  /** Stop the request when another surface has already taken focus. */
+  shouldStop?: () => boolean;
   onExhausted?: () => void;
 }
 
@@ -24,6 +31,7 @@ export function focusSurfaceWhenReady(
   const requestFrame = options.requestFrame ?? window.requestAnimationFrame.bind(window);
   const cancelFrame = options.cancelFrame ?? window.cancelAnimationFrame.bind(window);
   let remaining = Math.max(1, Math.floor(Number(options.maxAttempts ?? 60) || 60));
+  let reassertFrames = Math.max(0, Math.floor(Number(options.reassertFrames ?? 0) || 0));
   let stopped = false;
   let frame = 0;
 
@@ -36,11 +44,43 @@ export function focusSurfaceWhenReady(
   const attempt = (): void => {
     frame = 0;
     if (stopped) return;
+    if (options.shouldStop?.() === true) {
+      stopped = true;
+      return;
+    }
     const surface = resolveSurface();
     if (surface !== null && surface !== undefined && surface.isConnected !== false) {
       surface.focus({ preventScroll: true });
+      const activeElement = typeof document === 'undefined' ? null : document.activeElement;
+      const surfaceFocused =
+        typeof document === 'undefined' ||
+        activeElement === (surface as unknown as Element) ||
+        (activeElement !== null && surface.contains?.(activeElement) === true);
+      if (!surfaceFocused) {
+        const fallback = options.fallbackSurface?.();
+        if (fallback !== null && fallback !== undefined && fallback.isConnected !== false) {
+          fallback.focus({ preventScroll: true });
+        }
+        remaining -= 1;
+        if (remaining <= 0) {
+          stopped = true;
+          options.onExhausted?.();
+          return;
+        }
+        frame = requestFrame(attempt);
+        return;
+      }
+      if (reassertFrames > 0) {
+        reassertFrames -= 1;
+        frame = requestFrame(attempt);
+        return;
+      }
       stopped = true;
       return;
+    }
+    const fallback = options.fallbackSurface?.();
+    if (fallback !== null && fallback !== undefined && fallback.isConnected !== false) {
+      fallback.focus({ preventScroll: true });
     }
     if (remaining <= 1) {
       stopped = true;

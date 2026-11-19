@@ -4,14 +4,8 @@ import test from 'node:test';
 
 import { loadTypeScriptFunction } from './ts-source.mjs';
 
-const workspaceSource = await readFile(
-  new URL('../src/client/editor-workspace.tsx', import.meta.url),
-  'utf8',
-);
-const stripeSource = await readFile(
-  new URL('../src/client/components/ui/ActivityStripe.tsx', import.meta.url),
-  'utf8',
-);
+const workspaceSource = await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8');
+const stripeSource = await readFile(new URL('../src/client/components/ui/ActivityStripe.tsx', import.meta.url), 'utf8');
 const projectSource = await readFile(
   new URL('../src/client/components/project/ProjectPanel.tsx', import.meta.url),
   'utf8',
@@ -46,5 +40,5 @@ test('Diff close uses the fallback after the source row disappears', () => {
     /if \(row !== null && row\.isConnected\) row\.focus\(\);[\s\S]*?else focusWorkspaceFallback\(document\.querySelector<HTMLElement>\('\[data-dsh-editor-workspace\]'\)\);/u,
   );
   assert.match(stripeSource, /data-dsh-activity-id=\{id\}/u);
-  assert.match(projectSource, /data-dsh-project-tree=''/u);
+  assert.match(projectSource, /'data-dsh-project-tree': ''/u);
 });

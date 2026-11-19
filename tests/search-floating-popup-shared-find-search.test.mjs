@@ -13,6 +13,9 @@ const uiStyles = await read('src/client/ui/styles.ts');
 
 test('FloatingToolPopup owns shared drag, resize and backdrop behavior', () => {
   assert.match(popup, /function FloatingToolPopup\(/u);
+  assert.match(popup, /const FLOATING_TOOL_POPUP_SURFACE_STYLE: React\.CSSProperties/u);
+  assert.match(popup, /border: POPUP_BORDER/u);
+  assert.match(popup, /\.\.\.FLOATING_TOOL_POPUP_SURFACE_STYLE/u);
   assert.match(popup, /FIND_POPUP_RESIZE_DIRECTIONS\.map/u);
   assert.match(popup, /moveFloatingPopupGeometry/u);
   assert.match(popup, /resizeFloatingPopupGeometry/u);
@@ -45,6 +48,21 @@ test('Find and Search Everywhere share one backdrop implementation', () => {
   assert.doesNotMatch(workspace, /styles\.paletteBackdrop/u);
   assert.doesNotMatch(searchEverywhere, /styles\.paletteBackdrop/u);
   assert.doesNotMatch(findTool, /styles\.paletteBackdrop/u);
+});
+
+test('business popup content leaves border, background and shadow to the shared surface', () => {
+  assert.doesNotMatch(searchEverywhere, /\.\.\.styles\.palette,/u);
+  const findSurface = uiStyles.slice(uiStyles.indexOf('findToolPopup: {'), uiStyles.indexOf('findToolToolbar: {'));
+  const searchSurface = uiStyles.slice(
+    uiStyles.indexOf('searchEverywherePopup: {'),
+    uiStyles.indexOf('searchEverywhereTabs: {'),
+  );
+  for (const style of [findSurface, searchSurface]) {
+    assert.doesNotMatch(style, /border:/u);
+    assert.doesNotMatch(style, /borderRadius:/u);
+    assert.doesNotMatch(style, /background:/u);
+    assert.doesNotMatch(style, /boxShadow:/u);
+  }
 });
 
 test('Find delegates resize handles instead of duplicating them', () => {

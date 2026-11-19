@@ -134,6 +134,7 @@ import { EditorTerminalArea } from './components/terminal/EditorTerminalArea';
 import { EditorTerminalDock } from './components/terminal/EditorTerminalDock';
 import type { EditorTerminalDescriptor } from './components/terminal/EditorTerminalTab';
 import { TerminalPanel } from './components/terminal/TerminalPanel';
+import { usePersistentTerminalDockOpen } from './components/terminal/use-persistent-terminal-dock-open';
 import { ActivityStripe } from './components/ui/ActivityStripe';
 import { focusSurfaceWhenReady } from './components/ui/focus-surface';
 import {
@@ -371,6 +372,7 @@ interface OpenWorkspaceFile {
 interface EditorWorkspaceProps {
   t: EditorWorkspaceTranslate;
   workspaceId?: string;
+  restoreToolWindowFocus?: boolean;
   initialHarnessCollapsed?: boolean;
   onToggleHarness?: () => void;
   onCloseEditor?: () => void;
@@ -596,6 +598,7 @@ export function focusWorkspaceFallback(host: Document | Element | null): boolean
 function EditorWorkspace({
   t,
   workspaceId = '',
+  restoreToolWindowFocus = false,
   initialHarnessCollapsed = false,
   onToggleHarness,
   onCloseEditor,
@@ -603,12 +606,14 @@ function EditorWorkspace({
 }: EditorWorkspaceProps) {
   const [monacoReady, setMonacoReady] = React.useState(false);
   const [monacoError, setMonacoError] = React.useState<string | null>(null);
+  const suppressEditorAutofocusRef = React.useRef(restoreToolWindowFocus === true);
   const [root, setRoot] = React.useState('');
   const [home, setHome] = React.useState('');
   const [entries, setEntries] = React.useState<WorkspaceEntry[]>([]);
   const [children, setChildren] = React.useState<Record<string, WorkspaceEntry[]>>({});
   const [expanded, setExpanded] = React.useState<Set<string>>(() => new Set(['']));
   /* Restored once the workspace root is known, so keys can include it. */ const expandedRestoredRef = React.useRef('');
+  const [expandedReadyRoot, setExpandedReadyRoot] = React.useState('');
   /* 一层目录预取每个 workspace 只执行一次，轮询刷新不得重复请求。 */ const prefetchedRootRef = React.useRef('');
   /* IDEA's project tree is multi-select: one primary row plus shift/⌘ extended rows. */ const [
     selectedPath,
@@ -665,14 +670,11 @@ function EditorWorkspace({
   }, [activity]);
   React.useEffect(bindEditorFileDragCleanup, []);
   const [panelVisible, setPanelVisible] = React.useState(true);
-  /* IDEA keeps one width per tool window. Commit used to open at 52%, which
-         spent more than half the work area before a diff was even open; the
-         default is now the same quarter-sized panel as Project. The user can
-         still drag it wider, and that width is remembered per workspace. */ const [toolWidths, setToolWidths] =
-    React.useState({ project: 28, commit: 25 });
+  /* IDEA tool-window width, remembered per workspace. */
+  const [toolWidths, setToolWidths] = React.useState({ project: 28, commit: 25 });
   const [sideDragging, setSideDragging] = React.useState(false);
-  /* IDEA keeps the terminal in its own bottom dock, toggled by Alt+F12. */ const [terminalOpen, setTerminalOpen] =
-    React.useState(false);
+  /* IDEA's Alt+F12 terminal dock. */ const [terminalOpen, setTerminalOpen] =
+    usePersistentTerminalDockOpen(workspaceId);
   /* A monotonic request, not a boolean: repeated Alt+F12 must focus again
          even when the dock component was already mounted and cached. */ const [
     terminalFocusGeneration,
@@ -1724,6 +1726,9 @@ function EditorWorkspace({
     () => projectViewRows(projectView, projectRows, openFiles, git),
     [git, openFiles, projectRows, projectView],
   );
+  const expansionReady = root !== '' && expandedReadyRoot === root;
+  const visibleProjectRows = expansionReady ? rows : [];
+  const visibleProjectSourceRows = expansionReady ? projectRows : [];
   /* Mirror the flattened rows for the loader (which runs outside render). */ React.useEffect(() => {
     rowsRef.current = projectRows;
   }, [projectRows]);
@@ -2382,6 +2387,7 @@ function EditorWorkspace({
         });
         expandedRestoredRef.current = value.root ?? '';
         const workspaceRoot = value.root ?? '';
+        setExpandedReadyRoot(workspaceRoot);
         const readDirectory = async (path: string): Promise<WorkspaceEntry[]> => {
           const result = await callFs<{ entries?: WorkspaceEntry[] }>({
             op: 'list',
@@ -3630,7 +3636,7 @@ function EditorWorkspace({
     /* Clicking a file tab answers "show me this file"; the Commit panel's
            checkbox or tree must keep the caret where the user is working. */ const inTabs =
       activeNode?.closest('[data-dsh-editor-tabstrip]') != null;
-    if (!inlineEditing && !inTree && !inTabs) editor.focus();
+    if (!inlineEditing && !inTree && !inTabs && suppressEditorAutofocusRef.current !== true) editor.focus();
     /* Reflect the file's own indentation and line endings in the status bar. */ const options =
       (model.getOptions?.() ?? {}) as { tabSize?: number; insertSpaces?: boolean };
     setFileMode({
@@ -9805,7 +9811,7 @@ function EditorWorkspace({
     t,
   ]);
   const focusToolWindowContent = React.useCallback(
-    (next: 'project' | 'commit') => {
+    (next: 'project' | 'commit', options?: { reassertFrames?: number; focusActivityFallback?: boolean }) => {
       cancelFocusRequestRef.current?.();
       cancelFocusRequestRef.current = focusSurfaceWhenReady(
         () => {
@@ -9817,6 +9823,11 @@ function EditorWorkspace({
           return commitMode === 'changes' ? (row ?? commitChangesRef.current) : commitLogRef.current;
         },
         {
+          reassertFrames: options?.reassertFrames,
+          fallbackSurface:
+            options?.focusActivityFallback === true
+              ? () => document.querySelector<HTMLElement>(`[data-dsh-activity-id="${next}"]`)
+              : undefined,
           onExhausted: () => {
             cancelFocusRequestRef.current = null;
             if (activityRef.current !== next || panelVisibleRef.current !== true) return;
@@ -9827,6 +9838,25 @@ function EditorWorkspace({
     },
     [commitMode],
   );
+  const restoredToolWindowFocusRef = React.useRef(false);
+  React.useEffect(() => {
+    if (restoreToolWindowFocus !== true || restoredToolWindowFocusRef.current) return;
+    restoredToolWindowFocusRef.current = true;
+    document
+      .querySelector('[data-dsh-editor-workspace]')
+      ?.setAttribute('data-dsh-tool-window-focus-restore', 'attempted');
+    focusToolWindowContent(activity, { reassertFrames: 8, focusActivityFallback: true });
+    let releaseFrames = 0;
+    const releaseAutofocus = (): void => {
+      releaseFrames += 1;
+      if (releaseFrames >= 90) {
+        suppressEditorAutofocusRef.current = false;
+        return;
+      }
+      window.requestAnimationFrame(releaseAutofocus);
+    };
+    window.requestAnimationFrame(releaseAutofocus);
+  }, [activity, focusToolWindowContent, restoreToolWindowFocus]);
   React.useEffect(
     () => () => {
       cancelFocusRequestRef.current?.();
@@ -11333,6 +11363,7 @@ function EditorWorkspace({
   return (
     <EditorWorkspaceShell
       workspaceId={workspaceId}
+      restoreToolWindowFocus={restoreToolWindowFocus}
       editorFileDragProps={editorFileDragProps}>
       {
         /* No title/save/refresh bar: the tool-window toolbars already sit at the top,
@@ -11653,8 +11684,8 @@ function EditorWorkspace({
                 entries={entries}
                 children={children}
                 expanded={expanded}
-                rows={rows}
-                projectRows={projectRows}
+                rows={visibleProjectRows}
+                projectRows={visibleProjectSourceRows}
                 projectView={projectView}
                 onProjectViewChange={applyProjectView}
                 filteredView={filteredView}

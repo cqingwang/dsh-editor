@@ -2,7 +2,10 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = (await readFile(new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
+const source =
+  (await readFile(new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url), 'utf8')) +
+  '\n' +
+  (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
 const dialogStart = source.indexOf('function SearchEverywhere(');
 const dialogEnd = source.indexOf('function FindToolWindowView(', dialogStart);
 const dialog = source.slice(dialogStart, dialogEnd);
@@ -34,14 +37,14 @@ test('dialog focus cycling wraps in both directions', () => {
   assert.equal(next(3, 99, true), 2);
 });
 
-test('non-query controls stay inside the modal focus loop', () => {
-  assert.match(dialog, /const trapSearchEverywhereFocus = \(event\) =>/);
-  assert.match(dialog, /querySelectorAll\(/);
-  assert.match(dialog, /searchEverywhereNextFocusIndex\(/);
-  assert.match(dialog, /event\.key !== 'Tab'/);
-  assert.match(dialog, /event\.shiftKey === true/);
-  assert.match(dialog, /event\.preventDefault\(\)/);
-  assert.match(dialog, /focusables\[nextIndex\]\?\.focus\?\.\(\)/);
+test('non-query controls delegate their modal focus loop to the shared helper', () => {
+  const trapStart = dialog.indexOf('const trapSearchEverywhereFocus =');
+  const trapEnd = dialog.indexOf('const handleSearchEverywhereDialogKeyDown', trapStart);
+  assert.ok(trapStart >= 0, 'shared focus-trap wrapper is missing');
+  const trap = dialog.slice(trapStart, trapEnd);
+  assert.match(trap, /trapDialogFocus\(event, root\)/u);
+  assert.doesNotMatch(trap, /querySelectorAll</u);
+  assert.doesNotMatch(trap, /searchEverywhereNextFocusIndex\(/u);
 });
 
 test('query Tab only cycles the basic search tabs', () => {
@@ -49,17 +52,14 @@ test('query Tab only cycles the basic search tabs', () => {
   assert.match(dialog, /cycleTab\(event\.shiftKey \? -1 : 1\)/);
   const queryHandler = dialog.slice(
     dialog.indexOf("'data-dsh-search-query': ''"),
-    dialog.indexOf('label: t(\'editor.findSearchHistory\')'),
+    dialog.indexOf("label: t('editor.findSearchHistory')"),
   );
   assert.match(queryHandler, /event\.stopPropagation\(\)/);
 });
 
 test('dialog key flow keeps Escape, history, and focus trap ordered', () => {
   const handlerStart = dialog.indexOf('const handleSearchEverywhereDialogKeyDown');
-  const handler = dialog.slice(
-    handlerStart,
-    dialog.indexOf('const handledHistoryRequestRef', handlerStart),
-  );
+  const handler = dialog.slice(handlerStart, dialog.indexOf('const handledHistoryRequestRef', handlerStart));
   const trapAt = handler.indexOf('trapSearchEverywhereFocus(event)');
   const escapeAt = handler.indexOf("event.key === 'Escape'");
   const historyAt = handler.indexOf('openSearchHistoryShortcut(event)');

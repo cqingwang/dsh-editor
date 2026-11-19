@@ -11,6 +11,8 @@ const workspaceSource = readFileSync(join(root, 'src/client/editor-workspace.tsx
 const source =
   readFileSync(join(root, 'src/client/components/project/ProjectPanel.tsx'), 'utf8') +
   '\n' +
+  readFileSync(join(root, 'src/client/components/project/FileTreeView.tsx'), 'utf8') +
+  '\n' +
   workspaceSource +
   '\n' +
   readFileSync(join(root, 'src/client/components/commit/CommitLog.tsx'), 'utf8') +
@@ -48,15 +50,27 @@ test('an expanded empty directory shows a placeholder row', () => {
     'ws',
     '/root',
   );
-  assert.deepEqual(rows.map((row) => row.kind), ['directory', 'placeholder']);
+  assert.deepEqual(
+    rows.map((row) => row.kind),
+    ['directory', 'placeholder'],
+  );
   assert.equal(rows[1].depth, 1);
   assert.equal(rows[1].empty, true);
 });
 
 test('a still-loading directory shows nothing rather than an empty placeholder', () => {
   /* undefined means "children not fetched yet"; [] means "confirmed empty". */
-  const rows = flattenRows([{ name: 'slow', path: 'slow', kind: 'directory' }], {}, new Set(['', 'slow']), 'ws', '/root');
-  assert.deepEqual(rows.map((row) => row.name), ['slow']);
+  const rows = flattenRows(
+    [{ name: 'slow', path: 'slow', kind: 'directory' }],
+    {},
+    new Set(['', 'slow']),
+    'ws',
+    '/root',
+  );
+  assert.deepEqual(
+    rows.map((row) => row.name),
+    ['slow'],
+  );
 });
 
 test('a bare workspace shows the placeholder at the root', () => {
@@ -67,16 +81,22 @@ test('a bare workspace shows the placeholder at the root', () => {
 });
 
 test('a collapsed directory never emits a placeholder', () => {
-  const rows = flattenRows([{ name: 'empty', path: 'empty', kind: 'directory' }], { empty: [] }, new Set(['']), 'ws', '/root');
-  assert.deepEqual(rows.map((row) => row.kind), ['directory']);
+  const rows = flattenRows(
+    [{ name: 'empty', path: 'empty', kind: 'directory' }],
+    { empty: [] },
+    new Set(['']),
+    'ws',
+    '/root',
+  );
+  assert.deepEqual(
+    rows.map((row) => row.kind),
+    ['directory'],
+  );
 });
 
 test('the placeholder row is not selectable and cannot be dragged', () => {
   /* Keyboard navigation filters placeholders out; a selectable ghost row would break selection. */
-  assert.match(
-    workspaceSource,
-    /const selectable = rows\.filter\(\s+\(row\) => row\.kind !== 'placeholder',\s+\);/,
-  );
+  assert.match(workspaceSource, /const selectable = rows\.filter\(\s+\(row\) => row\.kind !== 'placeholder',\s+\);/);
   assert.match(source, /row\.kind === 'placeholder'/);
   assert.match(source, /t\('editor\.emptyDirectory'\)/);
 });
@@ -85,7 +105,10 @@ test('dragging a row inside a multi-row selection moves the whole selection', ()
   assert.match(source, /const payload =\s+selection\.has\(row\.path\) && selection\.size > 1/);
   assert.match(source, /event\.dataTransfer\?\.setData\('text\/plain', payload\.join\('\\n'\)\);/);
   /* The drop side splits one-path-per-line and moves each entry. */
-  assert.match(source, /const sources = \(event\.dataTransfer\?\.getData\('text\/plain'\) \?\? ''\)\s*\.split\('\\n'\)/);
+  assert.match(
+    source,
+    /const sources = \(event\.dataTransfer\?\.getData\('text\/plain'\) \?\? ''\)\s*\.split\('\\n'\)/,
+  );
   /* Round 51 replaced the inline filter/loop with one all-or-nothing plan. */
   assert.match(source, /const plan = planMoves\(sources, targetDirectory, existing\);/);
 });

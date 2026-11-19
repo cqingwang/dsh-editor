@@ -5,12 +5,17 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = (readFileSync(join(root, 'src/client/components/project/ProjectPanel.tsx'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
+const source =
+  readFileSync(join(root, 'src/client/components/project/ProjectPanel.tsx'), 'utf8') +
+  '\n' +
+  readFileSync(join(root, 'src/client/components/project/FileTreeView.tsx'), 'utf8') +
+  '\n' +
+  readFileSync(join(root, 'lib/client.js'), 'utf8');
 
 test('the row renders indent, chevron, icon, then name', () => {
   /* Round 131 dropped the git letter from the tree entirely (IDEA tints the name),
      so the order that matters is the one that keeps the icon column aligned. */
-  const start = source.indexOf('row.depth > 0');
+  const start = source.indexOf('(row.depth ?? 0) > 0');
   assert.notEqual(start, -1);
   const block = source.slice(start, start + 4200);
   const guideAt = block.indexOf('styles.indentGuide');

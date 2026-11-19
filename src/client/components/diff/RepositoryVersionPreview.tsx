@@ -4,7 +4,7 @@ import { styles } from '../../ui/styles';
 import { PathLabel } from '../ui/PathLabel';
 import { ToolbarButton } from '../ui/ToolbarButton';
 import { EDITOR_CODE_FONT_SIZE, EDITOR_CODE_LINE_HEIGHT, EDITOR_UI_FONT } from '../editor/editor-style-model';
-import { basename, detectTheme, safeLanguage } from '../../editor-core';
+import { basename, ensureEditorTheme, safeLanguage } from '../../editor-core';
 
 type Translate = (key: string, params?: Record<string, unknown>) => string;
 
@@ -43,9 +43,10 @@ function RepositoryVersionPreview({ t, target, monacoReady, onClose, onOpenLocal
     const editor = monaco.editor.create(node, {
       value: typeof version.content === 'string' ? version.content : '',
       language: safeLanguage(monaco, path),
-      theme: detectTheme(),
+      theme: ensureEditorTheme(monaco),
       readOnly: true,
       automaticLayout: true,
+      'semanticHighlighting.enabled': true,
       fontSize: EDITOR_CODE_FONT_SIZE,
       lineHeight: EDITOR_CODE_LINE_HEIGHT,
       minimap: { enabled: false },

@@ -13,14 +13,14 @@ const terminalShortcutAction = loadTypeScriptModule(helperSource, ['terminalShor
 
 test('both terminal shortcuts share one dock toggle', () => {
   const start = source.indexOf('Alt+F12, Alt+1..3 and Ctrl+Shift+`');
-  const end = source.indexOf("}, [selectActivity, terminalOpen]);", start);
+  const end = source.indexOf('}, [focusWorkspaceSurface, selectActivity, terminalOpen]);', start);
   assert.notEqual(start, -1);
   assert.notEqual(end, -1);
   const handler = source.slice(start, end);
   assert.match(handler, /const toggleTerminalDock = \(\) => \{/);
 
-  const altStart = handler.indexOf('event.altKey && !event.metaKey && !event.ctrlKey && event.key === \'F12\'');
-  const digitStart = handler.indexOf('event.altKey && !event.metaKey && !event.ctrlKey && (event.key === \'1\'');
+  const altStart = handler.indexOf("event.altKey && !event.metaKey && !event.ctrlKey && event.key === 'F12'");
+  const digitStart = handler.indexOf("event.altKey && !event.metaKey && !event.ctrlKey && (event.key === '1'");
   const altBlock = handler.slice(altStart, digitStart);
   const ctrlStart = handler.indexOf('event.ctrlKey && event.shiftKey');
   const ctrlBlock = handler.slice(ctrlStart);
@@ -31,7 +31,7 @@ test('both terminal shortcuts share one dock toggle', () => {
 
 test('a terminal shortcut never creates a new shell just to toggle the dock', () => {
   const start = source.indexOf('Alt+F12, Alt+1..3 and Ctrl+Shift+`');
-  const end = source.indexOf("}, [selectActivity, terminalOpen]);", start);
+  const end = source.indexOf('}, [focusWorkspaceSurface, selectActivity, terminalOpen]);', start);
   const handler = source.slice(start, end);
   const toggleStart = handler.indexOf('const toggleTerminalDock = () => {');
   const toggleEnd = handler.indexOf('const onKeyDown = (event) => {', toggleStart);

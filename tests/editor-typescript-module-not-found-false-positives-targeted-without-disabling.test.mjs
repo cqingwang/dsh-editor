@@ -74,10 +74,11 @@ test('Monaco loader waits for the TypeScript contribution before resolving', () 
 test('Monaco configuration retries until the TS language service is available', async () => {
   const configureWhenReady = new Function(
     'window',
+    'ensureIdeaLightSemanticTokens',
     `${transpileTypeScriptFunction(source, 'configureMonacoLanguageDiagnostics')}
      ${transpileTypeScriptFunction(source, 'configureMonacoLanguageWhenReady')}
      return configureMonacoLanguageWhenReady;`,
-  )({ setTimeout });
+  )({ setTimeout }, () => true);
   let checks = 0;
   const monaco = {
     get languages() {

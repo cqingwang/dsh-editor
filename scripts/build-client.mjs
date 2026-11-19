@@ -45,6 +45,9 @@ const uiExports = [
   'DiffViewModeControl',
   'DockResizeHandle',
   'focusSurfaceWhenReady',
+  'dialogFocusableElements',
+  'nextDialogFocusTarget',
+  'trapDialogFocus',
   'selectCompactActions',
   'groupCompactActions',
   'CompactActionBar',
@@ -241,6 +244,108 @@ const indentedEditorStyleModel = editorStyleModelBody
   .map((line) => (line === '' ? '' : `    ${line}`))
   .join('\n');
 const editorStyleModelModule = `\n    /* ─────────────────────── components/editor/editor-style-model.ts ─────────────────────── */\n${indentedEditorStyleModel}\n`;
+
+const editorThemeModelResult = await transformAsync(
+  readFileSync(join(partsDir, 'components', 'editor', 'editor-theme-model.ts'), 'utf8'),
+  {
+    filename: 'editor-theme-model.ts',
+    plugins: [['@babel/plugin-transform-typescript', { isTSX: false, allExtensions: true }]],
+    generatorOpts: {
+      retainLines: true,
+      jsescOption: { quotes: 'single', minimal: true },
+    },
+    configFile: false,
+    babelrc: false,
+  },
+);
+const editorThemeModelBody = stripModuleSyntax(editorThemeModelResult.code ?? '').trimEnd();
+if (editorThemeModelBody === '') {
+  console.error('build-client: Babel produced an empty editor theme model');
+  process.exit(1);
+}
+const indentedEditorThemeModel = editorThemeModelBody
+  .split('\n')
+  .map((line) => (line === '' ? '' : `    ${line}`))
+  .join('\n');
+const editorThemeModelModule = `\n    /* ─────────────────────── components/editor/editor-theme-model.ts ─────────────────────── */\n${indentedEditorThemeModel}\n`;
+
+const workspaceDirectoryModelResult = await transformAsync(
+  readFileSync(join(partsDir, 'components', 'project', 'workspace-directory-model.ts'), 'utf8'),
+  {
+    filename: 'workspace-directory-model.ts',
+    plugins: [['@babel/plugin-transform-typescript', { isTSX: false, allExtensions: true }]],
+    generatorOpts: {
+      retainLines: true,
+      jsescOption: { quotes: 'single', minimal: true },
+    },
+    configFile: false,
+    babelrc: false,
+  },
+);
+const workspaceDirectoryModelBody = stripModuleSyntax(workspaceDirectoryModelResult.code ?? '').trimEnd();
+if (workspaceDirectoryModelBody === '') {
+  console.error('build-client: Babel produced an empty workspace directory model');
+  process.exit(1);
+}
+const indentedWorkspaceDirectoryModel = workspaceDirectoryModelBody
+  .split('\n')
+  .map((line) => (line === '' ? '' : `    ${line}`))
+  .join('\n');
+const workspaceDirectoryModelModule = `\n    /* ─────────────────────── components/project/workspace-directory-model.ts ─────────────────────── */\n${indentedWorkspaceDirectoryModel}\n`;
+
+const fileTreeViewResult = await transformAsync(
+  readFileSync(join(partsDir, 'components', 'project', 'FileTreeView.tsx'), 'utf8'),
+  {
+    filename: 'FileTreeView.tsx',
+    plugins: [
+      ['@babel/plugin-transform-typescript', { isTSX: true, allExtensions: true }],
+      '@babel/plugin-transform-react-jsx',
+    ],
+    generatorOpts: {
+      retainLines: true,
+      jsescOption: { quotes: 'single', minimal: true },
+    },
+    configFile: false,
+    babelrc: false,
+  },
+);
+const fileTreeViewBody = stripModuleSyntax(fileTreeViewResult.code ?? '').trimEnd();
+if (fileTreeViewBody === '') {
+  console.error('build-client: Babel produced an empty FileTreeView module');
+  process.exit(1);
+}
+const indentedFileTreeView = fileTreeViewBody
+  .split('\n')
+  .map((line) => (line === '' ? '' : `    ${line}`))
+  .join('\n');
+const fileTreeViewModule = `\n    /* ─────────────────────── components/project/FileTreeView.tsx ─────────────────────── */\n${indentedFileTreeView}\n`;
+
+const workspaceDirectoryPickerResult = await transformAsync(
+  readFileSync(join(partsDir, 'components', 'project', 'WorkspaceDirectoryPicker.tsx'), 'utf8'),
+  {
+    filename: 'WorkspaceDirectoryPicker.tsx',
+    plugins: [
+      ['@babel/plugin-transform-typescript', { isTSX: true, allExtensions: true }],
+      '@babel/plugin-transform-react-jsx',
+    ],
+    generatorOpts: {
+      retainLines: true,
+      jsescOption: { quotes: 'single', minimal: true },
+    },
+    configFile: false,
+    babelrc: false,
+  },
+);
+const workspaceDirectoryPickerBody = stripModuleSyntax(workspaceDirectoryPickerResult.code ?? '').trimEnd();
+if (workspaceDirectoryPickerBody === '') {
+  console.error('build-client: Babel produced an empty WorkspaceDirectoryPicker module');
+  process.exit(1);
+}
+const indentedWorkspaceDirectoryPicker = workspaceDirectoryPickerBody
+  .split('\n')
+  .map((line) => (line === '' ? '' : `    ${line}`))
+  .join('\n');
+const workspaceDirectoryPickerModule = `\n    /* ─────────────────────── components/project/WorkspaceDirectoryPicker.tsx ─────────────────────── */\n${indentedWorkspaceDirectoryPicker}\n`;
 
 const projectPanelResult = await transformAsync(
   readFileSync(join(partsDir, 'components', 'project', 'ProjectPanel.tsx'), 'utf8'),
@@ -1255,6 +1360,30 @@ const indentedEditorTerminalDock = editorTerminalDockBody
   .map((line) => (line === '' ? '' : `    ${line}`))
   .join('\n');
 const editorTerminalDockModule = `\n    /* ─────────────────────── components/terminal/EditorTerminalDock.tsx ─────────────────────── */\n${indentedEditorTerminalDock}\n`;
+
+const persistentTerminalDockOpenResult = await transformAsync(
+  readFileSync(join(partsDir, 'components', 'terminal', 'use-persistent-terminal-dock-open.ts'), 'utf8'),
+  {
+    filename: 'use-persistent-terminal-dock-open.ts',
+    plugins: [['@babel/plugin-transform-typescript', { isTSX: false, allExtensions: true }]],
+    generatorOpts: {
+      retainLines: true,
+      jsescOption: { quotes: 'single', minimal: true },
+    },
+    configFile: false,
+    babelrc: false,
+  },
+);
+const persistentTerminalDockOpenBody = stripModuleSyntax(persistentTerminalDockOpenResult.code ?? '').trimEnd();
+if (persistentTerminalDockOpenBody === '') {
+  console.error('build-client: Babel produced an empty persistent terminal dock open module');
+  process.exit(1);
+}
+const indentedPersistentTerminalDockOpen = persistentTerminalDockOpenBody
+  .split('\n')
+  .map((line) => (line === '' ? '' : `    ${line}`))
+  .join('\n');
+const persistentTerminalDockOpenModule = `\n    /* ─────────────────────── components/terminal/use-persistent-terminal-dock-open.ts ─────────────────────── */\n${indentedPersistentTerminalDockOpen}\n`;
 
 const terminalPanelResult = await transformAsync(
   readFileSync(join(partsDir, 'components', 'terminal', 'TerminalPanel.tsx'), 'utf8'),
@@ -2456,7 +2585,7 @@ const footer = `
 });
 `;
 
-const output = `${header}${editorTabModelModule}${editorStyleModelModule}${body}${projectPanelModule}${projectOptionsMenuModule}${commitPanelModule}${commitOptionsMenuModule}${stashShelveMenuModule}${commitLogMenuModule}${commitFileMenuModule}${commitLogGraphControllerModule}${commitLogFlatControllerModule}${commitLogListCommandModelModule}${commitLogScopeAnnouncementModule}${commitLogShortcutModelModule}${commitLogSelectionModelModule}${commitLogViewModelModule}${commitLogViewPreferencesModule}${namePromptModule}${commitSearchModelModule}${revisionPickerModule}${moveToPickerModule}${codePreviewCodeModule}${editorStatusFactsModule}${markdownModeSwitchModule}${imagePreviewPaneModule}${markdownPreviewPaneModule}${workspaceFileModelModule}${workspaceImagePreviewModule}${editorPathModelModule}${editorDocumentModelModule}${markdownScrollModelModule}${editorNavigationModelModule}${editorFileTemplateModelModule}${editorLanguageModelModule}${annotatePreviewModule}${repositoryVersionPreviewModule}${diffPreviewModule}${projectSelectionModelModule}${terminalScreenModule}${editorTerminalTabModule}${editorTerminalAreaModule}${editorTerminalDockModule}${terminalPanelModule}${searchFileResultItemModule}${searchEverywhereModule}${showUsagesPopupModule}${quickOpenModule}${findScopeEditorModule}${findToolWindowModule}${searchReplaceConfirmationModule}${commitGraphStateModelModule}${commitGraphFoldBarModule}${commitGraphRowModule}${commitGraphModule}${commitLogModule}${commitLogDetailPaneModule}${commitLogToolbarModule}${commitLogFlatRowModule}${commitLogListStateModule}${measuringScreenModule}${editorErrorBoundaryModule}${editorMountModule}${editorGotoLinePopupModule}${editorFindBarModule}${editorStatusBarModule}${editorFileTabModule}${editorTabStripModule}${editorDiffTabModule}${editorConflictBarsModule}${editorSplitHeaderModule}${editorSplitPaneModule}${editorMainPaneModule}${editorSplitDividerModule}${editorDiffAreaModule}${editorAnnotateAreaModule}${findToolDockModule}${findToolPopupModule}${editorFileSurfaceModule}${editorWorkspaceShellModule}${editorWorkspaceBodyModule}${editorToolWindowPanelModule}${editorToolWindowResizerModule}${editorWorkspaceMainColumnModule}${editorWorkspaceSurfaceModule}${editorErrorBannerModule}${uiPrelude}${footer}`;
+const output = `${header}${editorTabModelModule}${editorStyleModelModule}${editorThemeModelModule}${body}${workspaceDirectoryModelModule}${fileTreeViewModule}${projectPanelModule}${projectOptionsMenuModule}${commitPanelModule}${commitOptionsMenuModule}${stashShelveMenuModule}${commitLogMenuModule}${commitFileMenuModule}${commitLogGraphControllerModule}${commitLogFlatControllerModule}${commitLogListCommandModelModule}${commitLogScopeAnnouncementModule}${commitLogShortcutModelModule}${commitLogSelectionModelModule}${commitLogViewModelModule}${commitLogViewPreferencesModule}${namePromptModule}${commitSearchModelModule}${revisionPickerModule}${moveToPickerModule}${codePreviewCodeModule}${editorStatusFactsModule}${markdownModeSwitchModule}${imagePreviewPaneModule}${markdownPreviewPaneModule}${workspaceFileModelModule}${workspaceImagePreviewModule}${editorPathModelModule}${editorDocumentModelModule}${markdownScrollModelModule}${editorNavigationModelModule}${editorFileTemplateModelModule}${editorLanguageModelModule}${annotatePreviewModule}${repositoryVersionPreviewModule}${diffPreviewModule}${projectSelectionModelModule}${terminalScreenModule}${editorTerminalTabModule}${editorTerminalAreaModule}${editorTerminalDockModule}${persistentTerminalDockOpenModule}${terminalPanelModule}${searchFileResultItemModule}${searchEverywhereModule}${showUsagesPopupModule}${quickOpenModule}${findScopeEditorModule}${findToolWindowModule}${searchReplaceConfirmationModule}${commitGraphStateModelModule}${commitGraphFoldBarModule}${commitGraphRowModule}${commitGraphModule}${commitLogModule}${commitLogDetailPaneModule}${commitLogToolbarModule}${commitLogFlatRowModule}${commitLogListStateModule}${measuringScreenModule}${editorErrorBoundaryModule}${editorMountModule}${editorGotoLinePopupModule}${editorFindBarModule}${editorStatusBarModule}${editorFileTabModule}${editorTabStripModule}${editorDiffTabModule}${editorConflictBarsModule}${editorSplitHeaderModule}${editorSplitPaneModule}${editorMainPaneModule}${editorSplitDividerModule}${editorDiffAreaModule}${editorAnnotateAreaModule}${findToolDockModule}${findToolPopupModule}${workspaceDirectoryPickerModule}${editorFileSurfaceModule}${editorWorkspaceShellModule}${editorWorkspaceBodyModule}${editorToolWindowPanelModule}${editorToolWindowResizerModule}${editorWorkspaceMainColumnModule}${editorWorkspaceSurfaceModule}${editorErrorBannerModule}${uiPrelude}${footer}`;
 const check = process.argv.includes('--check');
 
 if (check) {

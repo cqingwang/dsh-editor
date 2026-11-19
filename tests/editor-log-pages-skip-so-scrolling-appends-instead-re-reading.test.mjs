@@ -116,7 +116,7 @@ test('project tree filters in place on ⌘F and keeps ancestors of a hit', () =>
   assert.match(client, /for \(const path of \[\.\.\.keep\]\) \{/);
   assert.match(client, /const localRows = React\.useMemo\(\(\) => filterTreeRows\(rows, search\), \[rows, search\]\);/);
   assert.match(client, /searchEntryRows\(searchEntries, projectName, compactDirectories, sortMode, manualOrder\)/);
-  assert.match(client, /visibleRows\.map\(\(row, rowIndex\) => \{/);
+  assert.match(client, /<FileTreeView[\s\S]*?rows=\{visibleRows\}/);
   /* The editor keeps ⌘F while its textarea has focus. */
   assert.match(client, /if \(document\.activeElement\?\.closest\('\.monaco-editor'\) != null\) return;/);
 });

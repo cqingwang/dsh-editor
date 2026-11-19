@@ -7,6 +7,7 @@ export interface EditorMountProps {
   workspaceComponent: React.ComponentType<{
     t: Translate;
     workspaceId: string;
+    restoreToolWindowFocus?: boolean;
     initialHarnessCollapsed: boolean;
     onToggleHarness?: (() => boolean | void) | null;
     onCloseEditor?: (() => void) | null;
@@ -14,6 +15,7 @@ export interface EditorMountProps {
   }>;
   t: Translate;
   workspaceId: string;
+  restoreToolWindowFocus?: boolean;
   initialHarnessCollapsed: boolean;
   onToggleHarness?: (() => boolean | void) | null;
   onCloseEditor?: (() => void) | null;
@@ -24,6 +26,7 @@ function EditorMount({
   workspaceComponent: Workspace,
   t,
   workspaceId,
+  restoreToolWindowFocus = false,
   initialHarnessCollapsed,
   onToggleHarness,
   onCloseEditor,
@@ -36,6 +39,7 @@ function EditorMount({
       <Workspace
         t={t}
         workspaceId={workspaceId}
+        restoreToolWindowFocus={restoreToolWindowFocus}
         initialHarnessCollapsed={initialHarnessCollapsed}
         onToggleHarness={onToggleHarness}
         onCloseEditor={onCloseEditor}

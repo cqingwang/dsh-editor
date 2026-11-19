@@ -2,7 +2,10 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const panel = await readFile(new URL('../src/client/components/project/ProjectPanel.tsx', import.meta.url), 'utf8');
+const panel =
+  (await readFile(new URL('../src/client/components/project/ProjectPanel.tsx', import.meta.url), 'utf8')) +
+  '\n' +
+  (await readFile(new URL('../src/client/components/project/FileTreeView.tsx', import.meta.url), 'utf8'));
 const workspace = await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8');
 const client = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
 
@@ -25,9 +28,9 @@ function extractFunction(name) {
 }
 
 test('double-clicking a Project file opens EditSource and focuses the editor', () => {
-  const rowStart = panel.indexOf("const isDirectory = row.kind === 'directory';");
+  const rowStart = panel.indexOf('onRowDoubleClick={(state, event) => {');
   assert.notEqual(rowStart, -1);
-  const row = panel.slice(rowStart, panel.indexOf('onContextMenu:', rowStart));
+  const row = panel.slice(rowStart, panel.indexOf('onRowContextMenu=', rowStart));
   assert.match(panel, /\n  onOpenEditSource,/);
   assert.match(row, /else if \(!isDirectory && singleClickOpen !== true\) onOpenEditSource\(row\.path\);/);
   assert.doesNotMatch(row, /else if \(!isDirectory && singleClickOpen !== true\) onOpen\(row\.path\);/);

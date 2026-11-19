@@ -1,0 +1,523 @@
+import type * as Monaco from 'monaco-editor';
+
+/** IntelliJ IDEA 2026.2 Light semantic palette, sourced from Default.icls + JS defaults. */
+export const IDEA_LIGHT_THEME_ID = 'dsh-editor-idea-light';
+
+export const IDEA_LIGHT_TOKEN_COLORS = {
+  keyword: '000080',
+  string: '008000',
+  number: '0000ff',
+  comment: '808080',
+  localVariable: '458383',
+  globalVariable: '660e7a',
+  method: '914c07',
+  function: '000000',
+  property: '660e7a',
+  constant: '660e7a',
+  class: '000000',
+  interface: '000000',
+  enum: '000000',
+  typeAlias: '000000',
+  typeParameter: '20999d',
+  parameter: '000000',
+  annotation: '808000',
+  regexp: 'ff0000',
+  escape: '000080',
+} as const;
+
+export const IDEA_LIGHT_SEMANTIC_TOKEN_TYPES = [
+  'ideaClass',
+  'ideaInterface',
+  'ideaEnum',
+  'ideaTypeAlias',
+  'ideaModule',
+  'ideaTypeParameter',
+  'ideaParameter',
+  'ideaFunction',
+  'ideaMethod',
+  'ideaProperty',
+  'ideaVariable',
+  'ideaGlobalVariable',
+  'ideaConstant',
+] as const;
+
+export const IDEA_LIGHT_SEMANTIC_TOKEN_LEGEND = {
+  tokenTypes: [...IDEA_LIGHT_SEMANTIC_TOKEN_TYPES],
+  tokenModifiers: [] as string[],
+};
+
+export interface IdeaLightSemanticToken {
+  line: number;
+  startCharacter: number;
+  length: number;
+  tokenType: number | string;
+  tokenModifiers?: number;
+  priority?: number;
+}
+
+/** One source palette shared by the editor, diff and repository preview themes. */
+export function ideaLightTokenRules(): Monaco.editor.ITokenThemeRule[] {
+  const colors = IDEA_LIGHT_TOKEN_COLORS;
+  return [
+    { token: 'keyword', foreground: colors.keyword, fontStyle: 'bold' },
+    { token: 'keyword.control', foreground: colors.keyword, fontStyle: 'bold' },
+    { token: 'string', foreground: colors.string },
+    { token: 'string.escape', foreground: colors.escape, fontStyle: 'bold' },
+    { token: 'number', foreground: colors.number },
+    { token: 'comment', foreground: colors.comment, fontStyle: 'italic' },
+    { token: 'comment.doc', foreground: colors.comment, fontStyle: 'italic' },
+    { token: 'regexp', foreground: colors.regexp },
+    { token: 'type.identifier', foreground: colors.class, fontStyle: 'bold' },
+    { token: 'identifier', foreground: colors.parameter },
+    { token: 'operator', foreground: colors.parameter },
+    { token: 'delimiter', foreground: colors.parameter },
+    { token: 'annotation', foreground: colors.annotation },
+    { token: 'decorator', foreground: colors.annotation },
+    { token: 'ideaClass', foreground: colors.class, fontStyle: 'bold' },
+    { token: 'ideaInterface', foreground: colors.interface, fontStyle: 'bold' },
+    { token: 'ideaEnum', foreground: colors.enum, fontStyle: 'bold' },
+    { token: 'ideaTypeAlias', foreground: colors.typeAlias, fontStyle: 'bold' },
+    { token: 'ideaModule', foreground: colors.class },
+    { token: 'ideaTypeParameter', foreground: colors.typeParameter },
+    { token: 'ideaParameter', foreground: colors.parameter },
+    { token: 'ideaFunction', foreground: colors.function, fontStyle: 'bold' },
+    { token: 'ideaMethod', foreground: colors.method },
+    { token: 'ideaProperty', foreground: colors.property },
+    { token: 'ideaVariable', foreground: colors.localVariable },
+    { token: 'ideaGlobalVariable', foreground: colors.globalVariable, fontStyle: 'italic' },
+    { token: 'ideaConstant', foreground: colors.constant },
+  ];
+}
+
+const IDENTIFIER = /[A-Za-z_$][\w$]*/gu;
+const IDENTIFIER_AT = /[A-Za-z_$][\w$]*/uy;
+const RESERVED_WORDS = new Set([
+  'as',
+  'async',
+  'await',
+  'break',
+  'case',
+  'catch',
+  'class',
+  'const',
+  'continue',
+  'default',
+  'delete',
+  'do',
+  'else',
+  'enum',
+  'export',
+  'extends',
+  'false',
+  'finally',
+  'for',
+  'from',
+  'function',
+  'if',
+  'implements',
+  'import',
+  'in',
+  'instanceof',
+  'interface',
+  'let',
+  'new',
+  'null',
+  'of',
+  'return',
+  'static',
+  'super',
+  'switch',
+  'this',
+  'throw',
+  'true',
+  'try',
+  'type',
+  'typeof',
+  'undefined',
+  'var',
+  'void',
+  'while',
+  'with',
+  'yield',
+]);
+
+/** Mask comments and string bodies while preserving offsets and line breaks. */
+function maskCommentsAndStrings(text: string): string {
+  const masked = text.split('');
+  let state: 'code' | 'lineComment' | 'blockComment' | 'single' | 'double' | 'template' = 'code';
+  let escaped = false;
+  for (let index = 0; index < text.length; index += 1) {
+    const character = text[index];
+    const next = text[index + 1] ?? '';
+    if (state === 'lineComment') {
+      if (character === '\n') state = 'code';
+      else masked[index] = ' ';
+      continue;
+    }
+    if (state === 'blockComment') {
+      masked[index] = character === '\n' ? '\n' : ' ';
+      if (character === '*' && next === '/') {
+        masked[index + 1] = ' ';
+        index += 1;
+        state = 'code';
+      }
+      continue;
+    }
+    if (state === 'single' || state === 'double' || state === 'template') {
+      const quote = state === 'single' ? "'" : state === 'double' ? '"' : '`';
+      masked[index] = character === '\n' ? '\n' : ' ';
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (character === '\\') {
+        escaped = true;
+        continue;
+      }
+      if (character === quote) state = 'code';
+      continue;
+    }
+    if (character === '/' && next === '/') {
+      masked[index] = ' ';
+      masked[index + 1] = ' ';
+      index += 1;
+      state = 'lineComment';
+      continue;
+    }
+    if (character === '/' && next === '*') {
+      masked[index] = ' ';
+      masked[index + 1] = ' ';
+      index += 1;
+      state = 'blockComment';
+      continue;
+    }
+    if (character === "'") {
+      masked[index] = ' ';
+      state = 'single';
+      continue;
+    }
+    if (character === '"') {
+      masked[index] = ' ';
+      state = 'double';
+      continue;
+    }
+    if (character === '`') {
+      masked[index] = ' ';
+      state = 'template';
+    }
+  }
+  return masked.join('');
+}
+
+function lineStartOffsets(text: string): number[] {
+  const starts = [0];
+  for (let index = 0; index < text.length; index += 1) {
+    if (text[index] === '\n') starts.push(index + 1);
+  }
+  return starts;
+}
+
+function semanticTokenAt(
+  text: string,
+  lineStarts: number[],
+  offset: number,
+  length: number,
+  tokenType: string,
+  priority: number,
+): IdeaLightSemanticToken | null {
+  if (offset < 0 || length <= 0) return null;
+  let low = 0;
+  let high = lineStarts.length - 1;
+  while (low <= high) {
+    const middle = (low + high) >> 1;
+    if (lineStarts[middle] <= offset) low = middle + 1;
+    else high = middle - 1;
+  }
+  const line = Math.max(0, high);
+  return {
+    line,
+    startCharacter: offset - lineStarts[line],
+    length,
+    tokenType,
+    priority,
+  };
+}
+
+function addMatches(
+  target: IdeaLightSemanticToken[],
+  text: string,
+  lineStarts: number[],
+  pattern: RegExp,
+  group: number,
+  tokenType: string,
+  priority: number,
+): void {
+  pattern.lastIndex = 0;
+  for (const match of text.matchAll(pattern)) {
+    const value = match[group];
+    const offset = match.index === undefined ? -1 : match.index + match[0].lastIndexOf(value);
+    if (typeof value === 'string' && value !== '') {
+      const token = semanticTokenAt(text, lineStarts, offset, value.length, tokenType, priority);
+      if (token !== null) target.push(token);
+    }
+  }
+}
+
+function matchingBrace(masked: string, start: number, open: string, close: string): number {
+  let depth = 0;
+  for (let index = start; index < masked.length; index += 1) {
+    if (masked[index] === open) depth += 1;
+    else if (masked[index] === close) {
+      depth -= 1;
+      if (depth === 0) return index;
+    }
+  }
+  return -1;
+}
+
+function addParameterGroup(
+  target: IdeaLightSemanticToken[],
+  masked: string,
+  lineStarts: number[],
+  groupOffset: number,
+  group: string,
+): void {
+  let segmentStart = 0;
+  let depth = 0;
+  const segments: Array<{ offset: number; text: string }> = [];
+  for (let index = 0; index <= group.length; index += 1) {
+    const character = group[index] ?? ',';
+    if (character === '(' || character === '[' || character === '{' || character === '<') depth += 1;
+    else if (character === ')' || character === ']' || character === '}' || character === '>')
+      depth = Math.max(0, depth - 1);
+    if (character !== ',' || depth > 0) continue;
+    segments.push({ offset: segmentStart, text: group.slice(segmentStart, index) });
+    segmentStart = index + 1;
+  }
+  for (const segment of segments) {
+    const lead = segment.text.search(/\S/u);
+    if (lead < 0) continue;
+    const segmentOffset = groupOffset + segment.offset + lead;
+    const open = segment.text[lead];
+    if (open === '{' || open === '[') {
+      const close = open === '{' ? '}' : ']';
+      const end = matchingBrace(masked, segmentOffset, open, close);
+      if (end < 0) continue;
+      for (const identifier of masked.slice(segmentOffset + 1, end).matchAll(IDENTIFIER)) {
+        const value = identifier[0];
+        if (RESERVED_WORDS.has(value)) continue;
+        const token = semanticTokenAt(
+          masked,
+          lineStarts,
+          segmentOffset + 1 + (identifier.index ?? 0),
+          value.length,
+          'ideaParameter',
+          94,
+        );
+        if (token !== null) target.push(token);
+      }
+      continue;
+    }
+    const first = IDENTIFIER_AT.exec(segment.text.slice(lead));
+    IDENTIFIER_AT.lastIndex = 0;
+    const value = first?.[0] ?? '';
+    if (value === '' || RESERVED_WORDS.has(value)) continue;
+    const token = semanticTokenAt(masked, lineStarts, segmentOffset, value.length, 'ideaParameter', 94);
+    if (token !== null) target.push(token);
+  }
+}
+
+/**
+ * Lightweight semantic hints for constructs TypeScript's public classification
+ * API does not expose: imports, locals, method calls, properties and returns.
+ */
+export function collectIdeaLightHeuristicSemanticTokens(text: string): IdeaLightSemanticToken[] {
+  if (typeof text !== 'string' || text === '') return [];
+  const masked = maskCommentsAndStrings(text);
+  const lineStarts = lineStartOffsets(text);
+  const tokens: IdeaLightSemanticToken[] = [];
+
+  addMatches(tokens, masked, lineStarts, /\bclass\s+([A-Za-z_$][\w$]*)/gu, 1, 'ideaClass', 90);
+  addMatches(tokens, masked, lineStarts, /\binterface\s+([A-Za-z_$][\w$]*)/gu, 1, 'ideaInterface', 90);
+  addMatches(tokens, masked, lineStarts, /\benum\s+([A-Za-z_$][\w$]*)/gu, 1, 'ideaEnum', 90);
+  addMatches(tokens, masked, lineStarts, /\btype\s+([A-Za-z_$][\w$]*)/gu, 1, 'ideaTypeAlias', 90);
+  addMatches(tokens, masked, lineStarts, /\bfunction\s+([A-Za-z_$][\w$]*)/gu, 1, 'ideaFunction', 90);
+  addMatches(
+    tokens,
+    masked,
+    lineStarts,
+    /\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*(?::[^=]+)?=\s*(?:async\s*)?(?:\([^)]*\)|[A-Za-z_$][\w$]*)\s*(?::[^=]+)?=>/gu,
+    1,
+    'ideaFunction',
+    85,
+  );
+  for (const match of masked.matchAll(/\b(?:class|interface|type|function)\s+[A-Za-z_$][\w$]*\s*<([^<>]+)>/gu)) {
+    const group = match[1] ?? '';
+    const offset = (match.index ?? 0) + match[0].indexOf(group);
+    for (const identifier of group.matchAll(IDENTIFIER)) {
+      const value = identifier[0];
+      const token = semanticTokenAt(
+        masked,
+        lineStarts,
+        offset + (identifier.index ?? 0),
+        value.length,
+        'ideaTypeParameter',
+        92,
+      );
+      if (token !== null) tokens.push(token);
+    }
+  }
+
+  for (const match of masked.matchAll(/\bfunction(?:\s+[A-Za-z_$][\w$]*)?\s*\(([^()]*)\)/gu)) {
+    const group = match[1] ?? '';
+    addParameterGroup(tokens, masked, lineStarts, (match.index ?? 0) + match[0].indexOf(group), group);
+  }
+  for (const match of masked.matchAll(/\(([^()]*)\)\s*(?::[^=;{]+)?=>/gu)) {
+    const group = match[1] ?? '';
+    addParameterGroup(tokens, masked, lineStarts, (match.index ?? 0) + match[0].indexOf(group), group);
+  }
+  for (const match of masked.matchAll(
+    /(?:^|\n)\s*(?:(?:public|private|protected|static|async|override|get|set)\s+)*[A-Za-z_$][\w$]*\s*\(([^()]*)\)\s*(?::[^{]+)?\{/gu,
+  )) {
+    const group = match[1] ?? '';
+    addParameterGroup(tokens, masked, lineStarts, (match.index ?? 0) + match[0].indexOf(group), group);
+  }
+  for (const match of masked.matchAll(/\b([A-Za-z_$][\w$]*)\s*=>/gu)) {
+    const value = match[1] ?? '';
+    if (value === '' || RESERVED_WORDS.has(value)) continue;
+    const token = semanticTokenAt(
+      masked,
+      lineStarts,
+      (match.index ?? 0) + match[0].indexOf(value),
+      value.length,
+      'ideaParameter',
+      94,
+    );
+    if (token !== null) tokens.push(token);
+  }
+
+  for (const match of masked.matchAll(/\bimport\s+([^;]+?)\s+from\b/gu)) {
+    const clause = match[1] ?? '';
+    const clauseOffset = (match.index ?? 0) + match[0].indexOf(clause);
+    for (const identifier of clause.matchAll(IDENTIFIER)) {
+      const value = identifier[0];
+      if (RESERVED_WORDS.has(value)) continue;
+      const offset = clauseOffset + (identifier.index ?? 0);
+      const token = semanticTokenAt(masked, lineStarts, offset, value.length, 'ideaGlobalVariable', 80);
+      if (token !== null) tokens.push(token);
+    }
+  }
+
+  for (const match of masked.matchAll(/\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)/gu)) {
+    const value = match[1] ?? '';
+    const offset = (match.index ?? 0) + match[0].lastIndexOf(value);
+    const token = semanticTokenAt(masked, lineStarts, offset, value.length, 'ideaVariable', 70);
+    if (token !== null) tokens.push(token);
+  }
+  for (const match of masked.matchAll(/\b(?:const|let|var)\s*([\[{])/gu)) {
+    const open = match[1] ?? '';
+    const start = (match.index ?? 0) + match[0].lastIndexOf(open);
+    const close = open === '[' ? ']' : '}';
+    const end = matchingBrace(masked, start, open, close);
+    if (end < 0) continue;
+    for (const identifier of masked.slice(start + 1, end).matchAll(IDENTIFIER)) {
+      const value = identifier[0];
+      const offset = start + 1 + (identifier.index ?? 0);
+      const token = semanticTokenAt(masked, lineStarts, offset, value.length, 'ideaVariable', 68);
+      if (token !== null) tokens.push(token);
+    }
+  }
+
+  for (const match of masked.matchAll(/\.\s*([A-Za-z_$][\w$]*)\s*(\()?/gu)) {
+    const value = match[1] ?? '';
+    if (value === '') continue;
+    const memberOffset = (match.index ?? 0) + match[0].indexOf(value);
+    const next = masked.slice(memberOffset + value.length).trimStart()[0] ?? '';
+    const token = semanticTokenAt(
+      masked,
+      lineStarts,
+      memberOffset,
+      value.length,
+      next === '(' ? 'ideaMethod' : 'ideaProperty',
+      55,
+    );
+    if (token !== null) tokens.push(token);
+  }
+
+  for (const match of masked.matchAll(/\b([A-Za-z_$][\w$]*)\s*\(/gu)) {
+    const value = match[1] ?? '';
+    if (value === '' || RESERVED_WORDS.has(value)) continue;
+    const offset = (match.index ?? 0) + match[0].indexOf(value);
+    const before = masked.slice(Math.max(0, offset - 16), offset).trimEnd();
+    if (before.endsWith('.') || before.endsWith('function') || before.endsWith('new')) continue;
+    const token = semanticTokenAt(masked, lineStarts, offset, value.length, 'ideaMethod', 45);
+    if (token !== null) tokens.push(token);
+  }
+
+  for (const match of masked.matchAll(/\breturn\s+([A-Za-z_$][\w$]*)/gu)) {
+    const value = match[1] ?? '';
+    if (value === '' || RESERVED_WORDS.has(value)) continue;
+    const offset = (match.index ?? 0) + match[0].lastIndexOf(value);
+    const token = semanticTokenAt(masked, lineStarts, offset, value.length, 'ideaVariable', 35);
+    if (token !== null) tokens.push(token);
+  }
+  return tokens;
+}
+
+/** Prevent overlapping semantic spans; Monaco rejects overlapping tokens. */
+export function mergeIdeaLightSemanticTokens(tokens: readonly IdeaLightSemanticToken[]): IdeaLightSemanticToken[] {
+  const sorted = [...tokens]
+    .filter(
+      (token) =>
+        Number.isInteger(token.line) &&
+        token.line >= 0 &&
+        Number.isInteger(token.startCharacter) &&
+        token.startCharacter >= 0 &&
+        Number.isInteger(token.length) &&
+        token.length > 0,
+    )
+    .sort(
+      (left, right) =>
+        left.line - right.line ||
+        left.startCharacter - right.startCharacter ||
+        (right.priority ?? 0) - (left.priority ?? 0) ||
+        right.length - left.length,
+    );
+  const accepted: IdeaLightSemanticToken[] = [];
+  let currentLine = -1;
+  let currentEnd = -1;
+  for (const token of sorted) {
+    const start = token.startCharacter;
+    const end = start + token.length;
+    if (token.line !== currentLine) {
+      currentLine = token.line;
+      currentEnd = end;
+      accepted.push(token);
+      continue;
+    }
+    if (start < currentEnd) continue;
+    currentEnd = end;
+    accepted.push(token);
+  }
+  return accepted;
+}
+
+/** Encode semantic tokens in Monaco's sorted, delta-based wire format. */
+export function encodeIdeaLightSemanticTokens(tokens: readonly IdeaLightSemanticToken[]): Uint32Array {
+  const merged = mergeIdeaLightSemanticTokens(tokens);
+  const typeIndex = new Map<string, number>(
+    IDEA_LIGHT_SEMANTIC_TOKEN_TYPES.map((tokenType, index) => [tokenType, index]),
+  );
+  const data: number[] = [];
+  let previousLine = 0;
+  let previousStart = 0;
+  for (const token of merged) {
+    const tokenType = typeof token.tokenType === 'number' ? token.tokenType : (typeIndex.get(token.tokenType) ?? 0);
+    const deltaLine = token.line - previousLine;
+    const deltaStart = deltaLine === 0 ? token.startCharacter - previousStart : token.startCharacter;
+    data.push(deltaLine, deltaStart, token.length, tokenType, token.tokenModifiers ?? 0);
+    previousLine = token.line;
+    previousStart = token.startCharacter;
+  }
+  return Uint32Array.from(data);
+}

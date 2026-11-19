@@ -9,7 +9,9 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const workspaceSource = readFileSync(join(root, 'src/client/editor-workspace.tsx'), 'utf8');
 const source = [
   workspaceSource,
-  readFileSync(join(root, 'src/client/components/project/ProjectPanel.tsx'), 'utf8'),
+  readFileSync(join(root, 'src/client/components/project/ProjectPanel.tsx'), 'utf8') +
+    '\n' +
+    readFileSync(join(root, 'src/client/components/project/FileTreeView.tsx'), 'utf8'),
   readFileSync(join(root, 'src/client/components/commit/CommitPanel.tsx'), 'utf8'),
   readFileSync(join(root, 'src/client/components/terminal/TerminalPanel.tsx'), 'utf8'),
 ].join('\n');
@@ -76,7 +78,7 @@ test('a tree click leaves the caret in the tree', () => {
   /* The tree's keys (F2, Delete, ⌘R, typeahead) only fire from inside the tree,
      and opening a file used to move focus into Monaco. Measured before the fix:
      Shift+F6 / Alt+2 with a row clicked did nothing at all. */
-  const block = slice('onMouseDown={(event) => {', 'onDoubleClick=');
+  const block = slice('onRowPointerDown={(state, event) => {', 'onRowClick=');
   assert.match(block, /if \(event\.button !== 0\) return;/);
   assert.match(block, /treeRef\.current\?\.focus\(\);/);
   /* A click that lands on the inline rename field must not blur it. */
@@ -86,7 +88,10 @@ test('a tree click leaves the caret in the tree', () => {
 test('the editor does not steal focus from a tree click', () => {
   const block = slice('const inlineEditing =', 'revealLines(activePath');
   assert.match(block, /const inTree = activeNode\?\.closest\('\[role="tree"\]'\) != null;/);
-  assert.match(block, /if \(!inlineEditing && !inTree && !inTabs\) editor\.focus\(\);/);
+  assert.match(
+    block,
+    /if \(!inlineEditing && !inTree && !inTabs && suppressEditorAutofocusRef\.current !== true\) editor\.focus\(\);/,
+  );
 });
 
 test('⇧F6 renames the selected row and ⌘R refreshes the tree', () => {

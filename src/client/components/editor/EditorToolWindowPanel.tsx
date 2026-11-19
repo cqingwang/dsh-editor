@@ -21,6 +21,7 @@ function EditorToolWindowPanel({
   return (
     <div
       ref={panelRef}
+      data-dsh-editor-tool-window=''
       style={{
         ...styles.sidePanel,
         flex: toolPanelFlex(activity, widthPercent),

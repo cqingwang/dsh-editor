@@ -5,8 +5,16 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = (readFileSync(join(root, 'src/client/components/project/ProjectPanel.tsx'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
-const projectPanelSource = readFileSync(join(root, 'src/client/components/project/ProjectPanel.tsx'), 'utf8');
+const source =
+  readFileSync(join(root, 'src/client/components/project/ProjectPanel.tsx'), 'utf8') +
+  '\n' +
+  readFileSync(join(root, 'src/client/components/project/FileTreeView.tsx'), 'utf8') +
+  '\n' +
+  readFileSync(join(root, 'lib/client.js'), 'utf8');
+const projectPanelSource =
+  readFileSync(join(root, 'src/client/components/project/ProjectPanel.tsx'), 'utf8') +
+  '\n' +
+  readFileSync(join(root, 'src/client/components/project/FileTreeView.tsx'), 'utf8');
 
 /**
  * Read one style object from the `styles` literal by brace balance.
@@ -55,7 +63,7 @@ test('both remaining indent columns occupy the same width', () => {
 test('indent guides never draw an elbow', () => {
   assert.match(
     projectPanelSource,
-    /const kind = guideKind\(\{[\s\S]*?continues: row\.continues,[\s\S]*?index,[\s\S]*?depth: row\.depth,[\s\S]*?\}\);/,
+    /const kind = guideKind\(\{[\s\S]*?continues: row\.continues,[\s\S]*?index,[\s\S]*?depth: row\.depth \?\? 0,[\s\S]*?\}\);/,
   );
   assert.match(projectPanelSource, /kind === 'line' \? styles\.indentGuide : styles\.indentGuideStop/);
   assert.doesNotMatch(projectPanelSource, /corner|indentGuideCorner/);
@@ -78,7 +86,10 @@ test('the collapse button adopts the tab strip’s own tab height', () => {
   /* Explicit 28px made the button TALLER than a tab: the strip then pinned it to
      its top and the glyph landed ~4 CSS px below the labels (measured 39.5 vs 31.5
      device px at 2x). The box is read from a sibling tab instead of hard-coded. */
-  const helper = source.slice(source.indexOf('function matchTabMetrics('), source.indexOf('* Insert the collapse/expand button'));
+  const helper = source.slice(
+    source.indexOf('function matchTabMetrics('),
+    source.indexOf('* Insert the collapse/expand button'),
+  );
   assert.match(helper, /querySelector\('button\[role="tab"\]'\)/);
   assert.match(helper, /window\.getComputedStyle\(painted\)\.lineHeight/);
   /* Round 140 refined this: a host tab is 35px tall and hangs -10px above the
@@ -106,7 +117,10 @@ test('the collapse button is out of flow, so it cannot re-flow the tabs', () => 
   /* Its containing block is the tab ROW, not the tablist (which is only as wide
      as the tabs themselves). */
   assert.match(create, /tablist\.parentElement \?\? tablist\)\.appendChild\(chatToggle\)/);
-  const css = source.slice(source.indexOf('function installStyles('), source.indexOf('document.head.appendChild(style)'));
+  const css = source.slice(
+    source.indexOf('function installStyles('),
+    source.indexOf('document.head.appendChild(style)'),
+  );
   /* ...and the row reserves the button's width, or it would cover the last tab. */
   assert.match(css, /\[data-conversation-tabs\] \{ padding-right: 40px; box-sizing: border-box; \}/);
   assert.match(css, /\[data-conversation-tabs\] \{ position: relative; \}/);

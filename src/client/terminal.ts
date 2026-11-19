@@ -1694,6 +1694,35 @@ export function readClosedTerminals() {
   }
 }
 
+export function readTerminalDockOpen(scope?: string): boolean {
+  try {
+    return window.localStorage.getItem(`dsh-editor.terminal.open:${scope || currentTerminalScope()}`) === '1';
+  } catch {
+    return false;
+  }
+}
+
+export function writeTerminalDockOpen(open: unknown, scope?: string): void {
+  try {
+    window.localStorage.setItem(
+      `dsh-editor.terminal.open:${scope || currentTerminalScope()}`,
+      open === true ? '1' : '0',
+    );
+  } catch {
+    /* a storage-less browser simply reopens with the dock closed */
+  }
+}
+
+export function clearSessionTerminalDockOpen(): void {
+  const sessionId = currentSessionId();
+  if (sessionId === '') return;
+  try {
+    window.localStorage.removeItem(`dsh-editor.terminal.open:${sessionId}`);
+  } catch {
+    /* storage-less browsers have nothing to migrate */
+  }
+}
+
 export function readTerminalProfile() {
   try {
     const raw = window.localStorage.getItem(`dsh-editor.terminal.profile:${currentTerminalScope()}`);

@@ -102,12 +102,17 @@ test('external changes are detected by a cheap status signature poll', () => {
 });
 
 test('directories aggregate descendant git statuses as a tint, not a letter', () => {
-  const client = read('src/client/components/project/ProjectPanel.tsx') + '\n' + read('src/client/terminal.ts');
+  const client =
+    read('src/client/components/project/ProjectPanel.tsx') +
+    '\n' +
+    read('src/client/components/project/FileTreeView.tsx') +
+    '\n' +
+    read('src/client/terminal.ts');
   /* Round 129: a changed folder is tinted on its NAME; only files carry M/A/D. */
   assert.match(client, /directoryTint\(changesByDirectory\.get\(row\.path\)\)/);
   assert.match(client, /function directoryTint\(changes(?::\s*[^)]+)?\)/);
   /* Round 131 tints the NAME for both files and folders; no letter is rendered. */
-  assert.match(client, /selected \|\| directoryTintState === null \? null : \{ color: directoryTintState\.color \}/);
+  assert.match(client, /!selected && directoryTintState !== null \? \{ color: directoryTintState\.color \}/);
 });
 
 test('tree drag-and-drop moves entries and refuses self-nesting', () => {

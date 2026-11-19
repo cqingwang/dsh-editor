@@ -1,11 +1,12 @@
 import React from 'react';
 import { styles } from '../../ui/styles';
 import { EDITOR_TEXT_STYLE } from '../editor/editor-style-model';
-import { EntryIcon } from '../ui/EntryIcon';
 import { Icon } from '../ui/Icon';
 import { ContextMenu } from '../ui/Menu';
 import { PanelToolbar } from '../ui/PanelToolbar';
+import { ToolbarButton } from '../ui/ToolbarButton';
 import { TreeMessage } from '../ui/TreeMessage';
+import { FileTreeView, type FileTreeViewRowDecoration, type FileTreeViewRowState } from './FileTreeView';
 import { projectContextMenuRowAfterKeyboard } from './project-selection-model';
 import { copySearchResultText } from '../../commit';
 import { basename, callFs, splitRootLabel } from '../../editor-core';
@@ -22,7 +23,6 @@ import {
   branchLabel,
   directoryTint,
   filterTreeRows,
-  guideKind,
   highlightParts,
   indexChangesByDirectory,
   projectCanExpandSelection,
@@ -40,7 +40,12 @@ import type { ProjectDropHandles } from '../../project';
 type Translate = (key: string, params?: Record<string, unknown>) => string;
 type ProjectRow = Record<string, unknown> & {
   path: string;
+  name?: string;
   kind?: string;
+  depth?: number;
+  root?: boolean;
+  searchOpen?: boolean;
+  continues?: boolean[];
 };
 type ProjectCallback = (...args: unknown[]) => void;
 interface ProjectPanelGit {
@@ -251,6 +256,7 @@ function ProjectPanel({
   const [searchError, setSearchError] = React.useState(null);
   const [searchTruncated, setSearchTruncated] = React.useState(false);
   const searchRef = React.useRef(null);
+  const directSpeedSearchRef = React.useRef('');
   const searchRequestRef = React.useRef(0);
   const closeProjectViewMenu = React.useCallback(() => {
     setViewMenu(null);
@@ -279,6 +285,7 @@ function ProjectPanel({
       if (document.activeElement?.closest('[data-dsh-terminal-pane]') != null) return;
       event.preventDefault();
       event.stopPropagation();
+      directSpeedSearchRef.current = '';
       setSearchOpen(true);
       window.setTimeout(() => searchRef.current?.focus(), 0);
     };
@@ -402,6 +409,7 @@ function ProjectPanel({
     setSearchTruncated(false);
   }, []);
   const closeTreeSearch = () => {
+    directSpeedSearchRef.current = '';
     clearTreeSearchState();
     setSearchOpen(false);
     window.setTimeout(() => treeRef.current?.focus(), 0);
@@ -496,6 +504,296 @@ function ProjectPanel({
   const viewDefinitions = React.useMemo(() => projectViewDefinitions(t), [t]);
   const currentViewLabel =
     viewDefinitions.find((definition) => definition.id === projectView)?.label ?? t('editor.projectViewProjectFiles');
+  const positionForProjectRow = (row: ProjectRow) =>
+    projectRowPresentationByPath.get(row.path)?.projectRowPosition ?? {
+      level: (row.depth ?? 0) + 1,
+      posinset: 1,
+      setsize: visibleRows.length,
+    };
+  const openProjectRow = (row: ProjectRow): boolean =>
+    projectRowPresentationByPath.get(row.path)?.open ?? (row.searchOpen === true || expanded.has(row.path));
+  const decorateProjectRow = (state: FileTreeViewRowState<ProjectRow>): FileTreeViewRowDecoration => {
+    const { row } = state;
+    return {
+      style: {
+        ...(externalDropPath === row.path
+          ? {
+              position: 'relative',
+            }
+          : null),
+        ...(manualDrop?.path === row.path
+          ? manualDrop.edge === 'after'
+            ? {
+                boxShadow: 'inset 0 -2px 0 var(--dsw-alias-state-business-primary)',
+              }
+            : {
+                boxShadow: 'inset 0 2px 0 var(--dsw-alias-state-business-primary)',
+              }
+          : null),
+      },
+      title: row.path === '' ? root : row.path,
+      draggable: !row.root,
+      onDragStart: (event) => {
+        const payload =
+          selection.has(row.path) && selection.size > 1
+            ? rows.filter((entry) => selection.has(entry.path) && entry.path !== '').map((entry) => entry.path)
+            : [row.path];
+        event.dataTransfer?.setData('text/plain', payload.join('\n'));
+        event.dataTransfer.effectAllowed = 'move';
+      },
+      onDragEnd: () => {
+        setManualDrop(null);
+        setRootDropActive(false);
+        setExternalDropPath(null);
+      },
+      onDragOver: (event) => {
+        if (dataTransferIncludesFiles(event.dataTransfer)) {
+          event.preventDefault();
+          event.stopPropagation();
+          const targetDirectory = projectExternalDropDirectory(row);
+          event.dataTransfer.dropEffect = 'copy';
+          setManualDrop(null);
+          setExternalDropPath(targetDirectory);
+          return;
+        }
+        if (!event.dataTransfer?.types?.includes('text/plain')) return;
+        if (sortMode === 'manual') {
+          event.preventDefault();
+          event.stopPropagation();
+          const rect = event.currentTarget.getBoundingClientRect();
+          const edge = event.clientY < rect.top + rect.height / 2 ? 'before' : 'after';
+          event.dataTransfer.dropEffect = 'move';
+          setManualDrop({
+            path: row.path,
+            edge,
+          });
+          return;
+        }
+        if (!state.isDirectory) return;
+        event.preventDefault();
+        event.dataTransfer.dropEffect = 'move';
+      },
+      onDragLeave: (event) => {
+        if (event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget)) return;
+        if (manualDrop?.path === row.path) setManualDrop(null);
+        if (externalDropPath !== null) setExternalDropPath(null);
+      },
+      onDrop: (event) => {
+        if (dataTransferIncludesFiles(event.dataTransfer)) {
+          event.preventDefault();
+          event.stopPropagation();
+          setExternalDropPath(null);
+          const targetDirectory = projectExternalDropDirectory(row);
+          const handles = captureDroppedWorkspaceHandles(event.dataTransfer);
+          if (typeof onUpload === 'function') onUpload(handles, targetDirectory);
+          return;
+        }
+        if (sortMode === 'manual') {
+          event.preventDefault();
+          event.stopPropagation();
+          const sources = (event.dataTransfer?.getData('text/plain') ?? '').split('\n').filter((entry) => entry !== '');
+          const edge = manualDrop?.path === row.path ? manualDrop.edge : 'before';
+          setManualDrop(null);
+          if (sources.length > 0) onManualReorder(sources, row.path, edge);
+          return;
+        }
+        if (!state.isDirectory) return;
+        event.preventDefault();
+        const sources = (event.dataTransfer?.getData('text/plain') ?? '').split('\n').filter((entry) => entry !== '');
+        if (sources.length === 0 || sources.includes(row.path)) return;
+        onDrop(sources, row.path);
+      },
+    };
+  };
+  const renderProjectRowName = (state: FileTreeViewRowState<ProjectRow>): React.ReactNode => {
+    const { row, selected } = state;
+    const projectRowPresentation = projectRowPresentationByPath.get(row.path);
+    if (projectRowPresentation === undefined) return null;
+    const { directoryTintState, statusColor } = projectRowPresentation;
+    return (
+      <span
+        style={{
+          ...styles.treeName,
+          ...(row.root ? styles.treeRootName : null),
+          ...(row.root ? styles.treeRootLabel : null),
+          ...(selected ? { color: '#fff' } : null),
+          ...(!selected && statusColor !== null ? { color: statusColor } : null),
+          ...(!selected && directoryTintState !== null ? { color: directoryTintState.color } : null),
+          ...(deletedPaths?.has?.(row.path)
+            ? {
+                textDecoration: 'line-through',
+                opacity: 0.6,
+              }
+            : null),
+          ...(newPaths?.has?.(row.path)
+            ? {
+                color: '#1a7f37',
+              }
+            : null),
+        }}>
+        {search.trim() === ''
+          ? row.name
+          : (projectNamePartsByPath.get(row.path) ?? []).map((part, index) =>
+              part.match ? (
+                <span
+                  key={index}
+                  style={styles.treeNameMatch}>
+                  {part.text}
+                </span>
+              ) : (
+                <span key={index}>{part.text}</span>
+              ),
+            )}
+      </span>
+    );
+  };
+  const renderProjectRowInlineEditor = (row: ProjectRow): React.ReactNode | null => {
+    if (renameState === null || renameState.path !== row.path) return null;
+    return (
+      <input
+        ref={renameInputRef}
+        data-dsh-project-rename=''
+        style={styles.renameInput}
+        value={renameState.value}
+        autoFocus={true}
+        onClick={(event) => event.stopPropagation()}
+        onChange={(event) => onRenameChange(event.target.value)}
+        onBlur={() => {
+          if (!renameReadyRef.current) return;
+          renameReadyRef.current = false;
+          onRenameCommit();
+        }}
+        onKeyDown={(event) => {
+          if (event.nativeEvent.isComposing === true) return;
+          if (event.key === 'Enter') {
+            event.preventDefault();
+            renameReadyRef.current = false;
+            onRenameCommit();
+          } else if (event.key === 'Escape') {
+            event.preventDefault();
+            renameReadyRef.current = false;
+            onRenameCancel();
+            window.setTimeout(() => treeRef.current?.focus(), 0);
+          }
+        }}
+      />
+    );
+  };
+  const renderProjectRowTrailing = (state: FileTreeViewRowState<ProjectRow>): React.ReactNode => {
+    const { row, selected } = state;
+    return (
+      <React.Fragment>
+        {row.root ? (
+          <React.Fragment>
+            {branchLabel(git) !== '' ? (
+              <span
+                style={{
+                  ...styles.branchChip,
+                  marginLeft: 6,
+                }}>
+                {branchLabel(git)}
+              </span>
+            ) : null}
+            <span
+              style={{
+                ...styles.treeRootPath,
+                color: selected ? 'rgba(255,255,255,0.72)' : undefined,
+              }}
+              title={root}>
+              {splitRootLabel(root, home).path}
+            </span>
+          </React.Fragment>
+        ) : null}
+        {externalDropPath === row.path ? (
+          <span
+            data-dsh-project-file-drop-line={row.path}
+            aria-hidden={true}
+            style={{
+              position: 'absolute',
+              left: 8 + (row.depth ?? 0) * 14 + 18,
+              right: 8,
+              bottom: 0,
+              height: 2,
+              borderRadius: 2,
+              background: 'var(--dsw-alias-state-business-primary)',
+              pointerEvents: 'none',
+            }}
+          />
+        ) : null}
+      </React.Fragment>
+    );
+  };
+  const treeStatusContent = (
+    <React.Fragment>
+      {shouldShowTreeLoading({
+        loading,
+        rowCount: visibleRows.length,
+      }) ? (
+        <TreeMessage
+          state='loading'
+          busy={true}>
+          {t('editor.loading')}
+        </TreeMessage>
+      ) : null}
+      {loading !== true &&
+      error === null &&
+      search.trim() === '' &&
+      visibleRows.length === 0 &&
+      typeof emptyMessage === 'string' &&
+      emptyMessage !== '' ? (
+        <TreeMessage state='empty'>{emptyMessage}</TreeMessage>
+      ) : null}
+      {error !== null ? (
+        <TreeMessage
+          state='error'
+          role='alert'
+          live='assertive'>
+          <span
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 6,
+              minWidth: 0,
+            }}>
+            <span
+              style={{
+                minWidth: 0,
+                overflowWrap: 'anywhere',
+              }}>
+              {error}
+            </span>
+            <button
+              type='button'
+              style={styles.conflictAction}
+              onClick={() => {
+                onRefresh();
+                window.setTimeout(() => treeRef.current?.focus(), 0);
+              }}>
+              {t('editor.refresh')}
+            </button>
+          </span>
+        </TreeMessage>
+      ) : null}
+      {searchError !== null && search.trim() !== '' ? (
+        <TreeMessage
+          state='search-error'
+          role='alert'
+          live='assertive'>
+          {`${t('editor.treeSearchFailed')}: ${searchError}`}
+        </TreeMessage>
+      ) : null}
+      {treeSearchMiss({
+        error: searchError,
+        query: search,
+        rows: visibleRows,
+        loading: searchPending,
+      }) ? (
+        <TreeMessage state='no-matches'>{t('editor.noMatches')}</TreeMessage>
+      ) : null}
+      {searchTruncated ? <TreeMessage state='truncated'>{t('editor.treeSearchTruncated')}</TreeMessage> : null}
+    </React.Fragment>
+  );
   return (
     <React.Fragment>
       {viewMenu === null ? null : (
@@ -741,6 +1039,9 @@ function ProjectPanel({
             placeholder={t('editor.treeSearchPlaceholder')}
             value={search}
             aria-label={t('editor.treeSearch')}
+            onFocus={() => {
+              directSpeedSearchRef.current = '';
+            }}
             onChange={(event) => setSearch(event.target.value)}
             onKeyDown={(event) => {
               if (event.nativeEvent.isComposing === true) return;
@@ -761,6 +1062,7 @@ function ProjectPanel({
                 if (hit === undefined) return;
                 onSelect(hit, {});
                 /* Close the box so the opened file (or folder) owns the keyboard. */
+                directSpeedSearchRef.current = '';
                 clearTreeSearchState();
                 setSearchOpen(false);
                 /* Expand a CLOSED folder; an open one stays open (toggling would
@@ -783,12 +1085,11 @@ function ProjectPanel({
               }
             }}
           />
-          <button
-            type='button'
-            style={styles.conflictAction}
-            onClick={closeTreeSearch}>
-            ×
-          </button>
+          <ToolbarButton
+            icon='close'
+            label={t('editor.treeSearchClose')}
+            onClick={closeTreeSearch}
+          />
         </div>
       ) : null}
       {createState !== null ? (
@@ -851,15 +1152,50 @@ function ProjectPanel({
           }
         </div>
       ) : null}
-      <div
-        className='dsh-editor-tool-scroll'
-        ref={treeRef}
-        tabIndex={0}
-        style={{
-          ...styles.treeScroll,
-          ...(rootDropActive ? styles.treeRootDrop : null),
+      <FileTreeView
+        t={t}
+        ariaLabel={t('editor.project')}
+        rows={visibleRows}
+        expanded={expanded}
+        selection={selection}
+        primaryPath={selectedPath}
+        treeRef={treeRef}
+        rowRefs={rowRefs}
+        ariaBusy={uploadBusy || loading || searchPending}
+        treeStyle={rootDropActive ? styles.treeRootDrop : undefined}
+        treeDataAttributes={{
+          'data-dsh-project-tree': '',
         }}
-        onKeyDown={(event) => {
+        statusContent={treeStatusContent}
+        positionForRow={positionForProjectRow}
+        openForRow={openProjectRow}
+        decorateRow={decorateProjectRow}
+        renderName={renderProjectRowName}
+        renderInlineEditor={renderProjectRowInlineEditor}
+        renderTrailing={renderProjectRowTrailing}
+        onTreeKeyDown={(event) => {
+          const editing = event.target instanceof Element && event.target.closest('input, textarea, select') !== null;
+          if (
+            editing === false &&
+            event.nativeEvent.isComposing !== true &&
+            event.key.length === 1 &&
+            !event.metaKey &&
+            !event.ctrlKey &&
+            !event.altKey
+          ) {
+            event.preventDefault();
+            event.stopPropagation();
+            const nextSearch = directSpeedSearchRef.current + event.key;
+            directSpeedSearchRef.current = nextSearch;
+            setSearch(nextSearch);
+            setSearchOpen(true);
+            window.setTimeout(() => {
+              searchRef.current?.focus();
+              const input = searchRef.current;
+              input?.setSelectionRange(input.value.length, input.value.length);
+            }, 0);
+            return;
+          }
           if (event.key === 'ContextMenu' || (event.shiftKey === true && event.key === 'F10')) {
             event.preventDefault();
             event.stopPropagation();
@@ -868,7 +1204,7 @@ function ProjectPanel({
           }
           onTreeKeyDown(event);
         }}
-        onContextMenu={(event) => {
+        onTreeContextMenu={(event) => {
           if (event.target instanceof Element && event.target.closest('.dsh-editor-tree-row') !== null) return;
           event.preventDefault();
           event.stopPropagation();
@@ -878,11 +1214,7 @@ function ProjectPanel({
             y: event.clientY,
           });
         }}
-        role='tree'
-        aria-busy={uploadBusy || loading || searchPending ? 'true' : undefined}
-        aria-label={t('editor.project')}
-        data-dsh-project-tree=''
-        onDragOver={(event) => {
+        onTreeDragOver={(event) => {
           const externalFiles = dataTransferIncludesFiles(event.dataTransfer);
           if (!externalFiles && !event.dataTransfer?.types?.includes('text/plain')) return;
           event.preventDefault();
@@ -892,12 +1224,12 @@ function ProjectPanel({
             setRootDropActive(true);
           } else if (sortMode !== 'manual') setRootDropActive(true);
         }}
-        onDragLeave={(event) => {
+        onTreeDragLeave={(event) => {
           if (event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget)) return;
           setRootDropActive(false);
           setExternalDropPath(null);
         }}
-        onDrop={(event) => {
+        onTreeDrop={(event) => {
           const externalFiles = dataTransferIncludesFiles(event.dataTransfer);
           const raw = externalFiles ? '' : (event.dataTransfer?.getData('text/plain') ?? '');
           const sources = raw.split('\n').filter((entry) => entry !== '');
@@ -912,418 +1244,41 @@ function ProjectPanel({
             return;
           }
           if (sortMode !== 'manual') onDrop(sources, '');
-        }}>
-        {shouldShowTreeLoading({
-          loading,
-          rowCount: visibleRows.length,
-        }) ? (
-          <TreeMessage
-            state='loading'
-            busy={true}>
-            {t('editor.loading')}
-          </TreeMessage>
-        ) : null}
-        {loading !== true &&
-        error === null &&
-        search.trim() === '' &&
-        visibleRows.length === 0 &&
-        typeof emptyMessage === 'string' &&
-        emptyMessage !== '' ? (
-          <TreeMessage state='empty'>{emptyMessage}</TreeMessage>
-        ) : null}
-        {error !== null ? (
-          <TreeMessage
-            state='error'
-            role='alert'
-            live='assertive'>
-            <span
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: 6,
-                minWidth: 0,
-              }}>
-              <span
-                style={{
-                  minWidth: 0,
-                  overflowWrap: 'anywhere',
-                }}>
-                {error}
-              </span>
-              <button
-                type='button'
-                style={styles.conflictAction}
-                onClick={() => {
-                  onRefresh();
-                  window.setTimeout(() => treeRef.current?.focus(), 0);
-                }}>
-                {t('editor.refresh')}
-              </button>
-            </span>
-          </TreeMessage>
-        ) : null}
-        {searchError !== null && search.trim() !== '' ? (
-          <TreeMessage
-            state='search-error'
-            role='alert'
-            live='assertive'>
-            {`${t('editor.treeSearchFailed')}: ${searchError}`}
-          </TreeMessage>
-        ) : null}
-        {treeSearchMiss({
-          error: searchError,
-          query: search,
-          rows: visibleRows,
-          loading: searchPending,
-        }) ? (
-          <TreeMessage state='no-matches'>{t('editor.noMatches')}</TreeMessage>
-        ) : null}
-        {searchTruncated ? <TreeMessage state='truncated'>{t('editor.treeSearchTruncated')}</TreeMessage> : null}
-        {visibleRows.map((row, rowIndex) => {
-          if (row.kind === 'placeholder') {
-            return (
-              <div
-                key={row.path}
-                className='dsh-editor-tree-row dsh-editor-tree-row-placeholder'
-                data-dsh-placeholder={row.path}
-                style={{
-                  ...styles.treeRow,
-                  paddingLeft: 8 + row.depth * 14,
-                  color: 'var(--dsw-alias-label-tertiary)',
-                  fontStyle: 'italic',
-                  cursor: 'default',
-                }}>
-                {t('editor.emptyDirectory')}
-              </div>
-            );
-          }
-          const selected = selection.has(row.path);
-          const primary = row.path === selectedPath;
-          const isDirectory = row.kind === 'directory';
-          const projectRowPresentation = projectRowPresentationByPath.get(row.path);
-          if (projectRowPresentation === undefined) return null;
-          const { directoryTintState, open, projectRowPosition, statusColor } = projectRowPresentation;
-          return (
-            <div
-              key={row.path === '' ? '__root__' : row.path}
-              ref={(element) => {
-                if (element !== null) rowRefs.current.set(row.path, element);
-                else rowRefs.current.delete(row.path);
-              }}
-              className={
-                selected
-                  ? primary
-                    ? 'dsh-editor-tree-row dsh-editor-tree-row-selected'
-                    : 'dsh-editor-tree-row dsh-editor-tree-row-selected dsh-editor-tree-row-extended'
-                  : 'dsh-editor-tree-row'
-              }
-              style={{
-                ...styles.treeRow,
-                ...(selected ? (primary ? styles.treeRowSelected : styles.treeRowSelectedSoft) : null),
-                ...(externalDropPath === row.path
-                  ? {
-                      position: 'relative',
-                    }
-                  : null),
-                ...(manualDrop?.path === row.path
-                  ? manualDrop.edge === 'after'
-                    ? {
-                        boxShadow: 'inset 0 -2px 0 var(--dsw-alias-state-business-primary)',
-                      }
-                    : {
-                        boxShadow: 'inset 0 2px 0 var(--dsw-alias-state-business-primary)',
-                      }
-                  : null),
-              }}
-              title={row.path === '' ? root : row.path}
-              data-dsh-project-row-index={rowIndex}
-              role='treeitem'
-              aria-level={projectRowPosition.level}
-              aria-posinset={projectRowPosition.posinset}
-              aria-setsize={projectRowPosition.setsize}
-              aria-expanded={isDirectory ? open : undefined}
-              aria-selected={selected}
-              onClick={(event) => {
-                if (event.metaKey || event.ctrlKey || event.shiftKey) return;
-                if (isDirectory) {
-                  if (row.root !== true && openDirectoriesSingleClick === true) onToggle(row.path);
-                } else if (singleClickOpen === true) onOpenPreview(row.path);
-              }}
-              onMouseDown={(event) => {
-                if (event.button !== 0) return;
-                if (event.target instanceof Element && event.target.closest('input') !== null) return;
-                treeRef.current?.focus();
-                onSelect(row, event);
-              }}
-              onDoubleClick={(event) => {
-                if (row.root) return;
-                if (isDirectory && openDirectoriesSingleClick !== true) onToggle(row.path);
-                else if (!isDirectory && singleClickOpen !== true) onOpenEditSource(row.path);
-                /* Keep the second click from toggling the directory back. */
-                event.stopPropagation();
-              }}
-              onContextMenu={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                /* Right-clicking outside the selection moves it; inside it acts on all rows. */
-                if (!selection.has(row.path)) onSelect(row, {});
-                onContextMenu({
-                  row,
-                  x: event.clientX,
-                  y: event.clientY,
-                });
-              }}
-              draggable={!row.root}
-              onDragStart={(event) => {
-                /* Dragging a row inside a multi-row selection moves the whole selection. */
-                const payload =
-                  selection.has(row.path) && selection.size > 1
-                    ? rows.filter((entry) => selection.has(entry.path) && entry.path !== '').map((entry) => entry.path)
-                    : [row.path];
-                event.dataTransfer?.setData('text/plain', payload.join('\n'));
-                event.dataTransfer.effectAllowed = 'move';
-              }}
-              onDragEnd={() => {
-                setManualDrop(null);
-                setRootDropActive(false);
-                setExternalDropPath(null);
-              }}
-              onDragOver={(event) => {
-                if (dataTransferIncludesFiles(event.dataTransfer)) {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  const targetDirectory = projectExternalDropDirectory(row);
-                  event.dataTransfer.dropEffect = 'copy';
-                  setManualDrop(null);
-                  setExternalDropPath(targetDirectory);
-                  return;
-                }
-                if (!event.dataTransfer?.types?.includes('text/plain')) return;
-                if (sortMode === 'manual') {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  const rect = event.currentTarget.getBoundingClientRect();
-                  const edge = event.clientY < rect.top + rect.height / 2 ? 'before' : 'after';
-                  event.dataTransfer.dropEffect = 'move';
-                  setManualDrop({
-                    path: row.path,
-                    edge,
-                  });
-                  return;
-                }
-                if (!isDirectory) return;
-                event.preventDefault();
-                event.dataTransfer.dropEffect = 'move';
-              }}
-              onDragLeave={(event) => {
-                if (event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget)) return;
-                if (manualDrop?.path === row.path) setManualDrop(null);
-                if (externalDropPath !== null) setExternalDropPath(null);
-              }}
-              onDrop={(event) => {
-                if (dataTransferIncludesFiles(event.dataTransfer)) {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  setExternalDropPath(null);
-                  const targetDirectory = projectExternalDropDirectory(row);
-                  const handles = captureDroppedWorkspaceHandles(event.dataTransfer);
-                  if (typeof onUpload === 'function') onUpload(handles, targetDirectory);
-                  return;
-                }
-                if (sortMode === 'manual') {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  const sources = (event.dataTransfer?.getData('text/plain') ?? '')
-                    .split('\n')
-                    .filter((entry) => entry !== '');
-                  const edge = manualDrop?.path === row.path ? manualDrop.edge : 'before';
-                  setManualDrop(null);
-                  if (sources.length > 0) onManualReorder(sources, row.path, edge);
-                  return;
-                }
-                if (!isDirectory) return;
-                event.preventDefault();
-                /* One path per line: the drop handler moves each of them. */
-                const sources = (event.dataTransfer?.getData('text/plain') ?? '')
-                  .split('\n')
-                  .filter((entry) => entry !== '');
-                if (sources.length === 0 || sources.includes(row.path)) return;
-                onDrop(sources, row.path);
-              }}>
-              {
-                /* Indentation FIRST, then the chevron: with the guides after it every
-             row's arrow sat at the same left edge, so a nested folder looked like a
-             sibling and the hierarchy only showed as trailing whitespace. */
-                row.depth > 0
-                  ? Array.from(
-                      {
-                        length: row.depth,
-                      },
-                      (_, index) => {
-                        const kind = guideKind({
-                          continues: row.continues,
-                          index,
-                          depth: row.depth,
-                        });
-                        return (
-                          <span
-                            key={index}
-                            style={kind === 'line' ? styles.indentGuide : styles.indentGuideStop}
-                          />
-                        );
-                      },
-                    )
-                  : null
-              }
-              {row.root ? null : isDirectory ? (
-                <span
-                  style={{
-                    ...styles.chevron,
-                    color: selected ? '#fff' : 'var(--dsw-alias-label-tertiary)',
-                  }}
-                  role='button'
-                  tabIndex={-1}
-                  aria-label={open ? t('editor.collapseFolder') : t('editor.expandFolder')}
-                  title={open ? t('editor.collapseFolder') : t('editor.expandFolder')}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    onToggle(row.path);
-                  }}>
-                  <Icon
-                    name={open ? 'chevronDown' : 'chevronRight'}
-                    size={10}
-                  />
-                </span> /* Files keep the column so their icon lines up with sibling folders. */
-              ) : (
-                <span
-                  style={{
-                    ...styles.chevron,
-                    opacity: 0,
-                  }}
-                />
-              )}
-              <EntryIcon
-                entry={row}
-                expanded={open}
-              />
-              {renameState !== null && renameState.path === row.path ? (
-                <input
-                  ref={renameInputRef}
-                  data-dsh-project-rename=''
-                  style={styles.renameInput}
-                  value={renameState.value}
-                  autoFocus={true}
-                  onClick={(event) => event.stopPropagation()}
-                  onChange={(event) => onRenameChange(event.target.value)}
-                  onBlur={() => {
-                    if (!renameReadyRef.current) return;
-                    renameReadyRef.current = false;
-                    onRenameCommit();
-                  }}
-                  onKeyDown={(event) => {
-                    if (event.nativeEvent.isComposing === true) return;
-                    if (event.key === 'Enter') {
-                      event.preventDefault();
-                      renameReadyRef.current = false;
-                      onRenameCommit();
-                    } else if (event.key === 'Escape') {
-                      event.preventDefault();
-                      renameReadyRef.current = false;
-                      onRenameCancel();
-                      window.setTimeout(() => treeRef.current?.focus(), 0);
-                    }
-                  }}
-                />
-              ) : (
-                <span
-                  style={{
-                    ...styles.treeName,
-                    ...(row.root ? styles.treeRootName : null),
-                    /* The root's folder name is the part that identifies the
-               project; only the path beside it may be truncated. */
-                    ...(row.root ? styles.treeRootLabel : null),
-                    ...(selected
-                      ? {
-                          color: '#fff',
-                        }
-                      : null),
-                    /* Files and folders alike: a change tints the name, never a letter. */
-                    ...(selected || statusColor === null ? null : { color: statusColor }),
-                    ...(selected || directoryTintState === null ? null : { color: directoryTintState.color }),
-                    /* IDEA strikes through a file that vanished from disk. */
-                    ...(deletedPaths?.has?.(row.path)
-                      ? {
-                          textDecoration: 'line-through',
-                          opacity: 0.6,
-                        }
-                      : null),
-                    /* A file created outside the editor is tinted once, like IDEA's "new" hint. */
-                    ...(newPaths?.has?.(row.path)
-                      ? {
-                          color: '#1a7f37',
-                        }
-                      : null),
-                  }}>
-                  {
-                    /* Speed search underlines what matched; the rest keeps its colour. */
-                    search.trim() === ''
-                      ? row.name
-                      : (projectNamePartsByPath.get(row.path) ?? []).map((part, index) =>
-                          part.match ? (
-                            <span
-                              key={index}
-                              style={styles.treeNameMatch}>
-                              {part.text}
-                            </span>
-                          ) : (
-                            <span key={index}>{part.text}</span>
-                          ),
-                        )
-                  }
-                </span>
-              )}
-              {row.root ? (
-                <React.Fragment>
-                  {branchLabel(git) !== '' ? (
-                    <span
-                      style={{
-                        ...styles.branchChip,
-                        marginLeft: 6,
-                      }}>
-                      {branchLabel(git)}
-                    </span>
-                  ) : null}
-                  <span
-                    style={{
-                      ...styles.treeRootPath,
-                      color: selected ? 'rgba(255,255,255,0.72)' : undefined,
-                    }}
-                    title={root}>
-                    {splitRootLabel(root, home).path}
-                  </span>
-                </React.Fragment>
-              ) : null}
-              {externalDropPath === row.path ? (
-                <span
-                  data-dsh-project-file-drop-line={row.path}
-                  aria-hidden={true}
-                  style={{
-                    position: 'absolute',
-                    left: 8 + row.depth * 14 + 18,
-                    right: 8,
-                    bottom: 0,
-                    height: 2,
-                    borderRadius: 2,
-                    background: 'var(--dsw-alias-state-business-primary)',
-                    pointerEvents: 'none',
-                  }}
-                />
-              ) : null}
-            </div>
-          );
-        })}
-      </div>
+        }}
+        onRowPointerDown={(state, event) => {
+          const { row } = state;
+          if (event.button !== 0) return;
+          if (event.target instanceof Element && event.target.closest('input') !== null) return;
+          treeRef.current?.focus();
+          onSelect(row, event);
+        }}
+        onRowClick={(state, event) => {
+          const { row, isDirectory } = state;
+          if (event.metaKey || event.ctrlKey || event.shiftKey) return;
+          if (isDirectory) {
+            if (row.root !== true && openDirectoriesSingleClick === true) onToggle(row.path);
+          } else if (singleClickOpen === true) onOpenPreview(row.path);
+        }}
+        onRowDoubleClick={(state, event) => {
+          const { row, isDirectory } = state;
+          if (row.root) return;
+          if (isDirectory && openDirectoriesSingleClick !== true) onToggle(row.path);
+          else if (!isDirectory && singleClickOpen !== true) onOpenEditSource(row.path);
+          event.stopPropagation();
+        }}
+        onRowContextMenu={(state, event) => {
+          const { row } = state;
+          event.preventDefault();
+          event.stopPropagation();
+          if (!selection.has(row.path)) onSelect(row, {});
+          onContextMenu({
+            row,
+            x: event.clientX,
+            y: event.clientY,
+          });
+        }}
+        onToggleRow={(row) => onToggle(row.path)}
+      />
     </React.Fragment>
   );
 }

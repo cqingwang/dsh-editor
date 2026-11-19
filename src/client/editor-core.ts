@@ -3,6 +3,13 @@ import type * as Monaco from 'monaco-editor';
 import { languageFor } from './components/editor/editor-language-model';
 import { dirname } from './components/editor/editor-path-model';
 import { EDITOR_CODE_FONT_SIZE, EDITOR_CODE_LINE_HEIGHT, EDITOR_UI_FONT } from './components/editor/editor-style-model';
+import {
+  IDEA_LIGHT_SEMANTIC_TOKEN_LEGEND,
+  IDEA_LIGHT_THEME_ID,
+  collectIdeaLightHeuristicSemanticTokens,
+  encodeIdeaLightSemanticTokens,
+  ideaLightTokenRules,
+} from './components/editor/editor-theme-model';
 import { navigationPathForModel } from './code-navigation';
 import { ideaControlKeyModifier, isMacPlatform } from './foundation';
 import { flattenDictionary, interpolateMessage } from './locales';
@@ -298,6 +305,26 @@ export async function callFs<T = Record<string, unknown>>(
   return data.value as T;
 }
 
+/**
+ * List child directories for Harness's Web-only workspace chooser.
+ * The host route is deliberately separate from the workspace-scoped file API.
+ */
+export async function callWorkspaceDirectoryPicker<T = Record<string, unknown>>(
+  path: string | undefined,
+  options: FileApiRequestOptions = {},
+): Promise<T> {
+  const response = await fetch('api/dsh-editor/workspace-directory', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ path: path ?? '' }),
+    signal: options.signal,
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(`workspace directory API HTTP ${response.status}`);
+  if (data?.ok !== true) throw new Error(data?.error?.message ?? 'workspace directory API failed');
+  return data.value as T;
+}
+
 /** Call the host git API. */
 export async function callGit<T = Record<string, unknown>>(
   payload: Record<string, unknown>,
@@ -342,6 +369,74 @@ export function detectTheme(): 'vs-dark' | 'vs' {
   if (/dark/i.test(explicit)) return 'vs-dark';
   if (/light/i.test(explicit)) return 'vs';
   return window.matchMedia?.('(prefers-color-scheme: dark)')?.matches === true ? 'vs-dark' : 'vs';
+}
+
+const registeredIdeaLightThemes = new WeakSet<object>();
+const registeredIdeaLightSemanticLanguages = new WeakSet<object>();
+const ideaLightSemanticCache = new WeakMap<Monaco.editor.ITextModel, { versionId: number; data: Uint32Array }>();
+
+async function provideIdeaLightSemanticTokens(
+  monaco: MonacoApi,
+  model: Monaco.editor.ITextModel,
+): Promise<{ data: Uint32Array }> {
+  const cached = ideaLightSemanticCache.get(model);
+  if (cached?.versionId === model.getVersionId()) return { data: cached.data };
+  const text = model.getValue();
+  const tokens = collectIdeaLightHeuristicSemanticTokens(text);
+  const data = encodeIdeaLightSemanticTokens(tokens);
+  ideaLightSemanticCache.set(model, { versionId: model.getVersionId(), data });
+  return { data };
+}
+
+/**
+ * Register IDEA Light semantic highlighting for JS/TS models.
+ *
+ * Monaco's stock TypeScript integration exposes diagnostics and navigation but
+ * does not install semantic tokens. The worker still publishes encoded
+ * classifications, so this provider maps those classes onto the shared light
+ * palette and supplements the categories TypeScript omits.
+ */
+export function ensureIdeaLightSemanticTokens(monaco: MonacoApi): boolean {
+  const languages = monaco.languages;
+  if (
+    registeredIdeaLightSemanticLanguages.has(monaco) ||
+    typeof languages.registerDocumentSemanticTokensProvider !== 'function'
+  ) {
+    return registeredIdeaLightSemanticLanguages.has(monaco);
+  }
+  const provider: Monaco.languages.DocumentSemanticTokensProvider = {
+    getLegend: () => IDEA_LIGHT_SEMANTIC_TOKEN_LEGEND,
+    provideDocumentSemanticTokens: (model, _lastResultId, token) =>
+      token.isCancellationRequested ? null : provideIdeaLightSemanticTokens(monaco, model),
+    releaseDocumentSemanticTokens: () => {},
+  };
+  for (const language of ['typescript', 'typescriptreact', 'javascript', 'javascriptreact']) {
+    languages.registerDocumentSemanticTokensProvider({ language }, provider);
+  }
+  registeredIdeaLightSemanticLanguages.add(monaco);
+  return true;
+}
+
+/**
+ * Return the Monaco theme for the current IDE surface. Dark mode keeps the
+ * existing `vs-dark` palette; light mode installs the IDEA Light recipe once.
+ */
+export function ensureEditorTheme(monaco: MonacoApi): string {
+  if (detectTheme() === 'vs-dark') return 'vs-dark';
+  if (!registeredIdeaLightThemes.has(monaco)) {
+    monaco.editor.defineTheme(IDEA_LIGHT_THEME_ID, {
+      base: 'vs',
+      inherit: true,
+      rules: ideaLightTokenRules(),
+      colors: {
+        'editor.foreground': '#000000',
+        'editor.background': '#ffffff',
+      },
+    });
+    registeredIdeaLightThemes.add(monaco);
+  }
+  ensureIdeaLightSemanticTokens(monaco);
+  return IDEA_LIGHT_THEME_ID;
 }
 
 /** Monotonic id source for per-editor Monaco context-key scopes. */
@@ -415,13 +510,14 @@ export function createCodeEditorGroup(
   const editor = monaco.editor.create(container, {
     value: '',
     language: 'plaintext',
-    theme: detectTheme(),
+    theme: ensureEditorTheme(monaco),
     automaticLayout: true,
     fontSize: EDITOR_CODE_FONT_SIZE,
     lineHeight: EDITOR_CODE_LINE_HEIGHT,
     minimap: { enabled: false },
     scrollBeyondLastLine: false,
     wordWrap: 'off',
+    'semanticHighlighting.enabled': true,
     tabSize: 2,
     renderWhitespace: 'selection',
     /* The tool window owns find/replace, so Monaco's own widget stays closed. */
@@ -752,10 +848,11 @@ export function ensureEditorModel(
 export function ensureDiffTheme(monaco: MonacoApi): string {
   const base = detectTheme();
   const id = base === 'vs-dark' ? 'dsh-editor-diff-dark' : 'dsh-editor-diff-light';
+  if (base !== 'vs-dark') ensureIdeaLightSemanticTokens(monaco);
   monaco.editor.defineTheme(id, {
     base,
     inherit: true,
-    rules: [],
+    rules: base === 'vs' ? ideaLightTokenRules() : [],
     colors:
       base === 'vs-dark'
         ? {
@@ -1166,6 +1263,7 @@ function configureMonacoLanguageWhenReady(
     let remaining = Math.max(1, attempts);
     const attempt = () => {
       if (configureMonacoLanguageDiagnostics(monaco, config)) {
+        ensureIdeaLightSemanticTokens(monaco);
         resolve(true);
         return;
       }

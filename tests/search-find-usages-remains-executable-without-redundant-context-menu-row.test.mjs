@@ -21,6 +21,7 @@ function extractSource(name, text = source) {
 function createGroupHarness() {
   const createGroup = new Function(
     'detectTheme',
+    'ensureEditorTheme',
     'EDITOR_UI_FONT',
     `let codeEditorGroupSequence = 0;
      const EDITOR_CODE_FONT_SIZE = 13;
@@ -32,7 +33,11 @@ function createGroupHarness() {
      ${extractSource('filterMonacoContextMenuActions')}
      ${extractSource('createCodeEditorGroup')};
      return createCodeEditorGroup;`,
-  )(() => 'vs', 'monospace');
+  )(
+    () => 'vs',
+    () => 'dsh-editor-idea-light',
+    'monospace',
+  );
   const actions = [];
   const contextKeys = new Map();
   const subscriptions = {};
@@ -84,10 +89,14 @@ function createGroupHarness() {
 test('Find Usages remains executable without the redundant context-menu row', () => {
   const harness = createGroupHarness();
   const invoked = [];
-  harness.createGroup(harness.monaco, {}, {
-    findUsagesLabel: 'Find Usages…',
-    onFindUsages: (editor) => invoked.push(editor),
-  });
+  harness.createGroup(
+    harness.monaco,
+    {},
+    {
+      findUsagesLabel: 'Find Usages…',
+      onFindUsages: (editor) => invoked.push(editor),
+    },
+  );
   const action = harness.actions.find((entry) => entry.id.startsWith('dsh-editor.findUsages'));
   assert.ok(action);
   assert.equal(action.label, 'Find Usages…');
@@ -136,12 +145,6 @@ test('per-editor context keys use the instance API and avoid the callback TDZ', 
   assert.ok(runnerRef > 0 && runnerRef < mainGroup && runnerRef < splitGroup);
   const mainEnd = source.indexOf('const editor = group.editor;', mainGroup);
   const splitEnd = source.indexOf('const editor = group.editor;', splitGroup);
-  assert.doesNotMatch(
-    workspaceSource.slice(mainGroup, mainEnd),
-    /openFindTool/u,
-  );
-  assert.doesNotMatch(
-    workspaceSource.slice(splitGroup, splitEnd),
-    /openFindTool/u,
-  );
+  assert.doesNotMatch(workspaceSource.slice(mainGroup, mainEnd), /openFindTool/u);
+  assert.doesNotMatch(workspaceSource.slice(splitGroup, splitEnd), /openFindTool/u);
 });

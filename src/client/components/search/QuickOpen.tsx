@@ -6,7 +6,7 @@ import { basename } from '../../editor-core';
 import { dirname } from '../editor/editor-path-model';
 import { fuzzyScore } from '../../find-tool';
 import { badgeFor } from '../ui/git-change-model';
-import { searchEverywhereNextFocusIndex } from '../../foundation';
+import { trapDialogFocus } from '../ui/focus-trap';
 
 type Translate = (key: string, params?: Record<string, unknown>) => string;
 
@@ -70,23 +70,8 @@ function QuickOpen({
     [files, query, recent],
   );
   const trapQuickOpenFocus = (event: React.KeyboardEvent<HTMLDivElement>): void => {
-    if (event.key !== 'Tab') return;
     const root = event.currentTarget instanceof Element ? event.currentTarget : null;
-    if (root === null) return;
-    const selector =
-      'button:not([disabled]), input:not([disabled]), select:not([disabled]), ' +
-      'textarea:not([disabled]), [tabindex="0"]:not([disabled])';
-    const focusables = [...new Set(root.querySelectorAll<HTMLElement>(selector))].filter(
-      (element) => element.tabIndex >= 0 && (element.getClientRects?.().length ?? 0) > 0,
-    );
-    if (focusables.length === 0) return;
-    const currentElement = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const currentIndex = currentElement === null ? -1 : focusables.indexOf(currentElement);
-    const nextIndex = searchEverywhereNextFocusIndex(focusables.length, currentIndex, event.shiftKey === true);
-    if (nextIndex === null) return;
-    event.preventDefault();
-    event.stopPropagation();
-    focusables[nextIndex]?.focus?.();
+    trapDialogFocus(event, root, { focusWhenOutside: true });
   };
   return (
     <div

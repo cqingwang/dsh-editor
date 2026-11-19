@@ -39,7 +39,10 @@ test('a freshly created entry opens straight into inline rename', () => {
   /* Round 143: a plain tree click also keeps the caret in the tree, which is what
      makes the tree's advertised keys (F2, Delete, ⌘R, typeahead) reachable. */
   assert.match(client, /const inTree = activeNode\?\.closest\('\[role="tree"\]'\) != null;/);
-  assert.match(client, /if \(!inlineEditing && !inTree && !inTabs\) editor\.focus\(\);/);
+  assert.match(
+    client,
+    /if \(!inlineEditing && !inTree && !inTabs && suppressEditorAutofocusRef\.current !== true\) editor\.focus\(\);/,
+  );
 });
 
 test('commit and push button is labelled and a rejected push stays visible', () => {
@@ -49,7 +52,10 @@ test('commit and push button is labelled and a rejected push stays visible', () 
   /* Round 140 replaced the icon-only second button with IDEA's labelled
      "Commit and Push…": an icon does not say what the irreversible remote action
      is, and the two buttons now read as a matched pair. */
-  const body = client.slice(client.indexOf('onClick={() => onCommit(true)}'), client.indexOf('onClick={() => onCommit(true)}') + 500);
+  const body = client.slice(
+    client.indexOf('onClick={() => onCommit(true)}'),
+    client.indexOf('onClick={() => onCommit(true)}') + 500,
+  );
   assert.match(body, /t\('editor\.commitAndPush'\)/u);
   /* The failure now has its own state so a retry button can appear. */
   assert.match(workspace, /setPushError\(\s+value\.pushError \?\? null,\s+\);/u);

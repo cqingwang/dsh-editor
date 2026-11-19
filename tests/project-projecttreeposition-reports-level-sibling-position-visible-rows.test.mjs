@@ -5,7 +5,9 @@ import test from 'node:test';
 const source =
   (await readFile(new URL('../src/client/components/commit/CommitPanel.tsx', import.meta.url), 'utf8')) +
   '\n' +
-  (await readFile(new URL('../src/client/components/project/ProjectPanel.tsx', import.meta.url), 'utf8')) +
+  ((await readFile(new URL('../src/client/components/project/ProjectPanel.tsx', import.meta.url), 'utf8')) +
+    '\n' +
+    (await readFile(new URL('../src/client/components/project/FileTreeView.tsx', import.meta.url), 'utf8'))) +
   '\n' +
   (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
 const commit = source.slice(source.indexOf('function CommitPanel('), source.indexOf('function groupActionMenuItems('));
@@ -52,9 +54,9 @@ test('Project rows expose the computed position set', () => {
     /const projectRowPositions = React\.useMemo\(\(\) => projectTreePositions\(visibleRows\), \[visibleRows\]\)/,
   );
   assert.match(source, /projectRowPosition: projectRowPositions\[rowIndex\]/);
-  assert.match(source, /const \{[\s\S]*?projectRowPosition,[\s\S]*?\} =\s*projectRowPresentation/);
-  assert.match(source, /'aria-posinset': projectRowPosition\.posinset/);
-  assert.match(source, /'aria-setsize': projectRowPosition\.setsize/);
+  assert.match(source, /projectRowPresentationByPath\.get\(row\.path\)\?\.projectRowPosition/);
+  assert.match(source, /'aria-posinset': position\.posinset/);
+  assert.match(source, /'aria-setsize': position\.setsize/);
 });
 
 test('Changes groups and entries expose their own sibling positions', () => {

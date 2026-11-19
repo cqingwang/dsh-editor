@@ -49,6 +49,89 @@ test('a surface is focused only after its ref becomes available', () => {
   cancel();
 });
 
+test('workspace remount focus can reassert across a bounded autofocus window', () => {
+  const callbacks = [];
+  let focused = 0;
+  const stop = focusSurfaceWhenReady(
+    () => ({
+      isConnected: true,
+      focus() {
+        focused += 1;
+      },
+    }),
+    {
+      requestFrame: (callback) => {
+        callbacks.push(callback);
+        return callbacks.length;
+      },
+      cancelFrame: () => {},
+      reassertFrames: 2,
+    },
+  );
+  callbacks.shift()(1);
+  callbacks.shift()(2);
+  callbacks.shift()(3);
+  assert.equal(focused, 3);
+  stop();
+});
+
+test('a stable activity fallback is focused until the tool-window surface mounts', () => {
+  const callbacks = [];
+  const focused = [];
+  let primary = null;
+  const stop = focusSurfaceWhenReady(() => primary, {
+    requestFrame: (callback) => {
+      callbacks.push(callback);
+      return callbacks.length;
+    },
+    cancelFrame: () => {},
+    fallbackSurface: () => ({
+      isConnected: true,
+      focus() {
+        focused.push('activity');
+      },
+    }),
+  });
+  callbacks.shift()(1);
+  primary = {
+    isConnected: true,
+    focus() {
+      focused.push('content');
+    },
+  };
+  callbacks.shift()(2);
+  assert.deepEqual(focused, ['activity', 'content']);
+  stop();
+});
+
+test('a focus request stops once another tool-window surface owns focus', () => {
+  const callbacks = [];
+  let focused = 0;
+  let stopCondition = false;
+  const stop = focusSurfaceWhenReady(
+    () => ({
+      isConnected: true,
+      focus() {
+        focused += 1;
+      },
+    }),
+    {
+      requestFrame: (callback) => {
+        callbacks.push(callback);
+        return callbacks.length;
+      },
+      cancelFrame: () => {},
+      reassertFrames: 4,
+      shouldStop: () => stopCondition,
+    },
+  );
+  callbacks.shift()(1);
+  stopCondition = true;
+  callbacks.shift()(2);
+  assert.equal(focused, 1);
+  stop();
+});
+
 test('cancelling a pending focus request prevents a stale activity steal', () => {
   const frames = [];
   let attempts = 0;

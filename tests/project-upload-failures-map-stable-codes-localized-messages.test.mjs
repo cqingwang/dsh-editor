@@ -7,6 +7,8 @@ import { en, zh } from './locale-source.mjs';
 const source =
   (await readFile(new URL('../src/client/components/project/ProjectPanel.tsx', import.meta.url), 'utf8')) +
   '\n' +
+  (await readFile(new URL('../src/client/components/project/FileTreeView.tsx', import.meta.url), 'utf8')) +
+  '\n' +
   (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
 
 /**
@@ -61,7 +63,8 @@ test('A drop rejected while another upload is busy is surfaced instead of silent
 test('The Project tree announces upload activity with aria-busy', () => {
   const panel = source.slice(source.indexOf('function ProjectPanel('), source.indexOf('function ContextMenu('));
   assert.match(panel, /uploadBusy,/u);
-  assert.match(panel, /'aria-busy': uploadBusy \|\| loading \|\| searchPending \? 'true' : undefined/u);
+  assert.match(panel, /ariaBusy=\{uploadBusy \|\| loading \|\| searchPending\}/u);
+  assert.match(source, /'aria-busy': ariaBusy \? 'true' : undefined/u);
   assert.match(source, /uploadBusy: '已有上传正在进行，请等待完成后再拖入'/u);
   assert.match(source, /uploadBusy: 'An upload is already in progress; wait for it to finish before dropping again'/u);
   assert.equal(zh.editor.uploadCompleteIgnored, '已上传 {count} 项到 {target}；上传期间另有 {ignored} 次拖入被忽略');

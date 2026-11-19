@@ -60,6 +60,7 @@ function createGroupHarness(platform) {
   const create = new Function(
     'navigator',
     'detectTheme',
+    'ensureEditorTheme',
     'EDITOR_UI_FONT',
     `let codeEditorGroupSequence = 0;
      const EDITOR_CODE_FONT_SIZE = 13;
@@ -71,7 +72,12 @@ function createGroupHarness(platform) {
      ${extractFunction('filterMonacoContextMenuActions')}
      ${extractFunction('createCodeEditorGroup')};
      return createCodeEditorGroup;`,
-  )({ platform }, () => 'vs', 'monospace');
+  )(
+    { platform },
+    () => 'vs',
+    () => 'dsh-editor-idea-light',
+    'monospace',
+  );
   create(monaco, {}, {});
   return actions;
 }
@@ -80,14 +86,8 @@ test('macOS usage actions also accept IDEA System Shortcuts U chords', () => {
   const actions = createGroupHarness('MacIntel');
   const find = actions.find((entry) => entry.id.startsWith('dsh-editor.findUsagesInFile'));
   const highlight = actions.find((entry) => entry.id.startsWith('dsh-editor.highlightUsagesInFile'));
-  assert.deepEqual(find.keybindings, [
-    1 | 65,
-    8 | 4 | 21,
-  ]);
-  assert.deepEqual(highlight.keybindings, [
-    1 | 4 | 65,
-    1 | 8 | 21,
-  ]);
+  assert.deepEqual(find.keybindings, [1 | 65, 8 | 4 | 21]);
+  assert.deepEqual(highlight.keybindings, [1 | 4 | 65, 1 | 8 | 21]);
 });
 
 test('non-macOS usage actions keep the single default keymap chord', () => {

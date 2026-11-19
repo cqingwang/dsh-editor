@@ -8,20 +8,15 @@ const component = await readFile(
 );
 
 test('Find popup keeps Tab and Shift+Tab inside its dialog controls', () => {
-  assert.match(component, /import \{ searchEverywhereNextFocusIndex \} from '\.\.\/\.\.\/foundation';/u);
+  assert.match(component, /import \{ trapDialogFocus \} from '\.\.\/ui\/focus-trap';/u);
   assert.match(
     component,
     /const trapFindToolPopupFocus = \(event: React\.KeyboardEvent<HTMLDivElement>\): boolean =>/u,
   );
   assert.match(component, /if \(floating !== true \|\| event\.key !== 'Tab'\) return false;/u);
-  assert.match(
-    component,
-    /const nextIndex = searchEverywhereNextFocusIndex\(focusables\.length, currentIndex, event\.shiftKey === true\);/u,
-  );
-  assert.match(
-    component,
-    /event\.preventDefault\(\);\s+event\.stopPropagation\(\);\s+focusables\[nextIndex\]\?\.focus\?\.\(\);/u,
-  );
+  assert.match(component, /return trapDialogFocus\(event, root\);/u);
+  assert.doesNotMatch(component, /querySelectorAll</u);
+  assert.doesNotMatch(component, /searchEverywhereNextFocusIndex\(/u);
   assert.match(component, /if \(floating === true && trapFindToolPopupFocus\(event\)\) return;/u);
 });
 

@@ -4,14 +4,8 @@ import test from 'node:test';
 
 import { loadTypeScriptCallback } from './ts-source.mjs';
 
-const workspaceSource = await readFile(
-  new URL('../src/client/editor-workspace.tsx', import.meta.url),
-  'utf8',
-);
-const stripeSource = await readFile(
-  new URL('../src/client/components/ui/ActivityStripe.tsx', import.meta.url),
-  'utf8',
-);
+const workspaceSource = await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8');
+const stripeSource = await readFile(new URL('../src/client/components/ui/ActivityStripe.tsx', import.meta.url), 'utf8');
 
 test('Activity Stripe captures pointerdown before the terminal steals focus', () => {
   assert.match(stripeSource, /onPointerDown\?: \(id: string\) => void;/u);
@@ -78,7 +72,7 @@ test('terminal origin capture ignores open-terminal clicks and records Project r
 test('Activity Stripe close restores the captured origin instead of dropping to body', () => {
   assert.match(
     workspaceSource,
-    /if \(terminalOpen\) \{[\s\S]*?const previous = terminalReturnFocusRef\.current;[\s\S]*?setTerminalOpen\(false\);[\s\S]*?if \(previous !== null && previous\.isConnected\) previous\.focus\(\);/u,
+    /if \(terminalOpen\) \{[\s\S]*?const previous = terminalReturnFocusRef\.current;[\s\S]*?setTerminalOpen\(false\);[\s\S]*?focusWorkspaceSurface\(previous\);/u,
   );
   assert.match(
     workspaceSource,

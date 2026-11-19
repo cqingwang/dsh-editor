@@ -5,6 +5,8 @@ import test from 'node:test';
 const source =
   (await readFile(new URL('../src/client/components/project/ProjectPanel.tsx', import.meta.url), 'utf8')) +
   '\n' +
+  (await readFile(new URL('../src/client/components/project/FileTreeView.tsx', import.meta.url), 'utf8')) +
+  '\n' +
   (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
 
 test('Project and Commit lists both expose horizontal scrolling for long rows', () => {
@@ -27,8 +29,9 @@ test('intrinsic-width rows remain available inside those scroll containers', () 
 test('Project and Changes scroll surfaces remain keyboard-focusable trees', () => {
   assert.match(
     source,
-    /role: 'tree',\s+'aria-busy': uploadBusy \|\| loading \|\| searchPending \? 'true' : undefined,\s+'aria-label': t\('editor\.project'\)/,
+    /role='tree'[\s\S]*?aria-busy=\{ariaBusy \? 'true' : undefined\}[\s\S]*?aria-label=\{ariaLabel\}/,
   );
+  assert.match(source, /ariaBusy=\{uploadBusy \|\| loading \|\| searchPending\}/);
   assert.match(
     source,
     /tabIndex: 0,\s+role: 'tree',\s+'aria-busy': busy \? 'true' : undefined,\s+'data-dsh-changes-list': ''/,

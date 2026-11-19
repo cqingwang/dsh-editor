@@ -48,7 +48,7 @@ test('the flat row list records "is last" for every depth', () => {
 });
 
 test('the guides render from those flags', () => {
-  const start = source.indexOf('row.depth > 0');
+  const start = source.indexOf('(row.depth ?? 0) > 0');
   assert.notEqual(start, -1);
   const block = source.slice(start, start + 700);
   assert.match(block, /row\.continues/);

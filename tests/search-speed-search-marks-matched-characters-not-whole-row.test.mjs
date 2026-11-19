@@ -5,7 +5,12 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = (readFileSync(join(root, 'src/client/components/project/ProjectPanel.tsx'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
+const source =
+  readFileSync(join(root, 'src/client/components/project/ProjectPanel.tsx'), 'utf8') +
+  '\n' +
+  readFileSync(join(root, 'src/client/components/project/FileTreeView.tsx'), 'utf8') +
+  '\n' +
+  readFileSync(join(root, 'lib/client.js'), 'utf8');
 
 /** Evaluate one shipping function by brace balance. */
 function load(name) {
@@ -49,7 +54,10 @@ test('the match is case-insensitive but the original text survives', () => {
 
 test('every occurrence is marked, and a miss or empty query yields one plain part', () => {
   const twice = highlightParts('a/a.ts', 'a');
-  assert.deepEqual(twice.filter((part) => part.match).map((part) => part.text), ['a', 'a']);
+  assert.deepEqual(
+    twice.filter((part) => part.match).map((part) => part.text),
+    ['a', 'a'],
+  );
   assert.deepEqual(highlightParts('notes.md', 'zzz'), [{ text: 'notes.md', match: false }]);
   assert.deepEqual(highlightParts('notes.md', ''), [{ text: 'notes.md', match: false }]);
   assert.deepEqual(highlightParts('', 'x'), []);

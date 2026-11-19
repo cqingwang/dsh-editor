@@ -1,7 +1,8 @@
 import React from 'react';
-import { styles } from '../../ui/styles';
+import { POPUP_BORDER, styles } from '../../ui/styles';
 import { clampFloatingPopupGeometry, moveFloatingPopupGeometry, resizeFloatingPopupGeometry } from '../../commit';
 import { FIND_POPUP_RESIZE_DIRECTIONS } from '../../find-tool';
+import { trapDialogFocus } from '../ui/focus-trap';
 
 export interface FloatingToolPopupGeometry {
   x: number;
@@ -14,11 +15,15 @@ export type FindToolPopupGeometry = FloatingToolPopupGeometry;
 
 export interface FloatingToolPopupProps {
   open: boolean;
-  kind: 'find' | 'searchEverywhere';
+  kind: 'find' | 'searchEverywhere' | 'workspaceDirectory';
   geometry: FloatingToolPopupGeometry;
   surfaceStyle?: React.CSSProperties;
   backdrop?: boolean;
   onBackdropMouseDown?: (event: React.MouseEvent<HTMLDivElement>) => void;
+  trapFocus?: boolean;
+  onRequestClose?: () => void;
+  returnFocusElement?: HTMLElement | null;
+  ariaLabel?: string;
   onGeometryChange: (geometry: FloatingToolPopupGeometry) => void;
   onGeometryCommit?: (geometry: FloatingToolPopupGeometry) => void;
   children: React.ReactElement<{
@@ -27,6 +32,14 @@ export interface FloatingToolPopupProps {
 }
 
 export interface FindToolPopupProps extends FloatingToolPopupProps {}
+
+const FLOATING_TOOL_POPUP_SURFACE_STYLE: React.CSSProperties = {
+  border: POPUP_BORDER,
+  borderRadius: 8,
+  background: 'var(--dsw-alias-bg-base)',
+  boxShadow: '0 16px 48px rgba(0, 0, 0, 0.28)',
+  overflow: 'hidden',
+};
 
 function floatingPopupResizeHandleStyle(direction: string): React.CSSProperties {
   const base: React.CSSProperties = {
@@ -91,13 +104,54 @@ function FloatingToolPopup({
   surfaceStyle,
   backdrop = false,
   onBackdropMouseDown,
+  trapFocus = false,
+  onRequestClose,
+  returnFocusElement = null,
+  ariaLabel,
   onGeometryChange,
   onGeometryCommit,
   children,
 }: FloatingToolPopupProps) {
   const surfaceRef = React.useRef<HTMLDivElement | null>(null);
   const geometryRef = React.useRef(geometry);
+  const returnFocusElementRef = React.useRef(returnFocusElement);
+  const previousFocusRef = React.useRef<HTMLElement | null>(null);
+  const wasOpenRef = React.useRef(false);
   geometryRef.current = geometry;
+  returnFocusElementRef.current = returnFocusElement;
+
+  React.useEffect(() => {
+    if (open) {
+      if (!wasOpenRef.current) {
+        const activeElement = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+        previousFocusRef.current =
+          returnFocusElementRef.current ??
+          (activeElement !== null && activeElement !== document.body ? activeElement : null);
+        wasOpenRef.current = true;
+      }
+      return;
+    }
+    if (!wasOpenRef.current) return;
+    wasOpenRef.current = false;
+    const target = returnFocusElementRef.current ?? previousFocusRef.current;
+    previousFocusRef.current = null;
+    window.setTimeout(() => {
+      if (target?.isConnected) target.focus({ preventScroll: true });
+    }, 0);
+  }, [open]);
+
+  React.useEffect(
+    () => () => {
+      if (!wasOpenRef.current) return;
+      wasOpenRef.current = false;
+      const target = returnFocusElementRef.current ?? previousFocusRef.current;
+      previousFocusRef.current = null;
+      window.setTimeout(() => {
+        if (target?.isConnected) target.focus({ preventScroll: true });
+      }, 0);
+    },
+    [],
+  );
 
   React.useEffect(() => {
     if (!open) return;
@@ -190,6 +244,17 @@ function FloatingToolPopup({
     },
     [onGeometryChange, onGeometryCommit],
   );
+  const handlePopupKeyDown = (event: React.KeyboardEvent<HTMLDivElement>): void => {
+    if (event.defaultPrevented) return;
+    if (event.key === 'Escape' && onRequestClose !== undefined) {
+      event.preventDefault();
+      event.stopPropagation();
+      onRequestClose();
+      return;
+    }
+    if (trapFocus !== true) return;
+    trapDialogFocus(event, surfaceRef.current, { focusWhenOutside: true });
+  };
 
   if (!open || children === null) return null;
 
@@ -211,6 +276,7 @@ function FloatingToolPopup({
         ref={surfaceRef}
         style={{
           ...surfaceStyle,
+          ...FLOATING_TOOL_POPUP_SURFACE_STYLE,
           position: 'fixed',
           boxSizing: 'border-box',
           minWidth: 0,
@@ -221,9 +287,14 @@ function FloatingToolPopup({
           height: geometry.height,
           transform: 'none',
         }}
+        role={trapFocus === true ? 'dialog' : undefined}
+        aria-modal={trapFocus === true ? 'true' : undefined}
+        aria-label={ariaLabel}
         data-dsh-floating-tool-popup=''
         data-dsh-find-tool-popup={kind === 'find' ? '' : undefined}
-        data-dsh-search-everywhere-popup={kind === 'searchEverywhere' ? '' : undefined}>
+        data-dsh-search-everywhere-popup={kind === 'searchEverywhere' ? '' : undefined}
+        data-dsh-workspace-directory-picker-popup={kind === 'workspaceDirectory' ? '' : undefined}
+        onKeyDown={handlePopupKeyDown}>
         {React.cloneElement(children, {
           onPopupDragStart: (event: React.PointerEvent<HTMLElement>) => startInteraction(event),
         })}

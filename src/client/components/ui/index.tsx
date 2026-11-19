@@ -23,6 +23,12 @@ export {
 export { DockResizeHandle, type DockResizeHandleProps } from './DockResizeHandle.tsx';
 export { EntryIcon, type EntryIconEntry, type EntryIconProps } from './EntryIcon.tsx';
 export { fileBadge, type FileBadgeInfo } from './file-badge.ts';
+export {
+  dialogFocusableElements,
+  nextDialogFocusTarget,
+  trapDialogFocus,
+  type DialogFocusTrapOptions,
+} from './focus-trap.ts';
 export { focusSurfaceWhenReady, type FocusableSurface, type FocusSurfaceWhenReadyOptions } from './focus-surface.ts';
 export { GitStatusBadge, type GitStatusBadgeProps } from './GitStatusBadge.tsx';
 export {

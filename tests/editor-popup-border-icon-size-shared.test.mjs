@@ -14,18 +14,24 @@ const findTool = await read('src/client/components/search/FindToolWindow.tsx');
 const showUsages = await read('src/client/components/search/ShowUsagesPopup.tsx');
 const moveTo = await read('src/client/components/commit/MoveToPicker.tsx');
 const buildScript = await read('scripts/build-client.mjs');
+const floatingPopup = await read('src/client/components/search/FindToolPopup.tsx');
 
 test('all popup surfaces reuse one visible border token', () => {
   for (const source of [uiStyles, inlineStyles]) {
     assert.match(source, /const POPUP_BORDER = '1px solid var\(--dsw-alias-border-l2\)'/u);
     assert.match(source, /palette: \{[\s\S]*?border: POPUP_BORDER/u);
     assert.match(source, /namePrompt: \{[\s\S]*?border: POPUP_BORDER/u);
-    assert.match(source, /findToolPopup: \{[\s\S]*?border: POPUP_BORDER/u);
     assert.match(source, /menu: \{[\s\S]*?border: POPUP_BORDER/u);
     assert.match(source, /submenu: \{[\s\S]*?border: POPUP_BORDER/u);
     assert.match(source, /searchEverywhereTooltip: \{[\s\S]*?border: POPUP_BORDER/u);
     assert.match(source, /gotoLinePopup: \{[\s\S]*?border: POPUP_BORDER/u);
   }
+  assert.match(
+    floatingPopup,
+    /const FLOATING_TOOL_POPUP_SURFACE_STYLE: React\.CSSProperties = \{[\s\S]*?border: POPUP_BORDER,[\s\S]*?borderRadius: 8,[\s\S]*?background: 'var\(--dsw-alias-bg-base\)',[\s\S]*?boxShadow:/u,
+  );
+  assert.match(floatingPopup, /\.\.\.FLOATING_TOOL_POPUP_SURFACE_STYLE,/u);
+  assert.doesNotMatch(searchEverywhere, /style=\{\{\s*\.\.\.styles\.palette,/u);
 });
 
 test('popup icons use the shared 16px size through reusable controls', () => {

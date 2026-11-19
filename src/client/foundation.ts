@@ -251,6 +251,52 @@ export function searchEverywhereNextFocusIndex(length: unknown, index: unknown, 
 }
 
 /**
+ * Resolve the Workspace that owns one live Conversation session.
+ *
+ * DSH keeps session and Workspace identity separate. The Editor must follow
+ * the Workspace that owns the currently rendered session, even when the user
+ * changes Workspaces through the host picker instead of the Editor command.
+ * @param items Workspace snapshot items.
+ * @param sessionId Live `data-conversation-session` value.
+ * @returns Matching Workspace id, or an empty string when the snapshot cannot resolve it.
+ */
+export function workspaceIdForConversationSession(items: unknown, sessionId: unknown): string {
+  const id = typeof sessionId === 'string' ? sessionId : '';
+  if (id === '' || !Array.isArray(items)) return '';
+  for (const item of items) {
+    if (item === null || typeof item !== 'object') continue;
+    const workspaceId = typeof item.workspaceId === 'string' ? item.workspaceId : '';
+    const sessionIds = Array.isArray(item.sessionIds) ? item.sessionIds : [];
+    if (workspaceId !== '' && sessionIds.includes(id)) return workspaceId;
+  }
+  return '';
+}
+
+/**
+ * Resolve a Workspace from a user-visible menu label when the label is unique.
+ *
+ * Host picker menu rows do not expose Workspace ids in the DOM. A unique title
+ * lets the Editor switch in the same click instead of waiting for the Session
+ * stream and briefly rendering the previous Workspace. Duplicate titles stay
+ * unresolved and fall back to the session-based binding.
+ * @param items Workspace snapshot items.
+ * @param title Visible picker label.
+ * @returns Unique matching Workspace id, or an empty string when ambiguous.
+ */
+export function workspaceIdForUniqueTitle(items: unknown, title: unknown): string {
+  const label = typeof title === 'string' ? title.trim() : '';
+  if (label === '' || !Array.isArray(items)) return '';
+  const matches: string[] = [];
+  for (const item of items) {
+    if (item === null || typeof item !== 'object') continue;
+    const workspaceId = typeof item.workspaceId === 'string' ? item.workspaceId : '';
+    const workspaceTitle = typeof item.title === 'string' ? item.title.trim() : '';
+    if (workspaceId !== '' && workspaceTitle === label) matches.push(workspaceId);
+  }
+  return matches.length === 1 ? matches[0] : '';
+}
+
+/**
  * Reset workspace-bound search surfaces only after a real workspace change.
  *
  * The first non-empty root is the initial host handshake, not a user switch.

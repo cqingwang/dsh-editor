@@ -10,7 +10,7 @@ import {
 
 export { EDITOR_UI_FONT };
 
-const POPUP_BORDER = '1px solid var(--dsw-alias-border-l2)';
+export const POPUP_BORDER = '1px solid var(--dsw-alias-border-l2)';
 
 export const styles: Record<string, CSSProperties> = {
   root: {
@@ -578,11 +578,6 @@ export const styles: Record<string, CSSProperties> = {
     zIndex: 4000,
     display: 'flex',
     flexDirection: 'column',
-    overflow: 'hidden',
-    border: POPUP_BORDER,
-    borderRadius: 6,
-    background: 'var(--dsw-alias-bg-base)',
-    boxShadow: '0 14px 38px rgba(0, 0, 0, 0.24)',
   },
   findToolToolbar: {
     display: 'flex',

@@ -132,6 +132,7 @@ test('two editor groups share a model and disposing one never disposes it', () =
   const ensureEditorModel = loadEnsureEditorModel();
   const create = new Function(
     'detectTheme',
+    'ensureEditorTheme',
     'EDITOR_UI_FONT',
     `let codeEditorGroupSequence = 0;
      const EDITOR_CODE_FONT_SIZE = 13;
@@ -142,7 +143,11 @@ test('two editor groups share a model and disposing one never disposes it', () =
      ${extractFunction('filterMonacoContextMenuActions')}
      ${extractFunction('createCodeEditorGroup')};
      return createCodeEditorGroup;`,
-  )(() => 'vs', '"Trebuchet MS", sans-serif');
+  )(
+    () => 'vs',
+    () => 'dsh-editor-idea-light',
+    '"Trebuchet MS", sans-serif',
+  );
   const models = new Map();
   const model = ensureEditorModel(monaco, models, 'src/a.ts', 'shared');
   const handlers = {
@@ -171,6 +176,7 @@ test('editor group actions forward IDEA shortcuts and dispose once', () => {
   const { monaco, editors } = fakeMonaco();
   const create = new Function(
     'detectTheme',
+    'ensureEditorTheme',
     'EDITOR_UI_FONT',
     `let codeEditorGroupSequence = 0;
      const EDITOR_CODE_FONT_SIZE = 13;
@@ -181,7 +187,11 @@ test('editor group actions forward IDEA shortcuts and dispose once', () => {
      ${extractFunction('filterMonacoContextMenuActions')}
      ${extractFunction('createCodeEditorGroup')};
      return createCodeEditorGroup;`,
-  )(() => 'vs', '"Trebuchet MS", sans-serif');
+  )(
+    () => 'vs',
+    () => 'dsh-editor-idea-light',
+    '"Trebuchet MS", sans-serif',
+  );
   const calls = [];
   const group = create(
     monaco,

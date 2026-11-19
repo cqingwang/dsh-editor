@@ -1,5 +1,1086 @@
 # dsh-editor 工程记忆
 
+## 2026-11-19 — Project 树直接键入打开 Speed Search
+
+**作用域**：Project tool window tree keydown、speed search、
+workspace remount 后的搜索入口。
+
+**症状/证据**：
+
+- IDEA 点击 Project tree 后直接键入 `t`，出现值为 `t` 的 Speed Search
+  text field；
+- DSH Project tree 直接键入只走隐藏 typeahead，没有可见搜索框；
+- 首次实现后 DSH Web 快速输入 `theme` 只保留最后的 `e`；
+- 根因是搜索框在下一拍才获得焦点，期间后续 key 仍从 tree 进入并把
+  query 重写成单字符。
+
+**修复**：
+
+- ProjectPanel tree keydown 拦截无修饰 printable key；
+- 复用现有 `searchOpen` / `searchRef` / host 递归搜索，不新增搜索组件；
+- 用 `directSpeedSearchRef` 在 input 接管焦点前累积连续字符；
+- search input focus、关闭搜索和 Enter 完成后清空累积 buffer；
+- Rename/Create input/textarea/select 和 IME composition 不拦截。
+
+**回归**：
+
+- `tests/project-tree-direct-typing-opens-speed-search.test.mjs`；
+- DSH Web tree 直接输入 `theme`：
+  - activeElement 为 `Search in Project`；
+  - value=`theme`；
+  - 命中 `theme-sample.ts`；
+  - alert 0；
+- 完整测试 **3134 pass / 0 fail**。
+
+**适用环境**：macOS、DSH Web、Ego Lite、IDEA 2026.2。
+键盘焦点迁移存在时间窗口；打开搜索框时必须在组件内缓冲过渡期输入的
+字符，不能假设 next tick 聚焦足够快。
+
+## 2026-11-19 — Terminal Dock 打开状态按 Workspace 恢复
+
+**作用域**：Terminal bottom dock、Workspace remount、build-client
+组件模块清单。
+
+**症状/证据**：
+
+- child-a 的 Terminal 已打开并显示原 PTY 页签；
+- 切到 dsh-editor 后 dock 关闭；
+- 返回 child-a 后 dock 仍关闭，必须再次点击 Terminal 才能看到原 shell；
+- 根因是 `terminalOpen` 只是 `EditorWorkspace` 的临时 state，workspace
+  remount 后重置为 false。
+
+**修复**：
+
+- `terminal.ts` 新增按 scope 读写的
+  `readTerminalDockOpen` / `writeTerminalDockOpen`；
+- 新增 `components/terminal/use-persistent-terminal-dock-open.ts`，
+  以 `workspace:<workspaceId>` 为 scope，集中处理初始化与持久化；
+- `EditorWorkspace` 只消费该 hook，不复制 localStorage 逻辑；
+- workspace id 未就绪时使用关闭态且不写 session fallback；workspace
+  scope 就绪后读取 workspace state 并清除旧 session key；
+- `scripts/build-client.mjs` 显式模块清单注册新 hook。
+
+**构建事故与门禁**：
+
+- 首次运行时出现
+  `usePersistentTerminalDockOpen is not defined`；
+- 根因是 DSH 单 factory 构建不是自动打包所有 import，新增 TSX/TS
+  组件模块必须进入 `scripts/build-client.mjs` 的显式输出清单；
+- 已在新 Terminal 回归中断言 build-client 包含 hook 文件和
+  `${persistentTerminalDockOpenModule}`；
+- `editor-workspace.tsx` reviewability 上限也被现有测试拦截，最终将
+  state/effect 抽成 hook 并保持 **12497** 行。
+
+**回归**：
+
+- `tests/terminal-dock-open-state-per-workspace.test.mjs`；
+- DSH Web：
+  - child-a 打开 Terminal，workspace key=1；
+  - dsh-editor key=0，两个 workspace 不串状态；
+  - 返回 child-a 自动恢复原 Terminal；
+  - child-a 关闭 Terminal 后 key=0，再次往返仍保持关闭；
+  - 初始化后再检查 storage，只剩两个 workspace key，旧 session key
+    已被删除；
+- 定向 Terminal 回归 **9 pass / 0 fail**；
+- 完整测试 **3133 pass / 0 fail**。
+
+**适用环境**：macOS、DSH Web、Ego Lite。
+工具窗的 open state 是 workspace-scoped UI 状态，必须和 PTY/tab
+本体分离；新增共享 hook 时必须同步验证单 factory 构建清单。
+
+## 2026-11-19 — 相对路径不得触发根目录建议查询
+
+**作用域**：`WorkspaceDirectoryPicker` 路径 suggestion 查询。
+
+**症状/证据**：
+
+- 默认 `~` 后输入相对文本 `Doc`；
+- 500ms 内实际产生一次 `api/dsh-editor/workspace-directory` 请求；
+- 下拉显示 `No matching directories`；
+- 根因是 `directoryPathParent('Doc')` 返回 `/`，把相对路径误当成根目录子项。
+
+**修复**：
+
+- `workspaceDirectoryAutocompleteQuery` 只接受 POSIX absolute、
+  home-expanded absolute 和 Windows drive absolute；
+- 相对路径返回 null；
+- query 为 null 时关闭 suggestions，不显示空匹配；
+- 不复制 host 的 absolute-path 校验，也不新增相对路径解析功能。
+
+**回归**：
+
+- `project-workspace-directory-picker-model.test.mjs` 新增相对路径断言；
+- `project-workspace-directory-picker-path-autocomplete.test.mjs`
+  锁定 query-null 状态清理；
+- DSH Web 输入 `Doc`：请求数 0、listbox 不存在；
+- 输入 `~/Doc`：请求 1 次、显示 `~/Documents`、alert 0；
+- 定向回归 **13 pass / 0 fail**；
+- 完整测试 **3131 pass / 0 fail**。
+
+**适用环境**：macOS、DSH Web、Ego Lite。
+浏览器输入层的相对路径没有可靠 cwd 语义时，不得用 `/` 作为 parent 猜测。
+自动完成只在路径已经有明确绝对目标时执行文件系统 I/O。
+
+## 2026-11-19 — 目录路径输入组合输入期间暂停建议
+
+**作用域**：`WorkspaceDirectoryPicker` 路径输入框、IME composition、
+异步目录 suggestion。
+
+**症状/证据**：
+
+- compositionstart 后写入中间值 `~/Doc` 并派发 composing input；
+- 350ms 后 listbox 已打开并显示 `~/Documents`；
+- composition 尚未提交，说明中间输入已经触发真实目录读取和 UI 竞争。
+
+**修复**：
+
+- 新增 `composingRef`，弹框关闭时复位；
+- compositionstart 清空并关闭 suggestions，同时清理 loading/error；
+- composing 状态下的 onChange 只更新 pathDraft 并立即返回，不启动请求；
+- compositionend 用最终 input value 重新进入 loading 并打开建议查询；
+- 原有 composing keydown 防护继续保留。
+
+**回归**：
+
+- `tests/project-workspace-directory-picker-path-autocomplete.test.mjs`
+  新增 composition 生命周期断言，先 RED 后 GREEN；
+- DSH Web 合成中间值 `~/qqq` 期间：
+  - listbox 不存在；
+  - loading/error 均 false；
+  - option 0；
+- compositionend 提交 `~/Doc` 后恢复 `~/Documents` suggestion，alert 0；
+- 自动完成定向回归 **6 pass / 0 fail**；
+- 完整测试 **3130 pass / 0 fail**。
+
+**适用环境**：macOS、DSH Web、Ego Lite。
+IME composition 是输入生命周期，不是查询生命周期。组合输入期间只应维护
+文本框内容；目录 I/O、建议、loading 和 error 都必须等 compositionend
+后的最终文本。
+
+## 2026-11-19 — 目录自动完成失败不得伪装成无匹配
+
+**作用域**：`WorkspaceDirectoryPicker` 路径 suggestion 查询与错误反馈。
+
+**症状/证据**：
+
+- 输入 `/private/var/root/` 后，下拉显示 `No matching directories`；
+- 同一路径直接调用 Host 目录 API：
+  - HTTP 200；
+  - `ok=false`；
+  - `EACCES: permission denied, scandir '/private/var/root'`；
+- 建议查询 catch 只清空数组，没有保存 error，UI 把失败误判为零结果。
+
+**修复**：
+
+- 新增独立 `suggestionError` 状态；
+- 输入变化、查询开始、空 query 和关闭 suggestions 都清理旧错误；
+- 非 abort 的 suggestion 失败保存现有
+  `workspaceDirectoryLoadFailed` 本地化文案；
+- 下拉按 `loading → error → no match → options` 互斥渲染；
+- 树根目录的 `error` 状态保持独立，不把建议失败提升成 Project 树错误。
+
+**回归**：
+
+- `tests/project-workspace-directory-picker-path-autocomplete.test.mjs`
+  新增失败状态断言；
+- DSH Web 实测：
+  - `/private/var/root/` 显示真实 EACCES 文案和 suggestion `role=alert`；
+  - 无 option，树无 alert；
+  - 改输 `~/Doc` 后恢复 `~/Documents`，建议 alert 清零；
+- 定向目录回归 **23 pass / 0 fail**；
+- 完整测试 **3129 pass / 0 fail**。
+
+**适用环境**：macOS、DSH Web、Ego Lite。
+异步搜索必须区分“成功但零结果”和“请求失败”；错误反馈应由发起查询的
+业务组件持有，不能污染更高层的树或全局 workspace 错误。
+
+## 2026-11-19 — 目录自动完成键盘序列、可见性与旧结果隔离
+
+**作用域**：`WorkspaceDirectoryPicker` 路径 combobox、目录建议
+listbox、异步 debounce 查询。
+
+**症状/证据**：
+
+- 12 个 `role=option` 建议按钮全部 `tabIndex=0`，Tab 从输入框直接
+  进入建议项；
+- 8 次 ArrowDown 后活动项为 `~/Music`，位于
+  `list top=106 / bottom=306` 的可视区外，`scrollTop=0`；
+- 从 `~/` 切到 `~/Desk` 后，120ms 新查询完成前仍显示上一轮
+  `~/Desktop`、`~/Documents`、`~/Downloads` 等旧结果。
+
+**根因**：
+
+- option 使用原生 button 默认进入 Tab 序列；
+- active index 变化只更新样式和 ARIA，没有把对应 option 滚入视口；
+- 查询 effect 只在响应完成时覆盖旧 suggestions，防抖窗口内保留旧数组。
+
+**修复**：
+
+- option 保留 button/click 语义，统一 `tabIndex=-1`；
+- listbox ref 查询当前 `[role="option"][aria-selected="true"]` 并
+  `scrollIntoView({ block: 'nearest' })`；
+- 输入变化时同步清空 suggestions、suggestionIndex，并进入 loading；
+- `aria-activedescendant`、Enter 接受建议和鼠标点击继续复用原路径。
+
+**回归**：
+
+- `tests/project-workspace-directory-picker-path-autocomplete.test.mjs`
+  新增 Tab/可视性和旧结果隔离断言；
+- 两个断言先 RED，修复后定向 **6 pass / 0 fail**；
+- DSH Web：
+  - tabbable options 12→0；
+  - 活动项 `scrollTop 0→58` 且完整可见；
+  - Tab 后焦点到“进入所选目录”按钮；
+  - 输入新前缀后旧 options 立即=0，加载提示正常；
+  - 最终 ArrowDown+Enter 得到 `~/Desktop`，alert 0；
+- 完整测试 **3128 pass / 0 fail**。
+
+**适用环境**：macOS、DSH Web、Ego Lite。
+ARIA combobox 的 active option 用方向键导航，不能把 option 展开成
+Tab 停靠点；异步建议必须和当前输入 generation 对齐，不能保留上一轮
+结果供键盘直接接受。
+
+## 2026-11-19 — 隐藏目录路径前进定位
+
+**作用域**：`WorkspaceDirectoryPicker` 路径输入、`→` reveal、
+`showHidden` 目录过滤。
+
+**症状/证据**：
+
+- DSH Web 输入 `~/.codex` 后点击 `→`；
+- 路径框值正确，目录 API 无错误；
+- 树中却没有 `.codex`，也没有 selected treeitem；
+- `aria-pressed=false`，焦点继续停在“进入所选目录”按钮；
+- 根因是 reveal 已加载目标并设置 expanded，但
+  `flattenDirectoryTreeRows` 按 `showHidden=false` 过滤了隐藏子项。
+
+**修复**：
+
+- `workspace-directory-model.ts` 新增纯函数
+  `directoryPathHasHiddenSegment`；
+- 排除 `.`、`..` 和空 segment，避免把普通 parent traversal 误判为隐藏；
+- `revealDirectoryPath` 在显式目标含隐藏目录 segment 时
+  `setShowHidden(true)`，继续复用现有树 flatten 和开关 UI；
+- 不复制路径解析、不新增树组件、不改变普通目录 reveal。
+
+**回归**：
+
+- `tests/project-workspace-directory-picker-hidden-path-reveal.test.mjs`；
+- 新测试首次因 helper 缺失 RED，修复后 **12 pass / 0 fail**；
+- DSH Web：
+  - `.codex` 可见、selected、expanded；
+  - hidden 开关 `true`；
+  - tree 最终聚焦；
+  - alert 0；
+- IDEA Project 树只读对照显示 `.agents`、`.cargo`、`.git` 等隐藏目录；
+- 完整测试 **3126 pass / 0 fail**。
+
+**适用环境**：macOS、DSH Web、Ego Lite、IDEA 2026.2。
+路径输入是用户显式意图；隐藏目录过滤可以阻止默认浏览弹出隐藏项，但
+不能阻止用户已经输入的隐藏目标被 reveal。路径 segment 判定必须留在
+model 层，树组件只消费过滤后的 rows。
+
+## 2026-11-19 — 工作区路径定位与目录自动完成
+
+**作用域**：`WorkspaceDirectoryPicker` 路径输入、`→` 进入目录、
+Workspace 目录树 reveal/focus。
+
+**症状/证据**：
+
+- `→` 原来依赖当前树选择，只在 `selectedPath !== null` 时可用；
+- 用户只输入路径时无法直接触发定位；
+- 原有提交会把目标加载成新 root，不能在当前 home 树中展开定位；
+- treeitem 使用 `tabIndex=-1`，tree 容器才是合法焦点目标。
+
+**修复**：
+
+- 新增路径模型 helper：
+  - parent；
+  - path containment；
+  - autocomplete query；
+  - prefix/visibility suggestion filter；
+- 路径输入：
+  - 120ms debounce 查询；
+  - combobox/listbox/option 语义；
+  - ArrowUp/Down、Enter、Escape、鼠标选择；
+- `→` 改用 path draft；
+- target 在当前 root 内时逐级加载祖先，展开目标一级子目录；
+- 目标在 root 外时以目标为新 root；
+- reveal 完成后滚动目标并聚焦 tree 容器；
+- 点击树行同步回填路径输入。
+
+**回归**：
+
+- `tests/project-workspace-directory-picker-path-autocomplete.test.mjs`；
+- `tests/project-workspace-directory-picker-model.test.mjs`；
+- DSH Web：
+  - `~/Doc` 建议 `~/Documents`；
+  - Documents selected + expanded；
+  - 3 个子目录可见；
+  - activeElement 为 tree；
+  - alert 0；
+- 定向回归 **14 pass / 0 fail**；
+- 完整测试 **3124 pass / 0 fail**。
+
+**适用环境**：macOS、DSH Web、Ego Lite。
+路径输入解析和 suggestion 过滤必须留在纯 model；树 reveal 负责数据加载，
+业务组件不得用 DOM 猜测父路径或复制 `~` 解析。
+
+## 2026-11-19 — Workspace 切换后的工具窗焦点恢复
+
+**作用域**：Workspace-scoped Editor remount、Activity Stripe、Project tree、
+Commit Changes/Log、Monaco autofocus。
+
+**症状/证据**：
+
+- Commit 消息框持焦后切换 workspace，Commit 工具窗仍为 selected；
+- `document.activeElement` 却变成
+  `TEXTAREA[aria-label="编辑器内容"]`，且其 rect 为 `0×0`；
+- Monaco 绑定 active file 的 effect 在 remount 后调用 `editor.focus()`，
+  把工具窗焦点抢回隐藏编辑器；
+- 仅一次性聚焦 Change 内容也会在内容 mount 前被 Monaco 覆盖。
+
+**修复**：
+
+- controller 记录 workspace 变化前的活动工具窗 id；
+- remount 后立即聚焦对应 Activity 按钮；
+- React 的 workspace restore intent 等到内容 ready 后聚焦 Project tree /
+  Commit Changes / Commit Log；
+- 共享 `focusSurfaceWhenReady` 增加：
+  - `fallbackSurface`；
+  - `shouldStop`；
+  - 聚焦后验证 activeElement；
+  - 有界 reassertFrames；
+- Monaco active-file autofocus 在 workspace remount 的 90 帧恢复窗口内被
+  抑制，随后恢复常规行为。
+
+**回归**：
+
+- `tests/editor-workspace-switch-restores-tool-window-focus.test.mjs`；
+- `tests/editor-tool-window-focus-retries-until-content-mounted.test.mjs`；
+- DSH Web：
+  - 切换早期焦点为 composer，不再是隐藏 Monaco；
+  - 最终焦点为 Commit Changes；
+  - alert 0；
+- 定向回归 **26 pass / 0 fail**；
+- 完整测试 **3120 pass / 0 fail**。
+
+**适用环境**：macOS、DSH Web、Ego Lite。
+Workspace remount 必须区分“用户主动打开编辑器”和“工具窗状态延续”；
+工具窗恢复期间要防止 Monaco autofocus 抢占，并在内容真正接管后停止重试。
+
+## 2026-11-19 — Terminal Workspace 隔离验证
+
+**作用域**：Editor Terminal PTY、terminal profile storage、Workspace 切换。
+
+**验证目标**：
+
+- 不同 Workspace 的 Terminal 不得复用同一 PTY；
+- profile 等本地偏好不得落到 session/其他 workspace scope；
+- 返回原 Workspace 后应恢复其原 Terminal。
+
+**证据**：
+
+- `dsh-editor` workspace id `2d8cbbfa-...`，terminal id
+  `af95700c-...`；
+- `child-a` workspace id `06cf902b-...`，terminal id
+  `dddfddaa-...`；
+- 两边 terminal id 交集为 0；
+- localStorage 分别写入
+  `dsh-editor.terminal.profile:workspace:2d8cbbfa-...` 和
+  `dsh-editor.terminal.profile:workspace:06cf902b-...`；
+- 返回 `dsh-editor` 后恢复 `af95700c-...`；
+- alert 0。
+
+**结论**：
+
+- 现有 `currentTerminalScope()` 的 workspace-first 规则正确；
+- TerminalPanel 重建时读取当前 Editor workspace id，不回落旧 session；
+- 本轮无产品代码修改。
+
+**回归基线**：完整测试 **3116 pass / 0 fail**。
+
+**适用环境**：macOS、DSH Web、Ego Lite。
+Terminal 的 PTY 和持久偏好必须以 Editor workspace 为主 scope；session
+scope 只在 Editor 没有显式 workspace 时使用。
+
+## 2026-11-19 — Project 展开状态恢复门禁
+
+**作用域**：Workspace switch、Project root listing、expanded state 与可见
+tree rows。
+
+**症状/证据**：
+
+- 返回 `dsh-editor` 后，`src` 曾先显示 `aria-expanded=false`，随后才恢复
+  `true`；
+- localStorage 的
+  `dsh-editor.expanded.v2:/Users/chan/Documents/project/dsh-editor`
+  已包含 `src`；
+- root listing、entries 和 expansion state 的 React 提交窗口让折叠树短暂
+  可见。
+
+**修复**：
+
+- 新增 `expandedReadyRoot`；
+- `loadRoot` 在提交当前 root 的 expansion 后标记 ready；
+- `ProjectPanel` 只在当前 root ready 时接收
+  `visibleProjectRows` / `visibleProjectSourceRows`；
+- loader 继续使用完整 `projectRows` 的 `rowsRef`；
+- 同 workspace 刷新保持当前树可见，不重置 ready root。
+
+**回归**：
+
+- `tests/project-tree-expansion-restored-before-visible-rows.test.mjs`
+  覆盖等待门禁与 ProjectPanel wiring；
+- DSH Web 返回 workspace 后，`src` 状态序列只有 `true`，最终 `true`，
+  alert 0；
+- 定向回归 **25 pass / 0 fail**；
+- 完整测试 **3116 pass / 0 fail**。
+
+**适用环境**：macOS、DSH Web、Ego Lite。
+Workspace-scoped UI 在磁盘/本地状态共同恢复前不得先渲染默认折叠状态；
+刷新同一 workspace 时则应继续保留现有可见 rows。
+
+## 2026-11-19 — Workspace picker 菜单识别门禁
+
+**作用域**：Workspace picker click、Editor 即时 workspace binding。
+
+**风险/证据**：
+
+- 标题匹配本身不具备全局唯一语义；
+- 任意其他菜单若出现与 Workspace 标题相同的 menuitem，可能误触发 Editor
+  切换；
+- 真实 Workspace picker DOM 同时包含：
+  - folder close 图标；
+  - plus / Add workspace 图标。
+
+**修复**：
+
+- `onWorkspacePickerClick` 必须先找到 `[role="menu"]`；
+- `isWorkspacePickerMenu` 同时要求
+  `dsw-icon-folder-close-regular` 和
+  `dsw-icon-plus-outline-regular`；
+- 不满足菜单形状时不做标题解析；
+- 保持 Host 菜单点击、焦点和事件传播不变。
+
+**回归**：
+
+- `tests/editor-workspace-picker-immediate-binding.test.mjs` 覆盖菜单门禁；
+- DSH Web 实测真实 picker 两个图标均存在，点击 `child-a` 后 Editor
+  workspace id 变为 `06cf902b-...`；
+- picker pointerdown 到 Editor workspace id 变化的观测延迟为 **21.3 ms**；
+- `src` 展开状态继续按 root 持久化，返回 workspace 后由异步 listing
+  恢复，alert 0；
+- 定向回归 **5 pass / 0 fail**；
+- 完整测试 **3115 pass / 0 fail**。
+
+**适用环境**：macOS、DSH Web、Ego Lite。
+基于可见文本的快捷绑定必须先证明当前容器确实是目标菜单；菜单形状门禁
+失败时交由权威 Session 映射兜底。
+
+## 2026-11-19 — Workspace picker 即时绑定与 Commit 草稿隔离
+
+**作用域**：Workspace picker 点击、Editor workspace binding、Commit draft
+存储与切换。
+
+**症状/证据**：
+
+- Host Workspace 标题先更新，Editor 在 session-based sync 到达前仍短暂
+  显示旧 Project/Commit；
+- 实测 `dsh-editor → child-a` 时，`child-a` 短暂显示
+  `workspace-isolation-probe` 草稿；
+- 等待 `data-dsh-workspace-id` 真正变化后 `child-a` 草稿为空；
+- 返回 `dsh-editor` 后原草稿恢复。
+
+**根因**：
+
+- Editor 只在 Conversation session/Workspace snapshot 映射更新后重建；
+- Host picker menu item 的 DOM 不暴露 Workspace id，只暴露可见标题；
+- 标题切换早于 session 流，形成 stale UI 窗口。
+
+**修复**：
+
+- `workspaceIdForUniqueTitle(items, title)` 只在标题唯一时解析 id；
+- `onWorkspacePickerClick` 在 document capture 阶段立即
+  `openEditorSplit(workspaceId)`；
+- 重复标题不猜测，继续由 session-based sync 兜底；
+- 不 preventDefault / stopPropagation，不影响 Host 自身选择动作；
+- click listener 与 cleanup 成对注册。
+
+**回归**：
+
+- `tests/editor-workspace-picker-immediate-binding.test.mjs` 覆盖唯一/重复标题
+  和 click listener 契约；
+- DSH Web：
+  - `child-a` editor workspace id 为 `06cf902b-...`，draft 为空；
+  - 返回 `dsh-editor` editor workspace id 为 `2d8cbbfa-...`，
+    draft 恢复 `workspace-isolation-probe`；
+  - alert 0；
+- 定向回归 **8 pass / 0 fail**；
+- 完整测试 **3115 pass / 0 fail**。
+
+**适用环境**：macOS、DSH Web、Ego Lite。
+可见标题唯一时可以在点击阶段提前绑定 Workspace；任何标题歧义都必须交由
+权威 Session 映射解决，不能猜测。
+
+## 2026-11-19 — 同 Workspace Session 切换复用 Editor root
+
+**作用域**：Workspace binding、Editor React root、Project tree / Monaco /
+xterm 生命周期。
+
+**症状/验证目标**：
+
+- 需要确认同一 Workspace 内切换 Conversation Session 不会误触发
+  `destroyHost()`；
+- 空白 New Session 再次点击 New Session 会被 Host no-op，无法验证；
+- 改用已有持久化 Session 后，从
+  `session-46e231e1-...` 新建同工作区 Session
+  `session-91fcddda-...`。
+
+**证据**：
+
+- 切换前给 `[data-dsh-editor-host]` 写入临时属性
+  `data-dsh-probe-host="real-session-switch"`；
+- Session id 已变化；
+- 切换后探针属性仍在；
+- Project root 仍为 `dsh-editor-r526-fixture`；
+- alert 0。
+
+**修复/契约**：
+
+- 保留现有 workspace-scoped 销毁逻辑；
+- `syncInner` 中只有一个 `destroyHost()`，位于
+  `conversationWorkspaceId !== editorConversationWorkspaceId` 且目标
+  Workspace 与 Editor 绑定不同的分支；
+- 同 Workspace 内 Session 变化只更新 `editorConversationWorkspaceId`。
+
+**回归**：
+
+- `tests/editor-conversation-workspace-binding-follows-host-switch.test.mjs`
+  新增“session changes inside one Workspace reuse the mounted Editor root”；
+- 定向回归 **6 pass / 0 fail**；
+- 完整测试 **3113 pass / 0 fail**。
+
+**适用环境**：macOS、DSH Web、Ego Lite。
+Workspace 级 Editor 不应因同 Workspace 的 Session 切换而重建；只有
+Workspace 身份变化才允许销毁 root。
+
+## 2026-11-19 — 目录能力 Public-first 探测缓存
+
+**作用域**：Add workspace 目录 provider、`uiWorkspace.listDirectory`、
+私有只读目录桥。
+
+**症状/证据**：
+
+- native-only Host 第一次打开目录弹框时，公开
+  `api/directoryPicker/list` 返回 200 + capability refusal；
+- 随后回退 `api/dsh-editor/workspace-directory` 成功；
+- 每次重新打开弹框都重复同一失败 RPC，产生固定额外延迟。
+
+**根因**：
+
+- provider 选择没有生命周期缓存；
+- public-first 回退逻辑每次重新探测一个当前 Host 生命周期内不会变化的
+  能力组合。
+
+**修复**：
+
+- controller 增加
+  `workspaceDirectoryProvider: 'unknown' | 'public' | 'bridge'`；
+- 首次成功调用公开服务后缓存 `public`；
+- 仅 `directory-picker/unavailable` 时缓存 `bridge`；
+- 后续目录扫描直接使用缓存 provider；
+- 其他错误不改变缓存语义并原样上抛。
+
+**回归**：
+
+- `tests/project-workspace-directory-picker-web-add-workspace.test.mjs`
+  验证三态 provider 与缓存分支；
+- DSH Web：
+  - 第一次打开产生 public probe + bridge 两条 200；
+  - 第二次打开只产生 bridge 一条 200；
+  - `directoryPicker/list` 第二次调用数 **0**；
+  - path `~`、13 个目录项、alert 0；
+- 完整测试 **3112 pass / 0 fail**。
+
+**适用环境**：macOS、DSH Web、native-only Host、Ego Lite。
+固定 Host 能力组合应在首次探测后缓存；动态能力变化需要显式失效信号，
+不能用每次打开都重新探测来兜底。
+
+## 2026-11-19 — Workspace 目录 API 404 与 public/native capability 回退
+
+**作用域**：Add workspace 目录浏览、`uiWorkspace.listDirectory`、
+`/api/dsh-editor/workspace-directory`、DSH Web Host 生命周期。
+
+**症状/证据**：
+
+- Add Workspace 弹框显示
+  `Could not load the directory: workspace directory API HTTP 404`；
+- 当前安装包的 `lib/index.js` 已包含
+  `/api/dsh-editor/workspace-directory`；
+- 生产 Host 进程启动于 **09:15**，而 `lib/index.js` 在 **13:48** 后更新，
+  说明运行进程没有加载最新 Host 路由；
+- DSH 公开服务 `uiWorkspace.listDirectory(path, signal)` 存在，但当前
+  profile 组合 native picker，调用返回
+  `directory-picker/unavailable: ... serves "native"`。
+
+**根因**：
+
+- 客户端只依赖插件私有 HTTP 路由；
+- native-only Host 的公开目录服务不可用；
+- 私有路由已写入安装目录但未进入旧 Host 进程，形成“客户端新、Host 旧”
+  的 404；
+- 原错误处理直接显示 HTTP 状态，没有说明需要重启 Host。
+
+**修复**：
+
+- controller 优先调用 `uiWorkspace.listDirectory`；
+- `isDirectoryBrowseUnavailable()` 精确识别
+  `directory-picker/unavailable`；
+- 仅该能力不可用时回退到私有只读目录路由；
+- 其他权限或业务错误直接上抛；
+- 私有路由仍返回 404 时显示本地化
+  “目录服务尚未加载，请重启 Harness 后重试”；
+- 重启生产 DeepSeek Harness，让新 Host 路由进入当前进程。
+
+**回归**：
+
+- `tests/project-workspace-directory-picker-model.test.mjs` 覆盖能力拒绝
+  的精确分类；
+- `tests/project-workspace-directory-picker-web-add-workspace.test.mjs`
+  覆盖 public-first + private fallback；
+- `tests/project-workspace-directory-picker-route-missing-restart-guidance.test.mjs`
+  覆盖 404 本地化指引；
+- DSH Web 实测：
+  - `api/directoryPicker/list` → **200**；
+  - `api/dsh-editor/workspace-directory` → **200**；
+  - path `~`、13 个目录项、alert 0；
+- 生产 Host 重启后 PID **80491**；
+- 定向回归 **9 pass / 0 fail**；
+- 完整测试 **3112 pass / 0 fail**。
+
+**适用环境**：macOS、DSH Web、DSH Desktop Host、Ego Lite。
+目录浏览必须 Public capability first；只有明确的 native-only 能力拒绝才可
+回退到插件私有桥。Host 安装文件更新不等于运行进程已加载，必须核对进程
+启动时间或重启后验证。
+
+## 2026-11-19 — Editor 未跟随宿主 Workspace 切换
+
+**作用域**：`controller.ts`、Workspace snapshot、Editor React root、
+Project / Commit / Terminal workspace 绑定。
+
+**症状/证据**：
+
+- 通过 Add workspace 从 `child-a` 创建/切换到 `dsh-editor` 后，Harness
+  工作区标题已变为 `dsh-editor`，但已打开的 Project 仍显示 `child-a`；
+- 直接使用宿主工作区下拉从 `dsh-editor` 切到 `child-a`，Editor 仍停留
+  `dsh-editor`；
+- 关闭 Editor 后切换 workspace，再重新打开，仍可能复用旧 root。
+
+**根因**：
+
+- `editorWorkspaceId` 只在使用 Editor 菜单入口时赋值；
+- 宿主 Workspace picker 切换 session 不会经过该入口；
+- `sync()` 只维护 DOM 位置和 Chat chrome，没有比较当前 Conversation
+  session 所属 Workspace；
+- 隐藏的 Editor root 会跨工作区继续保留，重开时可能命中旧状态。
+
+**修复**：
+
+- `foundation.ts` 新增
+  `workspaceIdForConversationSession(items, sessionId)`；
+- controller 每次 sync 读取
+  `[data-conversation-session]`，并通过 `workspaces.list.getSnapshot()` 的
+  `sessionIds` 映射 workspaceId；
+- 当前映射 workspace 与 Editor 绑定不同时，更新 `editorWorkspaceId` 并
+  `destroyHost()`；活动 Editor 随后按新 workspace 重建；
+- Add workspace 成功且 Editor 已打开时，立即 `openEditorSplit(workspaceId)`，
+  避免先显示旧内容；
+- 同一 workspace 内仅仅更换 session 不重建 Editor。
+
+**回归**：
+
+- `tests/editor-conversation-workspace-binding-follows-host-switch.test.mjs`
+  覆盖 session → workspace 映射和 controller 失效路径；
+- DSH Web：
+  - 下拉 `child-a → dsh-editor`，Editor root 同步变化；
+  - Add workspace 切到 `child-a`，Editor root 同步变化；
+  - Editor 关闭时切换 workspace，再打开仍绑定当前 workspace；
+  - Commit 活动时切换 workspace，Commit 保留并显示新仓库状态；
+- workspace binding 定向回归 **4 pass / 0 fail**；
+- 完整测试 **3110 pass / 0 fail**。
+
+**适用环境**：macOS、DSH Web、Ego Lite。
+Editor 的 workspace 绑定必须由 Host 当前 Conversation session 驱动，不能只在
+插件自定义入口赋值；隐藏 root 在 workspace 变化时也必须失效。
+
+## 2026-11-19 — 浮动弹框视觉外壳职责分叉
+
+**作用域**：`FloatingToolPopup`、Find、Search Everywhere、Add workspace
+目录选择器。
+
+**症状/证据**：
+
+- Search Everywhere 内层仍通过 `styles.palette` 拥有 border、radius、
+  background 和 shadow；
+- Find 与目录选择器又分别重复相同视觉字段；
+- 外层 `FloatingToolPopup` 虽共享拖动、缩放、遮罩，却没有拥有统一外壳。
+
+**根因**：
+
+- 共享层只抽出了几何与遮罩，视觉容器仍由各业务内容自行定义；
+- 业务 surface 样式与内容样式混用，导致以后容易再次出现边框、圆角或
+  阴影不一致。
+
+**修复**：
+
+- `FloatingToolPopup` 新增唯一
+  `FLOATING_TOOL_POPUP_SURFACE_STYLE`：
+  - `POPUP_BORDER`；
+  - 8px radius；
+  - 共享 background 和 shadow；
+  - `overflow: hidden`；
+- 业务 `surfaceStyle` 只保留 zIndex、display、flex 和业务内容语义；
+- Search Everywhere 内容层移除 `styles.palette`；
+- Find、Search Everywhere、目录选择器运行态外层均为 **1px solid / 8px**，
+  内容层 border 为 **0px**。
+
+**回归**：
+
+- `tests/search-floating-popup-shared-find-search.test.mjs` 新增
+  “business popup content leaves border, background and shadow to the shared
+  surface”；
+- `tests/editor-popup-border-icon-size-shared.test.mjs` 验证共享 shell；
+- 共享弹框定向回归 **35 pass / 0 fail**；
+- 完整测试 **3110 pass / 0 fail**。
+
+**适用环境**：macOS、DSH Web、Ego Lite。
+浮动弹框的 geometry、backdrop、visual shell 和 focus lifecycle 必须由共享
+容器拥有；业务内容不得再定义第二套边框、圆角、背景或阴影。
+
+## 2026-11-19 — 多弹框 Tab 焦点循环重复实现收口
+
+**作用域**：`FloatingToolPopup`、Find、Search Everywhere、QuickOpen、
+`components/ui/focus-trap.ts`。
+
+**症状/证据**：
+
+- Find、Search Everywhere、QuickOpen 和 Add workspace 各自维护
+  focusable selector、可见性过滤与 Tab 取模；
+- 同轮引入的目录弹框成为第四份实现；
+- helper 的 `ParentNode` 类型在 ESLint 下报
+  `'ParentNode' is not defined no-undef`；
+- 初始定向回归 **7 pass / 5 fail**，其中旧契约仍要求本地实现。
+
+**根因**：
+
+- 通用键盘焦点闭环没有唯一归属，调用方通过复制实现形成多套行为；
+- 测试执行器会剥离模块 import，helper 行为测试没有注入
+  `foundation.ts` 的真实索引函数；
+- DOM 根类型使用了 ESLint 当前配置未声明的 `ParentNode`。
+
+**修复**：
+
+- 新增共享 `components/ui/focus-trap.ts`：
+  - `dialogFocusableElements`；
+  - `nextDialogFocusTarget`；
+  - `trapDialogFocus`；
+- 四个调用方只传入当前 root 和 `focusWhenOutside`，业务继续拥有自己的
+  Escape、历史菜单和关闭策略；
+- 继续复用 `searchEverywhereNextFocusIndex`，不新增第二套取模算法；
+- root 类型使用 `Element | Document`；
+- helper 导出到 UI index 与 build manifest；
+- 测试从 `foundation.ts` 提取真实函数后注入 helper，避免测试副本。
+
+**回归**：
+
+- `tests/editor-dialog-focus-shared-trap-helper.test.mjs` 覆盖前进、后退、
+  空列表、外部焦点进入和四调用方复用；
+- 原有 Find popup / dock、QuickOpen、Search Everywhere、目录弹框契约
+  改为验证共享 helper 委托，同时保留业务行为断言；
+- DSH Web：
+  - QuickOpen、Search Everywhere、Find popup、Add workspace 的
+    Tab / Shift+Tab 均未逃出弹框；
+  - Find popup 拖动 **+30px**，缩放 **+42×32px**；
+  - Add workspace Escape 后异步焦点恢复为 **Add workspace**；
+- 定向回归 **12 pass / 0 fail**；
+- 完整测试 **3107 pass / 0 fail**；
+- lint、TypeScript、source imports、bundle 一致性、Prettier、
+  `git diff --check`、`npm pack --dry-run` 通过。
+
+**适用环境**：macOS、DSH Web、Ego Lite、Chromium。
+弹框若需要 modal 键盘闭环，必须启用共享 helper；selector、可见性过滤和
+Tab 取模不得再在业务组件内复制。
+
+## 2026-11-19 — 目录弹框 320/360px 越界与路径输入挤压
+
+**作用域**：`WorkspaceDirectoryPicker` 默认 geometry、路径 actions、
+Show hidden 紧凑标签。
+
+**症状/证据**：
+
+- viewport 360×600 时 popup 为 `left=16,width=360,right=376`，
+  右侧越界 16px；
+- viewport 320×600 时路径输入 clientWidth 只有 **18px**，无法正常读取/编辑；
+- 根因：
+  - `defaultPickerGeometry()` 强制 `width >= 360`；
+  - Show hidden 使用完整长文案，actions 固定占用约 196.5px。
+
+**根因**：
+
+- 初始 geometry 没有先减 viewport 边距，再应用最大上限；
+- 窄宽度下的工具按钮没有短标签层，业务可直接使用完整 aria-label/title。
+
+**修复**：
+
+- `workspaceDirectoryPickerGeometry(viewportWidth, viewportHeight)` 统一：
+  - `width = min(760, viewportWidth - 32)`；
+  - `height = min(560, viewportHeight - 32)`；
+  - x/y 始终至少 16px；
+- Show hidden：
+  - `aria-label/title` 保留完整 “Show hidden directories”；
+  - 可见文案使用 `Hidden` / `显示隐藏` 短标签。
+
+**回归**：
+
+- `tests/project-workspace-directory-picker-narrow-viewport.test.mjs`
+  覆盖 360 / 320 / 900 geometry；
+- DSH Web 360px：
+  - popup `16 → 344`，width **328px**；
+  - form 无 overflow；
+- DSH Web 320px：
+  - popup `16 → 304`，width **288px**；
+  - actions **196.5 → 112.6px**；
+  - path input **18 → 91.8px**；
+  - Hidden 按钮 `aria-label` 完整，alert 0；
+- 定向回归 **8 pass / 0 fail**；
+- 完整测试 **3105 pass / 0 fail**；
+- lint、TypeScript、source imports、bundle 一致性、Prettier、
+  `git diff --check` 通过。
+
+**适用环境**：macOS、DSH Web、Ego Lite。
+浮层默认 geometry 必须先适配 viewport，再应用设计上限；窄宽度工具按钮
+应允许短可见标签，但不能省略完整可访问名称。
+
+## 2026-11-19 — 目录弹框 Escape、焦点闭环与 opener 恢复
+
+**作用域**：`FloatingToolPopup`、`WorkspaceDirectoryPicker`、Add workspace
+关闭路径、键盘焦点恢复。
+
+**症状/证据**：
+
+- Add workspace 目录弹框打开后按 Escape，popup 仍存在；
+- 从 Cancel / Add Workspace 继续 Tab 后焦点进入 BODY，再到侧栏、Chat、
+  Editor；
+- 点击关闭后 `document.activeElement === document.body`。
+
+**根因**：
+
+- 共享 `FloatingToolPopup` 只拥有几何和遮罩，没有 opt-in 的 modal 键盘
+  生命周期；
+- 目录弹框没有 Escape 或 Tab 循环；
+- controller 以独立 React root 卸载弹框，卸载后没有 opener 恢复。
+
+**修复**：
+
+- `FloatingToolPopup` 新增 opt-in：
+  - `trapFocus`；
+  - `onRequestClose`；
+  - `returnFocusElement`；
+  - `ariaLabel`；
+- 开启 `trapFocus` 时输出 `role="dialog"` / `aria-modal="true"`；
+- Tab 循环复用 `searchEverywhereNextFocusIndex`，不新增算法副本；
+- open 时保存 opener，open=false 或组件卸载时异步恢复到 connected opener；
+- Add workspace controller 把触发按钮作为 `returnFocusElement` 传入；
+- Directory picker 仅在未处于 creating 状态时响应 Escape/backdrop close。
+
+**回归**：
+
+- `tests/project-workspace-directory-picker-focus-escape-return.test.mjs`
+  覆盖 opt-in API、目录弹框启用和 controller opener；
+- DSH Web：
+  - Escape → popup 消失，activeElement 回到 Add workspace；
+  - 20 次 Tab + 8 次 Shift+Tab 全部留在 dialog 内；
+  - role=dialog、aria-modal=true，alert 0；
+- 定向回归 **11 pass / 0 fail**；
+- 完整测试 **3103 pass / 0 fail**；
+- lint、TypeScript、source imports、bundle 一致性、Prettier、
+  `git diff --check` 通过。
+
+**适用环境**：macOS、DSH Web、Ego Lite。
+浮层若声明为 modal，必须同时具备 Escape、Tab 闭环和 opener 恢复；
+不得在业务组件复制 focus-trap 列表算法。
+
+## 2026-11-19 — Add workspace 默认 ~ 与紧凑目录工具行
+
+**作用域**：`WorkspaceDirectoryPicker`、`workspace-directory-model`、
+Add workspace 首屏、路径显示/解析、进入目录操作。
+
+**症状/证据**：
+
+- 目录弹框首屏虽然由 host 返回 home，但路径栏和树根行显示绝对
+  `/Users/chan`；
+- “Show hidden directories”位于独立第二行，单独占用约一行高度；
+- 隐藏目录右侧留白大，目录选择只能双击展开。
+
+**根因**：
+
+- 路径输入直接保存 host 绝对路径，没有 `~` 展示层；
+- 路径控件的 actions 没有在同一 flex row 中收纳；
+- 没有把当前选中目录重新设为树根的显式动作。
+
+**修复**：
+
+- `displayWorkspaceDirectoryPath()`：home → `~`，home 子目录 → `~/...`；
+- `resolveWorkspaceDirectoryPath()`：`~` 在发送 host 前展开为绝对 home；
+- 路径行合并为 **Directory / input / → / refresh / Show hidden**；
+- Show hidden 位于 actions 组最右端并 `marginLeft:auto`；
+- `→` 调用 `loadRootDirectory(selectedPath)`，把所选目录设为树根；
+- home 路径使用 `homePathRef` 保存，避免 state 进入 effect 依赖造成
+  load/abort/restart 自激循环。
+
+**回归**：
+
+- `tests/project-workspace-directory-picker-home-enter-compact-actions.test.mjs`
+  覆盖 `~` 显示/解析、进入按钮和同一行 actions；
+- DSH Web：
+  - 初始 `pathValue="~"`、根行 `~`；
+  - Show hidden 与 actions 右边缘均为 **823px**；
+  - 路径行高 **47px**，没有独立隐藏目录行；
+  - 选择 `Documents` 后点击 `→`，路径与根目录均切换到
+    `~/Documents`；
+  - alert 0；
+- 定向回归 **8 pass / 0 fail**；
+- 完整测试 **3100 pass / 0 fail**；
+- lint、TypeScript、source imports、bundle 一致性、Prettier、
+  `git diff --check` 通过。
+
+**适用环境**：macOS、DSH Web、Ego Lite。
+后续目录相关输入必须使用同一 `~` display/resolve helper；工具按钮不得
+再拆出独立工具栏行。
+
+## 2026-11-19 — IDEA Light 代码着色配方与 TS/JS 语义 token
+
+**作用域**：Monaco 主编辑器、右侧分屏、Diff、Repository Version Preview、
+`editor-theme-model.ts`、`ensureEditorTheme`、semantic token provider。
+
+**症状/证据**：
+
+- 编辑器 Light 模式此前直接使用 Monaco `vs`，关键词、方法、字段、局部变量
+  等颜色与 IDEA Light 不一致；
+- IDEA 2026.2 运行界面和 Default color scheme 证据：
+  - keyword `#000080` bold、string `#008000`、number `#0000ff`、
+    comment `#808080` italic；
+  - field/constant `#660e7a`、metadata `#808000`；
+  - JS global variable `#660e7a` italic、instance member function `#914c07`、
+    local variable `#458383`、type parameter `#20999d`；
+- Monaco 公开的 `TypeScriptWorker` proxy 在运行态 **没有**
+  `getEncodedSemanticClassifications` 方法；仅靠 worker 分类会静默退回
+  普通 identifier 颜色。
+
+**根因**：
+
+- Light theme 没有集中 palette；
+- TypeScript worker 的 public proxy 不暴露分类 API；
+- 编辑器默认 `semanticHighlighting.enabled` 为 theme-configured，而 standalone
+  Light theme 默认 semanticHighlighting=false。
+
+**修复**：
+
+- 新增单一主题模型 `editor-theme-model.ts`：
+  - IDEA Light token palette、font styles、semantic legend；
+  - Monaco delta encoding、重叠 token 去重和 model version cache；
+  - TS/JS 轻量词法语义分类：import/global、class/interface/enum/type、
+    type parameter、function/method、parameter、property、variable、return；
+- `ensureEditorTheme()` 注册 `dsh-editor-idea-light`，Dark 继续返回 `vs-dark`；
+- 主编辑器、Diff 两侧、Repository Version Preview 都开启
+  `'semanticHighlighting.enabled': true`；
+- Diff theme 与普通编辑器共用同一 `ideaLightTokenRules()`，不维护第二份颜色表；
+- 注释和字符串在词法分类前先掩码，避免其中的 identifier 被误着色。
+
+**回归**：
+
+- `tests/editor-code-coloring-idea-light-palette.test.mjs`
+  锁定 palette、font style、共享 theme wiring；
+- `tests/editor-code-coloring-semantic-tokens.test.mjs`
+  锁定 delta encoding、overlap 去重和 TS 语义分类；
+- DSH Web 真实 TS 文件：
+  - `themeId = dsh-editor-idea-light`；
+  - `semanticRaw = true`；
+  - `hasSomeSemanticTokens = true`、`hasCompleteSemanticTokens = true`；
+  - 命中 class、type parameter、method、parameter、property、local/global
+    variable 和 return value；
+  - Light alert 0；强制 Dark 后 `themeId = vs-dark`；
+- 定向回归 **9 pass / 0 fail**；
+- 完整测试 **3097 pass / 0 fail**；
+- lint、TypeScript、source imports、bundle 一致性、Prettier、
+  `git diff --check` 通过。
+
+**适用环境**：macOS、DSH Web、IntelliJ IDEA 2026.2、Monaco 0.52.2。
+后续新增编辑器实例必须调用共享 `ensureEditorTheme()`，Light semantic
+highlighting 必须显式开启；不得在组件内复制 token 色表。
+
+## 2026-11-19 — Project 文件树积木化与 Web 添加工作区目录选择器
+
+**作用域**：Project 树行视图、Harness `Add workspace`、Web 目录选择、
+`FileTreeView`、`WorkspaceDirectoryPicker`、`FloatingToolPopup`、
+`/api/dsh-editor/workspace-directory`。
+
+**症状/证据**：
+
+- Project 行 DOM、缩进、图标、选中和 ARIA 与工具栏/搜索/拖放混在
+  `ProjectPanel` 内，外部目录选择无法复用；
+- Web 点击 `Add workspace` 时，当前宿主 composition 只提供 native
+  `directoryPicker`，`directoryPicker.list` 返回
+  `directory-picker/unavailable`；
+- 共享弹框本身已打开，但目录树显示
+  `directoryPicker.list needs the browse capability`；
+- DSH App 使用 `document.documentElement[data-platform]`，Web 没有该属性。
+
+**根因**：
+
+- 文件树没有独立受控积木，Project 业务和通用行渲染没有边界；
+- Web 目录枚举错误地依赖宿主的可选 browse capability；
+- App/Web 分流缺少显式运行面判断。
+
+**修复**：
+
+- 新增 `FileTreeView`，仅负责受控树行、层级、图标、名称/编辑/尾部槽、
+  选择态、树 ARIA 和事件透传；
+- `ProjectPanel` 保留搜索、创建/重命名、拖放、上传、Git 装饰和右键业务；
+- `WorkspaceDirectoryPicker` 复用 `FileTreeView` 和共享
+  `FloatingToolPopup`，继续由共享容器提供遮罩、拖动、八向缩放与 clamp；
+- Web 模式拦截 `Add workspace`，App 模式保留原生 action；
+- 新增 host 专用只读目录枚举 `/api/dsh-editor/workspace-directory`，
+  只返回绝对路径下的目录，不读取文件内容；
+- 创建仍调用宿主 `workspaces.create({ path })`，成功后沿用
+  `uiWorkspace.startSession(...)` 的新工作区语义；
+- 新弹框边框复用 `POPUP_BORDER`，标题图标复用 `POPUP_ICON_SIZE`。
+
+**回归**：
+
+- `tests/project-workspace-directory-picker-model.test.mjs` 覆盖运行面、
+  目录过滤和树扁平化；
+- `tests/project-workspace-directory-picker-web-add-workspace.test.mjs`
+  覆盖 App/Web 分流、公共工作区服务与共享容器复用；
+- `tests/project-workspace-directory-picker-host-lists-directories.test.mjs`
+  覆盖 host 只列目录、拒绝相对路径和普通文件；
+- `tests/project-file-tree-reused-by-workspace-directory-picker.test.mjs`
+  锁定 Project 与目录选择器共用 `FileTreeView`；
+- DSH Web 实测：
+  - 目录读取 `/Users/chan` 成功，无 alert；
+  - 弹框 8 个缩放手柄，拖动和缩放生效；
+  - 选择 `/tmp/dsh-workspace-picker-e2e/child-a` 后侧栏出现 `child-a`；
+  - 临时 profile 的 `workspace.json` 记录该绝对路径；
+  - 模拟 `data-platform` 后点击不创建插件 picker host；
+- 完整测试 **3091 pass / 0 fail**；
+- lint、TypeScript、source imports、bundle 一致性、Prettier、
+  `git diff --check` 通过。
+
+**适用环境**：macOS、DSH Web、DSH App、Ego Lite。
+Web 目录选择不能假设宿主 browse picker 可用；插件自有只读目录枚举必须
+与宿主工作区注册服务分离，创建/登记仍以宿主 registry 为唯一真源。
+
 ## 2026-11-19 — Commit 的 Change/Log 页签返回后滚动位置丢失
 
 **作用域**：Commit 工具窗 Change/Log 页签、`commitScrollRef`、
@@ -35,8 +1116,9 @@
 - `tests/commit-remembered-offset-restored-clamped-new-content.test.mjs`
   锁定 useLayoutEffect，并禁止旧 animation-frame 恢复；
 - 定向回归 **27 pass / 0 fail**；
-- 完整测试、lint、TypeScript、source imports、bundle 一致性、Prettier、
-  `git diff --check` 见收尾门禁。
+- 完整测试 **3082 pass / 0 fail**；
+- lint、TypeScript、source imports、bundle 一致性、Prettier、
+  `git diff --check` 通过。
 
 **适用环境**：macOS、DSH Web、Ego Lite、IDEA 2026.2。
 React commit 完成后即可访问的 DOM/ref 不应再靠动画帧猜测；滚动恢复应在
@@ -79,8 +1161,9 @@ layout effect 中执行。
   - Commit 隐藏/恢复期间 Terminal panel 和 xterm 节点持续存在；
 - Terminal input + Alt+2 → Commit Changes tree，Terminal 保持打开；
 - 定向回归 **27 pass / 0 fail**；
-- 完整测试、lint、TypeScript、source imports、bundle 一致性、Prettier、
-  `git diff --check` 见收尾门禁。
+- 完整测试 **3082 pass / 0 fail**；
+- lint、TypeScript、source imports、bundle 一致性、Prettier、
+  `git diff --check` 通过。
 
 **适用环境**：macOS、DSH Web、Ego Lite、IDEA 2026.2。
 所有关闭动态 UI 的路径必须等待卸载提交完成再恢复焦点；同一 focus

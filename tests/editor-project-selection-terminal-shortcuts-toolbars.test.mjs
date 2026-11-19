@@ -9,14 +9,14 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const read = (path) => readFileSync(join(root, path), 'utf8');
 
 test('project tree supports meta and shift extended selection', () => {
-  const client = `${read('src/client/editor-workspace.tsx')}\n${read('src/client/components/project/ProjectPanel.tsx')}`;
+  const client = `${read('src/client/editor-workspace.tsx')}\n${read('src/client/components/project/ProjectPanel.tsx')}\n${read('src/client/components/project/FileTreeView.tsx')}`;
   const selectionModel = read('src/client/components/project/project-selection-model.ts');
   assert.match(selectionModel, /function projectTreeSelectionAfterPointer\(/);
   assert.match(selectionModel, /request\?\.shiftKey === true && anchor !== null/);
   assert.match(selectionModel, /request\?\.metaKey === true \|\| request\?\.ctrlKey === true/);
   assert.match(selectionModel, /new Set\(paths\.slice\(start, end \+ 1\)\)/);
   assert.match(client, /const selectRow = React\.useCallback/);
-  assert.match(client, /onMouseDown=\{\(event\) => \{[\s\S]*?onSelect\(row, event\);/);
+  assert.match(client, /onRowPointerDown=\{\(state, event\) => \{[\s\S]*?onSelect\(row, event\);/);
   assert.match(client, /treeRowSelectedSoft/);
   assert.match(client, /onSelect=\{selectRow\}/);
 });
@@ -48,10 +48,7 @@ test('terminal tabs follow the shell OSC title unless renamed by hand', () => {
 });
 
 test('terminal dock owns find and tab shortcuts', () => {
-  const client = [
-    read('src/client/find-tool.ts'),
-    read('src/client/components/terminal/TerminalPanel.tsx'),
-  ].join('\n');
+  const client = [read('src/client/find-tool.ts'), read('src/client/components/terminal/TerminalPanel.tsx')].join('\n');
   assert.match(client, /function terminalMatches/);
   assert.match(client, /function countTerminalMatches/);
   assert.match(client, /function moveTerminalSelection/);

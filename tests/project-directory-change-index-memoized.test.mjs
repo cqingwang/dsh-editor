@@ -4,7 +4,10 @@ import test from 'node:test';
 import { loadTypeScriptFunction } from './ts-source.mjs';
 
 const terminalSource = await readFile(new URL('../src/client/terminal.ts', import.meta.url), 'utf8');
-const panel = await readFile(new URL('../src/client/components/project/ProjectPanel.tsx', import.meta.url), 'utf8');
+const panel =
+  (await readFile(new URL('../src/client/components/project/ProjectPanel.tsx', import.meta.url), 'utf8')) +
+  '\n' +
+  (await readFile(new URL('../src/client/components/project/FileTreeView.tsx', import.meta.url), 'utf8'));
 
 const indexChangesByDirectory = loadTypeScriptFunction(terminalSource, 'indexChangesByDirectory');
 
@@ -44,10 +47,10 @@ test('Project reuses memoized change maps and queries each row tint once', () =>
   assert.match(presentation, /directoryTint\(changesByDirectory\.get\(row\.path\)\)/u);
   assert.equal(presentation.match(/changesByDirectory\.get\(row\.path\)/gu)?.length, 1);
 
-  const rowRenderAt = panel.indexOf('{visibleRows.map((row, rowIndex) => {');
+  const rowRenderAt = panel.indexOf('const renderProjectRowName =');
   assert.ok(rowRenderAt > 0);
   const rowRender = panel.slice(rowRenderAt);
-  assert.match(rowRender, /selected \|\| directoryTintState === null/u);
+  assert.match(rowRender, /!selected && directoryTintState !== null/u);
   assert.doesNotMatch(rowRender, /directoryTint\(|directoryStatus\(/u);
   assert.doesNotMatch(panel, /\(git\?\.changes \?\? \[\]\)\.filter\(/u);
 });
