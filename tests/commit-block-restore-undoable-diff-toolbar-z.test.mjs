@@ -32,7 +32,10 @@ test('a block restore is undoable from the diff toolbar and ⌘Z', () => {
   assert.match(iconSource, /case 'undo':/);
   assert.match(client, /icon: 'undo',\s+label: t\('editor\.diffUndoRestore'\)/u);
   assert.match(client, /const \[undoNotice, setUndoNotice\] = React\.useState(?:<[^>]+>)?\(null\);/);
-  assert.match(client, /undoNotice \?\? t\(target\?\.staged === true \? 'editor\.diffRestoreHintStaged' : 'editor\.diffRestoreHint'\)/);
+  assert.match(
+    client,
+    /undoNotice \?\? t\(target\?\.staged === true \? 'editor\.diffRestoreHintStaged' : 'editor\.diffRestoreHint'\)/,
+  );
   assert.match(client, /event\.key\.toLowerCase\(\) === 'z'/);
   assert.match(client, /undoRestore\(\);/);
 });
@@ -59,7 +62,10 @@ test('read-only comparisons get no restore or undo affordance', () => {
     client,
     /const writable =\s+typeof target\.clipboardText !== 'string' &&\s+typeof target\.revision !== 'string' &&\s+typeof target\.commit !== 'string';/u,
   );
-  assert.match(client, /const canEdit = diffEditingEnabled\(\{[\s\S]*?writable,[\s\S]*?swapped: swapSidesRef\.current,[\s\S]*?locked: editLockedRef\.current,/);
+  assert.match(
+    client,
+    /const canEdit = diffEditingEnabled\(\{[\s\S]*?writable,[\s\S]*?swapped: swapSidesRef\.current,[\s\S]*?locked: editLockedRef\.current,/,
+  );
   assert.match(client, /diff\.updateOptions\(\{\n\s+readOnly: canEdit === false,\n\s+renderMarginRevertIcon: canEdit,/);
   assert.match(
     client,
@@ -105,12 +111,32 @@ test('selection restore only targets changed character ranges', () => {
   const fn = new Function(
     `${transpileTypeScriptFunction(terminalSource, 'selectedCharChanges')}; return selectedCharChanges;`,
   )();
-  const changes = [{
-    charChanges: [
-      { originalStartLineNumber: 2, originalStartColumn: 1, originalEndLineNumber: 2, originalEndColumn: 5, modifiedStartLineNumber: 2, modifiedStartColumn: 1, modifiedEndLineNumber: 2, modifiedEndColumn: 5 },
-      { originalStartLineNumber: 8, originalStartColumn: 1, originalEndLineNumber: 8, originalEndColumn: 5, modifiedStartLineNumber: 8, modifiedStartColumn: 1, modifiedEndLineNumber: 8, modifiedEndColumn: 5 },
-    ],
-  }];
+  const changes = [
+    {
+      charChanges: [
+        {
+          originalStartLineNumber: 2,
+          originalStartColumn: 1,
+          originalEndLineNumber: 2,
+          originalEndColumn: 5,
+          modifiedStartLineNumber: 2,
+          modifiedStartColumn: 1,
+          modifiedEndLineNumber: 2,
+          modifiedEndColumn: 5,
+        },
+        {
+          originalStartLineNumber: 8,
+          originalStartColumn: 1,
+          originalEndLineNumber: 8,
+          originalEndColumn: 5,
+          modifiedStartLineNumber: 8,
+          modifiedStartColumn: 1,
+          modifiedEndLineNumber: 8,
+          modifiedEndColumn: 5,
+        },
+      ],
+    },
+  ];
   const hit = fn(changes, { startLineNumber: 2, startColumn: 1, endLineNumber: 2, endColumn: 5 });
   assert.equal(hit.length, 1);
   assert.equal(hit[0].modifiedStartLineNumber, 2);
@@ -118,18 +144,50 @@ test('selection restore only targets changed character ranges', () => {
   assert.deepEqual(fn(changes, null), []);
 
   /* Monaco reports a line replacement as an end column of 1 on the NEXT line. */
-  assert.equal(fn([{
-    charChanges: [{
-      originalStartLineNumber: 2, originalStartColumn: 1, originalEndLineNumber: 3, originalEndColumn: 1,
-      modifiedStartLineNumber: 2, modifiedStartColumn: 1, modifiedEndLineNumber: 3, modifiedEndColumn: 1,
-    }],
-  }], { startLineNumber: 2, startColumn: 1, endLineNumber: 2, endColumn: 5 }).length, 1);
-  assert.equal(fn([{
-    charChanges: [{
-      originalStartLineNumber: 8, originalStartColumn: 1, originalEndLineNumber: 9, originalEndColumn: 1,
-      modifiedStartLineNumber: 8, modifiedStartColumn: 1, modifiedEndLineNumber: 9, modifiedEndColumn: 1,
-    }],
-  }], { startLineNumber: 2, startColumn: 1, endLineNumber: 2, endColumn: 5 }).length, 0);
+  assert.equal(
+    fn(
+      [
+        {
+          charChanges: [
+            {
+              originalStartLineNumber: 2,
+              originalStartColumn: 1,
+              originalEndLineNumber: 3,
+              originalEndColumn: 1,
+              modifiedStartLineNumber: 2,
+              modifiedStartColumn: 1,
+              modifiedEndLineNumber: 3,
+              modifiedEndColumn: 1,
+            },
+          ],
+        },
+      ],
+      { startLineNumber: 2, startColumn: 1, endLineNumber: 2, endColumn: 5 },
+    ).length,
+    1,
+  );
+  assert.equal(
+    fn(
+      [
+        {
+          charChanges: [
+            {
+              originalStartLineNumber: 8,
+              originalStartColumn: 1,
+              originalEndLineNumber: 9,
+              originalEndColumn: 1,
+              modifiedStartLineNumber: 8,
+              modifiedStartColumn: 1,
+              modifiedEndLineNumber: 9,
+              modifiedEndColumn: 1,
+            },
+          ],
+        },
+      ],
+      { startLineNumber: 2, startColumn: 1, endLineNumber: 2, endColumn: 5 },
+    ).length,
+    0,
+  );
 });
 
 test('Commit opens at one quarter and remembers a dragged width per workspace', () => {
@@ -139,7 +197,10 @@ test('Commit opens at one quarter and remembers a dragged width per workspace', 
   assert.match(client, /dsh-editor\.toolWidth\.\$\{activity\}:\$\{root\}/);
   assert.match(client, /writeToolWidth\(rootRef\.current, activity, final\)/);
   assert.match(client, /React\.createElement\(EditorToolWindowResizer, \{/);
-  assert.match(toolWindowResizerSource, /Math\.max\(14, Math\.min\(72, startWidth \+ delta\)\)/);
+  assert.match(
+    toolWindowResizerSource,
+    /Math\.max\(TOOL_WINDOW_WIDTH_MIN_PERCENT, Math\.min\(TOOL_WINDOW_WIDTH_MAX_PERCENT, startWidth \+ delta\)\)/,
+  );
   assert.match(toolWindowResizerSource, /onCommit\(latest\)/);
   assert.match(client, /commit: readToolWidth\(value\.root \?\? '', 'commit', 25\)/);
   assert.match(client, /project: readToolWidth\(value\.root \?\? '', 'project', 28\)/);
@@ -153,20 +214,23 @@ test('the quarter-width diff keeps its glyph gutter but compacts text chrome', (
   assert.match(client, /dsh-editor-diff-view-label/);
   /* The selector may share the container rule with the hidden path hint; the
      behaviour that matters is that the mode label is hidden at 440px. */
-  assert.match(client, /@container dsh-editor-editor \(max-width: 440px\) \{ \.dsh-editor-diff-view-label[^}]*\{ display: none/);
+  assert.match(
+    client,
+    /@container dsh-editor-editor \(max-width: 440px\) \{ \.dsh-editor-diff-view-label[^}]*\{ display: none/,
+  );
 });
 
 test('a staged diff says the restore only changes the index', () => {
   const client = readClient();
-  assert.equal(
-    zh.editor.diffRestoreHintStaged,
-    '点击右侧的 ▸ 只把暂存区中的这一块还原为左侧内容（不改工作区）',
-  );
+  assert.equal(zh.editor.diffRestoreHintStaged, '点击右侧的 ▸ 只把暂存区中的这一块还原为左侧内容（不改工作区）');
   assert.equal(
     en.editor.diffRestoreHintStaged,
     'Click the ▸ on the right to restore this block in the index only (the working tree is untouched)',
   );
-  assert.match(client, /undoNotice \?\? t\(target\?\.staged === true \? 'editor\.diffRestoreHintStaged' : 'editor\.diffRestoreHint'\)/);
+  assert.match(
+    client,
+    /undoNotice \?\? t\(target\?\.staged === true \? 'editor\.diffRestoreHintStaged' : 'editor\.diffRestoreHint'\)/,
+  );
 });
 
 test('restore history survives switching between diff targets', () => {

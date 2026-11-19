@@ -1,9 +1,12 @@
 import React from 'react';
 import { styles } from '../../ui/styles';
+import { DockResizeHandle } from '../ui/DockResizeHandle';
 
 export interface EditorTerminalDockProps {
   open: boolean;
   height: number;
+  minHeight: number;
+  maxHeight: number;
   dragging: boolean;
   title: string;
   clampHeight: (value: number) => number;
@@ -16,6 +19,8 @@ export interface EditorTerminalDockProps {
 function EditorTerminalDock({
   open,
   height,
+  minHeight,
+  maxHeight,
   dragging,
   title,
   clampHeight,
@@ -25,35 +30,21 @@ function EditorTerminalDock({
   children,
 }: EditorTerminalDockProps) {
   if (!open) return null;
-  const onMouseDown = (event: React.MouseEvent<HTMLDivElement>) => {
-    event.preventDefault();
-    const startY = event.clientY;
-    const startHeight = height;
-    let latest = height;
-    onDraggingChange(true);
-    const onMove = (moveEvent: MouseEvent) => {
-      latest = clampHeight(startHeight + (startY - moveEvent.clientY));
-      onHeightChange(latest);
-    };
-    const onUp = () => {
-      onDraggingChange(false);
-      onCommit(latest);
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup', onUp);
-    };
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
-  };
 
   return (
-    <div style={{ ...styles.dock, height }}>
-      <div
-        style={{
-          ...styles.dockResize,
-          cursor: dragging ? 'row-resize' : 'row-resize',
-        }}
+    <div
+      style={{ ...styles.dock, height }}
+      data-dsh-terminal-dock=''
+      data-dsh-terminal-dock-dragging={dragging ? '' : undefined}>
+      <DockResizeHandle
+        value={height}
+        valueMin={minHeight}
+        valueMax={maxHeight}
         title={title}
-        onMouseDown={onMouseDown}
+        clampValue={clampHeight}
+        onValueChange={onHeightChange}
+        onCommit={onCommit}
+        onDraggingChange={onDraggingChange}
       />
       {children}
     </div>

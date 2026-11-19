@@ -34,7 +34,10 @@ test('Alt+1/2/3 raise Project, Commit and Terminal', () => {
   /* Round 140 listed this as remaining: the stripe had no keyboard path at all,
      so opening Commit meant reaching for the mouse. IDEA raises a tool window
      with Alt+<digit>. */
-  const block = slice('* Alt+F12, Alt+1..3 and Ctrl+Shift+`', '/* Keyboard navigation over the visible flattened rows. */');
+  const block = slice(
+    '* Alt+F12, Alt+1..3 and Ctrl+Shift+`',
+    '/* Keyboard navigation over the visible flattened rows. */',
+  );
   assert.match(block, /event\.key === '1' \|\| event\.key === '2' \|\| event\.key === '3'/);
   assert.match(
     block,
@@ -56,6 +59,15 @@ test('switching non-terminal tool windows keeps the terminal dock open', () => {
   assert.match(block, /if \(next === activity\) \{/);
   assert.match(block, /options\?\.keyboard === true/);
   assert.match(block, /toolWindowShortcutAction\(activity, next, panelVisibleRef\.current, focusInside\)/);
+});
+
+test('a focused side resizer belongs to the tool-window focus domain', () => {
+  const block = slice('const selectActivity = React.useCallback(', '* Alt+F12, Alt+1..3 and Ctrl+Shift+`');
+  assert.match(block, /data-dsh-editor-tool-window-resizer/u);
+  assert.match(
+    block,
+    /toolWindowPanelRef\.current\?\.contains\(activeElement\) === true[\s\S]*?data-dsh-editor-tool-window-resizer/u,
+  );
 });
 
 /* ── Project tree keeps the keyboard ────────────────────────────────────── */
@@ -104,7 +116,10 @@ test('⌘⇧A stages and ⌥⌘A unstages the current change', () => {
 });
 
 test('⌘D toggles the diff of the change the panel is showing', () => {
-  const block = slice('const showDiffShortcut = React.useCallback(', "window.addEventListener('keydown', showDiffShortcut, true);");
+  const block = slice(
+    'const showDiffShortcut = React.useCallback(',
+    "window.addEventListener('keydown', showDiffShortcut, true);",
+  );
   assert.match(block, /event\.key\.toLowerCase\(\) !== 'd'/);
   assert.match(
     block,
@@ -154,10 +169,13 @@ test('the last change survives closing the diff, so ⌘D can reopen it', () => {
 /* ── Terminal keys its own menu advertises ──────────────────────────────── */
 
 test('⌘A selects the whole terminal buffer and ⇧F6 renames the tab', () => {
-  const block = slice("/* ⌘A selects the whole buffer", '/* ⌘⇧C copies the selection');
+  const block = slice('/* ⌘A selects the whole buffer', '/* ⌘⇧C copies the selection');
   assert.match(block, /emulator\.selectAll\(\);/);
   assert.match(block, /event\.key === 'F6'/);
-  assert.match(block, /setRenaming\(\{\s+id: terminal\.id,\s+value: terminal\.title,\s+previous: terminal\.title,\s+\}\);/s);
+  assert.match(
+    block,
+    /setRenaming\(\{\s+id: terminal\.id,\s+value: terminal\.title,\s+previous: terminal\.title,\s+\}\);/s,
+  );
   /* The rename acts on the pane the caret is in, like ⌘1–⌘9 and ⌥←/→ do. */
   assert.match(
     block,
@@ -168,7 +186,7 @@ test('⌘A selects the whole terminal buffer and ⇧F6 renames the tab', () => {
 /* ── Project sort keeps the selected row on screen ──────────────────────── */
 
 test('a re-sort scrolls the selected row back into view', () => {
-  const block = slice("if (sortAppliedRef.current === '')", "/**\n   * Toggle IDEA's \"Open Files with Single Click\"");
+  const block = slice("if (sortAppliedRef.current === '')", '/**\n   * Toggle IDEA\'s "Open Files with Single Click"');
   assert.match(block, /if \(sortAppliedRef\.current === sortMode\) return;/);
   assert.match(block, /const path = selectedPathRef\.current;/);
   assert.match(block, /row\.scrollIntoView\(\{ block: 'nearest' \}\);/);

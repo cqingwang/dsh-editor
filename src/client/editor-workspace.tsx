@@ -135,6 +135,7 @@ import { EditorTerminalDock } from './components/terminal/EditorTerminalDock';
 import type { EditorTerminalDescriptor } from './components/terminal/EditorTerminalTab';
 import { TerminalPanel } from './components/terminal/TerminalPanel';
 import { ActivityStripe } from './components/ui/ActivityStripe';
+import { focusSurfaceWhenReady } from './components/ui/focus-surface';
 import {
   changePositionOf,
   changeRowGroup,
@@ -214,6 +215,7 @@ import {
   editorFindSelectionShortcutAction,
   editorReplaceAll,
   FIND_TOOL_DOCK_MIN_HEIGHT,
+  FIND_TOOL_DOCK_MAX_HEIGHT,
   editorReplaceAt,
   filteredViewSelection,
   flattenRows,
@@ -248,6 +250,8 @@ import {
   remapProjectManualOrder,
   reorderProjectManualPaths,
   textOffsetAtLineColumn,
+  TERMINAL_DOCK_MAX_HEIGHT,
+  TERMINAL_DOCK_MIN_HEIGHT,
   toolPanelFlex,
   typeaheadStep,
   writeCollapsedGroups,
@@ -1399,6 +1403,7 @@ function EditorWorkspace({
   const rowRefs = React.useRef<Map<string, HTMLElement>>(new Map());
   const treeRef = React.useRef<HTMLDivElement | null>(null);
   const toolWindowPanelRef = React.useRef<HTMLDivElement | null>(null);
+  const cancelFocusRequestRef = React.useRef<(() => void) | null>(null);
   /* Per-directory background prefetch generation, so a slower older walk
          cannot overwrite a newer listing after rapid expand/collapse. */ const projectPrefetchTokensRef = React.useRef<
     Map<string, number>
@@ -1640,13 +1645,18 @@ function EditorWorkspace({
    * dispatches a scoped event instead of focusing the hidden main editor.
    * With no diff, Monaco's normal editor is the correct target.
    * @returns {void}
-   */ const focusEditorFromTerminal = React.useCallback(() => {
-    if (diffOpen) {
+   */ const focusEditorSurface = React.useCallback(() => {
+    cancelFocusRequestRef.current?.();
+    cancelFocusRequestRef.current = focusSurfaceWhenReady(() => {
+      if (!diffOpen) return editorRef.current;
       const host = editorRef.current?.getDomNode?.()?.closest?.('[data-dsh-editor-workspace]') ?? null;
-      host?.dispatchEvent(new CustomEvent('dsh-editor-focus-diff'));
-      return;
-    }
-    editorRef.current?.focus();
+      if (host === null) return null;
+      return {
+        focus: () => {
+          host.dispatchEvent(new CustomEvent('dsh-editor-focus-diff'));
+        },
+      };
+    });
   }, [diffOpen]);
   /* IDEA's combined diff can walk every changed file without returning to
          the Changes tree. The sequence follows the active Group by order, so
@@ -9792,17 +9802,33 @@ function EditorWorkspace({
   ]);
   const focusToolWindowContent = React.useCallback(
     (next: 'project' | 'commit') => {
-      if (next === 'project') {
-        treeRef.current?.focus({ preventScroll: true });
-        return;
-      }
-      const selected = selectedChangeRef.current;
-      const key = selected === null ? null : `${selected.staged === true ? 'staged' : 'unstaged'}:${selected.path}`;
-      const row = key === null ? null : (changeRowRefs.current.get(key) ?? null);
-      const target = commitMode === 'changes' ? (row ?? commitChangesRef.current) : commitLogRef.current;
-      target?.focus({ preventScroll: true });
+      cancelFocusRequestRef.current?.();
+      cancelFocusRequestRef.current = focusSurfaceWhenReady(
+        () => {
+          if (activityRef.current !== next || panelVisibleRef.current !== true) return null;
+          if (next === 'project') return treeRef.current;
+          const selected = selectedChangeRef.current;
+          const key = selected === null ? null : `${selected.staged === true ? 'staged' : 'unstaged'}:${selected.path}`;
+          const row = key === null ? null : (changeRowRefs.current.get(key) ?? null);
+          return commitMode === 'changes' ? (row ?? commitChangesRef.current) : commitLogRef.current;
+        },
+        {
+          onExhausted: () => {
+            cancelFocusRequestRef.current = null;
+            if (activityRef.current !== next || panelVisibleRef.current !== true) return;
+            focusWorkspaceFallback(document.querySelector<HTMLElement>('[data-dsh-editor-workspace]'));
+          },
+        },
+      );
     },
     [commitMode],
+  );
+  React.useEffect(
+    () => () => {
+      cancelFocusRequestRef.current?.();
+      cancelFocusRequestRef.current = null;
+    },
+    [],
   );
   const rememberActivityToolWindowOrigin = React.useCallback(
     (id: string) => {
@@ -9826,7 +9852,7 @@ function EditorWorkspace({
           setTerminalOpen(false);
           window.setTimeout(() => {
             if (previous !== null && previous.isConnected) previous.focus();
-            else focusEditorFromTerminal();
+            else focusEditorSurface();
           }, 0);
           return;
         }
@@ -9849,14 +9875,15 @@ function EditorWorkspace({
              at a diff, and the shell's output was scrolled away when it came back. */ if (next === activity) {
         if (options?.keyboard === true) {
           const activeElement = document.activeElement instanceof Element ? document.activeElement : null;
-          const focusInside =
-            panelVisibleRef.current === true &&
+          const focusInsideToolWindow =
             activeElement !== null &&
-            toolWindowPanelRef.current?.contains(activeElement) === true;
+            (toolWindowPanelRef.current?.contains(activeElement) === true ||
+              activeElement.closest('[data-dsh-editor-tool-window-resizer]') !== null);
+          const focusInside = panelVisibleRef.current === true && focusInsideToolWindow;
           const action = toolWindowShortcutAction(activity, next, panelVisibleRef.current, focusInside);
           if (action === 'hide') {
             setPanelVisible(false);
-            window.setTimeout(focusEditorFromTerminal, 0);
+            focusEditorSurface();
             return;
           }
           setPanelVisible(true);
@@ -9870,7 +9897,7 @@ function EditorWorkspace({
       setPanelVisible(true);
       if (options?.keyboard === true) window.setTimeout(() => focusToolWindowContent(next), 0);
     },
-    [activity, focusEditorFromTerminal, focusToolWindowContent, terminalOpen],
+    [activity, focusEditorSurface, focusToolWindowContent, terminalOpen],
   );
   /* The first Alt+F1 of IDEA's Select Opened File chord. */ const selectOpenedChordAt = React.useRef(0);
   /**
@@ -12315,15 +12342,20 @@ function EditorWorkspace({
           <FindToolDock
             open={findTool?.surface === 'dock' && terminalOpen === false}
             height={findToolDockMinimized ? FIND_TOOL_DOCK_MIN_HEIGHT : findToolDockHeight}
+            minHeight={FIND_TOOL_DOCK_MIN_HEIGHT}
+            maxHeight={FIND_TOOL_DOCK_MAX_HEIGHT}
             title={t('editor.findToolDockResize')}
             clampHeight={clampFindDockHeight}
             onHeightChange={setFindToolDockHeight}
             onCommit={(final) => writeStoredNumber('dsh-editor.find.height', final)}
+            resizable={!findToolDockMinimized}
             children={findToolWindowElement}
           />
           <EditorTerminalDock
             open={terminalOpen}
             height={terminalHeight}
+            minHeight={TERMINAL_DOCK_MIN_HEIGHT}
+            maxHeight={TERMINAL_DOCK_MAX_HEIGHT}
             dragging={dockDragging}
             title={t('editor.resizeTerminal')}
             clampHeight={clampTerminalHeight}
@@ -12367,7 +12399,7 @@ function EditorWorkspace({
                     }),
                   )
                 }
-                onSwitchFocusToEditor={focusEditorFromTerminal}
+                onSwitchFocusToEditor={focusEditorSurface}
               />
             }
           />

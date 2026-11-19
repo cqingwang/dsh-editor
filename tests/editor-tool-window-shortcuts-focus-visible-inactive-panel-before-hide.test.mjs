@@ -22,7 +22,8 @@ test('a visible inactive tool window is focused before it can be hidden', () => 
 
 test('Project and Commit shortcuts use focus-aware activation while Terminal shares its toggle', () => {
   assert.match(workspaceSource, /const focusToolWindowContent = React\.useCallback/u);
-  assert.match(workspaceSource, /treeRef\.current\?\.focus\(\{ preventScroll: true \}\)/u);
+  assert.match(workspaceSource, /focusSurfaceWhenReady/u);
+  assert.match(workspaceSource, /if \(next === 'project'\) return treeRef\.current;/u);
   assert.match(workspaceSource, /changeRowRefs\.current\.get\(key\)/u);
   assert.match(workspaceSource, /selectActivity\(event\.key === '1' \? 'project' : 'commit', \{ keyboard: true \}\)/u);
   assert.match(workspaceSource, /if \(event\.key === '3'\) toggleTerminalDock\(\);/u);

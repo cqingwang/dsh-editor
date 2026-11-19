@@ -8,5 +8,5 @@ const clientSource = await readFile(new URL('../lib/client.js', import.meta.url)
 test('the client build keeps readable generator output after the workspace crosses the compact threshold', () => {
   assert.match(buildSource, /generatorOpts:\s*\{[\s\S]*?retainLines:\s*true,[\s\S]*?compact:\s*false,/u);
   assert.match(clientSource, /const applyPatchText = React\.useCallback\(/u);
-  assert.match(clientSource, /onSwitchFocusToEditor: focusEditorFromTerminal/u);
+  assert.match(clientSource, /onSwitchFocusToEditor: focusEditorSurface/u);
 });

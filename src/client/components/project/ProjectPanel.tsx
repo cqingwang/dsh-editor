@@ -511,7 +511,7 @@ function ProjectPanel({
         icon='project'
         title={t('editor.project')}
         titleActionStyle={{
-          maxWidth: '68%',
+          maxWidth: '40%',
         }}
         titleAction={
           <span style={styles.projectViewTitle}>

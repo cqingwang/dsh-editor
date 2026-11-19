@@ -1140,19 +1140,23 @@ export function writeStoredNumber(key: string, value: number): void {
   }
 }
 
+export const TERMINAL_DOCK_MIN_HEIGHT = 96;
+export const TERMINAL_DOCK_MAX_HEIGHT = 640;
+
 /** Keep the terminal dock within a readable range. */
 export const clampTerminalHeight = (value: unknown): number => {
   const next = Number(value);
-  return Number.isFinite(next) ? Math.max(96, Math.min(640, next)) : 220;
+  return Number.isFinite(next) ? Math.max(TERMINAL_DOCK_MIN_HEIGHT, Math.min(TERMINAL_DOCK_MAX_HEIGHT, next)) : 220;
 };
 
 /** Persistent Find dock geometry; minimize keeps the toolbar/results usable. */
 export const FIND_TOOL_DOCK_MIN_HEIGHT = 180;
+export const FIND_TOOL_DOCK_MAX_HEIGHT = 720;
 
 /** 将 IDEA 持久 Find 工具窗高度限制在可读范围内。 */
 export function clampFindDockHeight(value: unknown): number {
   const next = Number(value);
-  return Number.isFinite(next) ? Math.max(FIND_TOOL_DOCK_MIN_HEIGHT, Math.min(720, next)) : 280;
+  return Number.isFinite(next) ? Math.max(FIND_TOOL_DOCK_MIN_HEIGHT, Math.min(FIND_TOOL_DOCK_MAX_HEIGHT, next)) : 280;
 }
 
 /* Gufa's Explorer has a 190px floor and opens around 260px. A percentage-only

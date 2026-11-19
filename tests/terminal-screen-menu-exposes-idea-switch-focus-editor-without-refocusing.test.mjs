@@ -5,7 +5,10 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = (readFileSync(join(root, 'src/client/components/diff/DiffPreview.tsx'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
+const source =
+  readFileSync(join(root, 'src/client/components/diff/DiffPreview.tsx'), 'utf8') +
+  '\n' +
+  readFileSync(join(root, 'lib/client.js'), 'utf8');
 
 function extractFunction(name) {
   const start = source.indexOf(`    function ${name}(`);
@@ -47,7 +50,9 @@ test('terminal screen menu exposes IDEA Switch Focus To Editor without refocusin
     onCreate: () => {},
     onSplitRight: null,
     onMoveToEditor: null,
-    onSwitchFocusToEditor: () => { focused += 1; },
+    onSwitchFocusToEditor: () => {
+      focused += 1;
+    },
     onClipboardError: () => {},
     onPastedText: () => {},
     pasteHistory: [],
@@ -66,21 +71,27 @@ test('terminal tab menu also exposes Switch Focus To Editor', () => {
     `'use strict';\n${extractFunction('terminalTabMenu')}\nreturn terminalTabMenu;`,
   )();
   let focused = 0;
-  const items = terminalTabMenu((key) => key, { id: 't1', title: 'shell', cwd: '/w' }, {
-    rename: () => {},
-    cycleColor: () => {},
-    duplicate: () => {},
-    canMoveLeft: false,
-    canMoveRight: false,
-    moveLeft: null,
-    moveRight: null,
-    splitRight: null,
-    reopen: null,
-    moveToEditor: null,
-    switchFocusToEditor: () => { focused += 1; },
-    close: () => {},
-    closeOthers: () => {},
-  });
+  const items = terminalTabMenu(
+    (key) => key,
+    { id: 't1', title: 'shell', cwd: '/w' },
+    {
+      rename: () => {},
+      cycleColor: () => {},
+      duplicate: () => {},
+      canMoveLeft: false,
+      canMoveRight: false,
+      moveLeft: null,
+      moveRight: null,
+      splitRight: null,
+      reopen: null,
+      moveToEditor: null,
+      switchFocusToEditor: () => {
+        focused += 1;
+      },
+      close: () => {},
+      closeOthers: () => {},
+    },
+  );
   const item = items.find((entry) => entry?.id === 'switchFocusToEditor');
   assert.ok(item);
   assert.equal(item.restoreFocus, false);
@@ -89,11 +100,14 @@ test('terminal tab menu also exposes Switch Focus To Editor', () => {
 });
 
 test('workspace routes focus requests to the active diff or Monaco editor', () => {
-  const workspace = source.slice(source.indexOf('function EditorWorkspace('), source.indexOf('function clampChatPercent('));
-  assert.match(workspace, /onSwitchFocusToEditor: focusEditorFromTerminal/);
-  assert.match(workspace, /const focusEditorFromTerminal = React\.useCallback\(\(\) => \{/);
+  const workspace = source.slice(
+    source.indexOf('function EditorWorkspace('),
+    source.indexOf('function clampChatPercent('),
+  );
+  assert.match(workspace, /onSwitchFocusToEditor: focusEditorSurface/);
+  assert.match(workspace, /const focusEditorSurface = React\.useCallback\(\(\) => \{/);
   assert.match(workspace, /dsh-editor-focus-diff/);
-  assert.match(workspace, /editorRef\.current\?\.focus\(\)/);
+  assert.match(workspace, /if \(!diffOpen\) return editorRef\.current;/);
   const diff = source.slice(source.indexOf('function DiffPreview('), source.indexOf('export { DiffPreview };'));
   assert.match(diff, /addEventListener\('dsh-editor-focus-diff'/);
 });

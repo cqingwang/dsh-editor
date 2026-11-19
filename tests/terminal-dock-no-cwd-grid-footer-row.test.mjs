@@ -8,10 +8,7 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const source = readFileSync(join(root, 'src/client/components/terminal/TerminalPanel.tsx'), 'utf8');
 const workspaceSource = readFileSync(join(root, 'src/client/editor-workspace.tsx'), 'utf8');
 const localeSource = readFileSync(join(root, 'src/client/locales.ts'), 'utf8');
-const terminalDockSource = readFileSync(
-  join(root, 'src/client/components/terminal/EditorTerminalDock.tsx'),
-  'utf8',
-);
+const terminalDockSource = readFileSync(join(root, 'src/client/components/terminal/EditorTerminalDock.tsx'), 'utf8');
 
 /**
  * Slice one callback/JSX block out of the client bundle.
@@ -51,12 +48,18 @@ test('the dock title row is gone and the hide control moved into the tab strip',
   /* "Terminal  –" repeated what the tab strip directly below already showed. */
   assert.doesNotMatch(source, /styles\.dockHeader/);
   assert.doesNotMatch(source, /styles\.dockTitle/);
-  assert.doesNotMatch(source, /React\.createElement\('span', \{ style: styles\.dockTitle \}, t\('editor\.terminal'\)\)/);
+  assert.doesNotMatch(
+    source,
+    /React\.createElement\('span', \{ style: styles\.dockTitle \}, t\('editor\.terminal'\)\)/,
+  );
 
   /* Hide lives at the end of the strip's tool cluster, after Options. */
   const strip = slice("label={t('editor.terminalOptions')}", 'find === null');
   assert.match(strip, /onRequestClose === undefined\s+\? null/s);
-  assert.match(strip, /<ToolbarButton\s+icon='hide'\s+label=\{t\('editor\.hideTerminal'\)\}\s+onClick=\{\(\) => onRequestClose\(\)\}\s+\/>/s);
+  assert.match(
+    strip,
+    /<ToolbarButton\s+icon='hide'\s+label=\{t\('editor\.hideTerminal'\)\}\s+onClick=\{\(\) => onRequestClose\(\)\}\s+\/>/s,
+  );
   /* It reaches the panel as a prop: a tool window cannot close itself. */
   assert.match(workspaceSource, /onRequestClose=\{\(\) => \{\s+setTerminalOpen\(false\);/);
   assert.match(localeSource, /hideTerminal: '隐藏终端面板',/);
@@ -65,11 +68,14 @@ test('the dock title row is gone and the hide control moved into the tab strip',
 
 test('the dock keeps exactly one strip above the screen', () => {
   /* The panel is `tabStrip` then the screen; a third row means chrome crept back. */
-  assert.match(source, /function TerminalPanel\(\{\s+t,\s+generation,\s+startDirectory,\s+workspaceRoot = '',\s+onStartDirectoryUsed,\s+onRequestNew,\s+onRequestClose,\s+onOpenFile,\s+onEditorTerminals,\s+onSwitchFocusToEditor,\s+focusGeneration = 0,\s+\}: TerminalPanelProps\)/s);
+  assert.match(
+    source,
+    /function TerminalPanel\(\{\s+t,\s+generation,\s+startDirectory,\s+workspaceRoot = '',\s+onStartDirectoryUsed,\s+onRequestNew,\s+onRequestClose,\s+onOpenFile,\s+onEditorTerminals,\s+onSwitchFocusToEditor,\s+focusGeneration = 0,\s+\}: TerminalPanelProps\)/s,
+  );
   const panel = slice('function TerminalPanel(', 'export { TerminalPanel };');
   assert.match(panel, /style=\{styles\.terminalTabStrip\}/);
   /* The resize grip belongs to the DOCK, above the panel — not to the panel. */
   assert.doesNotMatch(panel, /styles\.dockResize/);
-  assert.match(terminalDockSource, /\.\.\.styles\.dockResize/);
-  assert.match(terminalDockSource, /cursor: dragging \? 'row-resize' : 'row-resize'/);
+  assert.match(terminalDockSource, /<DockResizeHandle/u);
+  assert.match(terminalDockSource, /onDraggingChange=\{onDraggingChange\}/u);
 });

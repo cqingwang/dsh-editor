@@ -10,7 +10,8 @@ const locales = await read('src/client/locales.ts');
 
 test('the Find dock exposes fixed minimize and close controls outside overflow', () => {
   assert.match(terminal, /FIND_TOOL_DOCK_MIN_HEIGHT = 180/u);
-  assert.match(terminal, /Math\.max\(FIND_TOOL_DOCK_MIN_HEIGHT, Math\.min\(720, next\)\)/u);
+  assert.match(terminal, /FIND_TOOL_DOCK_MAX_HEIGHT = 720/u);
+  assert.match(terminal, /Math\.max\(FIND_TOOL_DOCK_MIN_HEIGHT, Math\.min\(FIND_TOOL_DOCK_MAX_HEIGHT, next\)\)/u);
   assert.match(findTool, /minimized\?: boolean/u);
   assert.match(findTool, /onMinimize\?: \(\) => void/u);
   assert.match(findTool, /data-dsh-find-window-actions=\{floating \? undefined : ''\}/u);
@@ -27,6 +28,7 @@ test('the workspace toggles the dock height without deleting Find state', () => 
   assert.match(workspace, /height=\{findToolDockMinimized \? FIND_TOOL_DOCK_MIN_HEIGHT : findToolDockHeight\}/u);
   assert.match(workspace, /minimized=\{findToolDockMinimized\}/u);
   assert.match(workspace, /onMinimize=\{toggleFindToolDockMinimized\}/u);
+  assert.match(workspace, /resizable=\{!findToolDockMinimized\}/u);
   assert.match(
     workspace,
     /const closeFindToolWindow = React\.useCallback\(\(\) => \{[\s\S]*?setFindToolDockMinimized\(false\)/u,

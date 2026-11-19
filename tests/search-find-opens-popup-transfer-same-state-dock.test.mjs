@@ -5,7 +5,12 @@ import { loadTypeScriptCallback } from './ts-source.mjs';
 
 const terminalSource = await readFile(new URL('../src/client/terminal.ts', import.meta.url), 'utf8');
 const workspaceSource = await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8');
-const source = workspaceSource + '\n' + (await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8')) + '\n' + terminalSource;
+const source =
+  workspaceSource +
+  '\n' +
+  (await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8')) +
+  '\n' +
+  terminalSource;
 const findToolDockSource = await readFile(
   new URL('../src/client/components/search/FindToolDock.tsx', import.meta.url),
   'utf8',
@@ -39,7 +44,8 @@ test('Find renders one shared result model in a resizable bottom dock', () => {
   assert.match(source, /<FindToolDock/);
   assert.match(source, /onCommit=\{\(final\) => writeStoredNumber\('dsh-editor\.find\.height', final\)\}/);
   assert.match(findToolDockSource, /style=\{\{ \.\.\.styles\.dock, height \}\}/);
-  assert.match(findToolDockSource, /onCommit\(latest\)/);
+  assert.match(findToolDockSource, /<DockResizeHandle/);
+  assert.match(findToolDockSource, /onCommit=\{onCommit\}/);
 });
 
 test('Open in Find Window follows query presence and warns above the shared limit', () => {
@@ -71,14 +77,14 @@ test('Explicit Find tool-window actions open the dock instead of the popup', () 
   const openFindTool = loadTypeScriptCallback(workspaceSource, 'openFindTool', {
     findToolContentQuery: (query) => String(query ?? '').trim(),
     completeFindFiles: (value) =>
-      Array.isArray(value) ? value.filter((item) => typeof item?.path === 'string').map((item) => ({ path: item.path })) : [],
+      Array.isArray(value)
+        ? value.filter((item) => typeof item?.path === 'string').map((item) => ({ path: item.path }))
+        : [],
     completeFindMatches: (value) =>
       Array.isArray(value)
         ? value.filter(
             (item) =>
-              typeof item?.path === 'string' &&
-              typeof item.line === 'number' &&
-              typeof item.column === 'number',
+              typeof item?.path === 'string' && typeof item.line === 'number' && typeof item.column === 'number',
           )
         : [],
     normalizeSearchOptions: (value) => value ?? {},

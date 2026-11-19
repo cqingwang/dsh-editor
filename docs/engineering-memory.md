@@ -1,5 +1,457 @@
 # dsh-editor 工程记忆
 
+## 2026-11-19 — 隐藏 Commit 工具窗后焦点落到 BODY
+
+**作用域**：Commit 工具窗 `Alt+2` 隐藏、Change/Log 两种模式、Monaco/Diff
+焦点恢复、Terminal 的 Switch Focus To Editor、共享 focus 调度。
+
+**症状/证据**：
+
+- Commit Log listbox 持焦时按 Alt+2，工具窗隐藏，但
+  `document.activeElement === document.body`；
+- Commit Changes 模式同样复现；
+- Monaco 仍在页面内且可见，说明不是编辑器未挂载；
+- 原 hide 分支调用
+  `window.setTimeout(focusEditorFromTerminal, 0)`；
+- 固定下一拍可能早于 Commit panel 的 React unmount，焦点先进入编辑器，
+  随后卸载中的 Commit tab 又把 activeElement 推到 BODY。
+
+**根因**：
+
+- 工具窗“显示后聚焦内容”和“隐藏后聚焦编辑器”是两条相反方向的异步焦点
+  请求，但没有共享取消令牌；
+- 隐藏路径仍以固定 tick 猜测 React unmount 时机；
+- 函数名 `focusEditorFromTerminal` 已不能表达它还服务工具窗隐藏和 Diff。
+
+**修复**：
+
+- 统一使用 `cancelFocusRequestRef` 管理当前 pending focus；
+- 工具窗内容与编辑器/Diff 焦点请求互相取消；
+- 将函数重命名为 `focusEditorSurface`；
+- 该函数复用 `focusSurfaceWhenReady`：
+  - 普通模式等待真实 `editorRef.current` 后聚焦 Monaco；
+  - Diff 模式等待 workspace host 后派发既有 `dsh-editor-focus-diff`；
+- Alt+2 hide 分支直接发起 focus request，移除固定 `setTimeout`；
+- Terminal 关闭 fallback、Switch Focus To Editor 和工具窗隐藏共用该链。
+
+**回归**：
+
+- 更新 `tests/commit-diff-alt-2-hide-restores-diff-focus.test.mjs`；
+- 扩展 `tests/editor-tool-window-focus-retries-until-content-mounted.test.mjs`
+  覆盖 hide 无 `setTimeout`、共享取消令牌和编辑器 resolver；
+- DSH Web：
+  - Commit Log `Alt+2` 隐藏 → Monaco textarea；
+  - 再 `Alt+2` 恢复 → Commit Log listbox；
+  - Commit Changes `Alt+2` 隐藏 → Monaco textarea；
+  - 再 `Alt+2` 恢复 → Changes tree；
+  - 全部 `isBody=false`；
+- 定向回归 **23 pass / 0 fail**；
+- 完整测试、lint、TypeScript、source imports、bundle 一致性、Prettier、
+  `git diff --check` 见收尾门禁。
+
+**适用环境**：macOS、DSH Web、Ego Lite、IDEA 2026.2。
+工具窗卸载和内容挂载都必须等待 React 的真实 DOM 状态；任何固定 tick 的焦点
+恢复都可能在卸载提交中被 BODY 覆盖。
+
+## 2026-11-19 — Project/Commit 切换后焦点落到 BODY
+
+**作用域**：Alt+1/2 activity 切换、Project/Commit 工具窗内容聚焦、
+`focusToolWindowContent`、共享 focus 调度积木、DSH 单 factory UI bundle。
+
+**症状/证据**：
+
+- Commit resizer 持焦时按 Alt+1，Project 正确打开并聚焦 Project 树；
+- 再按 Alt+2，Commit 工具窗恢复并显示 Changes 树，但
+  `document.activeElement === document.body`；
+- 修复前固定使用 `window.setTimeout(..., 0)`，React 首次渲染后
+  `commitChangesRef.current` 仍可能为 null；
+- 首次加入 focus retry 后仍无效果，因为新增 UI 函数只被源码 import，
+  未同时进入 `scripts/build-client.mjs` 的 `uiExports`，单 factory 产物运行时
+  不存在该符号。
+
+**根因**：
+
+- “工具窗内容 ref 已挂载”晚于固定下一拍，聚焦调用静默 no-op；
+- activity 切换后旧 resizer 可能短暂保留焦点，使问题更像“快捷键没生效”；
+- 本项目会把每个模块的 import/export 剥离后合并到同一 factory，
+  `components/ui/index.tsx` 的导出还必须同步登记到 build 的 `uiExports`。
+
+**修复**：
+
+- 新增 `src/client/components/ui/focus-surface.ts` 的共享
+  `focusSurfaceWhenReady(resolveSurface, options)`；
+- 使用有界 `requestAnimationFrame` 等待 connected DOM surface，
+  找到后统一 `focus({ preventScroll: true })`；
+- 返回取消函数；新 activity、组件卸载或隐藏时终止旧请求；
+- resolver 每帧校验 `activityRef.current` 与 `panelVisibleRef.current`；
+- 达到上限时用 `focusWorkspaceFallback` 恢复稳定工作区表面；
+- Project 与 Commit 都通过同一 `focusToolWindowContent` 解析目标，
+  不在业务面板里复制 focus retry；
+- 将 `focusSurfaceWhenReady` 同时加入 `components/ui/index.tsx` 和
+  `scripts/build-client.mjs` 的 `uiExports`。
+
+**回归**：
+
+- `tests/editor-tool-window-focus-retries-until-content-mounted.test.mjs`
+  覆盖延迟挂载、取消旧请求、UI export/build 登记与无 `setTimeout` 聚焦；
+- 修复前运行态 `activeElement` 为 `BODY`；
+- 修复后 DSH Web：
+  - Project resizer + Alt+2 → Changes 树；
+  - Commit resizer + Alt+1 → Project 树；
+  - 再 Alt+2 → Changes 树；
+  - 全部 `isBody=false`，宽度 28% 保持；
+- 定向回归 **16 pass / 0 fail**；
+- 完整测试 **3082 pass / 0 fail**；
+- lint、TypeScript、source imports、bundle 一致性、Prettier、
+  `git diff --check` 通过。
+
+**适用环境**：macOS、DSH Web、Ego Lite、IDEA 2026.2。
+凡是“React 切换后要聚焦刚挂载内容”的交互，都应等待真实 ref，而不是猜
+固定 tick；新增可复用 UI 符号时，必须同时检查 UI barrel 与 build `uiExports`。
+
+## 2026-11-19 — 可键盘聚焦的 resizer 缺少共享 focus ring
+
+**作用域**：`EditorToolWindowResizer`、`DockResizeHandle`、
+Project/Commit 侧边分隔条、Find/Terminal 底边分隔条、键盘可访问性与
+forced-colors。
+
+**症状/证据**：
+
+- 两个 resizer 都已具备 `role=separator`、ARIA range、`tabIndex=0`
+  和键盘调整，但聚焦后没有稳定、显眼的共享视觉轮廓；
+- 浏览器默认焦点环在深色主题下强度不足，也不能依赖业务容器各自补样式；
+- 侧边与底边使用不同 data 属性，若分别写在 Project、Commit、Find、
+  Terminal 中会形成多份易漂移实现；
+- DSH Web 修复前 `:focus-visible=true`，但缺少插件定义的 accent outline。
+
+**根因**：
+
+- resizer 的鼠标与键盘交互已经抽成共享积木，但键盘焦点反馈仍留在
+  浏览器默认样式；
+- 共享 CSS 没有同时覆盖侧边和底边 resizer 的 data 属性；
+- forced-colors 模式没有系统色映射。
+
+**修复**：
+
+- 在 `src/client/injected-css.ts` 用同一条规则覆盖：
+  - `[data-dsh-editor-tool-window-resizer]:focus-visible`；
+  - `[data-dsh-dock-resize-handle]:focus-visible`；
+- outline 使用 `--dsw-alias-state-business-primary`，宽度 1px，
+  `outline-offset: -1px`；
+- `forced-colors: active` 下将 outline-color 映射为 `Highlight`；
+- 不在业务容器内复制 resizer 焦点样式。
+
+**回归**：
+
+- `tests/editor-resize-handles-share-visible-keyboard-focus.test.mjs`
+  同时锁定双选择器、accent token、offset 与 forced-colors 回退；
+- 修复前 RED **0 pass / 1 fail**，修复后定向 **1 pass / 0 fail**；
+- DSH Web：
+  - Project 侧边 resizer 与 Find dock resizer 的 computed outline 均为
+    `solid 1px rgb(65, 118, 230)`，offset `-1px`；
+  - Find 缩小/恢复高度 330→181→330，缩小态 resize disabled；
+  - Find 关闭后 dock 卸载且 Project 树保留；
+- 完整测试 **3079 pass / 0 fail**；
+- lint、TypeScript、source imports、bundle 一致性、Prettier、
+  `git diff --check` 通过。
+
+**适用环境**：macOS、DSH Web、Ego Lite、IDEA 2026.2。
+所有可键盘聚焦的 resize/separator 积木必须自带可见 focus ring；
+共享交互和共享焦点反馈属于同一个组件边界，不能在业务容器分头修补。
+
+## 2026-11-19 — 200px Project 工具栏把 Options/Hide 挤进 overflow
+
+**作用域**：Project 最窄工具窗、`PanelToolbar` 标题预算、
+Select Opened File pinned action、尾部 Options/Hide。
+
+**症状/证据**：
+
+- DSH Web Project 工具窗实际宽度 200/201px；
+- 修复前直接工具栏只有 `Select Opened File` 和 `»`；
+- Options 与 Hide 均进入 overflow；
+- Project 标题 action 使用 `maxWidth:68%`，高于通用标题 52% 上限；
+- 在 201px 下，68% 标题预算使共享 tail-first 算法只剩 0～1 个右槽。
+
+**根因**：
+
+- 共享 `panelToolbarFit` 本身正确；
+- 调用方给 Project 标题的宽度预算过大，挤掉窗口级尾部动作；
+- 现有测试只验证动作声明顺序，没有锁住 201px 下的标题预算。
+
+**修复**：
+
+- Project `titleActionStyle.maxWidth` 从 68% 调整为 40%；
+- 标题继续显示并截断项目名，Project View 下拉保持；
+- Select Opened File 继续 pinned；
+- Options/Hide 使用同一 `PanelToolbar` tail-first 策略直接显示；
+- 不修改通用拟合函数或其他工具窗。
+
+**回归**：
+
+- 201px 拟合与标题预算契约 RED **2 fail**；
+- Project toolbar、密度、mid-width、target pinned
+  **17 pass / 0 fail**；
+- DSH Web：
+  - toolbar 200px，标题实际 76px；
+  - 直接按钮为 Select Opened File、Options、Hide、More actions；
+  - Options/Hide 不在 `»` 内，alert 0；
+- IDEA 2026.2 已通过 Computer Use 对照；
+- 完整测试 **3078 pass / 0 fail**；
+- lint、TypeScript、source imports、bundle 一致性、Prettier、
+  `git diff --check` 通过。
+
+**适用环境**：macOS、DSH Web、Ego Lite、IDEA 2026.2。
+共享 fit 算法正确但运行时仍溢出时，先检查调用方给标题/badge 的预算，
+不要用业务动作删除或局部 CSS 掩盖容量问题。
+
+## 2026-11-19 — 聚焦侧边 resizer 后 Alt+1 不隐藏工具窗
+
+**作用域**：Project/Commit 工具窗焦点域、可聚焦侧边 resizer、
+Alt+1/2 快捷键、隐藏后的编辑器焦点恢复。
+
+**症状/证据**：
+
+- 聚焦 `EditorToolWindowResizer` 后按 Alt+1；
+- Project 工具窗没有隐藏，焦点却从 resizer 被抢到 Project 树；
+- `toolWindowShortcutAction` 因此返回 `focus` 而非 `hide`；
+- 复现时 `Project` 与 resizer 都保持可见。
+
+**根因**：
+
+- resizer 是 panel 的 sibling，不在 `toolWindowPanelRef` 的 DOM 子树中；
+- 现有 `focusInside` 只检查 panel 内容，没有识别新可聚焦的 divider；
+- divider 属于工具窗交互域，但焦点模型只覆盖了内容域。
+
+**修复**：
+
+- 聚焦 resizer 时将其 `closest('[data-dsh-editor-tool-window-resizer]')`
+  纳入工具窗焦点域；
+- panel 内容与 resizer 任一包含 activeElement 时均视为工具窗持焦；
+- 隐藏、重新打开和内容聚焦继续使用原快捷键状态机。
+
+**回归**：
+
+- 新焦点域契约 RED **1 fail**；
+- 快捷键/resizer/Commit 宽度持久化定向回归
+  **24 pass / 0 fail**；
+- DSH Web：
+  - resizer 聚焦 + Alt+1：Project/resizer 隐藏，焦点进入 Monaco；
+  - 再按 Alt+1：Project/resizer 恢复，焦点进入 Project 树；
+  - activeElement 从未落到 BODY，alert 0；
+  - End/Home 边界和刷新后 28% 宽度恢复通过；
+- IDEA 2026.2 已通过 Computer Use 对照；
+- 完整测试 **3078 pass / 0 fail**；
+- lint、TypeScript、source imports、bundle 一致性、Prettier、
+  `git diff --check` 通过。
+
+**适用环境**：macOS、DSH Web、Ego Lite、IDEA 2026.2。
+新增可聚焦控件时，必须同步扩展所属工具窗的焦点域；DOM sibling
+不等于交互域外部。
+
+## 2026-11-19 — Project/Commit 侧边 resizer 只能鼠标操作
+
+**作用域**：Project/Commit 共用侧边工具窗 resizer、百分比宽度、
+分隔符语义、键盘调整和 workspace 持久化。
+
+**症状/证据**：
+
+- `EditorToolWindowResizer` 仅实现 `onMouseDown`；
+- 没有 separator role、ARIA range、tabIndex 或键盘处理；
+- 14..72 的宽度范围只存在于鼠标 clamp 中；
+- 键盘用户无法调整 Project/Commit 工具窗宽度。
+
+**根因**：
+
+- 共享侧边 resizer 只完成了鼠标拖动路径；
+- 通用 divider 语义和键盘操作没有纳入同一个组件职责。
+
+**修复**：
+
+- 导出 `TOOL_WINDOW_WIDTH_MIN_PERCENT=14` 与
+  `TOOL_WINDOW_WIDTH_MAX_PERCENT=72`；
+- 鼠标和键盘共用同一 clamp 范围；
+- 增加 vertical separator、min/max/now/value-text、aria-label、
+  `tabIndex=0` 和稳定 data marker；
+- ArrowLeft/Right 调整 2%，Shift 10%，Home/End 到边界；
+- 键盘提交继续调用现有 `onWidthChange`/`onCommit`，
+  复用按 workspace/activity 的宽度持久化链。
+
+**回归**：
+
+- 可访问性契约 RED **2 fail**；
+- resizer 与 Commit 宽度持久化定向回归
+  **11 pass / 0 fail**；
+- DSH Web Project：
+  - vertical separator，min=14/max=72/now=28，tabIndex=0；
+  - ArrowRight 28→30，ArrowLeft 30→28；
+  - Shift+ArrowRight 面板 201→211.44px，now=38；
+  - Shift+ArrowLeft 回到 201px，now=28；
+  - alert 0；
+- IDEA 2026.2 已通过 Computer Use 对照；
+- 完整测试 **3077 pass / 0 fail**；
+- lint、TypeScript、source imports、bundle 一致性、Prettier、
+  `git diff --check` 通过。
+
+**适用环境**：macOS、DSH Web、Ego Lite、IDEA 2026.2。
+可拖动 divider 默认必须同时具备语义、焦点和键盘调整；业务层只持有
+宽度状态与持久化回调，不复制 separator 交互。
+
+## 2026-11-19 — Find 与 Terminal dock 重复实现高度拖动
+
+**作用域**：Find/Terminal 底边 dock resize、分隔符语义、键盘调整、
+最小化禁用态和共享 UI 积木。
+
+**症状/证据**：
+
+- `FindToolDock` 与 `EditorTerminalDock` 各自复制了相同的
+  mousedown/mousemove/mouseup、clamp 和 commit 代码；
+- Find 已有 disabled resize 修复，Terminal 仍固定 `row-resize`，
+  两份实现已经分叉；
+- 两个底边 dock 均无 `separator` role、ARIA range 或键盘调整；
+- IDEA 工具窗通过独立 Action Toolbar 和窗口容器区分业务动作与窗口操作，
+  DSH 应把通用 resize 能力收回共享 UI 层。
+
+**根因**：
+
+- 底边 dock 高度交互没有单一组件所有者；
+- 两个业务容器既负责布局又复制交互，导致修复与可访问性只能逐处补。
+
+**修复**：
+
+- 新增 `src/client/components/ui/DockResizeHandle.tsx`；
+- 鼠标拖动、clamp、commit、dragging 回调和键盘调整都由该组件拥有；
+- 暴露 `role=separator`、horizontal orientation、min/max/now/value-text、
+  可聚焦 tab stop 和 disabled 语义；
+- ArrowUp/Down 调整 16px，Shift 调整 64px，Home/End 到边界；
+- FindToolDock 与 EditorTerminalDock 只转接 height/title/range/callbacks；
+- `terminal.ts` 导出 Find 180..720、Terminal 96..640 的边界常量；
+- UI bundle export 增加 `DockResizeHandle`。
+
+**回归**：
+
+- 新契约 RED 时目标测试 5 fail；
+- 修复后相关组件/dock/Find/Terminal/bundle
+  **18 pass / 0 fail**；
+- DSH Web Find：330 → ArrowUp 346 → ArrowDown 330；
+  缩小态 now=180、disabled、tabIndex=-1、cursor=default；
+- DSH Web Terminal：245 → ArrowUp 261 → ArrowDown 245；
+  min=96、max=640，页面只有一个共享 handle；
+- IDEA 2026.2 Action Toolbar 已通过 Computer Use 对照；
+- 完整测试 **3077 pass / 0 fail**；
+- lint、TypeScript、source imports、bundle 一致性、Prettier、
+  `git diff --check` 通过。
+
+**适用环境**：macOS、DSH Web、Ego Lite、IDEA 2026.2。
+同一交互语义出现在两个及以上容器时，应优先抽共享 UI 积木；
+业务容器只传值、范围和回调，不复制鼠标、键盘或 ARIA 逻辑。
+
+## 2026-11-19 — Find dock 缩小后拖动会暗中改写恢复高度
+
+**作用域**：持久 Find dock 高度、缩小态、`FindToolDock` resize handle、
+用户高度持久化与 minim/restore 交互。
+
+**症状/证据**：
+
+- 初始 dock 高度 330px；
+- 点击缩小后高度为 181px，但拖动条仍显示 `row-resize` 和
+  “Resize Find Window”；
+- 在缩小态实际拖动 70px，画面高度不变；
+- 点击恢复后高度变成 251px，而不是拖动前基线 330px；
+- query `fixture` 和结果未丢失，问题是隐藏状态覆盖了用户历史高度。
+
+**根因**：
+
+- `FindToolDock` 始终挂载 window `mousemove` 监听；
+- dock 的视觉 height 已由 `findToolDockMinimized` 固定为最小高度；
+- 拖动监听仍调用 `onHeightChange`，后台持续修改
+  `findToolDockHeight`，恢复时暴露被污染的值；
+- resize 能力属于共享 dock 容器，业务层缺少显式启停输入。
+
+**修复**：
+
+- `FindToolDockProps` 增加 `resizable?: boolean`，默认 true；
+- non-resizable 时 `onMouseDown` 提前返回且 resize handle 不挂载处理器；
+- handle cursor 改为 `default`、opacity 0.45、`aria-disabled=true`，
+  并移除 resize title；
+- `EditorWorkspace` 传入 `resizable={!findToolDockMinimized}`；
+- normal 状态继续使用原拖动、clamp 和 localStorage 持久化。
+
+**回归**：
+
+- 新增 resizable 契约断言，修复前 RED **0 pass / 2 fail**；
+- 相关 dock、窗口控制、narrow header、样式 token
+  **7 pass / 0 fail**；
+- DSH Web：
+  - 展开态 `row-resize`、opacity 1、aria-disabled false；
+  - 缩小态 `default`、opacity 0.45、aria-disabled true、无 title；
+  - 缩小态拖动后高度仍 181px；
+  - 恢复后仍为 **330px**，不再是 251px；
+  - alert 0；
+- IDEA Find Action Toolbar 已通过 Computer Use 对照；
+- 完整测试 **3075 pass / 0 fail**；
+- lint、TypeScript、source imports、bundle 一致性、Prettier、
+  `git diff --check` 通过。
+
+**适用环境**：macOS、DSH Web、Ego Lite、IDEA 2026.2。
+任何由容器固定显示尺寸、但仍保留内部 resize 监听的状态，都必须显式
+关闭 resize 能力，不能只覆盖视觉高度。
+
+## 2026-11-19 — Find dock 窗口按钮被窄标题栏挤到第二行
+
+**作用域**：持久 Find 工具窗标题栏、窗口级缩小/关闭按钮、
+`CompactActionBar` overflow、文件掩码和容器查询布局。
+
+**症状/证据**：
+
+- Find dock 原先只在业务动作 overflow 中提供 Hide，没有固定窗口控制；
+- 初次加入缩小/关闭后，310px dock 的两个按钮出现在标题第二行左侧；
+- 把按钮与动作条包成同一 flex 项后，按钮虽到右缘，仍在第二行；
+- 实测标题行高 61px，按钮 y=264，而 dock 顶部 y=225；
+- 131px 容器模拟中，CSS 目标 `.dsh-editor-find-file-mask-control` 并未
+  实际挂在文件掩码容器上，视图仍占宽；
+- IDEA Find 工具窗的 Options/Hide 等窗口级动作位于独立右对齐
+  Action Toolbar，而不是业务动作 overflow。
+
+**根因**：
+
+- 文件掩码输入、110px 业务动作条和 55px 窗口控制超过标题行可用宽度；
+- 业务动作与窗口控制是独立 flex item，换行时窗口控制失去“右上角”语义；
+- 超窄规则引用了不存在的 class，无法释放文件掩码占用的宽度。
+
+**修复**：
+
+- `FindToolWindow` 接收 `minimized`、`onMinimize`；
+- 缩小/恢复复用 `ToolbarButton` 与 `hide/expand` 图标，删除复用 `close`；
+- 两者固定放在 `CompactActionBar` 外的
+  `findToolDockWindowActions` 右侧组，统一 16px 图标和双语
+  `aria-label/title`；
+- dock 高度在 `FIND_TOOL_DOCK_MIN_HEIGHT=180` 与用户上次高度间切换；
+  关闭时复位 minimized；
+- 360px 以下文件掩码输入缩为 56px、动作条缩为 88px；
+- 220px 以下隐藏完整文件掩码与装饰窗体图标，动作条缩到 52px，
+  所有业务动作仍可从 `»` 访问，窗口按钮保持直接可见；
+- 文件掩码容器补齐真实 `dsh-editor-find-file-mask-control` class。
+
+**回归**：
+
+- 新增 dock 窗口控制断言；首次 RED **0 pass / 1 fail**；
+- 相关 Find、dock、CompactActionBar、样式 token 回归
+  **19 pass / 0 fail**；
+- DSH Web 310px dock：
+  - 标题行 **37px**；
+  - 窗口按钮位于 y=237，按钮右缘 601px / dock 右缘 609px；
+  - 缩小后 **329 → 181px**，query、结果和 preview 全部保留；
+  - 恢复后 **181 → 329px**；
+  - 删除后 dock 卸载、Project 树保留、alert 0；
+- 131px 容器模拟：标题仍为 37px，缩/关按钮仍直接可见；
+- 完整测试 **3075 pass / 0 fail**；
+- lint、TypeScript、source imports、bundle 一致性、Prettier、
+  `git diff --check` 通过。
+
+**适用环境**：macOS、DSH Web、Ego Lite、IDEA 2026.2。
+窗口级动作必须与业务动作条分开建模，但在布局上作为不可拆分的右侧组；
+共享容器只提供几何和通用按钮，Find 只负责切换自身高度与关闭状态。
+
 ## 2026-11-19 — Show Usages 仍维护统一文件图标副本
 
 **作用域**：Show Usages 路径型结果行、文件类型图标、名称/详情布局与

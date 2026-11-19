@@ -43,6 +43,8 @@ const uiExports = [
   'PanelToolbar',
   'toolbarActionActive',
   'DiffViewModeControl',
+  'DockResizeHandle',
+  'focusSurfaceWhenReady',
   'selectCompactActions',
   'groupCompactActions',
   'CompactActionBar',

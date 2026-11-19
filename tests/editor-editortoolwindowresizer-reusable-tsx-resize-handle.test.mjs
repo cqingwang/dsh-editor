@@ -10,9 +10,20 @@ test('EditorToolWindowResizer is a reusable TSX resize handle', async () => {
 
   assert.match(component, /export interface EditorToolWindowResizerProps/u);
   assert.match(component, /function EditorToolWindowResizer\(/u);
+  assert.match(component, /TOOL_WINDOW_WIDTH_MIN_PERCENT = 14/u);
+  assert.match(component, /TOOL_WINDOW_WIDTH_MAX_PERCENT = 72/u);
   assert.match(component, /style=\{styles\.sideResize\}/u);
+  assert.match(component, /role='separator'/u);
+  assert.match(component, /aria-orientation='vertical'/u);
+  assert.match(component, /aria-valuemin=\{TOOL_WINDOW_WIDTH_MIN_PERCENT\}/u);
+  assert.match(component, /aria-valuemax=\{TOOL_WINDOW_WIDTH_MAX_PERCENT\}/u);
+  assert.match(component, /aria-valuenow=\{Math\.round\(widthPercent\)\}/u);
+  assert.match(component, /tabIndex=\{0\}/u);
   assert.match(component, /onMouseDown=\{onMouseDown\}/u);
-  assert.match(component, /Math\.max\(14, Math\.min\(72, startWidth \+ delta\)\)/u);
+  assert.match(component, /onKeyDown=\{onKeyDown\}/u);
+  assert.match(component, /event\.key === 'ArrowLeft'/u);
+  assert.match(component, /event\.key === 'ArrowRight'/u);
+  assert.match(component, /event\.shiftKey \? 10 : 2/u);
   assert.match(component, /onWidthChange\(latest\)/u);
   assert.match(component, /onCommit\(latest\)/u);
   assert.match(component, /export \{ EditorToolWindowResizer \};/u);
