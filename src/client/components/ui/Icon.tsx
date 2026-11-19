@@ -1,4 +1,8 @@
 import React from 'react';
+import { EDITOR_FONT_SIZE_SCALE } from '../editor/editor-style-model';
+
+export const POPUP_ICON_SIZE = 16;
+
 export interface IconProps {
   name: string;
   size?: number;
@@ -14,6 +18,10 @@ function Icon({ name, size = 14 }: IconProps) {
     strokeLinecap: 'round',
     strokeLinejoin: 'round',
     'aria-hidden': 'true',
+    style: {
+      flex: 'none',
+      display: 'block',
+    },
   };
   switch (name) {
     case 'project':
@@ -218,7 +226,7 @@ function Icon({ name, size = 14 }: IconProps) {
             y={11.8}
             fill='currentColor'
             stroke='none'
-            fontSize={10}
+            fontSize={EDITOR_FONT_SIZE_SCALE.caption}
             fontWeight={700}
             fontFamily='inherit'>
             Aa
@@ -233,7 +241,7 @@ function Icon({ name, size = 14 }: IconProps) {
             y={11.8}
             fill='currentColor'
             stroke='none'
-            fontSize={10}
+            fontSize={EDITOR_FONT_SIZE_SCALE.caption}
             fontWeight={700}
             fontFamily='inherit'>
             W
@@ -248,7 +256,7 @@ function Icon({ name, size = 14 }: IconProps) {
             y={11.8}
             fill='currentColor'
             stroke='none'
-            fontSize={8.5}
+            fontSize={EDITOR_FONT_SIZE_SCALE.symbol}
             fontWeight={700}
             fontFamily='monospace'>
             .*
@@ -263,7 +271,7 @@ function Icon({ name, size = 14 }: IconProps) {
             y={11.8}
             fill='currentColor'
             stroke='none'
-            fontSize={10}
+            fontSize={EDITOR_FONT_SIZE_SCALE.caption}
             fontWeight={700}
             fontFamily='inherit'>
             AB

@@ -2,9 +2,14 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-import { loadTypeScriptFunction, transpileTypeScriptFunction } from './ts-source.mjs';
+import { loadTypeScriptFunction, loadTypeScriptModule, transpileTypeScriptFunction } from './ts-source.mjs';
 
 const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+const styleModelSource = await readFile(
+  new URL('../src/client/components/editor/editor-style-model.ts', import.meta.url),
+  'utf8',
+);
+const injectedCssSource = await readFile(new URL('../src/client/injected-css.ts', import.meta.url), 'utf8');
 const previewSource = await readFile(
   new URL('../src/client/components/editor/MarkdownPreviewPane.tsx', import.meta.url),
   'utf8',
@@ -21,11 +26,36 @@ const documentModelSource = await readFile(
   new URL('../src/client/components/editor/editor-document-model.ts', import.meta.url),
   'utf8',
 );
+const typography = loadTypeScriptModule(styleModelSource, [
+  'EDITOR_LATIN_FONT',
+  'EDITOR_UI_FONT',
+  'EDITOR_CODE_FONT',
+  'EDITOR_LANGUAGE_FONT_FALLBACKS',
+]);
 
-test('Editor UI and Monaco code areas use Trebuchet MS with CJK fallbacks', () => {
-  assert.match(source, /const EDITOR_UI_FONT = '"Trebuchet MS", "PingFang SC"/);
+test('Editor UI and Monaco code areas use language-aware global font families', () => {
+  assert.equal(typography.EDITOR_LATIN_FONT, '"Trebuchet MS", "SF Pro Text", "Segoe UI", sans-serif');
+  assert.equal(typography.EDITOR_UI_FONT, `var(--dsh-editor-font-ui, ${typography.EDITOR_LATIN_FONT})`);
+  assert.equal(typography.EDITOR_CODE_FONT, `var(--dsh-editor-font-code, ${typography.EDITOR_LATIN_FONT})`);
+  assert.equal(
+    typography.EDITOR_LANGUAGE_FONT_FALLBACKS.zh,
+    '"Trebuchet MS", "PingFang SC", "Microsoft YaHei UI", sans-serif',
+  );
+  assert.equal(
+    typography.EDITOR_LANGUAGE_FONT_FALLBACKS.ja,
+    '"Trebuchet MS", "Hiragino Sans", "Yu Gothic UI", sans-serif',
+  );
+  assert.equal(
+    typography.EDITOR_LANGUAGE_FONT_FALLBACKS.ko,
+    '"Trebuchet MS", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif',
+  );
+  assert.match(source, /const EDITOR_LATIN_FONT = '"Trebuchet MS"/u);
+  assert.match(source, /const EDITOR_CODE_FONT =[\s\S]*?var\(--dsh-editor-font-code/u);
   assert.match(source, /fontFamily: EDITOR_UI_FONT/);
-  assert.match(source, /\[data-dsh-editor-workspace\][\s\S]*?font-family: "Trebuchet MS"/);
+  assert.match(injectedCssSource, /--dsh-editor-font-code: \$\{EDITOR_LATIN_FONT\}/u);
+  assert.match(injectedCssSource, /:root:lang\(zh\)[\s\S]*?EDITOR_LANGUAGE_FONT_FALLBACKS\.zh/u);
+  assert.match(injectedCssSource, /:root:lang\(ja\)[\s\S]*?EDITOR_LANGUAGE_FONT_FALLBACKS\.ja/u);
+  assert.match(injectedCssSource, /\[data-dsh-editor-workspace\][\s\S]*?font-family: var\(--dsh-editor-font-ui/u);
 });
 
 const normalizeMarkdownMode = loadTypeScriptFunction(documentModelSource, 'normalizeMarkdownMode');

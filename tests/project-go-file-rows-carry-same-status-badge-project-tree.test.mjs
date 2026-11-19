@@ -6,7 +6,10 @@ import test from 'node:test';
 import { transpileTypeScriptFunction } from './ts-source.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = (readFileSync(join(root, 'lib/client.js'), 'utf8') + '\n' + readFileSync(join(root, 'src/client/components/search/FindToolWindow.tsx'), 'utf8'));
+const source =
+  readFileSync(join(root, 'lib/client.js'), 'utf8') +
+  '\n' +
+  readFileSync(join(root, 'src/client/components/search/FindToolWindow.tsx'), 'utf8');
 const quickOpenSource = readFileSync(join(root, 'src/client/components/search/QuickOpen.tsx'), 'utf8');
 const gitStatusModelSource = readFileSync(join(root, 'src/client/components/ui/git-status-model.ts'), 'utf8');
 const gitChangeModelSource = readFileSync(join(root, 'src/client/components/ui/git-change-model.ts'), 'utf8');
@@ -43,7 +46,10 @@ const badgeFor = loadBadgeFor();
 test('Go to File rows carry the same status badge as the Project tree', () => {
   /* IDEA marks modified files in its search popups too; a list of bare paths
    * makes it impossible to tell which of two same-named files is the changed one. */
-  const changes = new Map([['src/app.ts', ' M'], ['src/new.ts', '??']]);
+  const changes = new Map([
+    ['src/app.ts', ' M'],
+    ['src/new.ts', '??'],
+  ]);
   assert.deepEqual(badgeFor('src/app.ts', changes), { label: 'M↓', color: '#2f65ca' });
   /* Untracked files use the tree's `U` badge, not a question mark. */
   assert.deepEqual(badgeFor('src/new.ts', changes), { label: 'U', color: '#6e7781' });
@@ -57,6 +63,9 @@ test('the palette receives a status map built from the loaded git status', () =>
   const start = source.indexOf('quickOpen === null');
   assert.notEqual(start, -1);
   const block = source.slice(start, start + 1200);
-  assert.match(block, /changes: new Map\(\(git\?\.changes \?\? \[\]\)\.map\(\(change\) => \[change\.path, change\.status\]\)\)/);
-  assert.match(quickOpenSource, /<GitStatusBadge\s+selected=\{false\}\s+info=\{badge\}/u);
+  assert.match(
+    block,
+    /changes: new Map\(\(git\?\.changes \?\? \[\]\)\.map\(\(change\) => \[change\.path, change\.status\]\)\)/,
+  );
+  assert.match(quickOpenSource, /<GitStatusBadge\s+selected=\{position === index\}\s+info=\{badge\}/u);
 });

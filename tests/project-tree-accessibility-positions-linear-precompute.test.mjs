@@ -33,6 +33,7 @@ test('ProjectPanel precomputes positions instead of rescanning the tree per row'
     panel,
     /const projectRowPositions = React\.useMemo\(\(\) => projectTreePositions\(visibleRows\), \[visibleRows\]\)/u,
   );
-  assert.match(panel, /const projectRowPosition = projectRowPositions\[rowIndex\]/u);
+  assert.match(panel, /projectRowPosition: projectRowPositions\[rowIndex\]/u);
+  assert.match(panel, /const \{[\s\S]*?projectRowPosition,[\s\S]*?\} =\s*projectRowPresentation/u);
   assert.doesNotMatch(panel, /projectTreePosition\(visibleRows, rowIndex\)/u);
 });

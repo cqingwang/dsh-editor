@@ -58,7 +58,7 @@ test('narrow Search Everywhere keeps tabs and toolbar non-shrinking', () => {
   const tabsEnd = source.indexOf('searchEverywhereTab: {', tabsStart);
   const tabs = source.slice(tabsStart, tabsEnd);
   assert.match(tabs, /flex: '0 0 44px'/);
-  assert.match(tabs, /padding: '0 16px'/);
+  assert.match(tabs, /padding: '0 clamp\(8px, 2cqi, 16px\)'/);
   assert.match(tabs, /borderBottom:/);
 
   const dialog = source.slice(

@@ -3,6 +3,7 @@ import { isMonacoCancellation, recordDiagnosticAction, reportEditorDiagnostic } 
 import { en, flattenDictionary, inject, zh } from './locales';
 import { createRoot } from 'react-dom/client';
 import { EditorMount } from './components/editor/EditorMount';
+import { EDITOR_FONT_SIZE_SCALE } from './components/editor/editor-style-model';
 import { basename, translate } from './editor-core';
 import {
   CHAT_WIDTH_DEFAULT,
@@ -447,7 +448,7 @@ function createController(ctx: ControllerContext): void {
       'background:transparent',
       'color:var(--dsw-alias-label-secondary)',
       'font:inherit',
-      'font-size:11.5px',
+      `font-size:${EDITOR_FONT_SIZE_SCALE.labelDense}px`,
       'cursor:pointer',
       'white-space:nowrap',
     ].join(';');
@@ -837,8 +838,7 @@ function createController(ctx: ControllerContext): void {
     const badge = document.createElement('button');
     badge.type = 'button';
     badge.setAttribute('data-dsh-chat-jump', '');
-    badge.style.cssText =
-      'position:absolute;right:14px;bottom:150px;z-index:5;display:none;align-items:center;gap:4px;height:26px;padding:0 10px;border:none;border-radius:13px;background:var(--dsw-alias-state-business-primary);color:#fff;font-size:11px;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,0.18);';
+    badge.style.cssText = `position:absolute;right:14px;bottom:150px;z-index:5;display:none;align-items:center;gap:4px;height:26px;padding:0 10px;border:none;border-radius:13px;background:var(--dsw-alias-state-business-primary);color:#fff;font-size:${EDITOR_FONT_SIZE_SCALE.label}px;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,0.18);`;
     badge.textContent = '↓';
     badge.addEventListener('click', (event) => {
       event.preventDefault();

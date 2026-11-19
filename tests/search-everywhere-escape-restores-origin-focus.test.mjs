@@ -2,16 +2,13 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const dialog = await readFile(
-  new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url),
-  'utf8',
-);
+const dialog = await readFile(new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url), 'utf8');
 const workspace = await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8');
 
 test('Search Everywhere separates dismissal from action-driven close', () => {
   assert.match(dialog, /onDismiss\?: \(\) => void;/u);
   assert.match(dialog, /const dismissSearchEverywhere = onDismiss \?\? onClose;/u);
-  assert.match(dialog, /onMouseDown=\{dismissSearchEverywhere\}/u);
+  assert.match(workspace, /onBackdropMouseDown=\{dismissSearchEverywhere\}/u);
   assert.equal((dialog.match(/event\.key === 'Escape'[\s\S]{0,120}?dismissSearchEverywhere\(\)/gu) ?? []).length, 2);
 });
 

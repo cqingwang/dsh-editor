@@ -16,9 +16,18 @@ interface CompactActionBarProps {
   style?: React.CSSProperties | null;
   slotWidth?: number;
   className?: string;
+  iconSize?: number;
 }
 
-function CompactActionBar({ actions, t, ariaLabel, style = null, slotWidth = 26, className }: CompactActionBarProps) {
+function CompactActionBar({
+  actions,
+  t,
+  ariaLabel,
+  style = null,
+  slotWidth = 26,
+  className,
+  iconSize = 16,
+}: CompactActionBarProps) {
   const ref = React.useRef<HTMLDivElement | null>(null);
   const [visibleCount, setVisibleCount] = React.useState(actions.length);
   const [menuPosition, setMenuPosition] = React.useState<{ x: number; y: number } | null>(null);
@@ -88,6 +97,7 @@ function CompactActionBar({ actions, t, ariaLabel, style = null, slotWidth = 26,
           ariaKeyShortcuts={action.ariaKeyShortcuts}
           ariaHasPopup={action.ariaHasPopup}
           ariaExpanded={action.ariaExpanded}
+          iconSize={iconSize}
         />
       ))}
       {hidden.length === 0 ? null : (
@@ -111,6 +121,7 @@ function CompactActionBar({ actions, t, ariaLabel, style = null, slotWidth = 26,
           }}
           ariaHasPopup='menu'
           ariaExpanded={menuPosition !== null}
+          iconSize={iconSize}
         />
       )}
       {overflowMenu === null ? null : (

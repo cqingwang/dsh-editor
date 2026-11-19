@@ -13,6 +13,7 @@ export interface ToolbarButtonProps {
   ariaExpanded?: boolean;
   ariaKeyShortcuts?: string;
   style?: React.CSSProperties | null;
+  iconSize?: number;
 }
 function ToolbarButton({
   icon,
@@ -26,6 +27,7 @@ function ToolbarButton({
   ariaExpanded = undefined,
   ariaKeyShortcuts = undefined,
   style = null,
+  iconSize = 16,
 }: ToolbarButtonProps) {
   return (
     <button
@@ -51,7 +53,7 @@ function ToolbarButton({
       onContextMenu={onContextMenu}>
       <Icon
         name={icon}
-        size={14}
+        size={iconSize}
       />
     </button>
   );

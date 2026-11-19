@@ -2319,6 +2319,13 @@ const FIND_POPUP_DEFAULT_HEIGHT = 440;
 const LEGACY_FIND_POPUP_DEFAULT_WIDTH = 580;
 const LEGACY_FIND_POPUP_DEFAULT_HEIGHT = 536;
 
+export interface FloatingPopupGeometryDefaults {
+  width?: number;
+  height?: number;
+  legacyWidth?: number;
+  legacyHeight?: number;
+}
+
 /**
  * Keep the movable Find popup inside the current viewport.
  * @param {unknown} value - saved or requested geometry.
@@ -2330,6 +2337,7 @@ export function clampFindPopupGeometry(
   value: unknown,
   viewportWidth: number,
   viewportHeight: number,
+  defaults: FloatingPopupGeometryDefaults = {},
 ): { x: number; y: number; width: number; height: number } {
   const source =
     value !== null && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
@@ -2342,16 +2350,15 @@ export function clampFindPopupGeometry(
   const minimumHeight = Math.min(260, availableHeight);
   const requestedWidth = Number(source.width);
   const requestedHeight = Number(source.height);
+  const defaultWidth = Number.isFinite(Number(defaults.width)) ? Number(defaults.width) : FIND_POPUP_DEFAULT_WIDTH;
+  const defaultHeight = Number.isFinite(Number(defaults.height)) ? Number(defaults.height) : FIND_POPUP_DEFAULT_HEIGHT;
   const width = Math.round(
-    Math.max(
-      minimumWidth,
-      Math.min(availableWidth, Number.isFinite(requestedWidth) ? requestedWidth : FIND_POPUP_DEFAULT_WIDTH),
-    ),
+    Math.max(minimumWidth, Math.min(availableWidth, Number.isFinite(requestedWidth) ? requestedWidth : defaultWidth)),
   );
   const height = Math.round(
     Math.max(
       minimumHeight,
-      Math.min(availableHeight, Number.isFinite(requestedHeight) ? requestedHeight : FIND_POPUP_DEFAULT_HEIGHT),
+      Math.min(availableHeight, Number.isFinite(requestedHeight) ? requestedHeight : defaultHeight),
     ),
   );
   const requestedX = Number(source.x);
@@ -2374,8 +2381,9 @@ export function moveFindPopupGeometry(
   deltaY: number,
   viewportWidth: number,
   viewportHeight: number,
+  defaults: FloatingPopupGeometryDefaults = {},
 ): { x: number; y: number; width: number; height: number } {
-  const geometry = clampFindPopupGeometry(start, viewportWidth, viewportHeight);
+  const geometry = clampFindPopupGeometry(start, viewportWidth, viewportHeight, defaults);
   return clampFindPopupGeometry(
     {
       ...geometry,
@@ -2384,6 +2392,7 @@ export function moveFindPopupGeometry(
     },
     viewportWidth,
     viewportHeight,
+    defaults,
   );
 }
 
@@ -2395,8 +2404,9 @@ export function resizeFindPopupGeometry(
   direction: unknown,
   viewportWidth: number,
   viewportHeight: number,
+  defaults: FloatingPopupGeometryDefaults = {},
 ): { x: number; y: number; width: number; height: number } {
-  const geometry = clampFindPopupGeometry(start, viewportWidth, viewportHeight);
+  const geometry = clampFindPopupGeometry(start, viewportWidth, viewportHeight, defaults);
   const viewportW = Math.max(1, Number(viewportWidth) || 1);
   const viewportH = Math.max(1, Number(viewportHeight) || 1);
   const margin = viewportW >= 32 && viewportH >= 32 ? 8 : 0;
@@ -2422,6 +2432,7 @@ export function resizeFindPopupGeometry(
     },
     viewportW,
     viewportH,
+    defaults,
   );
 }
 
@@ -2429,30 +2440,91 @@ export function resizeFindPopupGeometry(
 export function readFindPopupGeometry(
   viewportWidth = window.innerWidth,
   viewportHeight = window.innerHeight,
+  storageKey = FIND_POPUP_GEOMETRY_STORAGE_KEY,
+  defaults: FloatingPopupGeometryDefaults = {},
 ): { x: number; y: number; width: number; height: number } {
   try {
-    const saved = JSON.parse(window.localStorage.getItem(FIND_POPUP_GEOMETRY_STORAGE_KEY) ?? '{}');
+    const saved = JSON.parse(window.localStorage.getItem(storageKey) ?? '{}');
+    const legacyWidth = Number.isFinite(Number(defaults.legacyWidth))
+      ? Number(defaults.legacyWidth)
+      : LEGACY_FIND_POPUP_DEFAULT_WIDTH;
+    const legacyHeight = Number.isFinite(Number(defaults.legacyHeight))
+      ? Number(defaults.legacyHeight)
+      : LEGACY_FIND_POPUP_DEFAULT_HEIGHT;
     const legacyDefault =
       saved !== null &&
       typeof saved === 'object' &&
-      Number(saved.width) === LEGACY_FIND_POPUP_DEFAULT_WIDTH &&
-      Number(saved.height) === LEGACY_FIND_POPUP_DEFAULT_HEIGHT;
-    return clampFindPopupGeometry(legacyDefault ? {} : saved, viewportWidth, viewportHeight);
+      Number(saved.width) === legacyWidth &&
+      Number(saved.height) === legacyHeight;
+    return clampFindPopupGeometry(legacyDefault ? {} : saved, viewportWidth, viewportHeight, defaults);
   } catch {
-    return clampFindPopupGeometry({}, viewportWidth, viewportHeight);
+    return clampFindPopupGeometry({}, viewportWidth, viewportHeight, defaults);
   }
 }
 
 /** Persist the completed movable Find popup geometry. */
-export function writeFindPopupGeometry(geometry: unknown): void {
+export function writeFindPopupGeometry(
+  geometry: unknown,
+  storageKey = FIND_POPUP_GEOMETRY_STORAGE_KEY,
+  defaults: FloatingPopupGeometryDefaults = {},
+): void {
   try {
     window.localStorage.setItem(
-      FIND_POPUP_GEOMETRY_STORAGE_KEY,
-      JSON.stringify(clampFindPopupGeometry(geometry, window.innerWidth, window.innerHeight)),
+      storageKey,
+      JSON.stringify(clampFindPopupGeometry(geometry, window.innerWidth, window.innerHeight, defaults)),
     );
   } catch {
     /* storage-less browsers keep the in-memory geometry */
   }
+}
+
+export function clampFloatingPopupGeometry(
+  value: unknown,
+  viewportWidth: number,
+  viewportHeight: number,
+  defaults: FloatingPopupGeometryDefaults = {},
+): { x: number; y: number; width: number; height: number } {
+  return clampFindPopupGeometry(value, viewportWidth, viewportHeight, defaults);
+}
+
+export function moveFloatingPopupGeometry(
+  start: unknown,
+  deltaX: number,
+  deltaY: number,
+  viewportWidth: number,
+  viewportHeight: number,
+  defaults: FloatingPopupGeometryDefaults = {},
+): { x: number; y: number; width: number; height: number } {
+  return moveFindPopupGeometry(start, deltaX, deltaY, viewportWidth, viewportHeight, defaults);
+}
+
+export function resizeFloatingPopupGeometry(
+  start: unknown,
+  deltaX: number,
+  deltaY: number,
+  direction: unknown,
+  viewportWidth: number,
+  viewportHeight: number,
+  defaults: FloatingPopupGeometryDefaults = {},
+): { x: number; y: number; width: number; height: number } {
+  return resizeFindPopupGeometry(start, deltaX, deltaY, direction, viewportWidth, viewportHeight, defaults);
+}
+
+export function readFloatingPopupGeometry(
+  storageKey: string,
+  defaults: FloatingPopupGeometryDefaults,
+  viewportWidth = window.innerWidth,
+  viewportHeight = window.innerHeight,
+): { x: number; y: number; width: number; height: number } {
+  return readFindPopupGeometry(viewportWidth, viewportHeight, storageKey, defaults);
+}
+
+export function writeFloatingPopupGeometry(
+  storageKey: string,
+  geometry: unknown,
+  defaults: FloatingPopupGeometryDefaults,
+): void {
+  writeFindPopupGeometry(geometry, storageKey, defaults);
 }
 
 /** Per-workspace Directory scope recursion preference. */

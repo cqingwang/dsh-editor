@@ -2,17 +2,21 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) + '\n' + (await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8'));
+const source =
+  (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) +
+  '\n' +
+  (await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8'));
 const findTool = source.slice(
   source.lastIndexOf('function FindToolWindowView('),
   source.indexOf('const FindToolWindow = FindToolWindowView;', source.lastIndexOf('function FindToolWindowView(')),
 );
 
-test('Find in Files popup is content-sized without a full-screen dimmer', () => {
+test('Find in Files popup remains content-sized inside the shared backdrop', () => {
   const popup = source.slice(source.indexOf('findToolPopup: {'), source.indexOf('findToolToolbar: {'));
-  assert.match(popup, /position: 'fixed'/);
-  assert.match(popup, /width: 'min\(510px, calc\(100vw - 24px\)\)'/);
-  assert.match(popup, /height: 'min\(440px, calc\(100vh - 32px\)\)'/);
+  assert.match(source, /FIND_POPUP_DEFAULT_WIDTH = 510/u);
+  assert.match(source, /FIND_POPUP_DEFAULT_HEIGHT = 440/u);
+  assert.doesNotMatch(popup, /position:/u);
+  assert.doesNotMatch(popup, /(?:^|\s)(?:width|height):/u);
   assert.doesNotMatch(popup, /height: 'min\(680px, 76vh\)'/);
   assert.doesNotMatch(popup, /100vmax/);
 });

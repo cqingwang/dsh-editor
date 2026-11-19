@@ -29,9 +29,7 @@ function styleBlock(name, nextName) {
 }
 
 test('Cmd/Ctrl+Shift+F uses the visible Editor, not focused Editor controls', () => {
-  const visible = new Function(
-    `${extractFunction('visibleEditorWorkspace')}; return visibleEditorWorkspace;`,
-  )();
+  const visible = new Function(`${extractFunction('visibleEditorWorkspace')}; return visibleEditorWorkspace;`)();
   const element = { isConnected: true, getClientRects: () => [{}] };
   const documentRef = { querySelector: () => element };
   assert.equal(visible(documentRef), element);
@@ -62,16 +60,17 @@ test('double Shift opens Search Everywhere while Cmd/Ctrl+Shift+F opens Find in 
   assert.doesNotMatch(doubleShiftEffect, /openFindInFilesFromShortcut\(\)/);
   const findInFilesShortcut = source.slice(
     source.indexOf("if (key === 'f' && event.shiftKey)"),
-    source.indexOf("const host = document.querySelector('[data-dsh-editor-workspace]');", source.indexOf("if (key === 'f' && event.shiftKey)")),
+    source.indexOf(
+      "const host = document.querySelector('[data-dsh-editor-workspace]');",
+      source.indexOf("if (key === 'f' && event.shiftKey)"),
+    ),
   );
   assert.match(findInFilesShortcut, /openFindInFilesFromShortcut\(\)/);
   assert.match(source, /onClose=\{closeSearchEverywhere\}/);
 });
 
 test('searchText unknown-operation retry and friendly fallback are wired', () => {
-  const missing = new Function(
-    `${extractFunction('fileApiMissingOperation')}; return fileApiMissingOperation;`,
-  )();
+  const missing = new Function(`${extractFunction('fileApiMissingOperation')}; return fileApiMissingOperation;`)();
   assert.equal(missing({ ok: false, error: { message: 'unknown operation "searchText"' } }, 'searchText'), true);
   assert.equal(missing({ ok: false, error: { message: 'unknown operation "read"' } }, 'searchText'), false);
   assert.equal(missing({ ok: true }, 'searchText'), false);
@@ -87,7 +86,10 @@ test('searchText unknown-operation retry and friendly fallback are wired', () =>
     failureMessage(new Error('unknown operation "searchText"'), (key) => key),
     'editor.searchTextServiceUnavailable',
   );
-  assert.equal(failureMessage(new Error('permission denied'), (key) => key), 'permission denied');
+  assert.equal(
+    failureMessage(new Error('permission denied'), (key) => key),
+    'permission denied',
+  );
 });
 
 test('host accepts transitional text-search operation spellings', () => {
@@ -99,23 +101,27 @@ test('host accepts transitional text-search operation spellings', () => {
 test('Search Everywhere tabs and toolbar have room to breathe', () => {
   const tabs = styleBlock('searchEverywhereTabs', 'searchEverywhereTab');
   assert.match(tabs, /flex: '0 0 44px'/);
-  assert.match(tabs, /gap: 22/);
+  assert.match(tabs, /gap: 'clamp\(8px, 2\.8cqi, 22px\)'/);
   assert.match(tabs, /height: 44/);
-  assert.match(tabs, /padding: '0 16px'/);
+  assert.match(tabs, /padding: '0 clamp\(8px, 2cqi, 16px\)'/);
   const tabListStart = source.indexOf("role='tablist'", source.indexOf('function SearchEverywhere('));
-  const tabListStyle = source.slice(tabListStart, source.indexOf("tabs.map", tabListStart));
-  assert.match(tabListStyle, /gap: 22/);
+  const tabListStyle = source.slice(tabListStart, source.indexOf('tabs.map', tabListStart));
+  assert.match(tabListStyle, /gap: 'clamp\(8px, 2\.8cqi, 22px\)'/);
   assert.match(tabListStyle, /height: '100%'/);
   assert.doesNotMatch(tabListStyle, /gap: 14/);
 
   const tab = styleBlock('searchEverywhereTab', 'searchEverywhereTabActive');
-  assert.match(tab, /fontSize: 13/);
+  assert.match(tab, /\.\.\.EDITOR_TEXT_STYLE\.control/);
   assert.match(tab, /padding: '0 2px'/);
 
   const bar = styleBlock('searchEverywhereActionBar', 'searchEverywhereSearchRow');
-  assert.match(bar, /height: 34/);
+  assert.match(bar, /height: '100%'/);
   assert.match(bar, /gap: 6/);
-  assert.match(bar, /padding: '0 12px'/);
+  assert.match(bar, /padding: 0/);
+  assert.match(bar, /borderBottom: 'none'/);
+  assert.match(source, /data-dsh-search-toolbar-group=''/);
+  assert.match(source, /flex: '0 0 auto'/);
+  assert.match(source, /width: 'min\(40%, 320px\)'/);
   assert.match(source, /style=\{styles\.searchEverywhereActionBar\}/);
 
   const query = styleBlock('searchEverywhereSearchRow', 'searchEverywhereInput');
@@ -129,10 +135,7 @@ test('Search Everywhere tabs and toolbar have room to breathe', () => {
 });
 
 test('search service recovery copy exists in both dictionaries', () => {
-  assert.equal(
-    zh.editor.searchTextServiceUnavailable,
-    '文件内容搜索服务暂不可用，请重新打开搜索或刷新编辑器后重试',
-  );
+  assert.equal(zh.editor.searchTextServiceUnavailable, '文件内容搜索服务暂不可用，请重新打开搜索或刷新编辑器后重试');
   assert.equal(
     en.editor.searchTextServiceUnavailable,
     'File-content search is temporarily unavailable. Reopen search or refresh the editor and try again.',

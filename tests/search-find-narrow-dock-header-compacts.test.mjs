@@ -14,6 +14,7 @@ test('narrow Find dock compacts duplicate title, mask and header actions', () =>
   assert.match(component, /className='dsh-editor-find-tool-title'/u);
   assert.match(component, /className='dsh-editor-find-tool-count'/u);
   assert.match(component, /className='dsh-editor-find-tool-spacer'/u);
+  assert.match(component, /className='dsh-editor-find-file-mask-control'/u);
   assert.match(component, /className='dsh-editor-find-file-mask-label'/u);
   assert.match(component, /className='dsh-editor-find-file-mask-input'/u);
   assert.match(component, /className=\{floating \? undefined : 'dsh-editor-find-dock-header-actions'\}/u);
@@ -33,10 +34,20 @@ test('the compact rules are container-scoped to the narrow dock', () => {
   );
   assert.match(
     injectedCss,
-    /\.dsh-editor-find-file-mask-input \{ width: 64px !important; min-width: 64px !important; \}/u,
+    /\.dsh-editor-find-file-mask-input \{ width: 56px !important; min-width: 56px !important; \}/u,
   );
   assert.match(
     injectedCss,
-    /\.dsh-editor-find-dock-header-actions \{ flex-basis: 110px !important; width: 110px !important; min-width: 110px !important; \}/u,
+    /\.dsh-editor-find-dock-header-actions \{ flex-basis: 88px !important; width: 88px !important; min-width: 88px !important; \}/u,
+  );
+  assert.match(injectedCss, /@container dsh-find-dock \(max-width: 220px\)/u);
+  assert.match(injectedCss, /\.dsh-editor-find-file-mask-control \{ display: none !important; \}/u);
+  assert.match(
+    injectedCss,
+    /\.dsh-editor-find-controls\[data-dsh-find-controls\] > div > svg:first-child \{ display: none !important; \}/u,
+  );
+  assert.match(
+    injectedCss,
+    /\.dsh-editor-find-dock-header-actions \{ flex-basis: 52px !important; width: 52px !important; min-width: 52px !important; \}/u,
   );
 });

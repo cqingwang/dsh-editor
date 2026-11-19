@@ -1,8 +1,10 @@
 import React from 'react';
 import { styles } from '../../ui/styles';
+import { EDITOR_CODE_FONT, EDITOR_FONT_SIZE_SCALE } from '../editor/editor-style-model';
 import { ContextMenu } from '../ui/Menu';
-import { Icon } from '../ui/Icon';
+import { Icon, POPUP_ICON_SIZE } from '../ui/Icon';
 import { ToolbarButton } from '../ui/ToolbarButton';
+import { SearchFileResultItem } from './SearchFileResultItem';
 import {
   filterUsageMatches,
   normalizeUsageMatchIndex,
@@ -177,7 +179,7 @@ function ShowUsagesPopup({
         <div style={styles.searchEverywhereSearchRow}>
           <Icon
             name='search'
-            size={13}
+            size={POPUP_ICON_SIZE}
           />
           <input
             ref={inputRef}
@@ -243,33 +245,22 @@ function ShowUsagesPopup({
               onMouseEnter={() => onMove(position)}
               onContextMenu={(event) => openUsageMenu(event, match)}
               onClick={() => onOpen(match)}>
-              <Icon
-                name='file'
-                size={12}
-              />
-              <span
-                style={{
-                  flexShrink: 0,
-                  maxWidth: '45%',
-                  overflow: 'hidden',
+              <SearchFileResultItem
+                path={match.path}
+                name={`${match.path}:${match.line}:${match.column}`}
+                detail={match.preview ?? ''}
+                nameStyle={{
+                  flex: '0 1 45%',
                   color: 'var(--dsw-alias-label-primary)',
-                  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-                  fontSize: 11,
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                }}>
-                {`${match.path}:${match.line}:${match.column}`}
-              </span>
-              <span
-                style={{
-                  minWidth: 0,
-                  overflow: 'hidden',
+                  fontFamily: EDITOR_CODE_FONT,
+                  fontSize: EDITOR_FONT_SIZE_SCALE.label,
+                }}
+                detailStyle={{
+                  flex: '1 1 auto',
                   color: 'var(--dsw-alias-label-secondary)',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                }}>
-                {match.preview ?? ''}
-              </span>
+                  fontSize: EDITOR_FONT_SIZE_SCALE.body,
+                }}
+              />
             </div>
           ))}
         </div>

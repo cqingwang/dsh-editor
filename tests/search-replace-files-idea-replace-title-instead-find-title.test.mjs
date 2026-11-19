@@ -26,7 +26,7 @@ test('The popup Replace row keeps New Line beside Preserve case', () => {
   assert.doesNotMatch(replaceRow, /floating === false/);
   assert.match(replaceRow, /checked=\{replaceNewLine\}/);
   assert.match(replaceRow, /findNewLine/);
-  assert.match(replaceRow, /<Icon\s+name='replace'\s+size=\{13\}\s+\/>/u);
+  assert.match(replaceRow, /<Icon\s+name='replace'\s+size=\{POPUP_ICON_SIZE\}\s+\/>/u);
   assert.match(replaceRow, /icon=\{floating \? 'chevronDown' : 'history'\}/u);
   assert.match(replaceRow, /icon='preserveCase'/);
 });

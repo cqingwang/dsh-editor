@@ -41,7 +41,10 @@ test('folder icons are one step larger than file icons', () => {
 
 test('the tree label is one step larger than before', () => {
   const row = styleBlock('treeRow');
-  const size = /fontSize: (\d+)/.exec(row);
-  assert.notEqual(size, null);
-  assert.ok(Number(size[1]) >= 13, `tree font ${size[1]}px should be at least 13px`);
+  assert.match(row, /fontSize: EDITOR_FONT_SIZE_SCALE\.control/u);
+  const typography = readFileSync(
+    new URL('../src/client/components/editor/editor-style-model.ts', import.meta.url),
+    'utf8',
+  );
+  assert.match(typography, /control: 13/u);
 });

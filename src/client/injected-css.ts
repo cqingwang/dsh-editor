@@ -1,6 +1,12 @@
 /* injected-css.ts: dsh-editor client styles and shared surface helpers. Generated into lib/client.js by scripts/build-client.mjs. */
 
 import { basename } from './editor-core';
+import {
+  EDITOR_FONT_SIZE_SCALE,
+  EDITOR_LANGUAGE_FONT_FALLBACKS,
+  EDITOR_LATIN_FONT,
+  EDITOR_TERMINAL_FONT_STACK,
+} from './components/editor/editor-style-model';
 interface TreeLoadingState {
   loading: boolean;
   rowCount: number;
@@ -83,6 +89,30 @@ export function installStyles(): void {
   const style = document.createElement('style');
   style.id = id;
   style.textContent = [
+    ':root {',
+    `  --dsh-editor-font-ui: ${EDITOR_LATIN_FONT};`,
+    `  --dsh-editor-font-code: ${EDITOR_LATIN_FONT};`,
+    `  --dsh-editor-font-terminal: ${EDITOR_TERMINAL_FONT_STACK};`,
+    `  --dsh-editor-font-size-micro: ${EDITOR_FONT_SIZE_SCALE.micro}px;`,
+    `  --dsh-editor-font-size-caption: ${EDITOR_FONT_SIZE_SCALE.caption}px;`,
+    `  --dsh-editor-font-size-label: ${EDITOR_FONT_SIZE_SCALE.label}px;`,
+    `  --dsh-editor-font-size-body: ${EDITOR_FONT_SIZE_SCALE.body}px;`,
+    `  --dsh-editor-font-size-control: ${EDITOR_FONT_SIZE_SCALE.control}px;`,
+    `  --dsh-editor-font-size-emphasis: ${EDITOR_FONT_SIZE_SCALE.emphasis}px;`,
+    `  --dsh-editor-font-size-display: ${EDITOR_FONT_SIZE_SCALE.display}px;`,
+    '}',
+    ':root:lang(zh) {',
+    `  --dsh-editor-font-ui: ${EDITOR_LANGUAGE_FONT_FALLBACKS.zh};`,
+    `  --dsh-editor-font-code: ${EDITOR_LANGUAGE_FONT_FALLBACKS.zh};`,
+    '}',
+    ':root:lang(ja) {',
+    `  --dsh-editor-font-ui: ${EDITOR_LANGUAGE_FONT_FALLBACKS.ja};`,
+    `  --dsh-editor-font-code: ${EDITOR_LANGUAGE_FONT_FALLBACKS.ja};`,
+    '}',
+    ':root:lang(ko) {',
+    `  --dsh-editor-font-ui: ${EDITOR_LANGUAGE_FONT_FALLBACKS.ko};`,
+    `  --dsh-editor-font-code: ${EDITOR_LANGUAGE_FONT_FALLBACKS.ko};`,
+    '}',
     /* DSH's chat attachment drag overlay blurs the whole page. While a file
            is over the Editor workspace, the Project tree owns that drop, so the
            unrelated attachment mask must not obscure the destination. */
@@ -217,7 +247,7 @@ export function installStyles(): void {
     '  border-radius: 4px;',
     '  background: var(--dsw-alias-state-business-primary);',
     '  color: #fff;',
-    '  font: 600 11px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;',
+    '  font: 600 var(--dsh-editor-font-size-label, 11px)/1.6 var(--dsh-editor-font-code, "Trebuchet MS", "SF Pro Text", "Segoe UI", sans-serif);',
     '  pointer-events: none;',
     '}',
     '[data-dsh-editor-chat-handle]:hover,',
@@ -264,7 +294,14 @@ export function installStyles(): void {
     '[data-dsh-editor-workspace] input,',
     '[data-dsh-editor-workspace] textarea,',
     '[data-dsh-editor-workspace] select {',
-    '  font-family: "Trebuchet MS", "PingFang SC", "Microsoft YaHei UI", sans-serif !important;',
+    '  font-family: var(--dsh-editor-font-ui, "Trebuchet MS", "SF Pro Text", "Segoe UI", sans-serif) !important;',
+    '}',
+    /* xterm owns its hidden helper textarea for composition and caret
+           placement. The workspace-wide input family must not bleed into that
+           terminal-specific domain. */
+    '[data-dsh-editor-workspace] .xterm,',
+    '[data-dsh-editor-workspace] .xterm .xterm-helper-textarea {',
+    `  font-family: var(--dsh-editor-font-terminal, ${EDITOR_TERMINAL_FONT_STACK}) !important;`,
     '}',
     /* Closing the split HIDES the mounted tree instead of unmounting it, so
            re-opening does not re-read the disk and flash the list.
@@ -423,8 +460,16 @@ export function installStyles(): void {
     '.dsh-editor-find-controls[data-dsh-find-controls] { container: dsh-find-dock / inline-size; }',
     '@container dsh-find-dock (max-width: 360px) {',
     '  .dsh-editor-find-tool-title, .dsh-editor-find-tool-count, .dsh-editor-find-tool-spacer, .dsh-editor-find-file-mask-label { display: none !important; }',
-    '  .dsh-editor-find-file-mask-input { width: 64px !important; min-width: 64px !important; }',
-    '  .dsh-editor-find-dock-header-actions { flex-basis: 110px !important; width: 110px !important; min-width: 110px !important; }',
+    '  .dsh-editor-find-file-mask-input { width: 56px !important; min-width: 56px !important; }',
+    '  .dsh-editor-find-dock-header-actions { flex-basis: 88px !important; width: 88px !important; min-width: 88px !important; }',
+    '}',
+    /* Below this width the mask cannot share the title row with either menu
+           or window controls. Keep the window actions pinned at the upper-right;
+           all toolbar actions remain reachable through the overflow button. */
+    '@container dsh-find-dock (max-width: 220px) {',
+    '  .dsh-editor-find-file-mask-control { display: none !important; }',
+    '  .dsh-editor-find-controls[data-dsh-find-controls] > div > svg:first-child { display: none !important; }',
+    '  .dsh-editor-find-dock-header-actions { flex-basis: 52px !important; width: 52px !important; min-width: 52px !important; }',
     '}',
     /* A narrow tool window shows the change list only; the diff needs room to be useful. */
     '@container dsh-editor-side (max-width: 520px) { .dsh-editor-diff-pane { display: none !important; } }',
@@ -432,7 +477,7 @@ export function installStyles(): void {
            pane is narrow. Hiding the deletion half is preferable to clipping both
            halves; the tooltip still carries the exact `+N −M`. */
     '@container dsh-editor-side (max-width: 210px) {',
-    '  .dsh-editor-line-counts { gap: 1px !important; font-size: 9px !important; }',
+    '  .dsh-editor-line-counts { gap: 1px !important; font-size: var(--dsh-editor-font-size-micro, 9px) !important; }',
     '  .dsh-editor-line-counts:not(.dsh-editor-line-counts-deletions-only) .dsh-editor-line-count-del { display: none !important; }',
     '  .dsh-editor-line-counts-deletions-only .dsh-editor-line-count-add { display: none !important; }',
     '}',
@@ -485,7 +530,7 @@ export function installStyles(): void {
     '.dsh-editor-diff-pane .diff-hidden-lines-widget {',
     '  background: var(--dsw-alias-bg-layer-1) !important;',
     '  color: var(--dsw-alias-label-tertiary) !important;',
-    '  font-size: 10px !important;',
+    '  font-size: var(--dsh-editor-font-size-caption, 10px) !important;',
     '}',
     '.dsh-editor-diff-pane .diff-hidden-lines-widget .center {',
     '  border-color: var(--dsw-alias-border-l3) !important;',

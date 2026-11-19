@@ -2,7 +2,10 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) + '\n' + (await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8'));
+const source =
+  (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) +
+  '\n' +
+  (await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8'));
 
 function extractFunction(name) {
   const start = source.indexOf(`function ${name}(`);
@@ -83,15 +86,18 @@ test('Scope select disables every unavailable context-bound option', () => {
     ['gitNonIgnoredFiles', 'gitAvailable !== true'],
     ['gitTrackedFiles', 'gitAvailable !== true'],
   ]) {
-    assert.match(source, new RegExp(`value='${value}'\\s+disabled=\\{${condition.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\}`, 'u'));
+    assert.match(
+      source,
+      new RegExp(`value='${value}'\\s+disabled=\\{${condition.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\}`, 'u'),
+    );
   }
 });
 
 test('Find popup geometry clamps when the viewport shrinks', () => {
   assert.match(
     source,
-    /const onViewportResize = \(\) => \{\s+setFindToolPopupGeometry\(\(current\) => clampFindPopupGeometry\([\s\S]*?window\.innerWidth,[\s\S]*?window\.innerHeight,/u,
+    /const handleViewportResize = \(\) => \{[\s\S]*?clampFloatingPopupGeometry\(current, window\.innerWidth, window\.innerHeight\);/u,
   );
-  assert.match(source, /window\.addEventListener\('resize', onViewportResize\)/u);
-  assert.match(source, /window\.removeEventListener\('resize', onViewportResize\)/u);
+  assert.match(source, /window\.addEventListener\('resize', handleViewportResize\)/u);
+  assert.match(source, /window\.removeEventListener\('resize', handleViewportResize\)/u);
 });

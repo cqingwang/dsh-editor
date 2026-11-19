@@ -44,7 +44,7 @@ test('Project reuses memoized change maps and queries each row tint once', () =>
   assert.match(presentation, /directoryTint\(changesByDirectory\.get\(row\.path\)\)/u);
   assert.equal(presentation.match(/changesByDirectory\.get\(row\.path\)/gu)?.length, 1);
 
-  const rowRenderAt = panel.indexOf('{visibleRows.map((row) => {');
+  const rowRenderAt = panel.indexOf('{visibleRows.map((row, rowIndex) => {');
   assert.ok(rowRenderAt > 0);
   const rowRender = panel.slice(rowRenderAt);
   assert.match(rowRender, /selected \|\| directoryTintState === null/u);

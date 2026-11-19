@@ -1,5 +1,6 @@
 import React from 'react';
 import { styles } from '../../ui/styles';
+import { EDITOR_TERMINAL_FONT_STACK } from '../editor/editor-style-model';
 import { loadXterm, type TerminalEmulator } from '../../find-tool';
 
 export interface MeasuringScreenProps {
@@ -25,7 +26,7 @@ function MeasuringScreenView({ fontSize, onGrid }: MeasuringScreenProps) {
       ({ Terminal, FitAddon }) => {
         if (disposed || node === null) return;
         const nextEmulator = new Terminal({
-          fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+          fontFamily: EDITOR_TERMINAL_FONT_STACK,
           fontSize,
           lineHeight: 1.25,
           scrollback: 1,

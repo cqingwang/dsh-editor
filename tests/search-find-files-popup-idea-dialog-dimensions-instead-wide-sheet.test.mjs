@@ -13,10 +13,9 @@ const findTool = source.slice(
 
 test('Find in Files popup uses IDEA dialog dimensions instead of a wide sheet', () => {
   const popup = source.slice(source.indexOf('findToolPopup: {'), source.indexOf('findToolToolbar: {'));
-  assert.match(popup, /top: '50%'/);
-  assert.match(popup, /translate\(-50%, -50%\)/);
-  assert.match(popup, /width: 'min\(510px, calc\(100vw - 24px\)\)'/);
-  assert.match(popup, /height: 'min\(440px, calc\(100vh - 32px\)\)'/);
+  assert.match(source, /FIND_POPUP_DEFAULT_WIDTH = 510/u);
+  assert.match(source, /FIND_POPUP_DEFAULT_HEIGHT = 440/u);
+  assert.doesNotMatch(popup, /(?:^|\s)(?:width|height):/u);
   assert.doesNotMatch(popup, /width: 'min\(780px/);
 });
 

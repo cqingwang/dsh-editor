@@ -1,5 +1,6 @@
 import React from 'react';
 import { styles } from '../../ui/styles';
+import { EDITOR_CODE_FONT, EDITOR_TEXT_STYLE } from '../editor/editor-style-model';
 import { Icon } from '../ui/Icon';
 import { ToolbarButton } from '../ui/ToolbarButton';
 import {
@@ -298,7 +299,7 @@ function FindScopeEditor({ t, scopes, initialId, onSave, onClose }: FindScopeEdi
               padding: 8,
               background: 'var(--dsw-alias-bg-l2)',
               borderRadius: 3,
-              fontSize: 11,
+              ...EDITOR_TEXT_STYLE.label,
             }}>
             {transfer.xml}
           </pre>
@@ -468,7 +469,7 @@ function FindScopeEditor({ t, scopes, initialId, onSave, onClose }: FindScopeEdi
                     {scope.name}
                   </span>
                   {scope.shared === true ? (
-                    <span style={{ marginLeft: 'auto', fontSize: 10, opacity: 0.8 }}>
+                    <span style={{ marginLeft: 'auto', ...EDITOR_TEXT_STYLE.metadata, opacity: 0.8 }}>
                       {t('editor.findScopeSharedBadge')}
                     </span>
                   ) : null}
@@ -505,7 +506,12 @@ function FindScopeEditor({ t, scopes, initialId, onSave, onClose }: FindScopeEdi
                 <label style={{ display: 'grid', gap: 4, marginBottom: 12 }}>
                   <span>{t('editor.findScopeInclude')}</span>
                   <textarea
-                    style={{ ...styles.findInput, minHeight: 96, resize: 'vertical', fontFamily: 'monospace' }}
+                    style={{
+                      ...styles.findInput,
+                      minHeight: 96,
+                      resize: 'vertical',
+                      fontFamily: EDITOR_CODE_FONT,
+                    }}
                     value={selected.includePatterns.join('\n')}
                     placeholder={t('editor.findScopePatternPlaceholder')}
                     aria-label={t('editor.findScopeInclude')}
@@ -515,14 +521,19 @@ function FindScopeEditor({ t, scopes, initialId, onSave, onClose }: FindScopeEdi
                 <label style={{ display: 'grid', gap: 4, marginBottom: 8 }}>
                   <span>{t('editor.findScopeExclude')}</span>
                   <textarea
-                    style={{ ...styles.findInput, minHeight: 96, resize: 'vertical', fontFamily: 'monospace' }}
+                    style={{
+                      ...styles.findInput,
+                      minHeight: 96,
+                      resize: 'vertical',
+                      fontFamily: EDITOR_CODE_FONT,
+                    }}
                     value={selected.excludePatterns.join('\n')}
                     placeholder={t('editor.findScopePatternPlaceholder')}
                     aria-label={t('editor.findScopeExclude')}
                     onChange={(event) => updateSelected({ excludePatterns: event.target.value.split('\n') })}
                   />
                 </label>
-                <div style={{ color: 'var(--dsw-alias-label-tertiary)', fontSize: 11 }}>
+                <div style={{ color: 'var(--dsw-alias-label-tertiary)', ...EDITOR_TEXT_STYLE.label }}>
                   {t('editor.findScopePatternsHelp')}
                 </div>
               </React.Fragment>

@@ -8,14 +8,13 @@ test('Project row presentation is cached independently of selection', () => {
   assert.match(project, /const projectRowPresentationByPath = React\.useMemo\(/u);
   assert.match(project, /directoryTint\(changesByDirectory\.get\(row\.path\)\)/u);
   assert.match(project, /treeNameColor\(\{\s*status,\s*selected: false,\s*\}\)/u);
-  assert.match(project, /guideKind\(\{/u);
   assert.match(project, /\[changesByDirectory, expanded, gitChanges, projectRowPositions, visibleRows\]/u);
 
-  const rowsStart = project.indexOf('{visibleRows.map((row) => {');
+  const rowsStart = project.indexOf('{visibleRows.map((row, rowIndex) => {');
   const rowsEnd = project.indexOf('      </div>\n    </React.Fragment>', rowsStart);
   assert.ok(rowsStart > 0);
   assert.ok(rowsEnd > rowsStart);
   const rows = project.slice(rowsStart, rowsEnd);
   assert.match(rows, /projectRowPresentationByPath\.get\(row\.path\)/u);
-  assert.doesNotMatch(rows, /gitChanges\.get|treeNameColor\(|directoryTint\(|guideKind\(/u);
+  assert.doesNotMatch(rows, /gitChanges\.get|treeNameColor\(|directoryTint\(/u);
 });

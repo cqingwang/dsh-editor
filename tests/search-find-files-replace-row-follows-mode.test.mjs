@@ -2,7 +2,10 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) + '\n' + (await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8'));
+const source =
+  (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) +
+  '\n' +
+  (await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8'));
 const findTool = source.slice(
   source.lastIndexOf('function FindToolWindowView('),
   source.indexOf('const FindToolWindow = FindToolWindowView;', source.lastIndexOf('function FindToolWindowView(')),
@@ -11,12 +14,15 @@ const findTool = source.slice(
 test('Find in Files opens Find-only while Replace mode exposes the Replace row', () => {
   assert.match(findTool, /const \[searchNewLine, setSearchNewLine\] = React\.useState\(false\)/);
   assert.match(findTool, /const \[replaceNewLine, setReplaceNewLine\] = React\.useState\(false\)/);
-  assert.match(findTool, /const \[replaceExpanded, setReplaceExpanded\] = React\.useState\(\(\) => state\.mode === 'replace'\)/);
   assert.match(
     findTool,
-    /replaceExpanded && !fileFilterMode\s+\?\s*\(\s*<div[\s\S]{0,100}styles\.findToolReplaceRow/u,
+    /const \[replaceExpanded, setReplaceExpanded\] = React\.useState\(\(\) => state\.mode === 'replace'\)/,
   );
-  assert.match(findTool, /label=\{replaceExpanded \? t\('editor\.findToolHideReplace'\) : t\('editor\.findToolShowReplace'\)\}/u);
+  assert.match(findTool, /replaceExpanded && !fileFilterMode\s+\?\s*\(\s*<div[\s\S]{0,100}styles\.findToolReplaceRow/u);
+  assert.match(
+    findTool,
+    /label=\{replaceExpanded \? t\('editor\.findToolHideReplace'\) : t\('editor\.findToolShowReplace'\)\}/u,
+  );
   assert.match(findTool, /data-dsh-find-replace-input=''/);
   assert.ok(findTool.indexOf('styles.findToolSearchRow') < findTool.indexOf('styles.findToolReplaceRow'));
 });
@@ -42,12 +48,16 @@ test('Preserve case is part of the Replace row', () => {
   assert.match(replaceRow, /label=\{t\('editor\.searchPreserveCase'\)\}/u);
   assert.match(replaceRow, /active=\{state\.preserveCase === true\}/u);
   assert.match(replaceRow, /onClick=\{onTogglePreserveCase\}/u);
-  const toolbar = findTool.slice(findTool.indexOf('const toolbarActions = ['), findTool.indexOf("data-dsh-find-bottom-bar=''"));
+  const toolbar = findTool.slice(
+    findTool.indexOf('const toolbarActions = ['),
+    findTool.indexOf("data-dsh-find-bottom-bar=''"),
+  );
   assert.doesNotMatch(toolbar, /id: 'preserveCase'/);
 });
 
 test('Find in Files popup remains bounded at narrow viewports', () => {
-  assert.match(source, /findToolPopup: \{[\s\S]*?width: 'min\(510px, calc\(100vw - 24px\)\)'[\s\S]*?height: 'min\(440px, calc\(100vh - 32px\)\)'/);
+  assert.match(source, /FIND_POPUP_DEFAULT_WIDTH = 510/u);
+  assert.match(source, /FIND_POPUP_DEFAULT_HEIGHT = 440/u);
   assert.doesNotMatch(source, /findToolPopup: \{[\s\S]*?0 0 0 100vmax rgba\(0, 0, 0, 0\.18\)/);
   assert.match(source, /findToolSearchRow: \{[\s\S]*?flexWrap: 'wrap'/);
   assert.match(source, /findToolReplaceRow: \{[\s\S]*?flexWrap: 'wrap'/);

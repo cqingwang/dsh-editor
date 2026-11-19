@@ -2,21 +2,42 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-import { transpileTypeScriptSource } from './ts-source.mjs';
+import { loadTypeScriptModule, transpileTypeScriptSource } from './ts-source.mjs';
 
 const root = new URL('../', import.meta.url);
 const read = (path) => readFile(new URL(path, root), 'utf8');
 const typescriptSource = await read('src/client/inline-styles.ts');
+const styleModel = await read('src/client/components/editor/editor-style-model.ts');
+const typography = loadTypeScriptModule(styleModel, [
+  'EDITOR_UI_FONT',
+  'EDITOR_CODE_FONT',
+  'EDITOR_FONT_SIZE_SCALE',
+  'EDITOR_RESPONSIVE_FONT_SIZE',
+  'EDITOR_TEXT_STYLE',
+]);
 
 function loadStyles(source) {
   const code = transpileTypeScriptSource(source);
-  return new Function('EDITOR_UI_FONT', `${code}\nreturn styles;`)('font-under-test');
+  return new Function(
+    'EDITOR_UI_FONT',
+    'EDITOR_CODE_FONT',
+    'EDITOR_FONT_SIZE_SCALE',
+    'EDITOR_RESPONSIVE_FONT_SIZE',
+    'EDITOR_TEXT_STYLE',
+    `${code}\nreturn styles;`,
+  )(
+    'font-under-test',
+    typography.EDITOR_CODE_FONT,
+    typography.EDITOR_FONT_SIZE_SCALE,
+    typography.EDITOR_RESPONSIVE_FONT_SIZE,
+    typography.EDITOR_TEXT_STYLE,
+  );
 }
 
 test('inline style tokens keep scalar values and representative layout defaults', () => {
   const styles = loadStyles(typescriptSource);
 
-  assert.equal(Object.keys(styles).length, 358);
+  assert.equal(Object.keys(styles).length, 362);
   assert.equal(styles.root.display, 'flex');
   assert.equal(styles.root.fontFamily, 'font-under-test');
   assert.equal(styles.treeRow.height, 24);

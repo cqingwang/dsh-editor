@@ -8,7 +8,7 @@ test('Project speed-search name parts are derived once per visible result set', 
   assert.match(project, /const projectNamePartsByPath = React\.useMemo\(/u);
   assert.match(project, /highlightParts\(row\.name, search\)/u);
 
-  const rowsStart = project.indexOf('{visibleRows.map((row) => {');
+  const rowsStart = project.indexOf('{visibleRows.map((row, rowIndex) => {');
   const rowsEnd = project.indexOf('      </div>\n    </React.Fragment>', rowsStart);
   assert.ok(rowsStart > 0);
   assert.ok(rowsEnd > rowsStart);

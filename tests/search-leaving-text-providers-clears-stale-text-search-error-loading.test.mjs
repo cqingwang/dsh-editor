@@ -47,6 +47,6 @@ test('switching between text-capable tabs preserves the in-flight loading state'
 test('EditorWorkspace routes Search Everywhere tab changes through that transition', () => {
   assert.match(
     client,
-    /onTab=\{\(tab\) =>\s*setSearchEverywhere\(\(current\) => \(current === null \? current : searchEverywhereTabTransition\(current, tab\)\)\)/u,
+    /onTab=\{\(tab\) =>\s*setSearchEverywhere\(\(current\) =>\s*current === null \? current : searchEverywhereTabTransition\(current, tab\),?\s*\)/u,
   );
 });

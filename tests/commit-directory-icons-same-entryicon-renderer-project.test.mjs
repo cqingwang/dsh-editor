@@ -2,7 +2,10 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = (await readFile(new URL('../src/client/components/commit/CommitPanel.tsx', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
+const source =
+  (await readFile(new URL('../src/client/components/commit/CommitPanel.tsx', import.meta.url), 'utf8')) +
+  '\n' +
+  (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
 
 function commitPanel() {
   const start = source.indexOf('function CommitPanel(');
@@ -30,7 +33,13 @@ test('the commit subject counter and short-subject warning row are removed', () 
 });
 
 test('commit template chips stay in one adaptive row', () => {
-  assert.match(source, /commitTemplateRow: \{[\s\S]*?containerType: 'inline-size'[\s\S]*?flexWrap: 'nowrap'[\s\S]*?gap: 2[\s\S]*?overflow: 'hidden'/);
-  assert.match(source, /commitTemplateChip: \{[\s\S]*?flex: '1 1 auto'[\s\S]*?minWidth: 0[\s\S]*?fontSize: 'clamp\(8px, 4\.4cqw, 10px\)'/);
+  assert.match(
+    source,
+    /commitTemplateRow: \{[\s\S]*?containerType: 'inline-size'[\s\S]*?flexWrap: 'nowrap'[\s\S]*?gap: 2[\s\S]*?overflow: 'hidden'/,
+  );
+  assert.match(
+    source,
+    /commitTemplateChip: \{[\s\S]*?flex: '1 1 auto'[\s\S]*?minWidth: 0[\s\S]*?fontSize: EDITOR_RESPONSIVE_FONT_SIZE\.commitChip/,
+  );
   assert.match(source, /whiteSpace: 'nowrap'/);
 });

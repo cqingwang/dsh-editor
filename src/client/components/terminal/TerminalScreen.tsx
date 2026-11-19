@@ -1,5 +1,6 @@
 import React from 'react';
 import { styles } from '../../ui/styles';
+import { EDITOR_TERMINAL_FONT_STACK } from '../editor/editor-style-model';
 import {
   createTerminalLinkProvider,
   loadXterm,
@@ -120,7 +121,7 @@ function TerminalScreen({
       ({ Terminal, FitAddon }) => {
         if (disposed || node === null) return;
         const emulator = new Terminal({
-          fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+          fontFamily: EDITOR_TERMINAL_FONT_STACK,
           fontSize,
           lineHeight: 1.25,
           cursorBlink: true,

@@ -1,4 +1,5 @@
 import React from 'react';
+import { EDITOR_FONT_SIZE_SCALE } from '../editor/editor-style-model';
 import { EditorTerminalTab, type EditorTerminalDescriptor } from './EditorTerminalTab';
 
 type Translate = (key: string, params?: Record<string, unknown>) => string;
@@ -18,7 +19,7 @@ function EditorTerminalArea({ active, terminal, t, onError, onInput, onReturnToD
     <EditorTerminalTab
       t={t}
       terminal={terminal}
-      fontSize={12}
+      fontSize={EDITOR_FONT_SIZE_SCALE.body}
       getCwd={() => terminal.cwd}
       onGrid={() => {}}
       onError={onError}

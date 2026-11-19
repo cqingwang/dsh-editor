@@ -19,7 +19,7 @@ test('editor tab and style constants live in dedicated TS modules', async () => 
   ]);
 
   assert.equal(tabValues.DIFF_TAB_KEY, '\u0000dsh-editor-diff');
-  assert.match(styleValues.EDITOR_UI_FONT, /^"Trebuchet MS"/u);
+  assert.match(styleValues.EDITOR_UI_FONT, /^var\(--dsh-editor-font-ui, "Trebuchet MS"/u);
   assert.equal(styleValues.EDITOR_CODE_FONT_SIZE, 13);
   assert.equal(styleValues.EDITOR_CODE_LINE_HEIGHT, 20);
 });

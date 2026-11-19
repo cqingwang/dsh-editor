@@ -4,10 +4,7 @@ import test from 'node:test';
 
 import { loadTypeScriptCallback } from './ts-source.mjs';
 
-const workspaceSource = await readFile(
-  new URL('../src/client/editor-workspace.tsx', import.meta.url),
-  'utf8',
-);
+const workspaceSource = await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8');
 
 test('Find captures the opener and restores a connected Project tree without an editor', () => {
   assert.match(
@@ -30,6 +27,7 @@ test('Find captures the opener and restores a connected Project tree without an 
     setFindTool: (value) => {
       closed = value === null;
     },
+    setFindToolDockMinimized: () => {},
     window: {
       setTimeout(callback) {
         callback();

@@ -1146,10 +1146,13 @@ export const clampTerminalHeight = (value: unknown): number => {
   return Number.isFinite(next) ? Math.max(96, Math.min(640, next)) : 220;
 };
 
+/** Persistent Find dock geometry; minimize keeps the toolbar/results usable. */
+export const FIND_TOOL_DOCK_MIN_HEIGHT = 180;
+
 /** 将 IDEA 持久 Find 工具窗高度限制在可读范围内。 */
 export function clampFindDockHeight(value: unknown): number {
   const next = Number(value);
-  return Number.isFinite(next) ? Math.max(180, Math.min(720, next)) : 280;
+  return Number.isFinite(next) ? Math.max(FIND_TOOL_DOCK_MIN_HEIGHT, Math.min(720, next)) : 280;
 }
 
 /* Gufa's Explorer has a 190px floor and opens around 260px. A percentage-only

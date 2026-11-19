@@ -6,6 +6,7 @@ import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const source = readFileSync(join(root, 'lib/client.js'), 'utf8');
+const typography = readFileSync(join(root, 'src/client/components/editor/editor-style-model.ts'), 'utf8');
 
 function style(name) {
   const start = source.indexOf(`      ${name}: {`);
@@ -26,9 +27,8 @@ test('the narrowed stripe keeps its label readable, not just its icon', () => {
   /* Round 82 took the rail from 42px to 36px. The vertical label has to fit that
      width or "Terminal" clips into a stroke; 11px + letterSpacing did not. */
   const text = style('stripeText');
-  const size = /fontSize: (\d+)/.exec(text);
-  assert.notEqual(size, null);
-  assert.ok(Number(size[1]) <= 10, `stripe label font ${size[1]}px should be at most 10px`);
+  assert.match(text, /fontSize: EDITOR_FONT_SIZE_SCALE\.caption/u);
+  assert.match(typography, /caption: 10/u);
   assert.match(text, /letterSpacing: 0(\.\d+)?,/);
 });
 

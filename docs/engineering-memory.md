@@ -1,5 +1,718 @@
 # dsh-editor 工程记忆
 
+## 2026-11-19 — Show Usages 仍维护统一文件图标副本
+
+**作用域**：Show Usages 路径型结果行、文件类型图标、名称/详情布局与
+共享 `SearchFileResultItem`。
+
+**症状/证据**：
+
+- Find、Search Everywhere、QuickOpen 已使用真实文件类型图标；
+- Show Usages 仍使用统一 `Icon name='file'`；
+- 该行内容已经是 `path:line:column + preview`，与共享 item 的
+  name/detail 模型一致，没有独立展示理由。
+
+**根因**：
+
+- 前几轮共享 item 收口覆盖了 Find/Search Everywhere，但遗漏 Show Usages；
+- 复制行继续各自维护图标和文本 span。
+
+**修复**：
+
+- Show Usages 结果行改用 `SearchFileResultItem`；
+- `path` 提供 host 文件类型图标；
+- name 保留 `path:line:column`，detail 保留 usage preview；
+- nameStyle 保留代码字体、11px 字号与 45% 宽度；
+- detailStyle 保留 secondary color 与 12px 字号；
+- row 仍独占 role、aria-selected、active index、click、context menu
+  和滚动语义。
+
+**回归**：
+
+- 共享 item 复用断言 RED **0 pass / 1 fail**；
+- Show Usages、菜单、过滤、键盘与 reusable popup 回归
+  **20 pass / 0 fail**；
+- DSH Web：
+  - README.md 第 1 行打开 Show Usages；
+  - 结果行使用共享 item；
+  - icon class 为 host `_markdown_`；
+  - row 不再有统一顶层 SVG；
+  - alert 0；
+- 完整测试 **3072 pass / 0 fail**。
+
+**适用环境**：macOS、Ego Lite、DSH Web、IDEA 2026.2。
+只要结果行语义是文件路径 + 预览/说明，就必须优先复用
+`SearchFileResultItem`。业务 row 只负责交互、active 和布局约束。
+
+## 2026-11-19 — 搜索活动行 Git 状态徽标未跟随选中态
+
+**作用域**：Search Everywhere 共享文件 item、QuickOpen 文件行、
+`GitStatusBadge.selected` 与活动行对比度。
+
+**症状/证据**：
+
+- DSH Web 搜索 `README` 的活动行背景为 `rgb(65, 118, 230)`，
+  行文字为白色；
+- Git `M` 徽标仍为 `rgb(47, 101, 202)`，对比度明显不足；
+- Search Everywhere 与 QuickOpen 都固定传入 `selected={false}`；
+- 视觉问题来自共享徽标状态输入错误，不是徽标样式本身。
+
+**根因**：
+
+- 文件 item 的 active 状态只用于 row 背景和 aria-selected；
+- Git 状态组件没有收到同一个 active 语义；
+- QuickOpen 与 Search Everywhere 复制了相同的固定 false。
+
+**修复**：
+
+- Search Everywhere 传入
+  `selected={position === activeIndex}`；
+- QuickOpen 传入 `selected={position === index}`；
+- 颜色继续由共享 `GitStatusBadge` 处理，业务 row 不复制状态色逻辑；
+- Search/QuickOpen 的原有键盘、点击、菜单和选中顺序不变。
+
+**回归**：
+
+- 新增 Search Everywhere selected 传递断言；
+- 更新旧 QuickOpen `selected={false}` 断言，修复前 RED
+  **0 pass / 1 fail**；
+- 修复后搜索 item、QuickOpen、bundle 定向回归
+  **10 pass / 0 fail**；
+- DSH Web：
+  - 活动行背景 `rgb(65, 118, 230)`；
+  - Git `M` 徽标为 `rgb(255, 255, 255)`；
+  - alert 0；
+- IDEA Search Everywhere 已通过 Computer Use 对照；
+- 完整测试 **3071 pass / 0 fail**。
+
+**适用环境**：macOS、Ego Lite、DSH Web、IDEA 2026.2。
+任何带文件状态装饰的活动搜索行必须把同一个 selected 语义传给
+`GitStatusBadge`。active 背景、文字与状态徽标必须使用同一选中态，
+不得分别维护。
+
+## 2026-11-19 — 搜索文件结果行重复且统一文件图标不真实
+
+**作用域**：Find in Files popup/dock/group header、Search Everywhere
+file/text 结果行、host 文件类型图标与 Git 状态。
+
+**症状/证据**：
+
+- IDEA Search Everywhere 的 `.mjs`、`.ts`、`.md` 等结果显示各自文件图标；
+- DSH Web 搜索 `README` 时，文件行只有统一 `Icon name='file'`；
+- Find 已有 `EntryIcon + path` 的文件展示，但 Search Everywhere 又复制了
+  `Icon + GitStatusBadge + name + meta`；
+- 两处文件身份展示没有同一个组件，后续图标或间距修复必须改多份。
+
+**根因**：
+
+- 文件结果身份展示属于共享 UI 能力，却留在两个业务组件内部；
+- Search Everywhere 使用通用 action icon 渲染路径型结果；
+- 新拆出的搜索组件没有登记进 `scripts/build-client.mjs` 的单文件模块
+  manifest，首次运行出现 `SearchFileResultItem is not defined`。
+
+**修复**：
+
+- 新增 `src/client/components/search/SearchFileResultItem.tsx`：
+  - `EntryIcon` 提供 host 文件类型图标和 fallback badge；
+  - 可选 `GitStatusBadge`；
+  - 统一 name/detail 布局；
+  - 不持有 row 的 role、点击、键盘、双击或 context menu；
+- Find popup file item、dock file row、group header 使用共享 item；
+- Search Everywhere file/text 路径结果使用共享 item；
+- Action/history 行继续使用通用 `Icon`；
+- 新增共享 `searchFileResultItem` style token，两份样式表同步；
+- build manifest 显式加入 SearchFileResultItem，并放在搜索消费者之前。
+
+**回归**：
+
+- 新组件缺失 RED **0 pass / 1 fail**；
+- bundle 顺序缺失 RED **0 pass / 1 fail**；
+- 搜索 item、交互、分组和 style token GREEN **26 pass / 0 fail**；
+- DSH Web：
+  - Search Everywhere `README` 行的共享 item 存在；
+  - 文件 icon class 为 host `_markdown_`；
+  - Find dock 文件行同样为 `_markdown_`；
+  - alert 0；
+- IDEA Search Everywhere 已用 Computer Use 对照文件类型图标；
+- 完整测试 **3070 pass / 0 fail**。
+
+**适用环境**：macOS、Ego Lite、DSH Web、IDEA 2026.2。
+路径型搜索结果必须复用 `SearchFileResultItem`，由它使用 `EntryIcon`
+取得真实文件类型图标；宿主 row 只拥有交互和 ARIA。新增搜索子组件必须
+同步登记 build manifest，并以 bundle 定义顺序回归防止运行态 TDZ/未定义。
+
+## 2026-11-19 — xterm Canvas 无法解析 CSS var，字号变化后 cell 不重算
+
+**作用域**：TerminalScreen、MeasuringScreen、xterm font family 输入、
+Terminal Options 字号增减与 CJK 双宽 cell。
+
+**症状/证据**：
+
+- DSH Web 点击 Increase Font Size 后，`.xterm-rows` computed
+  font-size 从 12px 变为 13px；
+- ASCII cell 仍保持 `9.453×15`，行高也没有随 13px 字号变化；
+- CJK 与 ASCII 的 2:1 宽比仍存在，但整体度量冻结在旧字号；
+- 根因是 `EDITOR_TERMINAL_FONT` 为 CSS `var(...)` 表达式，xterm 的
+  OffscreenCanvas `ctx.font` 无法解析它，字号变化后测量结果没有更新。
+
+**根因**：
+
+- DOM CSS 变量可以正常作用于 rows/helper textarea；
+- Canvas text metrics 只接受具体 font stack，不接受 CSS 自定义属性；
+- xterm 的 fontFamily option 同时服务 DOM 与 Canvas，传入 CSS var
+  会破坏 Canvas 的测量路径。
+
+**修复**：
+
+- TerminalScreen 与 MeasuringScreen 的 xterm option 改用具体
+  `EDITOR_TERMINAL_FONT_STACK`；
+- `EDITOR_TERMINAL_FONT` 保留为 CSS-only token，并在配置源注明
+  canvas-backed xterm 必须使用 stack；
+- helper textarea 的 CSS 作用域继续使用
+  `--dsh-editor-font-terminal`；
+- 字号 effect、FitAddon、PTY resize、Options 操作保持不变。
+
+**回归**：
+
+- `tests/terminal-font-uses-dedicated-monospace-token.test.mjs`
+  增加 canvas family 输入断言，RED **0 pass / 1 fail**；
+- 修复后 Terminal 相关定向回归 **11 pass / 0 fail**；
+- DSH Web：
+  - 12px：ASCII `7.234×17`，CJK `14.453×17`；
+  - 13px：ASCII `7.859×18`，CJK `15.687×18`；
+  - cell 度量随字号变化，CJK 保持 2:1；
+  - helper textarea 与 cursor 的 y/高一致，x 偏差 **0.203px**；
+  - alert 0；
+- IDEA Terminal 通过 Computer Use 查看，等宽结构一致；
+- 完整测试 **3066 pass / 0 fail**。
+
+**适用环境**：macOS、Ego Lite、DSH Web、IDEA 2026.2、xterm 6.0.0。
+任何 canvas-backed text surface 都不得把 `var(--...)` 作为实际
+`fontFamily` 值传给它；DOM 使用 CSS token，Canvas 使用同一配置源的
+具体 stack。Terminal 字号变化后必须重新测量 cell，而不能只更新
+computed `font-size`。
+
+## 2026-11-19 — Terminal helper textarea 被全局 UI 字体覆盖且 Menlo 优先级不足
+
+**作用域**：xterm 可见 rows、隐藏 helper textarea、IME composition/caret
+定位以及 Terminal 独立字体 token。
+
+**症状/证据**：
+
+- 修复前 DSH Web 的 `.xterm-rows` 为 **12px monospace**；
+- `.xterm-helper-textarea` computed font 却是
+  `"Trebuchet MS", "SF Pro Text", "Segoe UI", sans-serif` 13.3333px；
+- 原因是 workspace 级
+  `[data-dsh-editor-workspace] textarea { font-family: UI !important; }`
+  覆盖了 xterm 自己管理的隐藏 textarea；
+- Terminal monospace 原顺序把 `ui-monospace` 放在 `Menlo, Monaco` 前，
+  不符合用户要求的字体优先级。
+
+**根因**：
+
+- 全局表单字体规则没有排除 xterm 的终端专用输入域；
+- Terminal family 虽已独立成 token，但 CSS 作用域仍被更高层规则穿透；
+- monospace fallback 顺序没有把 `Menlo, Monaco` 放在首位。
+
+**修复**：
+
+- 在全局 input/textarea 规则之后增加 Terminal 专属作用域：
+  - `[data-dsh-editor-workspace] .xterm`；
+  - `[data-dsh-editor-workspace] .xterm .xterm-helper-textarea`；
+- 两条规则只引用 `--dsh-editor-font-terminal`，fallback 复用
+  `EDITOR_TERMINAL_FONT_STACK`；
+- stack 调整为
+  `Menlo, Monaco, ui-monospace, SFMono-Regular, Consolas, monospace`；
+- 不改 Terminal 字号、PTY、键盘、Find、焦点或 dock 尺寸。
+
+**回归**：
+
+- `tests/terminal-font-uses-dedicated-monospace-token.test.mjs`：
+  - helper textarea 作用域断言 RED **0 pass / 1 fail**；
+  - Menlo 优先级断言 RED **0 pass / 1 fail**；
+  - 修复后 GREEN **1 pass / 0 fail**；
+- DSH Web：
+  - terminal token、`.xterm`、`.xterm-rows`、helper textarea 均为
+    `Menlo, Monaco, ui-monospace, SFMono-Regular, Consolas, monospace`；
+  - rows **12px**，helper textarea **13.3333px**；
+  - helper textarea 与 cursor rect 的 y/宽/高一致，x 偏差
+    **0.1875px**；
+  - alert 0；
+- IDEA Terminal 通过 Computer Use 查看，内容为独立 monospace；
+- 完整测试 **3066 pass / 0 fail**。
+
+**适用环境**：macOS、Ego Lite、DSH Web、IDEA 2026.2。
+xterm 的 helper textarea 属于 Terminal 字体域，任何 workspace 级表单
+字体规则都必须让位给 `--dsh-editor-font-terminal`。Terminal monospace
+必须优先 `Menlo, Monaco`，不会随 UI/code 或语言 fallback 改变。
+
+## 2026-11-19 — 字体字号各自定义且拉丁字形未统一 Trebuchet MS
+
+**作用域**：Find in Files、Search Everywhere、共享弹框、Monaco、Terminal、
+Project/Commit UI 的字体族、字号与语义文本角色。
+
+**症状/证据**：
+
+- Find 查询框为 **12px**，Search Everywhere 查询框为 **14px**；
+- tab/toolbar/count/result/path 等字号散落在组件样式；
+- `inline-styles.ts` 和 `ui/styles.ts` 各有 **142** 处数字 fontSize；
+- 多处重复声明 `ui-monospace` family；
+- `EDITOR_CODE_FONT` 曾以 `ui-monospace` 开头，代码区英文不是
+  Trebuchet MS；
+- `EDITOR_UI_FONT` 是固定混合链，不会随 DSH 的 `zh/ja/ko` 语言变化；
+- `zh/ja/ko` 链曾把 CJK 字体放在 Trebuchet MS 前，导致中文界面中的
+  英文由 CJK 字体渲染；
+- 首轮 UI/code 字体统一后，Terminal 误复用通用 code token，实际 xterm
+  可见文本也被 Trebuchet MS 接管。
+
+**根因**：
+
+- 字体族与字号没有单一配置源；
+- 相同语义角色在不同弹框中由组件自行决定字号；
+- 语言信息没有进入全局字体 token，且 Latin owner 被 CJK fallback 抢占。
+
+**修复**：
+
+- `editor-style-model.ts` 统一导出：
+  - `EDITOR_LATIN_FONT` / `EDITOR_LANGUAGE_FONT_FALLBACKS`；
+  - `EDITOR_UI_FONT` / `EDITOR_CODE_FONT`；
+  - `EDITOR_TERMINAL_FONT_STACK` / `EDITOR_TERMINAL_FONT`；
+  - `EDITOR_FONT_SIZE_SCALE`；
+  - `EDITOR_RESPONSIVE_FONT_SIZE`；
+  - `EDITOR_TEXT_STYLE` 语义角色；
+- UI 与 code 两种 token 共用 `EDITOR_LATIN_FONT`，英文 owner 固定为
+  **Trebuchet MS**；
+- `:root:lang(zh|ja|ko)` 的 UI/code 两条链均以 Trebuchet MS 开头，再进入
+  PingFang SC、Hiragino Sans、Apple SD Gothic Neo 等 CJK fallback；
+- injected CSS 同时定义 `--dsh-editor-font-ui`、`--dsh-editor-font-code`
+  和字号变量；
+- injected CSS 另定义 `--dsh-editor-font-terminal`，值为
+  `Menlo, Monaco, ui-monospace, SFMono-Regular, Consolas, monospace`；
+- 语言块只覆盖 UI/code，不覆盖 Terminal 字体；
+- `TerminalScreen` 与 `MeasuringScreen` 使用独立
+  `EDITOR_TERMINAL_FONT`，不再复用 `EDITOR_CODE_FONT`；
+- 两份共享样式表全部数字 fontSize 改为 scale 引用，所有本地 monospace
+  family 改为 `EDITOR_CODE_FONT`；
+- Find/Search 查询统一 `EDITOR_TEXT_STYLE.input` 13px；
+- tab/control、toolbar/label、count/path/metadata 使用语义 role；
+- 直接 TSX numeric fontSize/fontFamily 同步收口，Terminal/Icon/
+  Project/Show Usages/Find Scope 均引用全局 token；
+- `controller.ts`、`injected-css.ts`、EntryIcon 的字号旁路也改为 scale，
+  共享样式和运行时注入不再各自维护数字 fontSize。
+
+**回归**：
+
+- `tests/editor-typography-global-language-font-roles.test.mjs` 先取得
+  RED **0 pass / 3 fail**；
+- `tests/editor-ui-monaco-code-areas-trebuchet-ms-cjk-fallbacks.test.mjs`
+  增加 UI/code Latin owner 与语言 fallback 精确断言，RED
+  **0 pass / 1 fail**；
+- `tests/terminal-font-uses-dedicated-monospace-token.test.mjs` 增加独立
+  Terminal family 断言，RED **0 pass / 1 fail**；
+- GREEN：字体 token、共享样式、Monaco 与语义 role
+  **13 pass / 0 fail**；
+- GREEN：Terminal font token、TerminalScreen、MeasuringScreen
+  **10 pass / 0 fail**；
+- DSH Web：
+  - UI/code token 均为 Trebuchet MS 拉丁链；
+  - Monaco `.view-lines` 为 **13px Trebuchet MS**；
+  - Find/Search query 均为 **13px Trebuchet MS**；
+  - `lang=zh-CN` → Trebuchet MS + PingFang SC；
+  - `lang=ja-JP` → Trebuchet MS + Hiragino Sans；
+  - `lang=ko-KR` → Trebuchet MS + Apple SD Gothic Neo；
+  - alert 0；
+- DSH Web Terminal：
+  - terminal token 为
+    `Menlo, Monaco, ui-monospace, SFMono-Regular, Consolas, monospace`；
+  - 可见 `.xterm-rows` 实际为 **12px monospace**；
+  - Terminal 未被 UI/code Trebuchet MS 改造牵连；
+- 真实切换到 DSH 中文界面：
+  - Project tree row `13px/24px`；
+  - Commit textarea `12px/18px`；
+  - Terminal tab `11px/22px`；
+  - 拉丁 owner 为 Trebuchet MS，CJK glyph fallback 为 PingFang SC，
+    未出现裁切；随后恢复 English；
+- IDEA Find in Files 已完成 Computer Use 字体层级对照；
+- 完整测试 **3066 pass / 0 fail**。
+
+**适用环境**：macOS、Ego Lite、DSH Web、IDEA 2026.2。
+字体族、语言 fallback、字号 scale 和语义 role 只能在
+`editor-style-model.ts` 配置。共享样式与组件不得新增数字 fontSize、
+本地 font stack 或按弹框分别定义同角色字号。UI 与代码的英文 owner
+必须保持 Trebuchet MS；语言只负责追加 CJK glyph fallback，不得抢占
+Latin owner。Terminal 是独立语义域，必须使用
+`EDITOR_TERMINAL_FONT` 的 monospace 链，不得复用 UI 或通用代码字体。
+
+## 2026-11-19 — Pinned Find 共享遮罩阻断编辑器交互
+
+**作用域**：Find in Files 的 Pin Window、共享 `FloatingToolPopup` 遮罩、
+Monaco 焦点与 outside-click 语义。
+
+**症状/证据**：
+
+- Find 被 Pin 后，全屏遮罩 computed `pointer-events: auto`；
+- 点击 Find 外 Monaco 区域，Find 保持打开，但 activeElement 为 **BODY**；
+- pointer 事件被遮罩接收，下方编辑器既不能获得焦点也不能接收点击；
+- Search Everywhere 需要遮罩拦截点击，但 Find Pin 后需要点击穿透，
+  两种业务语义被同一个无条件遮罩实现混在一起。
+
+**根因**：
+
+- `FloatingToolPopup` 只共享了遮罩视觉，没有共享“是否命中”的明确策略；
+- 遮罩无条件拦截指针，FindToolWindow 的 pinned 业务状态无法参与判断；
+- 之前仅统一遮罩样式，没有收口遮罩行为 API。
+
+**修复**：
+
+- `FloatingToolPopup` 根据 `onBackdropMouseDown` 是否存在决定
+  `pointerEvents`：
+  - 有回调：`auto`，用于 Search Everywhere 点击遮罩关闭；
+  - 无回调：`none`，遮罩只保留视觉，点击穿透；
+- Find 的 pinned/outside-click 策略继续由 FindToolWindow 持有；
+- unpinned Find 仍由 window capture mousedown 关闭；
+- 遮罩颜色、inset、zIndex、拖动、缩放和 geometry 均不变。
+
+**回归**：
+
+- `tests/search-floating-popup-shared-find-search.test.mjs` 新增 pointer
+  policy 断言，RED **6 pass / 1 fail**；
+- DSH Web 修复后 pinned Find：
+  - pointerEvents `none`；
+  - pointer target 为 Monaco `.view-lines`；
+  - activeElement 为 `编辑器内容`，Find 仍打开，alert 0；
+- unpinned Find 点击外部仍关闭；
+- Search Everywhere 保持 pointerEvents `auto`；
+- 定向回归 **16 pass / 0 fail**；
+- 完整测试 **3062 pass / 0 fail**。
+
+**适用环境**：macOS、Ego Lite、DSH Web、IDEA Find in Files Pin Window。
+共享遮罩必须同时明确视觉和行为：可关闭浮层使用拦截式遮罩，可固定/非模态
+浮层使用穿透式视觉遮罩。业务组件只通过回调表达自己的关闭策略。
+
+## 2026-11-19 — Search Everywhere 窄浮窗 tab 被工具组挤压裁切
+
+**作用域**：Search Everywhere 顶部 tablist、工具组、CompactActionBar
+以及窄浮窗下的键盘/溢出可达性。
+
+**症状/证据**：
+
+- DSH Web viewport `320×240` 时共享浮窗为 `304×224`；
+- tablist 只有 **93px**，scrollWidth 为 **192px**；
+- Text tab 被裁 **30.4px**，Actions tab 被裁 **98.7px**；
+- 工具组仍占 **155px**，导致 tabs 与工具组资源分配失衡；
+- tab row 与 tablist 使用固定 `gap:22`、`padding: 0 16px`，不随浮窗宽度
+  收缩；工具组 `flex: 0 1 320px` 又会用 320px flex-basis 抢占空间。
+
+**根因**：
+
+- 顶部布局的固定 IDEA 宽态间距没有窄态策略；
+- 工具组的 flex-basis 与实际声明宽度脱节；
+- 仅依赖 `overflowX:auto` 会让 tab 被裁切，不保证初始可达。
+
+**修复**：
+
+- Search Everywhere dialog 根节点建立 `containerType: 'inline-size'`；
+- tabs row 与 tablist 使用
+  `gap: clamp(8px, 2.8cqi, 22px)`；
+- tabs row padding 使用 `clamp(8px, 2cqi, 16px)`；
+- 工具组改为 `flex: 0 0 auto`，宽度继续 `min(40%, 320px)`、
+  minWidth 110；
+- 收纳仍由共享 `CompactActionBar` 完成，不复制 overflow 逻辑。
+
+**回归**：
+
+- `tests/search-everywhere-tabs-and-tools-share-one-row.test.mjs`
+  增加窄态间距和工具组宽度职责断言；RED **1 pass / 1 fail**；
+- 修复后 DSH Web `304×224`：
+  - tablist clientWidth/scrollWidth 均为 **163**；
+  - 四个 tab clippedRight 全部 **0**；
+  - 工具组 **114.39px**，包含 Filter、Open、More actions；
+  - `More actions` 菜单包含全部隐藏过滤项，Escape 返回 opener；
+  - combobox 焦点保持、alert **0**；
+- IDEA Search Everywhere 已完成顶部 tab/action 组 Computer Use 对照；
+- 定向回归 **17 pass / 0 fail**；
+- 完整测试 **3062 pass / 0 fail**。
+
+**适用环境**：macOS、Ego Lite、DSH Web、IDEA 2026.2 Search Everywhere。
+可见 tab 必须优先保持完整；工具动作由 CompactActionBar 收纳。窄态
+间距应基于组件容器宽度响应，不得用固定间距或 320px flex-basis 挤压 tabs。
+
+## 2026-11-19 — 浮动弹框遮罩与 viewport clamp 职责收口
+
+**作用域**：Find/Replace 与 Search Everywhere 的共享
+`FloatingToolPopup`、背景遮罩、viewport 收缩、geometry 和业务样式。
+
+**症状/证据**：
+
+- Find 弹框没有背景遮罩，Search Everywhere 有遮罩，两个入口视觉不一致；
+- Find 的 `findToolPopup` 仍带 position/left/top/transform/width/height，
+  Search Everywhere surface 仍带 position/boxSizing；
+- `editor-workspace` 另有一套 `resize` 监听，和共享浮动容器重复；
+- viewport 缩到 `320×240` 时 Search Everywhere 仍可能保持 `404×304`，
+  rect 超出视口；
+- Find viewport `420×320` 时旧 rect 可能到达 right `440`、bottom `368`。
+
+**根因**：
+
+- 共享容器虽然存在，但 Find 调用方没有启用 `backdrop`；
+- 几何、遮罩和 resize 能力仍部分泄漏到 workspace 与业务样式；
+- 共享能力没有形成“容器唯一拥有、业务只启用”的职责边界。
+
+**修复**：
+
+- Find 与 Search Everywhere 都通过同一 `FloatingToolPopup` 使用
+  `backdrop={true}`；
+- 遮罩样式只在共享容器中引用一次 `styles.paletteBackdrop`；
+- 删除 `editor-workspace` 中重复的 resize/clamp 监听；
+- `FloatingToolPopup` 在 open 时监听 window resize，用
+  `clampFloatingPopupGeometry` 更新 geometry，并仅在值变化时提交；
+- 业务 `surfaceStyle` 移除 position/boxSizing/left/top/transform/
+  width/height/min/max 字段，只保留 zIndex、flex、边框、背景和阴影。
+
+**回归**：
+
+- `tests/search-floating-popup-shared-find-search.test.mjs` 新增：
+  - Find/Search 共享遮罩；
+  - workspace 不得再持有 resize 监听；
+  - 业务样式不得拥有几何字段；
+- RED **4 pass / 2 fail**；修复后相关定向 **41 pass / 0 fail**；
+- DSH Web：
+  - 两个 backdrop computed 均为 `rgba(0,0,0,0.28)`、fixed、inset 0、
+    zIndex 2499；
+  - Find `420×320` 下为 `52,8,360×304`；
+  - Search `320×240` 下为 `8,8,304×224`；
+  - 两边 8 handles、combobox 焦点保持、alert 0；
+- 完整测试 **3061 pass / 0 fail**。
+
+**适用环境**：macOS、Ego Lite、DSH Web、IDEA Find in Files。
+浮动弹框的遮罩、拖动、缩放、viewport clamp 和 geometry 必须由共享容器
+唯一拥有；业务组件只能启用能力并处理自身业务状态。任何 resize 或遮罩
+逻辑出现在调用方，都视为职责边界回归。
+
+## 2026-11-19 — Find 弹框 geometry 被业务 surfaceStyle 覆盖
+
+**作用域**：Find/Replace 浮动弹框、Search Everywhere、共享
+`FloatingToolPopup` 的拖动、缩放与 geometry 持久化。
+
+**症状/证据**：
+
+- Find/Replace 已经渲染 `data-dsh-floating-tool-popup` 并拥有 8 个共享
+  resize handles，但视觉尺寸仍固定为 `510×440`；
+- DSH Web 拖动后 localStorage 已写入 `{"x":299,"y":106,...}`，实际 rect
+  仍为 `199,57,510×440`，表现为拖动和放大都“没反应”；
+- inline style 同时包含 `left:50%`、`top:50%`、
+  `transform:translate(-50%,-50%)` 和固定 width/height。
+
+**根因**：
+
+- 业务 `surfaceStyle` 中包含旧的中心定位和固定尺寸；
+- `FloatingToolPopup` 先展开 `surfaceStyle`，再写 geometry，后续修复前
+  的优先级使旧字段覆盖共享 geometry；
+- 共享容器与业务外观的职责边界不清晰，业务样式获得了几何写权限。
+
+**修复**：
+
+- 共享容器最后写入 `position/left/top/width/height/transform`，geometry
+  成为唯一权威；
+- `surfaceStyle` 只提供边框、背景、flex 等业务外观；
+- 保留 Find 默认 `510×440`、storage key、8 向 handles 和 Search
+  Everywhere 行为；
+- 固化组件边界：共享容器拥有几何与交互，业务组件只关心自身搜索、
+  结果、焦点和动作语义。
+
+**回归**：
+
+- `tests/search-floating-popup-shared-find-search.test.mjs` 增加样式
+  优先级断言，RED **3 pass / 1 fail**；
+- GREEN：Shared popup、Search Everywhere、Find geometry 定向测试
+  **11 pass / 0 fail**；
+- DSH Web：拖动 `299,106,510×440 → 379,106,510×440`，右下缩放
+  `→ 379,106,521×440`，storage 同步；关闭重开后保持；
+- Search Everywhere 回归 `80,8,403×458`、8 handles、alert **0**；
+- 完整测试 **3058 pass / 0 fail**。
+
+**适用环境**：macOS、Ego Lite、DSH Web、IDEA Find/Search Everywhere。
+共享浮动容器必须独占 geometry；业务 `surfaceStyle` 不得覆盖
+position/left/top/width/height/transform。所有拖动、缩放、clamp 和
+storage 逻辑只保留一份。
+
+## 2026-11-19 — 弹框边框与图标尺寸统一
+
+**作用域**：Search Everywhere、Find、QuickOpen、NamePrompt、Menu/Submenu、
+tooltip、Go to Line、Show Usages 等弹层及弹层内图标。
+
+**症状/证据**：
+
+- 多个弹框仍使用 0.5px `border-l3`；
+- submenu 没有独立边框；
+- 弹框内图标存在 12/13/14px，且 flex 行会把声明尺寸压缩成更窄；
+- UI 组件是独立 esbuild 模块，跨模块常量若不进入 `uiExports`，运行时会
+  变成未定义或默认回退。
+
+**根因**：
+
+- 弹框边框和图标尺寸没有共享设计 token；
+- SVG 默认允许 flex shrink；
+- `Icon.tsx` 的 `POPUP_ICON_SIZE` 未从 `components/ui/index.tsx` 和
+  build manifest 导出。
+
+**修复**：
+
+- styles 层统一 `POPUP_BORDER = 1px solid border-l2`；
+- palette、namePrompt、findToolPopup、menu/submenu、tooltip、goto-line
+  全部复用；
+- `Icon.tsx` 导出 `POPUP_ICON_SIZE = 16`，SVG common style 设置
+  `flex: none; display: block`；
+- ToolbarButton/CompactActionBar 支持 iconSize，弹框统一 16px；
+- Search Everywhere、Find、Show Usages、MoveToPicker 使用共享尺寸；
+- `components/ui/index.tsx` 和 `scripts/build-client.mjs` 补齐该常量导出。
+
+**回归**：
+
+- 新增 `tests/editor-popup-border-icon-size-shared.test.mjs`；
+  RED **0 pass / 2 fail**；
+- DSH Web：Search Everywhere/menu/Find border 均为 **1px solid**；
+  Search Everywhere 与 Find 可见 SVG 全部 **16×16**；
+- 修复了首次运行态 `POPUP_ICON_SIZE is not defined`；
+- 完整测试 **3058 pass / 0 fail**；
+- lint、类型、Prettier、构建一致性与 `git diff --check` 通过。
+
+**适用环境**：macOS、Ego Lite、DSH Web、IDEA 搜索弹层。
+弹框容器必须复用共享边框；弹框图标必须使用共享尺寸并禁止 flex shrink。
+跨 UI bundle 的常量必须同时出现在 `ui/index.tsx` 与 build `uiExports`。
+
+## 2026-11-19 — Search Everywhere 工具组并入 tabs 单行
+
+**作用域**：Search Everywhere 顶部 tablist、CompactActionBar 和拖拽行。
+
+**症状/证据**：
+
+- tabs row 之后仍单独渲染 `data-dsh-search-open-find-tool-window`；
+- CompactActionBar 占据第二行，压缩弹框内容高度；
+- IDEA 的 All tab group 与 action toolbar 位于同一顶部区域。
+
+**根因**：
+
+- 工具组容器与 tablist 分属两个兄弟行；
+- `searchEverywhereActionBar` 仍带独立行高度、padding 和边框。
+
+**修复**：
+
+- 将工具组容器移入 `data-dsh-search-drag-surface` 内；
+- tabs 保持 `flex: 1 1 auto`，工具组使用
+  `flex: 0 1 320px`、`width: min(40%, 320px)`、`minWidth: 110`；
+- CompactActionBar 高度改为 `100%`、透明背景、无底边框和独立 padding；
+- 继续复用 `CompactActionBar` 的 ResizeObserver/`More actions` 逻辑；
+- 保留顶部拖动、tablist、focus trap 和 action 语义。
+
+**回归**：
+
+- 新增 `tests/search-everywhere-tabs-and-tools-share-one-row.test.mjs`；
+  RED **0 pass / 1 fail**；
+- GREEN：单行布局、CompactActionBar、tab 与静态顺序
+  **9 pass / 0 fail**；
+- DSH Web：drag row 高 **45px**，tabs/tools 同一 top/bottom，
+  工具组 parent 即 drag row；缩窄至 **403px** 时四个 tab 仍可见，
+  工具组出现 `More actions`，alert **0**；
+- 完整测试 **3056 pass / 0 fail**；
+- lint、类型、Prettier、构建一致性与 `git diff --check` 通过。
+
+**适用环境**：macOS、Ego Lite、DSH Web、IDEA Search Everywhere。
+顶部 tabs 与工具按钮必须共享一行；窄宽时由 CompactActionBar 收纳，
+不得新增独立工具栏行。
+
+## 2026-11-19 — Search Everywhere 复用共享浮动弹框拖动与缩放
+
+**作用域**：Search Everywhere、Find in Files 的浮动 surface、geometry 与
+viewport clamp。
+
+**症状/证据**：
+
+- Find 已有拖动、八向缩放和 geometry 持久化；
+- Search Everywhere 仍是固定 `paletteBackdrop + palette`，不能移动或缩放；
+- 拖动/缩放的 pointermove、边角判断、cursor、storage 逻辑此前仍耦合在
+  FindToolWindow 和 EditorWorkspace，直接复制会给两个弹框制造两套缺陷。
+
+**根因**：
+
+- `FindToolPopup` 只负责静态定位，没有拥有完整交互；
+- Search Everywhere 没有复用浮动 surface；
+- geometry helper 名称和 storage 默认值绑定死到 Find。
+
+**修复**：
+
+- `commit.ts` 增加通用 popup geometry 参数以及
+  `clamp/move/resize/read/writeFloatingPopupGeometry`；
+- `FindToolPopup.tsx` 导出 `FloatingToolPopup`，统一拥有 surface ref、
+  drag、八向 resize、backdrop、geometry change/commit；
+- Search Everywhere 改为纯 dialog surface，顶部 tabs 空白区作为 drag
+  surface，并使用独立 storage key/default size；
+- Find 移除自身 resize handles，只保留标题栏 drag 入口；
+- EditorWorkspace 用同一个 `FloatingToolPopup` 渲染 Find 与 Search
+  Everywhere。
+
+**回归**：
+
+- 新增 `tests/search-floating-popup-shared-find-search.test.mjs`；
+  RED **0 pass / 4 fail**；
+- GREEN：shared popup、Find geometry、Search modal/focus、双击 Shift、
+  backdrop dismissal 与静态顺序 **25 pass / 0 fail**；
+- DSH Web：拖动 x **44 → 80**，右下缩放 **820×538 → 700×458**；
+  storage JSON 为
+  `{"x":80,"y":8,"width":700,"height":458}`；关闭重开后保持，
+  combobox 持焦，alert **0**；
+- Find 仍以 **8** 个 handles 和标题栏 drag 打开；
+- 完整测试 **3055 pass / 0 fail**；
+- lint、类型、Prettier、构建一致性与 `git diff --check` 通过。
+
+**适用环境**：macOS、Ego Lite、DSH Web、IDEA Search Everywhere。
+所有可移动/可缩放浮层必须复用 `FloatingToolPopup` 与通用 geometry
+helper；禁止在业务弹框内复制 pointermove、resize 和 storage 逻辑。
+
+## 2026-11-19 — Project row presentation 随 selection 重复派生
+
+**作用域**：Project tree 每行的 git 状态、目录 tint、名称颜色和 ARIA
+position。
+
+**症状/证据**：
+
+- `visibleRows.map` 内每行执行 `gitChanges.get`、`directoryTint` 和
+  `treeNameColor`；
+- 这些值只依赖 rows、git changes、expanded 和线性 position；
+- selection 变化只应改变 selected/primary 样式，却会让全部可见行重复
+  执行状态派生；
+- 大型 Project 可同时渲染约 **980** 个 treeitem。
+
+**根因**：
+
+- 稳定 row presentation 和动态 selection 样式没有分离；
+- 逐行状态计算耦合在 JSX render 中。
+
+**修复**：
+
+- 新增 `projectRowPresentationByPath` memo，依赖
+  `[changesByDirectory, expanded, gitChanges, projectRowPositions, visibleRows]`；
+- 缓存 base directory tint、open 状态、非选中状态颜色与 ARIA position；
+- selection 变化仅在 render 时把 tint/color 覆盖为白色；
+- 保留逐行 `rowIndex` 调试属性、indent guide、单击/双击、拖放、菜单、
+  speed search 与无障碍语义。
+
+**回归**：
+
+- 新增 `tests/project-row-presentation-memoized.test.mjs`；
+  RED **0 pass / 1 fail**；
+- GREEN：presentation、目录索引、位置、speed search、单击/双击、
+  indent guide 与静态顺序 **46 pass / 0 fail**；
+- DSH Web：**981** 个 treeitem，level/posinset/setsize 正常；
+  `tests` 目录未选中为 `rgb(207, 34, 46)`，选中后为
+  `rgb(255, 255, 255)`；tree 保持 focus，alert **0**；
+- 完整测试 **3051 pass / 0 fail**；
+- lint、类型、Prettier、构建一致性与 `git diff --check` 通过。
+
+**适用环境**：macOS、Ego Lite、DSH Web、IDEA Project。
+Project 行的稳定状态与 ARIA 数据必须按 rows/git/expanded/position 缓存；
+selection 只改变选中样式。
+
 ## 2026-11-19 — Project speed search 行名称分段重复计算
 
 **作用域**：Project speed search 的匹配名称高亮与活动行切换。

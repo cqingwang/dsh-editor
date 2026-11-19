@@ -181,7 +181,7 @@ function QuickOpen({
                   expanded={false}
                 />
                 <GitStatusBadge
-                  selected={false}
+                  selected={position === index}
                   info={badge}
                 />
                 <span style={styles.paletteName}>{basename(entry.path)}</span>

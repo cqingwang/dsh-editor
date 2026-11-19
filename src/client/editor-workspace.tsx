@@ -51,14 +51,12 @@ import { searchReplaceCountParams } from './locales';
 import {
   boundedReplaceHistory,
   claimReplaceAttempt,
-  clampFindPopupGeometry,
   commitFindToolDirtyPlans,
   findToolContentQuery,
   findToolQueryTransition,
   findToolRequestIsCurrent,
   findUsagesSearchTarget,
   hasFindToolContentQuery,
-  moveFindPopupGeometry,
   normalizeRecentSearchEntry,
   normalizeSearchOptions,
   parseIdeaScopeXml,
@@ -67,6 +65,7 @@ import {
   readCustomFindScopes,
   readFindDirectoryRecursive,
   readFindPopupGeometry,
+  readFloatingPopupGeometry,
   readFindQueryHistory,
   readFindScope,
   readFindUsagesHistory,
@@ -81,13 +80,13 @@ import {
   rememberWorkspaceReplacement,
   rememberWorkspaceSearchQuery,
   replaceFailureState,
-  resizeFindPopupGeometry,
   searchEverywhereTabTransition,
   serializeIdeaScopeXml,
   writeCommandHistory,
   writeCustomFindScopes,
   writeFindDirectoryRecursive,
   writeFindPopupGeometry,
+  writeFloatingPopupGeometry,
   writeFindScope,
   writeSearchHistory,
   writeSearchOptions,
@@ -125,7 +124,7 @@ import { EditorWorkspaceSurface } from './components/editor/EditorWorkspaceSurfa
 import { MarkdownPreviewPane } from './components/editor/MarkdownPreviewPane';
 import { ProjectPanel } from './components/project/ProjectPanel';
 import { FindToolDock } from './components/search/FindToolDock';
-import { FindToolPopup } from './components/search/FindToolPopup';
+import { FloatingToolPopup } from './components/search/FindToolPopup';
 import { FindToolWindow } from './components/search/FindToolWindow';
 import { confirmSearchReplace } from './components/search/search-replace-confirmation';
 import { QuickOpen } from './components/search/QuickOpen';
@@ -214,6 +213,7 @@ import {
   editorFindSelectionScope,
   editorFindSelectionShortcutAction,
   editorReplaceAll,
+  FIND_TOOL_DOCK_MIN_HEIGHT,
   editorReplaceAt,
   filteredViewSelection,
   flattenRows,
@@ -418,6 +418,11 @@ type SearchEverywhereState = NonNullable<React.ComponentProps<typeof SearchEvery
   replaceBusy: boolean;
   replaceFocusRequest: number;
   [key: string]: unknown;
+};
+const SEARCH_EVERYWHERE_POPUP_GEOMETRY_STORAGE_KEY = 'dsh-editor.searchEverywhere.popup.geometry.v1';
+const SEARCH_EVERYWHERE_POPUP_GEOMETRY_DEFAULTS = {
+  width: 820,
+  height: 560,
 };
 type ShowUsagesState = NonNullable<React.ComponentProps<typeof ShowUsagesPopup>['state']>;
 type RevisionPickerState = NonNullable<React.ComponentProps<typeof RevisionPicker>['state']> & { path: string };
@@ -1223,83 +1228,13 @@ function EditorWorkspace({
   const findToolFileRequestRef = React.useRef(0);
   const findToolFileAbortRef = React.useRef<AbortController | null>(null);
   const [findToolPopupGeometry, setFindToolPopupGeometry] = React.useState(() => readFindPopupGeometry());
+  const [searchEverywherePopupGeometry, setSearchEverywherePopupGeometry] = React.useState(() =>
+    readFloatingPopupGeometry(SEARCH_EVERYWHERE_POPUP_GEOMETRY_STORAGE_KEY, SEARCH_EVERYWHERE_POPUP_GEOMETRY_DEFAULTS),
+  );
   const [findToolDockHeight, setFindToolDockHeight] = React.useState(() =>
     clampFindDockHeight(readStoredNumber('dsh-editor.find.height', 280)),
   );
-  React.useEffect(() => {
-    const onViewportResize = () => {
-      setFindToolPopupGeometry((current) => clampFindPopupGeometry(current, window.innerWidth, window.innerHeight));
-    };
-    window.addEventListener('resize', onViewportResize);
-    return () => window.removeEventListener('resize', onViewportResize);
-  }, []);
-  const startFindPopupInteraction = React.useCallback(
-    (event: React.PointerEvent<HTMLElement> | React.MouseEvent<HTMLElement>, direction = 'move') => {
-      if (event.button !== 0) return;
-      const action =
-        direction === 'move'
-          ? 'move'
-          : ['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'].includes(direction)
-            ? direction
-            : null;
-      if (action === null) return;
-      const target = event.target instanceof Element ? event.target : null;
-      if (
-        action === 'move' &&
-        target !== null &&
-        target.closest('button, input, textarea, select, a, [role="menuitem"]') !== null
-      )
-        return;
-      const surface = event.currentTarget?.closest?.('[data-dsh-find-tool-popup]') ?? null;
-      if (surface === null) return;
-      event.preventDefault();
-      event.stopPropagation();
-      const rect = surface.getBoundingClientRect();
-      const startGeometry = clampFindPopupGeometry(
-        { x: rect.left, y: rect.top, width: rect.width, height: rect.height },
-        window.innerWidth,
-        window.innerHeight,
-      );
-      const startX = event.clientX;
-      const startY = event.clientY;
-      let latest = startGeometry;
-      let moved = false;
-      const previousCursor = document.body.style.cursor;
-      document.body.style.cursor = action === 'move' ? 'move' : `${action}-resize`;
-      const onPointerMove = (moveEvent: PointerEvent) => {
-        moved = true;
-        latest =
-          action === 'move'
-            ? moveFindPopupGeometry(
-                startGeometry,
-                moveEvent.clientX - startX,
-                moveEvent.clientY - startY,
-                window.innerWidth,
-                window.innerHeight,
-              )
-            : resizeFindPopupGeometry(
-                startGeometry,
-                moveEvent.clientX - startX,
-                moveEvent.clientY - startY,
-                action,
-                window.innerWidth,
-                window.innerHeight,
-              );
-        setFindToolPopupGeometry(latest);
-      };
-      const finish = () => {
-        window.removeEventListener('pointermove', onPointerMove, true);
-        window.removeEventListener('pointerup', finish, true);
-        window.removeEventListener('pointercancel', finish, true);
-        document.body.style.cursor = previousCursor;
-        if (moved) writeFindPopupGeometry(latest);
-      };
-      window.addEventListener('pointermove', onPointerMove, true);
-      window.addEventListener('pointerup', finish, true);
-      window.addEventListener('pointercancel', finish, true);
-    },
-    [],
-  );
+  const [findToolDockMinimized, setFindToolDockMinimized] = React.useState(false);
   const findToolRequestRef = React.useRef(0);
   const findToolHandoffSequenceRef = React.useRef(0);
   const replaceWriteBusyRef = React.useRef(false);
@@ -4685,6 +4620,10 @@ function EditorWorkspace({
       }
       openFindTool(selectedQuery, 'find', null, 'query', 'popup', true);
     }, [currentCodeEditor, findTool, openFindTool]);
+  /** Toggle the Find dock between its readable minimum and last user height. */
+  const toggleFindToolDockMinimized = React.useCallback(() => {
+    setFindToolDockMinimized((current) => !current);
+  }, []);
   /**
    * Hide the persistent Find tool and return the caret to its opener.
    *
@@ -4695,6 +4634,7 @@ function EditorWorkspace({
    */ const closeFindToolWindow = React.useCallback(() => {
     const previous = findToolReturnFocusRef.current;
     findToolReturnFocusRef.current = null;
+    setFindToolDockMinimized(false);
     setFindTool(null);
     window.setTimeout(() => {
       if (previous !== null && previous.isConnected) {
@@ -11361,6 +11301,8 @@ function EditorWorkspace({
         onOpenSettings={openFindToolSettings}
         onOpenInFindWindow={openFindToolInDock}
         onClose={closeFindToolWindow}
+        minimized={findToolDockMinimized}
+        onMinimize={toggleFindToolDockMinimized}
       />
     );
   return (
@@ -11403,154 +11345,172 @@ function EditorWorkspace({
           onClose={closeShowUsages}
         />
       )}
-      {searchEverywhere === null ? null : (
-        <SearchEverywhere
-          t={t}
-          state={searchEverywhere}
-          files={searchEverywhere.files ?? []}
-          openFiles={openFiles}
-          changes={new Map((git?.changes ?? []).map((change) => [change.path, change.status]))}
-          textMatches={searchEverywhere.textMatches ?? []}
-          actions={searchEverywhereActions}
-          recentSearches={recentSearches}
-          recentFindUsages={recentFindUsages}
-          recentCommands={recentCommands}
-          historyRequest={searchHistoryRequest}
-          findUsagesHistoryRequest={findUsagesHistoryRequest}
-          replaceHistory={recentReplacements}
-          textLoading={searchEverywhere.textLoading === true}
-          textTruncated={searchEverywhere.textTruncated === true}
-          error={searchEverywhere.error ?? null}
-          replaceBusy={searchEverywhere.replaceBusy === true}
-          onQuery={(query) =>
-            setSearchEverywhere((current) => (current === null ? current : { ...current, query, index: 0 }))
-          }
-          onTab={(tab) =>
-            setSearchEverywhere((current) => (current === null ? current : searchEverywhereTabTransition(current, tab)))
-          }
-          onMove={(direction, count, absolute = null) =>
-            setSearchEverywhere((current) => {
-              if (current === null) return current;
-              if (count === 0) return { ...current, index: 0 };
-              if (Number.isFinite(absolute))
+      <FloatingToolPopup
+        open={searchEverywhere !== null}
+        kind='searchEverywhere'
+        geometry={searchEverywherePopupGeometry}
+        surfaceStyle={styles.searchEverywherePopup}
+        backdrop={true}
+        onBackdropMouseDown={dismissSearchEverywhere}
+        onGeometryChange={setSearchEverywherePopupGeometry}
+        onGeometryCommit={(geometry) =>
+          writeFloatingPopupGeometry(
+            SEARCH_EVERYWHERE_POPUP_GEOMETRY_STORAGE_KEY,
+            geometry,
+            SEARCH_EVERYWHERE_POPUP_GEOMETRY_DEFAULTS,
+          )
+        }>
+        {searchEverywhere === null ? null : (
+          <SearchEverywhere
+            t={t}
+            state={searchEverywhere}
+            files={searchEverywhere.files ?? []}
+            openFiles={openFiles}
+            changes={new Map((git?.changes ?? []).map((change) => [change.path, change.status]))}
+            textMatches={searchEverywhere.textMatches ?? []}
+            actions={searchEverywhereActions}
+            recentSearches={recentSearches}
+            recentFindUsages={recentFindUsages}
+            recentCommands={recentCommands}
+            historyRequest={searchHistoryRequest}
+            findUsagesHistoryRequest={findUsagesHistoryRequest}
+            replaceHistory={recentReplacements}
+            textLoading={searchEverywhere.textLoading === true}
+            textTruncated={searchEverywhere.textTruncated === true}
+            error={searchEverywhere.error ?? null}
+            replaceBusy={searchEverywhere.replaceBusy === true}
+            onQuery={(query) =>
+              setSearchEverywhere((current) => (current === null ? current : { ...current, query, index: 0 }))
+            }
+            onTab={(tab) =>
+              setSearchEverywhere((current) =>
+                current === null ? current : searchEverywhereTabTransition(current, tab),
+              )
+            }
+            onMove={(direction, count, absolute = null) =>
+              setSearchEverywhere((current) => {
+                if (current === null) return current;
+                if (count === 0) return { ...current, index: 0 };
+                if (Number.isFinite(absolute))
+                  return {
+                    ...current,
+                    index: Math.max(0, Math.min(count - 1, absolute)),
+                  };
                 return {
                   ...current,
-                  index: Math.max(0, Math.min(count - 1, absolute)),
+                  index: (current.index + direction + count) % count,
                 };
-              return {
-                ...current,
-                index: (current.index + direction + count) % count,
-              };
-            })
-          }
-          onActivate={(result) => {
-            if (result.kind === 'action') {
-              if (result.keepOpen !== true) setSearchEverywhere(null);
-              result.run?.();
-              return;
+              })
             }
-            setSearchEverywhere(null);
-            if (result.kind === 'text') {
-              openFileAtLocation(result.path, result.line, result.column);
-              return;
+            onActivate={(result) => {
+              if (result.kind === 'action') {
+                if (result.keepOpen !== true) setSearchEverywhere(null);
+                result.run?.();
+                return;
+              }
+              setSearchEverywhere(null);
+              if (result.kind === 'text') {
+                openFileAtLocation(result.path, result.line, result.column);
+                return;
+              }
+              void openFile(result.path);
+            }}
+            onClose={closeSearchEverywhere}
+            onDismiss={dismissSearchEverywhere}
+            onReplaceChange={(replace) =>
+              setSearchEverywhere((current) => (current === null ? current : { ...current, replace }))
             }
-            void openFile(result.path);
-          }}
-          onClose={closeSearchEverywhere}
-          onDismiss={dismissSearchEverywhere}
-          onReplaceChange={(replace) =>
-            setSearchEverywhere((current) => (current === null ? current : { ...current, replace }))
-          }
-          onReplaceAll={() => void replaceInFiles()}
-          onRememberQuery={rememberSearchEverywhereQuery}
-          onRememberCommand={rememberSearchEverywhereCommand}
-          onOpenFindUsagesHistory={openFindUsages}
-          onOpenInFindToolWindow={(initial) =>
-            openFindTool(
-              initial?.query ?? searchEverywhere.query,
-              initial?.mode === 'replace' ? 'replace' : 'find',
-              initial,
-              'query',
-              'dock',
-            )
-          }
-          onToggleIncludeNonProject={toggleIncludeNonProject}
-          onToggleCaseSensitive={() =>
-            setSearchEverywhere((current) =>
-              current === null
-                ? current
-                : {
-                    ...current,
-                    caseSensitive: current.caseSensitive !== true,
-                    textMatches: [],
-                    textRevision: (current.textRevision ?? 0) + 1,
-                    index: 0,
-                    error: null,
-                  },
-            )
-          }
-          onToggleWholeWords={() =>
-            setSearchEverywhere((current) =>
-              current === null
-                ? current
-                : {
-                    ...current,
-                    wholeWords: current.regex !== true && current.wholeWords !== true,
-                    textMatches: [],
-                    textRevision: (current.textRevision ?? 0) + 1,
-                    index: 0,
-                    error: null,
-                  },
-            )
-          }
-          onToggleRegex={() =>
-            setSearchEverywhere((current) =>
-              current === null
-                ? current
-                : {
-                    ...current,
-                    regex: current.regex !== true,
-                    wholeWords: false,
-                    textMatches: [],
-                    textRevision: (current.textRevision ?? 0) + 1,
-                    index: 0,
-                    error: null,
-                  },
-            )
-          }
-          onTogglePreserveCase={() =>
-            setSearchEverywhere((current) =>
-              current === null ? current : { ...current, preserveCase: current.preserveCase !== true },
-            )
-          }
-          onFileMaskChange={(fileMask) =>
-            setSearchEverywhere((current) =>
-              current === null
-                ? current
-                : {
-                    ...current,
-                    fileMask,
-                    textMatches: [],
-                    textRevision: (current.textRevision ?? 0) + 1,
-                    index: 0,
-                    error: null,
-                  },
-            )
-          }
-          onOpenInRightSplit={(path, location) => {
-            const validLocation =
-              location !== null &&
-              location !== undefined &&
-              typeof location.line === 'number' &&
-              typeof location.column === 'number'
-                ? { path: location.path, line: location.line, column: location.column }
-                : null;
-            void openInRightSplit(path, validLocation);
-          }}
-          onRevealResult={(path) => void revealPath(path)}
-          onNotify={(message) => flashStatus(message)}
-        />
-      )}
+            onReplaceAll={() => void replaceInFiles()}
+            onRememberQuery={rememberSearchEverywhereQuery}
+            onRememberCommand={rememberSearchEverywhereCommand}
+            onOpenFindUsagesHistory={openFindUsages}
+            onOpenInFindToolWindow={(initial) =>
+              openFindTool(
+                initial?.query ?? searchEverywhere.query,
+                initial?.mode === 'replace' ? 'replace' : 'find',
+                initial,
+                'query',
+                'dock',
+              )
+            }
+            onToggleIncludeNonProject={toggleIncludeNonProject}
+            onToggleCaseSensitive={() =>
+              setSearchEverywhere((current) =>
+                current === null
+                  ? current
+                  : {
+                      ...current,
+                      caseSensitive: current.caseSensitive !== true,
+                      textMatches: [],
+                      textRevision: (current.textRevision ?? 0) + 1,
+                      index: 0,
+                      error: null,
+                    },
+              )
+            }
+            onToggleWholeWords={() =>
+              setSearchEverywhere((current) =>
+                current === null
+                  ? current
+                  : {
+                      ...current,
+                      wholeWords: current.regex !== true && current.wholeWords !== true,
+                      textMatches: [],
+                      textRevision: (current.textRevision ?? 0) + 1,
+                      index: 0,
+                      error: null,
+                    },
+              )
+            }
+            onToggleRegex={() =>
+              setSearchEverywhere((current) =>
+                current === null
+                  ? current
+                  : {
+                      ...current,
+                      regex: current.regex !== true,
+                      wholeWords: false,
+                      textMatches: [],
+                      textRevision: (current.textRevision ?? 0) + 1,
+                      index: 0,
+                      error: null,
+                    },
+              )
+            }
+            onTogglePreserveCase={() =>
+              setSearchEverywhere((current) =>
+                current === null ? current : { ...current, preserveCase: current.preserveCase !== true },
+              )
+            }
+            onFileMaskChange={(fileMask) =>
+              setSearchEverywhere((current) =>
+                current === null
+                  ? current
+                  : {
+                      ...current,
+                      fileMask,
+                      textMatches: [],
+                      textRevision: (current.textRevision ?? 0) + 1,
+                      index: 0,
+                      error: null,
+                    },
+              )
+            }
+            onOpenInRightSplit={(path, location) => {
+              const validLocation =
+                location !== null &&
+                location !== undefined &&
+                typeof location.line === 'number' &&
+                typeof location.column === 'number'
+                  ? { path: location.path, line: location.line, column: location.column }
+                  : null;
+              void openInRightSplit(path, validLocation);
+            }}
+            onRevealResult={(path) => void revealPath(path)}
+            onNotify={(message) => flashStatus(message)}
+          />
+        )}
+      </FloatingToolPopup>
       {quickOpen === null ? null : (
         <QuickOpen
           t={t}
@@ -12342,16 +12302,19 @@ function EditorWorkspace({
               onAnnotate={() => void toggleAnnotate()}
             />
           </EditorWorkspaceSurface>
-          <FindToolPopup
+          <FloatingToolPopup
             open={findTool !== null && findTool.surface !== 'dock'}
+            kind='find'
             geometry={findToolPopupGeometry}
-            onPopupDragStart={startFindPopupInteraction}
-            onPopupResizeStart={(event, direction) => startFindPopupInteraction(event, direction)}
+            surfaceStyle={styles.findToolPopup}
+            backdrop={true}
+            onGeometryChange={setFindToolPopupGeometry}
+            onGeometryCommit={(geometry) => writeFindPopupGeometry(geometry)}
             children={findToolWindowElement}
           />
           <FindToolDock
             open={findTool?.surface === 'dock' && terminalOpen === false}
-            height={findToolDockHeight}
+            height={findToolDockMinimized ? FIND_TOOL_DOCK_MIN_HEIGHT : findToolDockHeight}
             title={t('editor.findToolDockResize')}
             clampHeight={clampFindDockHeight}
             onHeightChange={setFindToolDockHeight}

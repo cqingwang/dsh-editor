@@ -5,12 +5,12 @@ import { MoveToPicker } from '../commit/MoveToPicker';
 import { dirname } from '../editor/editor-path-model';
 import { searchEverywhereNextFocusIndex } from '../../foundation';
 import { CompactActionBar } from '../ui/CompactActionBar';
-import { EntryIcon } from '../ui/EntryIcon';
-import { Icon } from '../ui/Icon';
+import { Icon, POPUP_ICON_SIZE } from '../ui/Icon';
 import { ContextMenu } from '../ui/Menu';
 import { ToolbarButton } from '../ui/ToolbarButton';
 import type { ToolbarActionLike } from '../ui/toolbar-model';
 import { FindScopeEditor } from './FindScopeEditor';
+import { SearchFileResultItem } from './SearchFileResultItem';
 import {
   centerPreviewLineInContainer,
   findSearchScopePresetAvailable,
@@ -44,11 +44,7 @@ import {
   writeFileMaskHistory,
 } from '../../commit';
 import { basename, callFs } from '../../editor-core';
-import {
-  FIND_POPUP_RESIZE_DIRECTIONS,
-  findSearchOptionShortcutAction,
-  findToolReplaceAdvanceIndex,
-} from '../../find-tool';
+import { findSearchOptionShortcutAction, findToolReplaceAdvanceIndex } from '../../find-tool';
 import { editorFindResult, highlightParts, normalizeTextSearchContextFilter, readStoredText } from '../../terminal';
 
 type Translate = (key: string, params?: Record<string, unknown>) => string;
@@ -159,8 +155,9 @@ export interface FindToolWindowProps {
   onOpenSettings?: () => void;
   onOpenInFindWindow: () => void;
   onPopupDragStart?: (event: React.MouseEvent<HTMLElement>) => void;
-  onPopupResizeStart?: (event: React.MouseEvent<HTMLElement>, direction: string) => void;
   onClose: () => void;
+  minimized?: boolean;
+  onMinimize?: () => void;
   floating?: boolean;
   activeFilePath?: string | null;
   openFilePaths?: string[];
@@ -207,8 +204,9 @@ function FindToolWindowView({
   onOpenSettings,
   onOpenInFindWindow,
   onPopupDragStart,
-  onPopupResizeStart,
   onClose,
+  minimized = false,
+  onMinimize,
   floating = true,
   activeFilePath = null,
   openFilePaths = [],
@@ -1369,13 +1367,6 @@ function FindToolWindowView({
         onClick: onToggleIncludeExcluded,
         group: 'search',
       },
-      {
-        id: 'hide',
-        icon: 'close',
-        label: t('editor.findToolHide'),
-        onClick: onClose,
-        group: 'close',
-      },
     ] as unknown as ToolbarActionLike[]
   ).filter((action) => floating || action.id !== 'pin');
   const popupHeaderActions = toolbarActions.filter(
@@ -1565,69 +1556,6 @@ function FindToolWindowView({
         {part.text}
       </span>
     ));
-  const popupResizeHandleStyle = (direction: string): React.CSSProperties => {
-    const base: React.CSSProperties = {
-      position: 'absolute',
-      zIndex: 20,
-      touchAction: 'none',
-    };
-    if (direction === 'n')
-      return {
-        ...base,
-        left: 8,
-        right: 8,
-        top: 0,
-        height: 5,
-        cursor: 'n-resize',
-      };
-    if (direction === 's')
-      return {
-        ...base,
-        left: 8,
-        right: 8,
-        bottom: 0,
-        height: 5,
-        cursor: 's-resize',
-      };
-    if (direction === 'e')
-      return {
-        ...base,
-        top: 8,
-        bottom: 8,
-        right: 0,
-        width: 5,
-        cursor: 'e-resize',
-      };
-    if (direction === 'w')
-      return {
-        ...base,
-        top: 8,
-        bottom: 8,
-        left: 0,
-        width: 5,
-        cursor: 'w-resize',
-      };
-    return {
-      ...base,
-      width: 10,
-      height: 10,
-      ...(direction.includes('n')
-        ? {
-            top: 0,
-          }
-        : {
-            bottom: 0,
-          }),
-      ...(direction.includes('w')
-        ? {
-            left: 0,
-          }
-        : {
-            right: 0,
-          }),
-      cursor: `${direction}-resize`,
-    };
-  };
   const trapFindToolPopupFocus = (event: React.KeyboardEvent<HTMLDivElement>): boolean => {
     if (floating !== true || event.key !== 'Tab') return false;
     const root = event.currentTarget instanceof Element ? event.currentTarget : null;
@@ -1724,7 +1652,7 @@ function FindToolWindowView({
           {floating ? null : (
             <Icon
               name='findWindow'
-              size={13}
+              size={POPUP_ICON_SIZE}
             />
           )}
           <span
@@ -1750,7 +1678,9 @@ function FindToolWindowView({
             className='dsh-editor-find-tool-spacer'
             style={styles.findToolSpacer}
           />
-          <label style={styles.findToolFileMaskControl}>
+          <label
+            className='dsh-editor-find-file-mask-control'
+            style={styles.findToolFileMaskControl}>
             <input
               type='checkbox'
               checked={fileMaskEnabled}
@@ -1796,16 +1726,36 @@ function FindToolWindowView({
               ariaExpanded={fileMaskMenu !== null}
             />
           </label>
-          <CompactActionBar
-            actions={floating ? popupHeaderActions : toolbarActions}
-            t={t}
-            ariaLabel={t('editor.findInFilesAction')}
-            className={floating ? undefined : 'dsh-editor-find-dock-header-actions'}
-            style={{
-              ...styles.findToolHeaderActions,
-              ...(floating ? null : styles.findToolDockHeaderActions),
-            }}
-          />
+          <span
+            style={floating ? undefined : styles.findToolDockWindowActions}
+            data-dsh-find-window-actions={floating ? undefined : ''}>
+            <CompactActionBar
+              actions={floating ? popupHeaderActions : toolbarActions}
+              t={t}
+              ariaLabel={t('editor.findInFilesAction')}
+              className={floating ? undefined : 'dsh-editor-find-dock-header-actions'}
+              style={{
+                ...styles.findToolHeaderActions,
+                ...(floating ? null : styles.findToolDockHeaderActions),
+              }}
+            />
+            {floating ? null : (
+              <span
+                style={styles.findToolWindowControls}
+                data-dsh-find-window-controls=''>
+                <ToolbarButton
+                  icon={minimized ? 'expand' : 'hide'}
+                  label={t(minimized ? 'editor.findToolRestore' : 'editor.findToolMinimize')}
+                  onClick={onMinimize}
+                />
+                <ToolbarButton
+                  icon='close'
+                  label={t('editor.findToolClose')}
+                  onClick={onClose}
+                />
+              </span>
+            )}
+          </span>
         </div>
         <div
           style={
@@ -1818,7 +1768,7 @@ function FindToolWindowView({
           }>
           <Icon
             name='search'
-            size={13}
+            size={POPUP_ICON_SIZE}
           />
           <QueryField
             ref={queryInputRef}
@@ -1938,7 +1888,7 @@ function FindToolWindowView({
           <div style={styles.findToolReplaceRow}>
             <Icon
               name='replace'
-              size={13}
+              size={POPUP_ICON_SIZE}
             />
             <ReplaceField
               ref={replaceInputRef}
@@ -2081,7 +2031,7 @@ function FindToolWindowView({
                 onClick={toggleFindDirectoryRecursive}>
                 <Icon
                   name='project'
-                  size={12}
+                  size={POPUP_ICON_SIZE}
                 />
               </button>
             </React.Fragment>
@@ -2252,21 +2202,10 @@ function FindToolWindowView({
                       {isText ? (
                         previewParts(result)
                       ) : (
-                        <React.Fragment>
-                          <EntryIcon
-                            entry={{
-                              path: result.path,
-                              kind: 'file',
-                            }}
-                            expanded={false}
-                          />
-                          <span
-                            style={{
-                              marginLeft: 6,
-                            }}>
-                            {result.path}
-                          </span>
-                        </React.Fragment>
+                        <SearchFileResultItem
+                          path={result.path}
+                          name={result.path}
+                        />
                       )}
                     </span>
                     <span
@@ -2322,14 +2261,10 @@ function FindToolWindowView({
                               kind: 'file',
                             })
                           }>
-                          <EntryIcon
-                            entry={{
-                              path: file.path,
-                              kind: 'file',
-                            }}
-                            expanded={false}
+                          <SearchFileResultItem
+                            path={file.path}
+                            name={file.path}
                           />
-                          <span style={styles.findToolPreview}>{file.path}</span>
                         </div>
                       );
                     })}
@@ -2343,7 +2278,7 @@ function FindToolWindowView({
                       style={styles.findToolDirectoryRow}>
                       <Icon
                         name='project'
-                        size={12}
+                        size={POPUP_ICON_SIZE}
                       />
                       <span style={styles.findToolDirectoryPath}>
                         {group.path === '' ? t('editor.findDirectoryRoot') : group.path}
@@ -2391,17 +2326,13 @@ function FindToolWindowView({
                           onKeyDown={(event) => handleGroupKeyDown(event, group)}>
                           <Icon
                             name={collapsedFiles.has(group.path) ? 'chevronRight' : 'chevronDown'}
-                            size={12}
+                            size={POPUP_ICON_SIZE}
                           />
                         </button>
-                        <EntryIcon
-                          entry={{
-                            path: group.path,
-                            kind: 'file',
-                          }}
-                          expanded={false}
+                        <SearchFileResultItem
+                          path={group.path}
+                          name={group.path}
                         />
-                        <span style={styles.findToolFilePath}>{group.path}</span>
                         <span style={styles.findToolFileCount}>
                           {group.matches.length === 1
                             ? t('editor.findToolFileGroupOne')
@@ -2489,7 +2420,7 @@ function FindToolWindowView({
             <div style={styles.searchEverywherePreviewToolbar}>
               <Icon
                 name='file'
-                size={12}
+                size={POPUP_ICON_SIZE}
               />
               <span
                 style={styles.searchEverywherePreviewPath}
@@ -2750,17 +2681,6 @@ function FindToolWindowView({
           />
         </div>
       )}
-      {floating
-        ? FIND_POPUP_RESIZE_DIRECTIONS.map((direction) => (
-            <div
-              key={`find-popup-resize:${direction}`}
-              data-dsh-find-popup-resize={direction}
-              aria-hidden={true}
-              style={popupResizeHandleStyle(direction)}
-              onPointerDown={(event) => onPopupResizeStart?.(event, direction)}
-            />
-          ))
-        : null}
     </div>
   );
 }

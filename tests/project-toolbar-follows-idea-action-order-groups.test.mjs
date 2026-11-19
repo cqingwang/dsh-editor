@@ -27,7 +27,7 @@ test('unchanged-region folds use the host surface tokens', () => {
   assert.match(source, /\.dsh-editor-diff-pane \.diff-hidden-lines-widget/);
   assert.match(source, /var\(--dsw-alias-bg-layer-1\) !important/);
   assert.match(source, /var\(--dsw-alias-label-tertiary\) !important/);
-  assert.match(source, /font-size: 10px !important/);
+  assert.match(source, /font-size: var\(--dsh-editor-font-size-caption, 10px\) !important/);
 });
 
 test('legacy chat collapse state remains absent', () => {

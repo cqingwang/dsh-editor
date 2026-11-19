@@ -13,10 +13,10 @@ test('Find caches text highlight segments outside active-row rendering', () => {
   assert.match(component, /\}, \[occurrences, query\]\);/u);
 
   const previewPartsAt = component.indexOf('const previewParts =');
-  const resizeAt = component.indexOf('const popupResizeHandleStyle =');
+  const focusTrapAt = component.indexOf('const trapFindToolPopupFocus =');
   assert.ok(previewPartsAt > 0);
-  assert.ok(resizeAt > previewPartsAt);
-  const previewParts = component.slice(previewPartsAt, resizeAt);
+  assert.ok(focusTrapAt > previewPartsAt);
+  const previewParts = component.slice(previewPartsAt, focusTrapAt);
   assert.match(previewParts, /previewPartsByRowKey\.get/u);
   assert.doesNotMatch(previewParts, /highlightParts\(/u);
 });

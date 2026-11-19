@@ -19,7 +19,7 @@ test('Find toolbar keeps actions while query-row filters stay at the right', () 
     source.indexOf('function FindToolWindowView('),
     source.indexOf('const FindToolWindow = FindToolWindowView;'),
   );
-  for (const id of ['previous', 'next', 'expand', 'collapse', 'preview', 'include', 'hide']) {
+  for (const id of ['previous', 'next', 'expand', 'collapse', 'preview', 'include']) {
     assert.match(findToolWindow, new RegExp(`id: '${id}'`));
   }
   assert.match(findToolWindow, /id: 'filterSearch'[\s\S]*?pinned: true/);

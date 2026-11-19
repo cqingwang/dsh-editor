@@ -11,10 +11,10 @@ import { dirname } from '../editor/editor-path-model';
 import { CompactActionBar } from '../ui/CompactActionBar';
 import { ContextMenu } from '../ui/Menu';
 import { badgeFor } from '../ui/git-change-model';
-import { GitStatusBadge } from '../ui/GitStatusBadge';
-import { Icon } from '../ui/Icon';
+import { Icon, POPUP_ICON_SIZE } from '../ui/Icon';
 import { ToolbarButton } from '../ui/ToolbarButton';
 import type { ToolbarActionLike } from '../ui/toolbar-model';
+import { SearchFileResultItem } from './SearchFileResultItem';
 import {
   centerPreviewLineInContainer,
   defaultSearchEverywhereFilters,
@@ -155,6 +155,7 @@ export interface SearchEverywhereProps {
   onOpenInRightSplit: (path: string, location?: { path?: string; line?: number; column?: number } | null) => void;
   onRevealResult: (path: string) => void;
   onNotify: (message: string) => void;
+  onPopupDragStart?: (event: React.PointerEvent<HTMLElement>) => void;
 }
 
 function SearchEverywhere({
@@ -196,6 +197,7 @@ function SearchEverywhere({
   onOpenInRightSplit,
   onRevealResult,
   onNotify,
+  onPopupDragStart,
 }: SearchEverywhereProps) {
   const listRef = React.useRef(null);
   const previewBodyRef = React.useRef(null);
@@ -1100,587 +1102,613 @@ function SearchEverywhere({
   return (
     <div
       style={{
-        ...styles.paletteBackdrop,
-        paddingTop: '7vh',
+        ...styles.palette,
+        ...styles.searchEverywhere,
+        width: '100%',
+        height: '100%',
+        maxHeight: 'none',
+        minHeight: 0,
+        containerType: 'inline-size',
       }}
-      onMouseDown={dismissSearchEverywhere}
+      role='dialog'
+      aria-modal='true'
+      aria-label={t('editor.searchEverywhere')}
+      onMouseDown={(event) => event.stopPropagation()}
       onKeyDown={handleSearchEverywhereDialogKeyDown}
       data-dsh-search-everywhere=''>
       <div
         style={{
-          ...styles.palette,
-          ...styles.searchEverywhere,
+          ...styles.searchEverywhereTabs,
+          cursor: 'move',
+          userSelect: 'none',
+          touchAction: 'none',
         }}
-        role='dialog'
-        aria-modal='true'
-        aria-label={t('editor.searchEverywhere')}
-        onMouseDown={(event) => event.stopPropagation()}>
-        <div style={styles.searchEverywhereTabs}>
-          <div
-            ref={searchTabListRef}
-            role='tablist'
-            className='dsh-editor-search-everywhere-tablist'
-            aria-label={t('editor.searchEverywhere')}
-            style={{
-              display: 'flex',
-              alignItems: 'stretch',
-              gap: 22,
-              flex: '1 1 auto',
-              minWidth: 0,
-              height: '100%',
-              overflowX: 'auto',
-              scrollbarWidth: 'none',
-            }}>
-            {tabs.map((tab) => (
-              <button
-                key={tab.id}
-                type='button'
-                role='tab'
-                aria-selected={effectiveTab === tab.id}
-                tabIndex={effectiveTab === tab.id ? 0 : -1}
-                data-dsh-search-tab-id={tab.id}
-                className='dsh-editor-search-everywhere-tab'
-                style={{
-                  ...styles.searchEverywhereTab,
-                  ...(effectiveTab === tab.id ? styles.searchEverywhereTabActive : null),
-                }}
-                onClick={(event) => {
-                  event.currentTarget.focus?.();
-                  onTab(tab.id);
-                }}
-                onKeyDown={(event) => handleSearchTabKeyDown(event)}>
-                {tab.label}
-              </button>
-            ))}
-          </div>
+        data-dsh-search-drag-surface=''
+        onPointerDown={(event) => onPopupDragStart?.(event)}>
+        <div
+          ref={searchTabListRef}
+          role='tablist'
+          className='dsh-editor-search-everywhere-tablist'
+          aria-label={t('editor.searchEverywhere')}
+          style={{
+            display: 'flex',
+            alignItems: 'stretch',
+            gap: 'clamp(8px, 2.8cqi, 22px)',
+            flex: '1 1 auto',
+            minWidth: 0,
+            height: '100%',
+            overflowX: 'auto',
+            scrollbarWidth: 'none',
+          }}>
+          {tabs.map((tab) => (
+            <button
+              key={tab.id}
+              type='button'
+              role='tab'
+              aria-selected={effectiveTab === tab.id}
+              tabIndex={effectiveTab === tab.id ? 0 : -1}
+              data-dsh-search-tab-id={tab.id}
+              className='dsh-editor-search-everywhere-tab'
+              style={{
+                ...styles.searchEverywhereTab,
+                ...(effectiveTab === tab.id ? styles.searchEverywhereTabActive : null),
+              }}
+              onClick={(event) => {
+                event.currentTarget.focus?.();
+                onTab(tab.id);
+              }}
+              onKeyDown={(event) => handleSearchTabKeyDown(event)}>
+              {tab.label}
+            </button>
+          ))}
         </div>
-        <div data-dsh-search-open-find-tool-window=''>
+        <div
+          data-dsh-search-open-find-tool-window=''
+          data-dsh-search-toolbar-group=''
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            flex: '0 0 auto',
+            width: 'min(40%, 320px)',
+            minWidth: 110,
+            minHeight: 0,
+          }}>
           <CompactActionBar
             actions={headerActions}
             t={t}
             ariaLabel={t('editor.searchEverywhere')}
             style={styles.searchEverywhereActionBar}
             slotWidth={30}
+            iconSize={POPUP_ICON_SIZE}
           />
         </div>
-        <div style={styles.searchEverywhereSearchRow}>
+      </div>
+      <div style={styles.searchEverywhereSearchRow}>
+        <Icon
+          name='search'
+          size={POPUP_ICON_SIZE}
+        />
+        <input
+          ref={searchInputRef}
+          style={styles.searchEverywhereInput}
+          autoFocus={true}
+          value={state.query}
+          data-dsh-search-query=''
+          placeholder={t('editor.searchEverywherePlaceholder')}
+          aria-label={t('editor.searchEverywherePlaceholder')}
+          role='combobox'
+          aria-autocomplete='list'
+          aria-expanded={results.length > 0}
+          aria-controls={SEARCH_EVERYWHERE_LISTBOX_ID}
+          aria-activedescendant={activeResult === null ? undefined : searchEverywhereOptionId(activeResult.rowKey)}
+          onChange={(event) => {
+            clearResultTooltip();
+            onQuery(event.target.value);
+          }}
+          onKeyDown={(event) => {
+            if (event.nativeEvent.isComposing === true) return;
+            if (event.altKey === true && event.key === 'ArrowDown') {
+              openQueryHistoryMenu(event);
+            } else if (event.key === 'Tab') {
+              event.preventDefault();
+              event.stopPropagation();
+              cycleTab(event.shiftKey ? -1 : 1);
+            } else handleSearchResultKeyDown(event);
+          }}
+        />
+        <ToolbarButton
+          icon='history'
+          label={t('editor.findSearchHistory')}
+          ariaHasPopup='menu'
+          ariaExpanded={queryHistoryMenu !== null}
+          onClick={(event) => openQueryHistoryMenu(event)}
+          iconSize={POPUP_ICON_SIZE}
+        />
+        {effectiveQuery === '' ? (
+          <span style={styles.searchEverywhereHint}>{t('editor.searchEverywhereHint')}</span>
+        ) : null}
+      </div>
+      {(effectiveTab === 'text' || effectiveTab === 'all') &&
+      (fileMaskOpen || String(state.fileMask ?? '').trim() !== '') ? (
+        <div
+          style={styles.searchEverywhereSearchRow}
+          data-search-file-mask=''>
           <Icon
-            name='search'
-            size={14}
+            name='file'
+            size={POPUP_ICON_SIZE}
           />
           <input
-            ref={searchInputRef}
+            ref={fileMaskInputRef}
+            data-dsh-search-file-mask=''
             style={styles.searchEverywhereInput}
-            autoFocus={true}
-            value={state.query}
-            data-dsh-search-query=''
-            placeholder={t('editor.searchEverywherePlaceholder')}
-            aria-label={t('editor.searchEverywherePlaceholder')}
-            role='combobox'
-            aria-autocomplete='list'
-            aria-expanded={results.length > 0}
-            aria-controls={SEARCH_EVERYWHERE_LISTBOX_ID}
-            aria-activedescendant={activeResult === null ? undefined : searchEverywhereOptionId(activeResult.rowKey)}
-            onChange={(event) => {
-              clearResultTooltip();
-              onQuery(event.target.value);
+            value={state.fileMask ?? ''}
+            placeholder={t('editor.searchFileMask')}
+            aria-label={t('editor.searchFileMask')}
+            onChange={(event) => onFileMaskChange(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key !== 'Escape') return;
+              event.preventDefault();
+              event.stopPropagation();
+              if (String(state.fileMask ?? '').trim() === '') setFileMaskOpen(false);
+              searchInputRef.current?.focus?.();
             }}
+          />
+        </div>
+      ) : null}
+      {state.withReplace === true && (effectiveTab === 'text' || effectiveTab === 'all') ? (
+        <div style={styles.searchEverywhereReplaceRow}>
+          <Icon
+            name='code'
+            size={POPUP_ICON_SIZE}
+          />
+          <input
+            ref={replaceInputRef}
+            data-dsh-search-replace-input=''
+            style={styles.searchEverywhereInput}
+            value={state.replace}
+            placeholder={t('editor.searchReplacePlaceholder')}
+            aria-label={t('editor.searchReplacePlaceholder')}
+            onChange={(event) => onReplaceChange(event.target.value)}
             onKeyDown={(event) => {
               if (event.nativeEvent.isComposing === true) return;
               if (event.altKey === true && event.key === 'ArrowDown') {
-                openQueryHistoryMenu(event);
-              } else if (event.key === 'Tab') {
+                openReplaceHistoryMenu(event);
+              } else if (event.key === 'Escape') {
                 event.preventDefault();
-                event.stopPropagation();
-                cycleTab(event.shiftKey ? -1 : 1);
-              } else handleSearchResultKeyDown(event);
+                dismissSearchEverywhere();
+              } else if (replaceInputAction(event, 'all') === 'all' && !replaceBusy && textResults.length > 0) {
+                event.preventDefault();
+                onReplaceAll();
+              }
             }}
           />
           <ToolbarButton
             icon='history'
-            label={t('editor.findSearchHistory')}
+            label={t('editor.findReplaceHistory')}
             ariaHasPopup='menu'
-            ariaExpanded={queryHistoryMenu !== null}
-            onClick={(event) => openQueryHistoryMenu(event)}
+            ariaExpanded={replaceHistoryMenu !== null}
+            onClick={(event) => openReplaceHistoryMenu(event)}
+            iconSize={POPUP_ICON_SIZE}
           />
-          {effectiveQuery === '' ? (
-            <span style={styles.searchEverywhereHint}>{t('editor.searchEverywhereHint')}</span>
-          ) : null}
+          <button
+            type='button'
+            style={{
+              ...styles.conflictAction,
+              opacity: replaceBusy || textResults.length === 0 ? 0.45 : 1,
+            }}
+            disabled={replaceBusy || textResults.length === 0}
+            onClick={onReplaceAll}>
+            {replaceBusy ? t('editor.loading') : t('editor.searchReplaceAll')}
+          </button>
         </div>
-        {(effectiveTab === 'text' || effectiveTab === 'all') &&
-        (fileMaskOpen || String(state.fileMask ?? '').trim() !== '') ? (
-          <div
-            style={styles.searchEverywhereSearchRow}
-            data-search-file-mask=''>
-            <Icon
-              name='file'
-              size={13}
-            />
-            <input
-              ref={fileMaskInputRef}
-              data-dsh-search-file-mask=''
-              style={styles.searchEverywhereInput}
-              value={state.fileMask ?? ''}
-              placeholder={t('editor.searchFileMask')}
-              aria-label={t('editor.searchFileMask')}
-              onChange={(event) => onFileMaskChange(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key !== 'Escape') return;
-                event.preventDefault();
-                event.stopPropagation();
-                if (String(state.fileMask ?? '').trim() === '') setFileMaskOpen(false);
-                searchInputRef.current?.focus?.();
-              }}
-            />
-          </div>
-        ) : null}
-        {state.withReplace === true && (effectiveTab === 'text' || effectiveTab === 'all') ? (
-          <div style={styles.searchEverywhereReplaceRow}>
-            <Icon
-              name='code'
-              size={13}
-            />
-            <input
-              ref={replaceInputRef}
-              data-dsh-search-replace-input=''
-              style={styles.searchEverywhereInput}
-              value={state.replace}
-              placeholder={t('editor.searchReplacePlaceholder')}
-              aria-label={t('editor.searchReplacePlaceholder')}
-              onChange={(event) => onReplaceChange(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.nativeEvent.isComposing === true) return;
-                if (event.altKey === true && event.key === 'ArrowDown') {
-                  openReplaceHistoryMenu(event);
-                } else if (event.key === 'Escape') {
-                  event.preventDefault();
-                  dismissSearchEverywhere();
-                } else if (replaceInputAction(event, 'all') === 'all' && !replaceBusy && textResults.length > 0) {
-                  event.preventDefault();
-                  onReplaceAll();
-                }
-              }}
-            />
-            <ToolbarButton
-              icon='history'
-              label={t('editor.findReplaceHistory')}
-              ariaHasPopup='menu'
-              ariaExpanded={replaceHistoryMenu !== null}
-              onClick={(event) => openReplaceHistoryMenu(event)}
-            />
-            <button
-              type='button'
-              style={{
-                ...styles.conflictAction,
-                opacity: replaceBusy || textResults.length === 0 ? 0.45 : 1,
-              }}
-              disabled={replaceBusy || textResults.length === 0}
-              onClick={onReplaceAll}>
-              {replaceBusy ? t('editor.loading') : t('editor.searchReplaceAll')}
-            </button>
-          </div>
-        ) : null}
-        {error !== null ? (
-          <div
-            style={styles.searchEverywhereError}
-            role='alert'>
-            {error}
-          </div>
-        ) : null}
-        {resultInfo !== null ? (
-          <div
-            style={styles.searchEverywhereItemInfo}
-            role='status'
-            aria-live='polite'
-            data-dsh-search-item-info=''>
-            <div style={styles.searchEverywhereItemInfoHeader}>
-              <span style={styles.searchEverywhereItemInfoKind}>{resultInfo.kind}</span>
-              <strong style={styles.searchEverywhereItemInfoTitle}>{resultInfo.title}</strong>
-              <button
-                type='button'
-                ref={resultInfoCloseRef}
-                style={styles.searchEverywhereItemInfoClose}
-                aria-label={t('editor.searchItemClose')}
-                onClick={closeResultInfo}>
-                ×
-              </button>
-            </div>
-            {resultInfo.detail === '' ? null : (
-              <div style={styles.searchEverywhereItemInfoDetail}>{resultInfo.detail}</div>
-            )}
-            {resultInfo.meta === '' ? null : <div style={styles.searchEverywhereItemInfoMeta}>{resultInfo.meta}</div>}
-          </div>
-        ) : null}
+      ) : null}
+      {error !== null ? (
         <div
+          style={styles.searchEverywhereError}
+          role='alert'>
+          {error}
+        </div>
+      ) : null}
+      {resultInfo !== null ? (
+        <div
+          style={styles.searchEverywhereItemInfo}
           role='status'
           aria-live='polite'
-          aria-atomic='true'
-          style={styles.screenReaderOnly}>
-          {searchResultStatus}
+          data-dsh-search-item-info=''>
+          <div style={styles.searchEverywhereItemInfoHeader}>
+            <span style={styles.searchEverywhereItemInfoKind}>{resultInfo.kind}</span>
+            <strong style={styles.searchEverywhereItemInfoTitle}>{resultInfo.title}</strong>
+            <button
+              type='button'
+              ref={resultInfoCloseRef}
+              style={styles.searchEverywhereItemInfoClose}
+              aria-label={t('editor.searchItemClose')}
+              onClick={closeResultInfo}>
+              ×
+            </button>
+          </div>
+          {resultInfo.detail === '' ? null : (
+            <div style={styles.searchEverywhereItemInfoDetail}>{resultInfo.detail}</div>
+          )}
+          {resultInfo.meta === '' ? null : <div style={styles.searchEverywhereItemInfoMeta}>{resultInfo.meta}</div>}
         </div>
-        <div
-          ref={listRef}
-          id={SEARCH_EVERYWHERE_LISTBOX_ID}
-          style={styles.searchEverywhereList}
-          role='listbox'
-          aria-busy={textLoading && effectiveTab !== 'actions' ? true : undefined}
-          aria-label={t('editor.searchEverywhere')}
-          aria-activedescendant={activeResult === null ? undefined : searchEverywhereOptionId(activeResult.rowKey)}
-          tabIndex={0}
-          onKeyDown={handleSearchResultKeyDown}
-          onScroll={clearResultTooltip}>
-          {textLoading && effectiveTab !== 'actions' ? (
-            <div style={styles.searchEverywhereMessage}>{t('editor.loading')}</div>
-          ) : null}
-          {!textLoading && effectiveTab === 'text' && effectiveQuery.length > 0 && effectiveQuery.length < 2 ? (
-            <div style={styles.searchEverywhereMessage}>{t('editor.searchTextHint')}</div>
-          ) : null}
-          {results.length === 0 && !textLoading && error === null ? (
-            <div style={styles.searchEverywhereMessage}>
-              {effectiveTab === 'text' && effectiveQuery.length < 2
-                ? t('editor.searchTextHint')
-                : t('editor.searchNoMatches')}
-              {showClearOptionsFallback ? (
-                <div
-                  style={styles.searchEverywhereUsedOptions}
-                  data-dsh-search-used-options=''>{`${t('editor.searchOptionsUsed')} ${activeSearchOptionsText}`}</div>
-              ) : null}
-              {showScopeExpansionFallback ? (
-                <button
-                  type='button'
-                  className='dsh-editor-search-expand-scope'
-                  style={styles.searchEverywhereInlineAction}
-                  data-dsh-search-expand-scope=''
-                  onClick={expandSearchScope}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter' || event.key === ' ') event.stopPropagation();
-                  }}>
-                  {t('editor.searchExpandScope')}
-                </button>
-              ) : null}
-              {canResetSearchFilters ? (
-                <button
-                  type='button'
-                  className='dsh-editor-search-reset-filter'
-                  style={styles.searchEverywhereInlineAction}
-                  data-dsh-search-reset-filter=''
-                  onClick={resetSearchFilters}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter' || event.key === ' ') event.stopPropagation();
-                  }}>
-                  {t('editor.searchResetFilters')}
-                </button>
-              ) : null}
-              {showFindInFilesFallback ? (
-                <button
-                  type='button'
-                  className='dsh-editor-search-find-in-files'
-                  style={styles.searchEverywhereInlineAction}
-                  data-dsh-search-find-in-files=''
-                  onClick={() =>
-                    openSearchResultsInFind(null, null, {
-                      refresh: true,
-                    })
-                  }
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter' || event.key === ' ') event.stopPropagation();
-                  }}>
-                  {t('editor.searchFindInFilesFallback')}
-                </button>
-              ) : null}
-              {showClearOptionsFallback ? (
-                <button
-                  type='button'
-                  className='dsh-editor-search-clear-options'
-                  style={styles.searchEverywhereInlineAction}
-                  data-dsh-search-clear-options=''
-                  onClick={clearSearchOptions}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter' || event.key === ' ') event.stopPropagation();
-                  }}>
-                  {t('editor.searchClearAllOptions')}
-                </button>
-              ) : null}
-            </div>
-          ) : null}
-          {results.map((result, position) => {
-            const isFile = result.kind === 'file' || result.kind === 'text';
-            const badge = isFile ? badgeFor(result.path, changes) : null;
-            const section = searchEverywhereSection(result, results[position - 1], effectiveQuery, effectiveTab, false);
-            const row = (
+      ) : null}
+      <div
+        role='status'
+        aria-live='polite'
+        aria-atomic='true'
+        style={styles.screenReaderOnly}>
+        {searchResultStatus}
+      </div>
+      <div
+        ref={listRef}
+        id={SEARCH_EVERYWHERE_LISTBOX_ID}
+        style={styles.searchEverywhereList}
+        role='listbox'
+        aria-busy={textLoading && effectiveTab !== 'actions' ? true : undefined}
+        aria-label={t('editor.searchEverywhere')}
+        aria-activedescendant={activeResult === null ? undefined : searchEverywhereOptionId(activeResult.rowKey)}
+        tabIndex={0}
+        onKeyDown={handleSearchResultKeyDown}
+        onScroll={clearResultTooltip}>
+        {textLoading && effectiveTab !== 'actions' ? (
+          <div style={styles.searchEverywhereMessage}>{t('editor.loading')}</div>
+        ) : null}
+        {!textLoading && effectiveTab === 'text' && effectiveQuery.length > 0 && effectiveQuery.length < 2 ? (
+          <div style={styles.searchEverywhereMessage}>{t('editor.searchTextHint')}</div>
+        ) : null}
+        {results.length === 0 && !textLoading && error === null ? (
+          <div style={styles.searchEverywhereMessage}>
+            {effectiveTab === 'text' && effectiveQuery.length < 2
+              ? t('editor.searchTextHint')
+              : t('editor.searchNoMatches')}
+            {showClearOptionsFallback ? (
               <div
-                key={result.rowKey}
-                id={searchEverywhereOptionId(result.rowKey)}
-                role='option'
-                aria-selected={position === activeIndex}
-                aria-disabled={result.disabled === true}
-                aria-description={result.kind === 'action' ? searchEverywhereResultTooltip(result) : undefined}
-                aria-keyshortcuts={result.ariaKeyShortcuts}
-                data-search-everywhere-active={position === activeIndex ? '1' : '0'}
-                className='dsh-editor-search-everywhere-row'
-                style={{
-                  ...styles.paletteRow,
-                  ...styles.searchEverywhereRow,
-                  ...(position === activeIndex ? styles.paletteRowActive : null),
-                  ...(result.disabled === true
-                    ? {
-                        opacity: 0.45,
-                      }
-                    : null),
-                }}
-                onMouseEnter={(event) => {
-                  onMove(position - activeIndex, results.length, position);
-                  scheduleResultTooltip(event, result);
-                }}
-                onMouseLeave={clearResultTooltip}
-                onMouseDown={(event) => {
-                  if (event.button !== 0) return;
-                  event.preventDefault();
-                  clearResultTooltip();
-                  activateResult(result);
-                }}
-                onContextMenu={(event) => openResultMenu(event, result)}>
-                <Icon
-                  name={result.icon ?? 'settings'}
-                  size={13}
-                />
-                {isFile ? (
-                  <GitStatusBadge
-                    selected={false}
-                    info={badge}
-                  />
-                ) : null}
-                <span
-                  style={{
-                    ...styles.paletteName,
-                    flex: '1 1 auto',
-                  }}>
-                  {result.title ?? result.label}
-                </span>
-                <span style={styles.searchEverywhereMeta}>{result.subtitle ?? ''}</span>
-                {result.category ? (
-                  <span
-                    className='dsh-editor-search-everywhere-category'
-                    style={styles.searchEverywhereCategory}
-                    title={result.category}
-                    data-dsh-search-category=''>
-                    {result.category}
-                  </span>
-                ) : null}
-                {result.shortcut ? <span style={styles.searchEverywhereShortcut}>{result.shortcut}</span> : null}
-              </div>
-            );
-            return section === null ? (
-              row
-            ) : (
-              <React.Fragment key={`section:${section}:${result.rowKey}`}>
-                <div
-                  style={styles.searchEverywhereSection}
-                  data-search-everywhere-section={section}>
-                  {section === 'recent' ? t('editor.searchSectionRecent') : t('editor.searchSectionActions')}
-                </div>
-                {row}
-              </React.Fragment>
-            );
-          })}
-          {textTruncated && effectiveTab !== 'actions' ? (
-            <div
-              style={styles.searchEverywhereMessage}
-              role='status'
-              aria-live='polite'>
-              {t('editor.searchTextTruncated')}
-            </div>
-          ) : null}
-        </div>
-        {previewOpen ? (
-          <div
-            style={styles.searchEverywherePreview}
-            className='dsh-editor-search-preview'
-            data-dsh-search-preview=''>
-            <div style={styles.searchEverywherePreviewToolbar}>
-              <Icon
-                name={previewState.kind === 'action' ? 'settings' : 'file'}
-                size={12}
-              />
-              <span
-                style={styles.searchEverywherePreviewPath}
-                title={previewState.path}>
-                {previewState.path || activeResult?.label || t('editor.searchPreview')}
-              </span>
-              <ToolbarButton
-                icon='wrap'
-                label={t('editor.searchPreviewSoftWrap')}
-                active={previewSoftWrap}
-                onClick={() => setPreviewSoftWrap((value) => !value)}
-              />
-            </div>
-            <div
-              ref={previewBodyRef}
-              style={styles.searchEverywherePreviewBody}
-              className='dsh-editor-code-preview'
-              data-dsh-code-preview=''>
-              {previewState.loading ? <div style={styles.searchEverywhereMessage}>{t('editor.loading')}</div> : null}
-              {previewState.error !== null ? (
-                <div
-                  style={styles.searchEverywhereError}
-                  role='alert'>
-                  {previewState.error}
-                </div>
-              ) : null}
-              {!previewState.loading && previewState.error === null && previewState.kind === 'action' ? (
-                <div
-                  style={{
-                    padding: '8px 12px',
-                  }}>
-                  {previewState.content}
-                </div>
-              ) : null}
-              {!previewState.loading && previewState.error === null && previewState.kind !== 'action' ? (
-                <React.Fragment>
-                  {previewWindow?.truncatedBefore ? <div style={styles.searchEverywhereMessage}>…</div> : null}
-                  {previewLines.length === 0 ? (
-                    <div style={styles.searchEverywhereMessage}>{t('editor.searchPreviewEmpty')}</div>
-                  ) : (
-                    previewLines.map((code, index) => (
-                      <div
-                        key={previewWindow.start + index}
-                        data-dsh-preview-line={previewWindow.start + index}
-                        className='dsh-editor-code-preview-line'
-                        style={{
-                          ...styles.searchEverywherePreviewLine,
-                          ...(previewState.kind === 'text' && previewWindow.start + index === previewState.line
-                            ? styles.searchEverywherePreviewLineActive
-                            : null),
-                        }}>
-                        <span
-                          className='dsh-editor-code-preview-gutter'
-                          style={styles.searchEverywherePreviewNumber}>
-                          {String(previewWindow.start + index)}
-                        </span>
-                        <CodePreviewCode
-                          text={code}
-                          html={previewColorizedLines?.[index] ?? null}
-                          segments={null}
-                          style={{
-                            ...styles.searchEverywherePreviewCode,
-                            whiteSpace: previewSoftWrap ? 'pre-wrap' : 'pre',
-                            overflowWrap: previewSoftWrap ? 'anywhere' : 'normal',
-                          }}
-                        />
-                      </div>
-                    ))
-                  )}
-                  {previewWindow?.truncatedAfter ? <div style={styles.searchEverywhereMessage}>…</div> : null}
-                </React.Fragment>
-              ) : null}
-            </div>
+                style={styles.searchEverywhereUsedOptions}
+                data-dsh-search-used-options=''>{`${t('editor.searchOptionsUsed')} ${activeSearchOptionsText}`}</div>
+            ) : null}
+            {showScopeExpansionFallback ? (
+              <button
+                type='button'
+                className='dsh-editor-search-expand-scope'
+                style={styles.searchEverywhereInlineAction}
+                data-dsh-search-expand-scope=''
+                onClick={expandSearchScope}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') event.stopPropagation();
+                }}>
+                {t('editor.searchExpandScope')}
+              </button>
+            ) : null}
+            {canResetSearchFilters ? (
+              <button
+                type='button'
+                className='dsh-editor-search-reset-filter'
+                style={styles.searchEverywhereInlineAction}
+                data-dsh-search-reset-filter=''
+                onClick={resetSearchFilters}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') event.stopPropagation();
+                }}>
+                {t('editor.searchResetFilters')}
+              </button>
+            ) : null}
+            {showFindInFilesFallback ? (
+              <button
+                type='button'
+                className='dsh-editor-search-find-in-files'
+                style={styles.searchEverywhereInlineAction}
+                data-dsh-search-find-in-files=''
+                onClick={() =>
+                  openSearchResultsInFind(null, null, {
+                    refresh: true,
+                  })
+                }
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') event.stopPropagation();
+                }}>
+                {t('editor.searchFindInFilesFallback')}
+              </button>
+            ) : null}
+            {showClearOptionsFallback ? (
+              <button
+                type='button'
+                className='dsh-editor-search-clear-options'
+                style={styles.searchEverywhereInlineAction}
+                data-dsh-search-clear-options=''
+                onClick={clearSearchOptions}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') event.stopPropagation();
+                }}>
+                {t('editor.searchClearAllOptions')}
+              </button>
+            ) : null}
           </div>
         ) : null}
-        {filterMenu === null ? null : (
-          <ContextMenu
-            t={t}
-            onClose={closeFilterMenu}
-            menu={{
-              ...filterMenu,
-              fallbackFocus: () => searchInputRef.current?.focus?.(),
-              title: t('editor.searchFilter'),
-              items: [
-                {
-                  id: 'search-filter-files',
-                  label: t('editor.searchTabFiles'),
-                  active: searchFilters.files,
-                  shortcut: searchFilters.files ? '✓' : '',
-                  keepOpen: true,
-                  run: () =>
-                    setSearchFilters((current) => ({
-                      ...current,
-                      files: !current.files,
-                    })),
-                },
-                {
-                  id: 'search-filter-text',
-                  label: t('editor.searchTabText'),
-                  active: searchFilters.text,
-                  shortcut: searchFilters.text ? '✓' : '',
-                  keepOpen: true,
-                  run: () =>
-                    setSearchFilters((current) => ({
-                      ...current,
-                      text: !current.text,
-                    })),
-                },
-                {
-                  id: 'search-filter-actions',
-                  label: t('editor.searchTabActions'),
-                  active: searchFilters.actions,
-                  shortcut: searchFilters.actions ? '✓' : '',
-                  keepOpen: true,
-                  run: () =>
-                    setSearchFilters((current) => ({
-                      ...current,
-                      actions: !current.actions,
-                    })),
-                },
-              ],
-            }}
-          />
-        )}
-        {queryHistoryMenu === null ? null : (
-          <ContextMenu
-            t={t}
-            onClose={() => setQueryHistoryMenu(null)}
-            menu={{
-              ...queryHistoryMenu,
-              fallbackFocus: () => searchInputRef.current?.focus?.(),
-              escapeFocus: () => searchInputRef.current?.focus?.(),
-            }}
-          />
-        )}
-        {findUsagesHistoryMenu === null ? null : (
-          <ContextMenu
-            t={t}
-            onClose={() => setFindUsagesHistoryMenu(null)}
-            menu={{
-              ...findUsagesHistoryMenu,
-              fallbackFocus: () => searchInputRef.current?.focus?.(),
-              escapeFocus: () => searchInputRef.current?.focus?.(),
-            }}
-          />
-        )}
-        {replaceHistoryMenu === null ? null : (
-          <ContextMenu
-            t={t}
-            onClose={() => setReplaceHistoryMenu(null)}
-            menu={{
-              ...replaceHistoryMenu,
-              fallbackFocus: () => searchInputRef.current?.focus?.(),
-              escapeFocus: () => (replaceInputRef.current ?? searchInputRef.current)?.focus?.(),
-            }}
-          />
-        )}
-        {resultMenu === null ? null : (
-          <ContextMenu
-            t={t}
-            menu={{
-              ...resultMenu,
-              fallbackFocus: () => searchInputRef.current?.focus?.(),
-            }}
-            onClose={() => setResultMenu(null)}
-          />
-        )}
-        {resultTooltip === null ? null : (
+        {results.map((result, position) => {
+          const isFile = result.kind === 'file' || result.kind === 'text';
+          const badge = isFile ? badgeFor(result.path, changes) : null;
+          const section = searchEverywhereSection(result, results[position - 1], effectiveQuery, effectiveTab, false);
+          const row = (
+            <div
+              key={result.rowKey}
+              id={searchEverywhereOptionId(result.rowKey)}
+              role='option'
+              aria-selected={position === activeIndex}
+              aria-disabled={result.disabled === true}
+              aria-description={result.kind === 'action' ? searchEverywhereResultTooltip(result) : undefined}
+              aria-keyshortcuts={result.ariaKeyShortcuts}
+              data-search-everywhere-active={position === activeIndex ? '1' : '0'}
+              className='dsh-editor-search-everywhere-row'
+              style={{
+                ...styles.paletteRow,
+                ...styles.searchEverywhereRow,
+                ...(position === activeIndex ? styles.paletteRowActive : null),
+                ...(result.disabled === true
+                  ? {
+                      opacity: 0.45,
+                    }
+                  : null),
+              }}
+              onMouseEnter={(event) => {
+                onMove(position - activeIndex, results.length, position);
+                scheduleResultTooltip(event, result);
+              }}
+              onMouseLeave={clearResultTooltip}
+              onMouseDown={(event) => {
+                if (event.button !== 0) return;
+                event.preventDefault();
+                clearResultTooltip();
+                activateResult(result);
+              }}
+              onContextMenu={(event) => openResultMenu(event, result)}>
+              {isFile ? (
+                <SearchFileResultItem
+                  path={result.path ?? ''}
+                  name={result.title ?? result.label ?? result.path ?? ''}
+                  detail={result.subtitle}
+                  statusInfo={badge}
+                  selected={position === activeIndex}
+                />
+              ) : (
+                <React.Fragment>
+                  <Icon
+                    name={result.icon ?? 'settings'}
+                    size={POPUP_ICON_SIZE}
+                  />
+                  <span
+                    style={{
+                      ...styles.paletteName,
+                      flex: '1 1 auto',
+                    }}>
+                    {result.title ?? result.label}
+                  </span>
+                  <span style={styles.searchEverywhereMeta}>{result.subtitle ?? ''}</span>
+                </React.Fragment>
+              )}
+              {result.category ? (
+                <span
+                  className='dsh-editor-search-everywhere-category'
+                  style={styles.searchEverywhereCategory}
+                  title={result.category}
+                  data-dsh-search-category=''>
+                  {result.category}
+                </span>
+              ) : null}
+              {result.shortcut ? <span style={styles.searchEverywhereShortcut}>{result.shortcut}</span> : null}
+            </div>
+          );
+          return section === null ? (
+            row
+          ) : (
+            <React.Fragment key={`section:${section}:${result.rowKey}`}>
+              <div
+                style={styles.searchEverywhereSection}
+                data-search-everywhere-section={section}>
+                {section === 'recent' ? t('editor.searchSectionRecent') : t('editor.searchSectionActions')}
+              </div>
+              {row}
+            </React.Fragment>
+          );
+        })}
+        {textTruncated && effectiveTab !== 'actions' ? (
           <div
-            role='tooltip'
-            data-search-everywhere-tooltip=''
-            style={{
-              ...styles.searchEverywhereTooltip,
-              left: resultTooltip.left,
-              top: resultTooltip.top,
-            }}>
-            {resultTooltip.text}
+            style={styles.searchEverywhereMessage}
+            role='status'
+            aria-live='polite'>
+            {t('editor.searchTextTruncated')}
           </div>
-        )}
+        ) : null}
       </div>
+      {previewOpen ? (
+        <div
+          style={styles.searchEverywherePreview}
+          className='dsh-editor-search-preview'
+          data-dsh-search-preview=''>
+          <div style={styles.searchEverywherePreviewToolbar}>
+            <Icon
+              name={previewState.kind === 'action' ? 'settings' : 'file'}
+              size={POPUP_ICON_SIZE}
+            />
+            <span
+              style={styles.searchEverywherePreviewPath}
+              title={previewState.path}>
+              {previewState.path || activeResult?.label || t('editor.searchPreview')}
+            </span>
+            <ToolbarButton
+              icon='wrap'
+              label={t('editor.searchPreviewSoftWrap')}
+              active={previewSoftWrap}
+              onClick={() => setPreviewSoftWrap((value) => !value)}
+              iconSize={POPUP_ICON_SIZE}
+            />
+          </div>
+          <div
+            ref={previewBodyRef}
+            style={styles.searchEverywherePreviewBody}
+            className='dsh-editor-code-preview'
+            data-dsh-code-preview=''>
+            {previewState.loading ? <div style={styles.searchEverywhereMessage}>{t('editor.loading')}</div> : null}
+            {previewState.error !== null ? (
+              <div
+                style={styles.searchEverywhereError}
+                role='alert'>
+                {previewState.error}
+              </div>
+            ) : null}
+            {!previewState.loading && previewState.error === null && previewState.kind === 'action' ? (
+              <div
+                style={{
+                  padding: '8px 12px',
+                }}>
+                {previewState.content}
+              </div>
+            ) : null}
+            {!previewState.loading && previewState.error === null && previewState.kind !== 'action' ? (
+              <React.Fragment>
+                {previewWindow?.truncatedBefore ? <div style={styles.searchEverywhereMessage}>…</div> : null}
+                {previewLines.length === 0 ? (
+                  <div style={styles.searchEverywhereMessage}>{t('editor.searchPreviewEmpty')}</div>
+                ) : (
+                  previewLines.map((code, index) => (
+                    <div
+                      key={previewWindow.start + index}
+                      data-dsh-preview-line={previewWindow.start + index}
+                      className='dsh-editor-code-preview-line'
+                      style={{
+                        ...styles.searchEverywherePreviewLine,
+                        ...(previewState.kind === 'text' && previewWindow.start + index === previewState.line
+                          ? styles.searchEverywherePreviewLineActive
+                          : null),
+                      }}>
+                      <span
+                        className='dsh-editor-code-preview-gutter'
+                        style={styles.searchEverywherePreviewNumber}>
+                        {String(previewWindow.start + index)}
+                      </span>
+                      <CodePreviewCode
+                        text={code}
+                        html={previewColorizedLines?.[index] ?? null}
+                        segments={null}
+                        style={{
+                          ...styles.searchEverywherePreviewCode,
+                          whiteSpace: previewSoftWrap ? 'pre-wrap' : 'pre',
+                          overflowWrap: previewSoftWrap ? 'anywhere' : 'normal',
+                        }}
+                      />
+                    </div>
+                  ))
+                )}
+                {previewWindow?.truncatedAfter ? <div style={styles.searchEverywhereMessage}>…</div> : null}
+              </React.Fragment>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+      {filterMenu === null ? null : (
+        <ContextMenu
+          t={t}
+          onClose={closeFilterMenu}
+          menu={{
+            ...filterMenu,
+            fallbackFocus: () => searchInputRef.current?.focus?.(),
+            title: t('editor.searchFilter'),
+            items: [
+              {
+                id: 'search-filter-files',
+                label: t('editor.searchTabFiles'),
+                active: searchFilters.files,
+                shortcut: searchFilters.files ? '✓' : '',
+                keepOpen: true,
+                run: () =>
+                  setSearchFilters((current) => ({
+                    ...current,
+                    files: !current.files,
+                  })),
+              },
+              {
+                id: 'search-filter-text',
+                label: t('editor.searchTabText'),
+                active: searchFilters.text,
+                shortcut: searchFilters.text ? '✓' : '',
+                keepOpen: true,
+                run: () =>
+                  setSearchFilters((current) => ({
+                    ...current,
+                    text: !current.text,
+                  })),
+              },
+              {
+                id: 'search-filter-actions',
+                label: t('editor.searchTabActions'),
+                active: searchFilters.actions,
+                shortcut: searchFilters.actions ? '✓' : '',
+                keepOpen: true,
+                run: () =>
+                  setSearchFilters((current) => ({
+                    ...current,
+                    actions: !current.actions,
+                  })),
+              },
+            ],
+          }}
+        />
+      )}
+      {queryHistoryMenu === null ? null : (
+        <ContextMenu
+          t={t}
+          onClose={() => setQueryHistoryMenu(null)}
+          menu={{
+            ...queryHistoryMenu,
+            fallbackFocus: () => searchInputRef.current?.focus?.(),
+            escapeFocus: () => searchInputRef.current?.focus?.(),
+          }}
+        />
+      )}
+      {findUsagesHistoryMenu === null ? null : (
+        <ContextMenu
+          t={t}
+          onClose={() => setFindUsagesHistoryMenu(null)}
+          menu={{
+            ...findUsagesHistoryMenu,
+            fallbackFocus: () => searchInputRef.current?.focus?.(),
+            escapeFocus: () => searchInputRef.current?.focus?.(),
+          }}
+        />
+      )}
+      {replaceHistoryMenu === null ? null : (
+        <ContextMenu
+          t={t}
+          onClose={() => setReplaceHistoryMenu(null)}
+          menu={{
+            ...replaceHistoryMenu,
+            fallbackFocus: () => searchInputRef.current?.focus?.(),
+            escapeFocus: () => (replaceInputRef.current ?? searchInputRef.current)?.focus?.(),
+          }}
+        />
+      )}
+      {resultMenu === null ? null : (
+        <ContextMenu
+          t={t}
+          menu={{
+            ...resultMenu,
+            fallbackFocus: () => searchInputRef.current?.focus?.(),
+          }}
+          onClose={() => setResultMenu(null)}
+        />
+      )}
+      {resultTooltip === null ? null : (
+        <div
+          role='tooltip'
+          data-search-everywhere-tooltip=''
+          style={{
+            ...styles.searchEverywhereTooltip,
+            left: resultTooltip.left,
+            top: resultTooltip.top,
+          }}>
+          {resultTooltip.text}
+        </div>
+      )}
     </div>
   );
 }

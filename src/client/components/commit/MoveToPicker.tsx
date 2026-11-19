@@ -1,6 +1,6 @@
 import React from 'react';
 import { styles } from '../../ui/styles';
-import { Icon } from '../ui/Icon';
+import { Icon, POPUP_ICON_SIZE } from '../ui/Icon';
 
 type Translate = (key: string, params?: Record<string, unknown>) => string;
 
@@ -113,7 +113,7 @@ function MoveToPicker({
               }}>
               <Icon
                 name='folder'
-                size={14}
+                size={POPUP_ICON_SIZE}
               />
               <span style={styles.paletteName}>{directory === '' ? (state.rootName ?? '/') : directory}</span>
               {directory === (state.parent ?? '') ? <span style={styles.paletteDir}>{currentLabel}</span> : null}

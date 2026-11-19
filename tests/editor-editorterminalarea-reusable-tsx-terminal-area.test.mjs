@@ -12,7 +12,7 @@ test('EditorTerminalArea is a reusable TSX terminal area', async () => {
   assert.match(component, /function EditorTerminalArea\(/u);
   assert.match(component, /if \(!active \|\| terminal === null\) return null;/u);
   assert.match(component, /<EditorTerminalTab/u);
-  assert.match(component, /fontSize=\{12\}/u);
+  assert.match(component, /fontSize=\{EDITOR_FONT_SIZE_SCALE\.body\}/u);
   assert.match(component, /getCwd=\{\(\) => terminal\.cwd\}/u);
   assert.match(component, /onInput=\{onInput\}/u);
   assert.match(component, /onReturnToDock=\{onReturnToDock\}/u);

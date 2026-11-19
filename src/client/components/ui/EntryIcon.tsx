@@ -1,4 +1,5 @@
 import React from 'react';
+import { EDITOR_FONT_SIZE_SCALE } from '../editor/editor-style-model';
 import { fileBadge } from './file-badge';
 import { Icon } from './Icon';
 import { primitives } from '../../foundation';
@@ -53,7 +54,7 @@ export function EntryIcon({ entry, expanded = false }: EntryIconProps) {
         borderRadius: 3,
         background: badge.background,
         color: badge.color,
-        fontSize: badge.label.length > 2 ? 6 : 8,
+        fontSize: badge.label.length > 2 ? EDITOR_FONT_SIZE_SCALE.badgeCompact : EDITOR_FONT_SIZE_SCALE.badge,
         fontWeight: 700,
         lineHeight: 1,
         letterSpacing: -0.2,

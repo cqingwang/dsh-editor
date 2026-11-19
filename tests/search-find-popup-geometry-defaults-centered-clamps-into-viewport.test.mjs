@@ -29,26 +29,26 @@ function extractFunction(name) {
 
 function geometryFunctions() {
   return new Function(
-    'const FIND_POPUP_DEFAULT_WIDTH = 510;'
-      + 'const FIND_POPUP_DEFAULT_HEIGHT = 440;'
-      + `${extractFunction('clampFindPopupGeometry')};`
-      + `${extractFunction('moveFindPopupGeometry')};`
-      + `${extractFunction('resizeFindPopupGeometry')};`
-      + 'return { clampFindPopupGeometry, moveFindPopupGeometry, resizeFindPopupGeometry };',
+    'const FIND_POPUP_DEFAULT_WIDTH = 510;' +
+      'const FIND_POPUP_DEFAULT_HEIGHT = 440;' +
+      `${extractFunction('clampFindPopupGeometry')};` +
+      `${extractFunction('moveFindPopupGeometry')};` +
+      `${extractFunction('resizeFindPopupGeometry')};` +
+      'return { clampFindPopupGeometry, moveFindPopupGeometry, resizeFindPopupGeometry };',
   )();
 }
 
 function readGeometry(savedGeometry) {
   return new Function(
     'window',
-    'const FIND_POPUP_GEOMETRY_STORAGE_KEY = "dsh-editor.find.popup.geometry.v1";'
-      + 'const FIND_POPUP_DEFAULT_WIDTH = 510;'
-      + 'const FIND_POPUP_DEFAULT_HEIGHT = 440;'
-      + 'const LEGACY_FIND_POPUP_DEFAULT_WIDTH = 580;'
-      + 'const LEGACY_FIND_POPUP_DEFAULT_HEIGHT = 536;'
-      + `${extractFunction('clampFindPopupGeometry')};`
-      + `${extractFunction('readFindPopupGeometry')};`
-      + 'return readFindPopupGeometry;',
+    'const FIND_POPUP_GEOMETRY_STORAGE_KEY = "dsh-editor.find.popup.geometry.v1";' +
+      'const FIND_POPUP_DEFAULT_WIDTH = 510;' +
+      'const FIND_POPUP_DEFAULT_HEIGHT = 440;' +
+      'const LEGACY_FIND_POPUP_DEFAULT_WIDTH = 580;' +
+      'const LEGACY_FIND_POPUP_DEFAULT_HEIGHT = 536;' +
+      `${extractFunction('clampFindPopupGeometry')};` +
+      `${extractFunction('readFindPopupGeometry')};` +
+      'return readFindPopupGeometry;',
   )({
     innerHeight: 900,
     innerWidth: 1200,
@@ -81,35 +81,47 @@ test('Find popup geometry defaults to centered and clamps into the viewport', ()
 
 test('Find popup move stays inside the viewport', () => {
   const { moveFindPopupGeometry } = geometryFunctions();
-  assert.deepEqual(
-    moveFindPopupGeometry({ x: 100, y: 80, width: 580, height: 536 }, 200, 100, 1000, 800),
-    { x: 300, y: 180, width: 580, height: 536 },
-  );
-  assert.deepEqual(
-    moveFindPopupGeometry({ x: 100, y: 80, width: 580, height: 536 }, -500, -500, 1000, 800),
-    { x: 8, y: 8, width: 580, height: 536 },
-  );
+  assert.deepEqual(moveFindPopupGeometry({ x: 100, y: 80, width: 580, height: 536 }, 200, 100, 1000, 800), {
+    x: 300,
+    y: 180,
+    width: 580,
+    height: 536,
+  });
+  assert.deepEqual(moveFindPopupGeometry({ x: 100, y: 80, width: 580, height: 536 }, -500, -500, 1000, 800), {
+    x: 8,
+    y: 8,
+    width: 580,
+    height: 536,
+  });
 });
 
 test('Find popup resize honors each edge and minimum readable size', () => {
   const { resizeFindPopupGeometry } = geometryFunctions();
   const start = { x: 100, y: 80, width: 580, height: 536 };
-  assert.deepEqual(
-    resizeFindPopupGeometry(start, 120, 40, 'se', 1200, 900),
-    { x: 100, y: 80, width: 700, height: 576 },
-  );
-  assert.deepEqual(
-    resizeFindPopupGeometry(start, 80, 50, 'nw', 1200, 900),
-    { x: 180, y: 130, width: 500, height: 486 },
-  );
-  assert.deepEqual(
-    resizeFindPopupGeometry(start, 1000, 1000, 'nw', 1200, 900),
-    { x: 320, y: 356, width: 360, height: 260 },
-  );
+  assert.deepEqual(resizeFindPopupGeometry(start, 120, 40, 'se', 1200, 900), {
+    x: 100,
+    y: 80,
+    width: 700,
+    height: 576,
+  });
+  assert.deepEqual(resizeFindPopupGeometry(start, 80, 50, 'nw', 1200, 900), {
+    x: 180,
+    y: 130,
+    width: 500,
+    height: 486,
+  });
+  assert.deepEqual(resizeFindPopupGeometry(start, 1000, 1000, 'nw', 1200, 900), {
+    x: 320,
+    y: 356,
+    width: 360,
+    height: 260,
+  });
 });
 
 test('Find popup remembers geometry in browser-local storage', () => {
-  assert.match(source, /findToolPopup: \{\s+position: 'fixed',\s+boxSizing: 'border-box',/u);
+  const popup = source.slice(source.indexOf('findToolPopup: {'), source.indexOf('findToolToolbar: {'));
+  assert.doesNotMatch(popup, /position: 'fixed'/u);
+  assert.doesNotMatch(popup, /width: 'min\(510px/u);
   assert.match(source, /dsh-editor\.find\.popup\.geometry\.v1/u);
   assert.match(source, /FIND_POPUP_DEFAULT_WIDTH = 510/u);
   assert.match(source, /FIND_POPUP_DEFAULT_HEIGHT = 440/u);
@@ -121,19 +133,20 @@ test('Find popup remembers geometry in browser-local storage', () => {
 });
 
 test('The floating wrapper uses persisted geometry and exposes move/resize handles', () => {
-  assert.match(findToolPopupSource, /data-dsh-find-tool-popup=''/u);
+  assert.match(findToolPopupSource, /data-dsh-floating-tool-popup=''/u);
+  assert.match(findToolPopupSource, /data-dsh-find-tool-popup=\{kind === 'find' \? '' : undefined\}/u);
   assert.match(findToolPopupSource, /left: geometry\.x/u);
   assert.match(findToolPopupSource, /top: geometry\.y/u);
   assert.match(findToolPopupSource, /width: geometry\.width/u);
   assert.match(findToolPopupSource, /height: geometry\.height/u);
-  assert.match(source, /<FindToolPopup/u);
+  assert.match(source, /<FloatingToolPopup/u);
   assert.match(source, /geometry: findToolPopupGeometry/u);
-  assert.match(source, /onPopupDragStart=\{startFindPopupInteraction\}/u);
-  assert.match(source, /onPopupResizeStart=\{\(event, direction\) => startFindPopupInteraction\(event, direction\)\}/u);
-  assert.match(source, /data-dsh-find-popup-resize=\{direction\}/u);
+  assert.match(source, /onGeometryChange=\{setFindToolPopupGeometry\}/u);
+  assert.match(source, /onGeometryCommit=\{\(geometry\) => writeFindPopupGeometry\(geometry\)\}/u);
+  assert.match(findToolPopupSource, /data-dsh-floating-popup-resize=\{direction\}/u);
   assert.match(source, /const FIND_POPUP_RESIZE_DIRECTIONS = \['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'\]/u);
-  assert.match(source, /onPointerDown=\{\s+floating\s+\?/u);
-  assert.match(source, /closest\('button, input, textarea, select, a, \[role="menuitem"\]'\)/u);
+  assert.match(findToolPopupSource, /onPointerDown=\{\(event\) => startInteraction\(event, direction\)\}/u);
+  assert.match(findToolPopupSource, /closest\('button, input, textarea, select, a, \[role="menuitem"\]'\)/u);
 });
 
 test('Legacy default geometry migrates while custom Find popup sizes survive', () => {

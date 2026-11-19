@@ -34,7 +34,7 @@ export {
   type GitStatusMap,
 } from './git-change-model.ts';
 export { gitStatusInfo, type GitStatusInfo } from './git-status-model.ts';
-export { Icon, type IconProps } from './Icon.tsx';
+export { Icon, POPUP_ICON_SIZE, type IconProps } from './Icon.tsx';
 export { LineCounts, type LineCountsProps, type LineCountsValue } from './LineCounts.tsx';
 export { ContextMenu, type ContextMenuModel, type ContextMenuProps, type MenuAction, type MenuEntry } from './Menu.tsx';
 export {

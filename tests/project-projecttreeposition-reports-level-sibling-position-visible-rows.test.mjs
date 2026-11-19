@@ -51,7 +51,8 @@ test('Project rows expose the computed position set', () => {
     source,
     /const projectRowPositions = React\.useMemo\(\(\) => projectTreePositions\(visibleRows\), \[visibleRows\]\)/,
   );
-  assert.match(source, /const projectRowPosition = projectRowPositions\[rowIndex\]/);
+  assert.match(source, /projectRowPosition: projectRowPositions\[rowIndex\]/);
+  assert.match(source, /const \{[\s\S]*?projectRowPosition,[\s\S]*?\} =\s*projectRowPresentation/);
   assert.match(source, /'aria-posinset': projectRowPosition\.posinset/);
   assert.match(source, /'aria-setsize': projectRowPosition\.setsize/);
 });

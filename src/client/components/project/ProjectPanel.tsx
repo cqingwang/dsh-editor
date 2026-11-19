@@ -1,5 +1,6 @@
 import React from 'react';
 import { styles } from '../../ui/styles';
+import { EDITOR_TEXT_STYLE } from '../editor/editor-style-model';
 import { EntryIcon } from '../ui/EntryIcon';
 import { Icon } from '../ui/Icon';
 import { ContextMenu } from '../ui/Menu';
@@ -433,8 +434,6 @@ function ProjectPanel({
       string,
       {
         directoryTintState: { color: string } | null;
-        indentGuideKinds: string[];
-        isDirectory: boolean;
         open: boolean;
         projectRowPosition: (typeof projectRowPositions)[number];
         statusColor: string | null;
@@ -443,21 +442,10 @@ function ProjectPanel({
     visibleRows.forEach((row, rowIndex) => {
       if (row.kind === 'placeholder') return;
       const status = gitChanges.get(row.path);
-      const isDirectory = row.kind === 'directory';
+      const directoryRow = row.kind === 'directory';
       presentations.set(row.path, {
         directoryTintState:
-          isDirectory && status === undefined ? directoryTint(changesByDirectory.get(row.path)) : null,
-        indentGuideKinds:
-          row.depth > 0
-            ? Array.from({ length: row.depth }, (_, index) =>
-                guideKind({
-                  continues: row.continues,
-                  index,
-                  depth: row.depth,
-                }),
-              )
-            : [],
-        isDirectory,
+          directoryRow && status === undefined ? directoryTint(changesByDirectory.get(row.path)) : null,
         open: row.searchOpen === true || expanded.has(row.path),
         projectRowPosition: projectRowPositions[rowIndex],
         statusColor: treeNameColor({
@@ -668,7 +656,7 @@ function ProjectPanel({
             role='status'
             style={{
               color: 'var(--dsw-alias-label-secondary)',
-              fontSize: 11,
+              ...EDITOR_TEXT_STYLE.label,
               lineHeight: '16px',
               display: 'flex',
               gap: 6,
@@ -992,7 +980,7 @@ function ProjectPanel({
           <TreeMessage state='no-matches'>{t('editor.noMatches')}</TreeMessage>
         ) : null}
         {searchTruncated ? <TreeMessage state='truncated'>{t('editor.treeSearchTruncated')}</TreeMessage> : null}
-        {visibleRows.map((row) => {
+        {visibleRows.map((row, rowIndex) => {
           if (row.kind === 'placeholder') {
             return (
               <div
@@ -1012,10 +1000,10 @@ function ProjectPanel({
           }
           const selected = selection.has(row.path);
           const primary = row.path === selectedPath;
+          const isDirectory = row.kind === 'directory';
           const projectRowPresentation = projectRowPresentationByPath.get(row.path);
           if (projectRowPresentation === undefined) return null;
-          const { directoryTintState, indentGuideKinds, isDirectory, open, projectRowPosition, statusColor } =
-            projectRowPresentation;
+          const { directoryTintState, open, projectRowPosition, statusColor } = projectRowPresentation;
           return (
             <div
               key={row.path === '' ? '__root__' : row.path}
@@ -1049,6 +1037,7 @@ function ProjectPanel({
                   : null),
               }}
               title={row.path === '' ? root : row.path}
+              data-dsh-project-row-index={rowIndex}
               role='treeitem'
               aria-level={projectRowPosition.level}
               aria-posinset={projectRowPosition.posinset}
@@ -1166,13 +1155,25 @@ function ProjectPanel({
                 /* Indentation FIRST, then the chevron: with the guides after it every
              row's arrow sat at the same left edge, so a nested folder looked like a
              sibling and the hierarchy only showed as trailing whitespace. */
-                indentGuideKinds.length > 0
-                  ? indentGuideKinds.map((kind, index) => (
-                      <span
-                        key={index}
-                        style={kind === 'line' ? styles.indentGuide : styles.indentGuideStop}
-                      />
-                    ))
+                row.depth > 0
+                  ? Array.from(
+                      {
+                        length: row.depth,
+                      },
+                      (_, index) => {
+                        const kind = guideKind({
+                          continues: row.continues,
+                          index,
+                          depth: row.depth,
+                        });
+                        return (
+                          <span
+                            key={index}
+                            style={kind === 'line' ? styles.indentGuide : styles.indentGuideStop}
+                          />
+                        );
+                      },
+                    )
                   : null
               }
               {row.root ? null : isDirectory ? (
