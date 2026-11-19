@@ -1,5 +1,91 @@
 # dsh-editor 工程记忆
 
+## 2026-11-19 — Commit 的 Change/Log 页签返回后滚动位置丢失
+
+**作用域**：Commit 工具窗 Change/Log 页签、`commitScrollRef`、
+`rememberCommitScroll`、`restoreScrollTop`、运行态滚动恢复时机。
+
+**症状/证据**：
+
+- 运行态注入可滚动内容后，Changes 与 Log 都能真实滚动；
+- Changes 设置 `scrollTop=120`，切到 Log 后返回，Changes 为 0；
+- Log 设置 `scrollTop=120`，切到 Changes 后返回，Log 为 0；
+- scrollTop 事件追踪确认离开 Changes 时读取并保存了 120；
+- 返回 Changes 时没有发生恢复写入；
+- 原恢复由 `useEffect + requestAnimationFrame` 延迟一拍执行。
+
+**根因**：
+
+- 页签 DOM 已在 React commit 阶段完成挂载和 ref 赋值；
+- 再延后一帧既没有必要，也可能落在瞬态 ref/layout 状态上；
+- 结果是 remembered 值存在，但恢复函数在错误时机静默返回。
+
+**修复**：
+
+- 将滚动恢复改为 `React.useLayoutEffect`：
+  `rememberCommitScroll(commitMode)`；
+- 保留每页独立 offset 和 `restoreScrollTop` 的 remembered/null/max clamp；
+- 新增回归禁止恢复逻辑退回 `requestAnimationFrame` 延迟。
+
+**回归**：
+
+- 运行态 CSS 将 Changes/Log 列表扩展到真实可滚动高度；
+- Changes：`120 → 切换 Log → 返回 Changes = 120`；
+- Log：`120 → 切换 Changes → 返回 Log = 120`；
+- `tests/commit-remembered-offset-restored-clamped-new-content.test.mjs`
+  锁定 useLayoutEffect，并禁止旧 animation-frame 恢复；
+- 定向回归 **27 pass / 0 fail**；
+- 完整测试、lint、TypeScript、source imports、bundle 一致性、Prettier、
+  `git diff --check` 见收尾门禁。
+
+**适用环境**：macOS、DSH Web、Ego Lite、IDEA 2026.2。
+React commit 完成后即可访问的 DOM/ref 不应再靠动画帧猜测；滚动恢复应在
+layout effect 中执行。
+
+## 2026-11-19 — Terminal 工具栏关闭后焦点落到 BODY
+
+**作用域**：Terminal Dock 的 Activity 关闭、工具栏 Hide、Alt+F12 关闭、
+`terminalReturnFocusRef`、workspace/Diff 编辑器焦点恢复。
+
+**症状/证据**：
+
+- Commit Changes 持焦后打开 Terminal，再点击工具栏 `Hide terminal`；
+- Terminal 正确关闭，但 `document.activeElement === document.body`；
+- 原 `onRequestClose` 在 `setTerminalOpen(false)` 后固定
+  `setTimeout(..., 0)` 恢复 origin；
+- 固定 tick 早于 Terminal unmount 完成时，会被卸载节点把焦点覆盖回 BODY。
+
+**根因**：
+
+- Terminal 的三种关闭入口各自维护焦点恢复，仍包含延迟 tick；
+- 与 Commit 工具窗隐藏相同，焦点必须在 React unmount commit 后恢复，
+  而不是在设置 visible=false 后猜一个固定时机。
+
+**修复**：
+
+- `focusWorkspaceSurface(preferred?)` 支持优先恢复原 Commit tree/row；
+- 有 preferred 时聚焦它，否则回退 Monaco 或既有 Diff focus event；
+- Activity、工具栏和 Alt+F12 三条 Terminal 关闭路径统一调用它；
+- 移除 Terminal 关闭路径中的固定 `setTimeout`；
+- Switch Focus To Editor 继续使用同一函数但无 preferred。
+
+**回归**：
+
+- `tests/terminal-screen-reclaims-focus-whenever-becomes-visible.test.mjs`
+  覆盖本地 origin 委托；
+- DSH Web：
+  - 工具栏 Hide → Changes tree，`isBody=false`；
+  - Terminal input + Alt+F12 → Changes tree，`isBody=false`；
+  - Commit 隐藏/恢复期间 Terminal panel 和 xterm 节点持续存在；
+- Terminal input + Alt+2 → Commit Changes tree，Terminal 保持打开；
+- 定向回归 **27 pass / 0 fail**；
+- 完整测试、lint、TypeScript、source imports、bundle 一致性、Prettier、
+  `git diff --check` 见收尾门禁。
+
+**适用环境**：macOS、DSH Web、Ego Lite、IDEA 2026.2。
+所有关闭动态 UI 的路径必须等待卸载提交完成再恢复焦点；同一 focus
+恢复链应由共享积木拥有。
+
 ## 2026-11-19 — 隐藏 Commit 工具窗后焦点落到 BODY
 
 **作用域**：Commit 工具窗 `Alt+2` 隐藏、Change/Log 两种模式、Monaco/Diff
@@ -46,8 +132,9 @@
   - 再 `Alt+2` 恢复 → Changes tree；
   - 全部 `isBody=false`；
 - 定向回归 **23 pass / 0 fail**；
-- 完整测试、lint、TypeScript、source imports、bundle 一致性、Prettier、
-  `git diff --check` 见收尾门禁。
+- 完整测试 **3082 pass / 0 fail**；
+- lint、TypeScript、source imports、bundle 一致性、Prettier、
+  `git diff --check` 通过。
 
 **适用环境**：macOS、DSH Web、Ego Lite、IDEA 2026.2。
 工具窗卸载和内容挂载都必须等待 React 的真实 DOM 状态；任何固定 tick 的焦点

@@ -1332,9 +1332,9 @@ function EditorWorkspace({
     if (next === null) return;
     node.scrollTop = next;
   }, []);
-  /* Apply the remembered offset once the active tab's list has rendered. */ React.useEffect(() => {
-    const frame = window.requestAnimationFrame(() => rememberCommitScroll(commitMode));
-    return () => window.cancelAnimationFrame(frame);
+  /* Elements are committed before paint, so restore the incoming tab at that
+     point instead of guessing with a later animation frame. */ React.useLayoutEffect(() => {
+    rememberCommitScroll(commitMode);
   }, [commitMode, rememberCommitScroll]);
   const [commits, setCommits] = React.useState<WorkspaceLogCommit[]>([]);
   /* The commit just created, highlighted in the log so the user sees it land. */ const [
@@ -1645,19 +1645,23 @@ function EditorWorkspace({
    * dispatches a scoped event instead of focusing the hidden main editor.
    * With no diff, Monaco's normal editor is the correct target.
    * @returns {void}
-   */ const focusEditorSurface = React.useCallback(() => {
-    cancelFocusRequestRef.current?.();
-    cancelFocusRequestRef.current = focusSurfaceWhenReady(() => {
-      if (!diffOpen) return editorRef.current;
-      const host = editorRef.current?.getDomNode?.()?.closest?.('[data-dsh-editor-workspace]') ?? null;
-      if (host === null) return null;
-      return {
-        focus: () => {
-          host.dispatchEvent(new CustomEvent('dsh-editor-focus-diff'));
-        },
-      };
-    });
-  }, [diffOpen]);
+   */ const focusWorkspaceSurface = React.useCallback(
+    (preferred?: HTMLElement | null) => {
+      cancelFocusRequestRef.current?.();
+      cancelFocusRequestRef.current = focusSurfaceWhenReady(() => {
+        if (preferred !== null && preferred !== undefined && preferred.isConnected !== false) return preferred;
+        if (!diffOpen) return editorRef.current;
+        const host = editorRef.current?.getDomNode?.()?.closest?.('[data-dsh-editor-workspace]') ?? null;
+        if (host === null) return null;
+        return {
+          focus: () => {
+            host.dispatchEvent(new CustomEvent('dsh-editor-focus-diff'));
+          },
+        };
+      });
+    },
+    [diffOpen],
+  );
   /* IDEA's combined diff can walk every changed file without returning to
          the Changes tree. The sequence follows the active Group by order, so
          Control+Shift+Left/Right lands on the same file the user sees there. */ const diffChangeSequence =
@@ -9850,10 +9854,7 @@ function EditorWorkspace({
           const previous = terminalReturnFocusRef.current;
           terminalReturnFocusRef.current = null;
           setTerminalOpen(false);
-          window.setTimeout(() => {
-            if (previous !== null && previous.isConnected) previous.focus();
-            else focusEditorSurface();
-          }, 0);
+          focusWorkspaceSurface(previous);
           return;
         }
         if (terminalReturnFocusRef.current === null) {
@@ -9883,7 +9884,7 @@ function EditorWorkspace({
           const action = toolWindowShortcutAction(activity, next, panelVisibleRef.current, focusInside);
           if (action === 'hide') {
             setPanelVisible(false);
-            focusEditorSurface();
+            focusWorkspaceSurface();
             return;
           }
           setPanelVisible(true);
@@ -9897,7 +9898,7 @@ function EditorWorkspace({
       setPanelVisible(true);
       if (options?.keyboard === true) window.setTimeout(() => focusToolWindowContent(next), 0);
     },
-    [activity, focusEditorSurface, focusToolWindowContent, terminalOpen],
+    [activity, focusToolWindowContent, focusWorkspaceSurface, terminalOpen],
   );
   /* The first Alt+F1 of IDEA's Select Opened File chord. */ const selectOpenedChordAt = React.useRef(0);
   /**
@@ -9922,10 +9923,7 @@ function EditorWorkspace({
     const restoreTerminalOrigin = () => {
       const previous = terminalReturnFocusRef.current;
       terminalReturnFocusRef.current = null;
-      window.setTimeout(() => {
-        if (previous instanceof HTMLElement && previous.isConnected) previous.focus();
-        else editorRef.current?.focus();
-      }, 0);
+      focusWorkspaceSurface(previous);
     };
     const toggleTerminalDock = () => {
       const current = document.activeElement instanceof Element ? document.activeElement : null;
@@ -9990,7 +9988,7 @@ function EditorWorkspace({
     };
     window.addEventListener('keydown', onKeyDown, true);
     return () => window.removeEventListener('keydown', onKeyDown, true);
-  }, [selectActivity, terminalOpen]);
+  }, [focusWorkspaceSurface, selectActivity, terminalOpen]);
   /* Keyboard navigation over the visible flattened rows. */ /* The typeahead's pending prefix, and when the last key arrived. */ const typeaheadBuffer =
     React.useRef('');
   const typeaheadAt = React.useRef(0);
@@ -12376,13 +12374,10 @@ function EditorWorkspace({
                 onRequestNew={() => setTerminalGeneration((value) => value + 1)}
                 focusGeneration={terminalFocusGeneration}
                 onRequestClose={() => {
-                  setTerminalOpen(false);
                   const previous = terminalReturnFocusRef.current;
                   terminalReturnFocusRef.current = null;
-                  window.setTimeout(() => {
-                    if (previous instanceof HTMLElement && previous.isConnected) previous.focus();
-                    else editorRef.current?.focus();
-                  }, 0);
+                  setTerminalOpen(false);
+                  focusWorkspaceSurface(previous);
                 }}
                 onEditorTerminals={(list) =>
                   setEditorTerminals(
@@ -12399,7 +12394,7 @@ function EditorWorkspace({
                     }),
                   )
                 }
-                onSwitchFocusToEditor={focusEditorSurface}
+                onSwitchFocusToEditor={() => focusWorkspaceSurface()}
               />
             }
           />

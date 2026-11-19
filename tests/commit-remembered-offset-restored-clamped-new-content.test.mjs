@@ -44,4 +44,11 @@ test('the commit panel keeps one offset per tab', () => {
   assert.match(source, /restoreScrollTop\(/);
   /* Switching tabs records the outgoing position before the new tab renders. */
   assert.match(source, /rememberCommitScroll\(/);
+  /* The incoming ref exists in the commit phase. Deferring to a later animation
+     frame can observe a transient null and silently drop the saved position. */
+  assert.match(
+    source,
+    /React\.useLayoutEffect\(\(\) => \{\s*rememberCommitScroll\(commitMode\);\s*\}, \[commitMode, rememberCommitScroll\]\);/u,
+  );
+  assert.doesNotMatch(source, /requestAnimationFrame\(\(\) => rememberCommitScroll\(/u);
 });

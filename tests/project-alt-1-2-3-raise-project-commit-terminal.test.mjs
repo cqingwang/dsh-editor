@@ -46,7 +46,7 @@ test('Alt+1/2/3 raise Project, Commit and Terminal', () => {
   /* The handler must not run twice for the same key: modifier-free Alt only. */
   assert.match(block, /if \(event\.altKey && !event\.metaKey && !event\.ctrlKey && event\.key === 'F12'\)/);
   /* It reads the CURRENT selectActivity instead of retaining the first render. */
-  assert.match(block, /\}, \[selectActivity, terminalOpen\]\);/);
+  assert.match(block, /\}, \[focusWorkspaceSurface, selectActivity, terminalOpen\]\);/);
 });
 
 test('switching non-terminal tool windows keeps the terminal dock open', () => {

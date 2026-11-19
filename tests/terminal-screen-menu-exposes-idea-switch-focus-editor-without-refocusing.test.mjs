@@ -104,8 +104,8 @@ test('workspace routes focus requests to the active diff or Monaco editor', () =
     source.indexOf('function EditorWorkspace('),
     source.indexOf('function clampChatPercent('),
   );
-  assert.match(workspace, /onSwitchFocusToEditor: focusEditorSurface/);
-  assert.match(workspace, /const focusEditorSurface = React\.useCallback\(\(\) => \{/);
+  assert.match(workspace, /onSwitchFocusToEditor: \(\) => focusWorkspaceSurface\(\)/);
+  assert.match(workspace, /const focusWorkspaceSurface = React\.useCallback\(\s*\(preferred\) => \{/);
   assert.match(workspace, /dsh-editor-focus-diff/);
   assert.match(workspace, /if \(!diffOpen\) return editorRef\.current;/);
   const diff = source.slice(source.indexOf('function DiffPreview('), source.indexOf('export { DiffPreview };'));

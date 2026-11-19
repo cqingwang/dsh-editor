@@ -96,10 +96,10 @@ test('tool-window shortcuts retry their mounted content instead of focusing BODY
   const hideEnd = workspaceSource.indexOf('setPanelVisible(true);', hideStart);
   assert.ok(hideStart > 0 && hideEnd > hideStart);
   const hideBlock = workspaceSource.slice(hideStart, hideEnd);
-  assert.match(hideBlock, /setPanelVisible\(false\);[\s\S]*?focusEditorSurface\(\);/u);
+  assert.match(hideBlock, /setPanelVisible\(false\);[\s\S]*?focusWorkspaceSurface\(\);/u);
   assert.doesNotMatch(hideBlock, /setTimeout/u);
 
-  const editorStart = workspaceSource.indexOf('const focusEditorSurface = React.useCallback(');
+  const editorStart = workspaceSource.indexOf('const focusWorkspaceSurface = React.useCallback(');
   const editorEnd = workspaceSource.indexOf("/* IDEA's combined diff can walk", editorStart);
   assert.ok(editorStart > 0 && editorEnd > editorStart);
   const editorBlock = workspaceSource.slice(editorStart, editorEnd);

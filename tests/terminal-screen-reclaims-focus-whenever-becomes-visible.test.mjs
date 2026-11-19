@@ -3,10 +3,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
-import {
-  extractVariableInitializerExpression,
-  loadTypeScriptExpression,
-} from './ts-source.mjs';
+import { extractVariableInitializerExpression, loadTypeScriptExpression } from './ts-source.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const screenSource = readFileSync(join(root, 'src/client/components/terminal/TerminalScreen.tsx'), 'utf8');
@@ -27,7 +24,10 @@ test('the terminal screen reclaims focus whenever it becomes visible', () => {
   assert.match(screen, /const setHostNode = React\.useCallback\(\(node(?:\s*:\s*[^)]+)?\) =>/);
   assert.match(screen, /node\.getBoundingClientRect\(\)/);
   assert.match(screen, /node\.offsetParent !== null/);
-  assert.match(screen, /if \(!ready\) return;[\s\S]*?emulatorRef\.current\?\.focus\(\);[\s\S]*?\}, \[ready, visible, focusGeneration\]\);/);
+  assert.match(
+    screen,
+    /if \(!ready\) return;[\s\S]*?emulatorRef\.current\?\.focus\(\);[\s\S]*?\}, \[ready, visible, focusGeneration\]\);/,
+  );
   assert.match(screen, /ref=\{setHostNode\}/);
   assert.match(screen, /focusGeneration = 0/);
 });
@@ -83,9 +83,7 @@ test('Alt+F12 records the originating surface and restores it on close', () => {
     extractVariableInitializerExpression(workspaceSource, 'restoreTerminalOrigin'),
     {
       terminalReturnFocusRef,
-      window: { setTimeout: (callback) => callback() },
-      HTMLElement: FakeElement,
-      editorRef: { current: { focus: () => {} } },
+      focusWorkspaceSurface: (preferred) => preferred?.focus?.(),
     },
   );
   restoreTerminalOrigin();
@@ -101,5 +99,5 @@ test('closing the dock through its own toolbar restores focus too', () => {
   assert.match(panel, /onRequestClose=\{\(\) => \{/);
   assert.match(panel, /setTerminalOpen\(false\);/);
   assert.match(panel, /terminalReturnFocusRef\.current = null;/);
-  assert.match(panel, /else editorRef\.current\?\.focus\(\);/);
+  assert.match(panel, /focusWorkspaceSurface\(previous\);/);
 });

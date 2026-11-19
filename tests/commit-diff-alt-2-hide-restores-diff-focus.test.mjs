@@ -10,7 +10,7 @@ const diffSource = await readFile(new URL('../src/client/components/diff/DiffPre
 test('hiding Commit from the keyboard returns focus to the visible diff', () => {
   assert.match(
     workspaceSource,
-    /if \(action === 'hide'\) \{[\s\S]*?setPanelVisible\(false\);[\s\S]*?focusEditorSurface\(\);/u,
+    /if \(action === 'hide'\) \{[\s\S]*?setPanelVisible\(false\);[\s\S]*?focusWorkspaceSurface\(\);/u,
   );
   assert.doesNotMatch(
     workspaceSource,
@@ -18,7 +18,7 @@ test('hiding Commit from the keyboard returns focus to the visible diff', () => 
   );
 });
 
-test('focusEditorSurface routes visible diff focus through its scoped event', () => {
+test('focusWorkspaceSurface routes visible diff focus through its scoped event', () => {
   const events = [];
   const host = {
     dispatchEvent(event) {
@@ -26,7 +26,7 @@ test('focusEditorSurface routes visible diff focus through its scoped event', ()
       return true;
     },
   };
-  const focusEditorSurface = loadTypeScriptCallback(workspaceSource, 'focusEditorSurface', {
+  const focusWorkspaceSurface = loadTypeScriptCallback(workspaceSource, 'focusWorkspaceSurface', {
     cancelFocusRequestRef: { current: null },
     focusSurfaceWhenReady: (resolveSurface) => {
       const surface = resolveSurface();
@@ -49,7 +49,7 @@ test('focusEditorSurface routes visible diff focus through its scoped event', ()
       }
     },
   });
-  focusEditorSurface();
+  focusWorkspaceSurface();
   assert.deepEqual(events, ['dsh-editor-focus-diff']);
   assert.match(diffSource, /host\.addEventListener\('dsh-editor-focus-diff', onFocus\)/u);
   assert.match(diffSource, /const onFocus = \(\) => focusDiffRef\.current\?\.\(\);/u);
