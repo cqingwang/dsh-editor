@@ -415,13 +415,63 @@ function addTypeParameterGroup(
     const identifiers = [...segment.text.matchAll(IDENTIFIER)];
     const declaration = identifiers.find((identifier) => {
       const value = identifier[0];
-      return value !== 'const' && value !== 'in' && value !== 'out' && !RESERVED_WORDS.has(value);
+      return (
+        segment.text[(identifier.index ?? 0) - 1] !== "'" &&
+        value !== 'const' &&
+        value !== 'in' &&
+        value !== 'out' &&
+        !RESERVED_WORDS.has(value)
+      );
     });
     if (declaration === undefined) continue;
     const value = declaration[0];
     const offset = groupOffset + segment.offset + (declaration.index ?? 0);
     const token = semanticTokenAt(masked, lineStarts, offset, value.length, 'ideaTypeParameter', 92);
     if (token !== null) target.push(token);
+  }
+}
+
+function addRustGenericTypeParameters(target: IdeaLightSemanticToken[], masked: string, lineStarts: number[]): void {
+  for (const match of masked.matchAll(
+    /\b(?:struct|trait|enum|union|type|fn|impl)\s*(?:[A-Za-z_$][\w$]*)?\s*<([^<>]+)>/gu,
+  )) {
+    const group = match[1] ?? '';
+    const groupOffset = (match.index ?? 0) + match[0].indexOf(group);
+    addTypeParameterGroup(target, masked, lineStarts, groupOffset, group);
+  }
+  for (const match of masked.matchAll(/\bwhere\b([^;{]*)(?=[;{])/gu)) {
+    const group = match[1] ?? '';
+    const groupOffset = (match.index ?? 0) + match[0].indexOf(group);
+    for (const constraint of group.matchAll(/(?<!')\b([A-Za-z_$][\w$]*)\s*:/gu)) {
+      const value = constraint[1] ?? '';
+      if (value === '' || RESERVED_WORDS.has(value)) continue;
+      const offset = groupOffset + (constraint.index ?? 0) + constraint[0].indexOf(value);
+      const token = semanticTokenAt(masked, lineStarts, offset, value.length, 'ideaTypeParameter', 92);
+      if (token !== null) target.push(token);
+    }
+  }
+}
+
+function addRustImplTargets(target: IdeaLightSemanticToken[], masked: string, lineStarts: number[]): void {
+  const typePath = String.raw`[A-Za-z_$][\w$]*(?:::[A-Za-z_$][\w$]*)*`;
+  for (const match of masked.matchAll(
+    new RegExp(String.raw`\bimpl\s*(?:<[^>]*>)?\s+(${typePath})(?:\s+for\s+(${typePath}))?`, 'gu'),
+  )) {
+    const traitPath = match[1] ?? '';
+    const implementationPath = match[2] ?? '';
+    const traitIndex = match[0].indexOf(traitPath);
+    for (const [path, tokenType, priority, pathIndex] of implementationPath === ''
+      ? [[traitPath, 'ideaClass', 87, traitIndex] as const]
+      : [
+          [traitPath, 'ideaInterface', 87, traitIndex] as const,
+          [implementationPath, 'ideaClass', 87, match[0].lastIndexOf(implementationPath)] as const,
+        ]) {
+      const value = path.split('::').at(-1) ?? '';
+      if (value === '') continue;
+      const offset = (match.index ?? 0) + pathIndex + path.lastIndexOf(value);
+      const token = semanticTokenAt(masked, lineStarts, offset, value.length, tokenType, priority);
+      if (token !== null) target.push(token);
+    }
   }
 }
 
@@ -665,6 +715,10 @@ export function collectIdeaLightHeuristicSemanticTokens(text: string, languageId
     const group = match[1] ?? '';
     const offset = (match.index ?? 0) + match[0].indexOf(group);
     addTypeParameterGroup(tokens, masked, lineStarts, offset, group);
+  }
+  if (languageId === 'rust') {
+    addRustGenericTypeParameters(tokens, masked, lineStarts);
+    addRustImplTargets(tokens, masked, lineStarts);
   }
   addJsxComponentTags(tokens, masked, lineStarts);
   addDecoratorNames(tokens, masked, lineStarts);

@@ -2,6 +2,7 @@
 
 import { basename } from './editor-core';
 import {
+  EDITOR_BASE_FONT_WEIGHT,
   EDITOR_FONT_SIZE_SCALE,
   EDITOR_LANGUAGE_FONT_FALLBACKS,
   EDITOR_LATIN_FONT,
@@ -94,6 +95,7 @@ export function installStyles(): void {
     `  --dsh-editor-font-ui: ${EDITOR_LATIN_FONT};`,
     `  --dsh-editor-font-code: ${EDITOR_LATIN_FONT};`,
     `  --dsh-editor-font-terminal: ${EDITOR_TERMINAL_FONT_STACK};`,
+    `  --dsh-editor-font-weight: ${EDITOR_BASE_FONT_WEIGHT};`,
     `  --dsh-editor-font-size-micro: ${EDITOR_FONT_SIZE_SCALE.micro}px;`,
     `  --dsh-editor-font-size-caption: ${EDITOR_FONT_SIZE_SCALE.caption}px;`,
     `  --dsh-editor-font-size-label: ${EDITOR_FONT_SIZE_SCALE.label}px;`,
@@ -298,17 +300,28 @@ export function installStyles(): void {
     '[data-dsh-editor-workspace] select {',
     '  font-family: var(--dsh-editor-font-ui, "Trebuchet MS", "SF Pro Text", "Segoe UI", sans-serif) !important;',
     '}',
+    '[data-dsh-editor-workspace] {',
+    '  font-weight: var(--dsh-editor-font-weight, 500);',
+    '}',
+    '[data-dsh-editor-workspace] button,',
+    '[data-dsh-editor-workspace] input,',
+    '[data-dsh-editor-workspace] textarea,',
+    '[data-dsh-editor-workspace] select {',
+    '  font-weight: inherit;',
+    '}',
     /* Code coloring must never rely on weight: IDEA Light parity is carried by
            color and italic only. This also blocks bold inherited from Monaco's
            built-in theme for token types not explicitly listed in our rules. */
     '[data-dsh-editor-workspace] .monaco-editor .view-lines,',
     '[data-dsh-editor-workspace] .monaco-editor .view-lines .view-line,',
     '[data-dsh-editor-workspace] .monaco-editor .view-lines .view-line *,',
+    '[data-dsh-editor-workspace] .monaco-editor .margin-view-overlays,',
+    '[data-dsh-editor-workspace] .monaco-editor .margin-view-overlays *,',
     '[data-dsh-editor-workspace] .dsh-editor-code-preview-line,',
     '[data-dsh-editor-workspace] .dsh-editor-code-preview-line *,',
     '[data-dsh-editor-workspace] .dsh-editor-annotate-code,',
     '[data-dsh-editor-workspace] .dsh-editor-annotate-code * {',
-    '  font-weight: 400 !important;',
+    `  font-weight: ${EDITOR_BASE_FONT_WEIGHT} !important;`,
     '}',
     /* xterm owns its hidden helper textarea for composition and caret
            placement. The workspace-wide input family must not bleed into that

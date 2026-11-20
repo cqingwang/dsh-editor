@@ -30,13 +30,21 @@ const typography = loadTypeScriptModule(styleModelSource, [
   'EDITOR_LATIN_FONT',
   'EDITOR_UI_FONT',
   'EDITOR_CODE_FONT',
+  'EDITOR_BASE_FONT_WEIGHT',
   'EDITOR_LANGUAGE_FONT_FALLBACKS',
+  'EDITOR_TEXT_STYLE',
 ]);
 
 test('Editor UI and Monaco code areas use language-aware global font families', () => {
   assert.equal(typography.EDITOR_LATIN_FONT, '"Trebuchet MS", "SF Pro Text", "Segoe UI", sans-serif');
   assert.equal(typography.EDITOR_UI_FONT, `var(--dsh-editor-font-ui, ${typography.EDITOR_LATIN_FONT})`);
   assert.equal(typography.EDITOR_CODE_FONT, `var(--dsh-editor-font-code, ${typography.EDITOR_LATIN_FONT})`);
+  assert.equal(typography.EDITOR_BASE_FONT_WEIGHT, 500);
+  assert.ok(
+    Object.values(typography.EDITOR_TEXT_STYLE).every(
+      (style) => style.fontWeight === typography.EDITOR_BASE_FONT_WEIGHT,
+    ),
+  );
   assert.equal(
     typography.EDITOR_LANGUAGE_FONT_FALLBACKS.zh,
     '"Trebuchet MS", "PingFang SC", "Microsoft YaHei UI", sans-serif',

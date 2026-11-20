@@ -1,5 +1,129 @@
 # dsh-editor 工程记忆
 
+## 2026-11-20 — Rust impl Trait for Type 缺少类型 token
+
+**作用域**：Rust inherent impl、trait impl、qualified type path、associated type。
+
+**症状/证据**：
+
+- `impl Display for Reader` 中 `Display` 和 impl 行的 `Reader`
+  均没有 semantic token；
+- 声明位置的 `Reader` 已着色，但 impl target 视觉弱于 IDEA；
+- associated type `type Item;` 已正确走 typeAlias。
+
+**修复**：
+
+- 新增 Rust impl target scanner；
+- inherent impl 的实现类型输出 `ideaClass`；
+- `impl Trait for Type` 的 Trait 输出 `ideaInterface`，Type 输出
+  `ideaClass`；
+- 支持 `a::b::Type`，只着色最后一段类型名；
+- scanner 只在 Rust language 下运行。
+
+**RED/GREEN**：
+
+- RED：impl 行 `Display/Reader` token 为空；
+- GREEN：着色定向回归 **48 pass / 0 fail**；
+- 完整 `npm test`：**3315 pass / 0 fail**；
+- lint、TypeScript、Prettier、bundle consistency、`git diff --check`、
+  `npm pack --dry-run` 通过。
+
+**Ego Browser 证据**：
+
+- DSH：`/private/tmp/dsh-rust-impl-final.png`；
+- `Display/Reader/Source/Item` 均为 `rgb(102, 14, 122)`；
+- `item` 为 `rgb(145, 76, 7)`；
+- `formatter` 为参数黑，全部代码字重 500。
+
+**长期约束**：
+
+- impl 扫描必须由 `impl` 关键字锚定；
+- qualified path 只着色 terminal segment；
+- Trait 与 Type 在视觉同色时仍保持不同 token 语义；
+- associated type 不进入 impl target scanner。
+
+## 2026-11-20 — Rust 泛型参数与 where 约束误判为 property
+
+**作用域**：Rust trait/struct/impl 泛型声明、where 约束、lifetime。
+
+**症状/证据**：
+
+- `trait Source<'a, T>`、`struct Reader<'a, T>`、
+  `impl<'a, T>` 中 `T` 没有 type-parameter token；
+- `where T: Clone` 的 `T` 被通用 property-key 规则标为 property；
+- IDEA 中 `T` 始终是泛型参数身份。
+
+**修复**：
+
+- Rust 泛型声明模板覆盖 struct/trait/enum/union/type/fn/impl；
+- 跳过以 `'` 开头的 lifetime segment；
+- `where ...:` 中的类型参数输出 `ideaTypeParameter`，priority 92；
+- 其他语言仍使用原泛型模板。
+
+**RED/GREEN**：
+
+- RED：where 中 3 个 `T` 均为 property，声明泛型缺失；
+- GREEN：着色定向回归 **47 pass / 0 fail**；
+- 完整 `npm test`：**3314 pass / 0 fail**；
+- lint、TypeScript、Prettier、bundle consistency、`git diff --check`、
+  `npm pack --dry-run` 通过。
+
+**Computer Use / Ego Browser 证据**：
+
+- IDEA：`/private/tmp/idea-rust-generics-sample.png`；
+- DSH：`/private/tmp/dsh-rust-generics-final.png`；
+- DSH 中 6 个 `T` 全为 `rgb(32, 153, 157)`，property 紫色 `T` 为 0；
+- `Source/Reader/value` 深紫、`read` 方法棕、`key` 参数黑、
+  `local` 局部变量青，字重均为 500。
+
+**长期约束**：
+
+- lifetime 与 type parameter 必须是不同分支；
+- `where T: Bound` 不得落入 object/property key；
+- 泛型模板升级必须按 model language 隔离。
+
+## 2026-11-20 — Editor 全局基础字重统一为 500
+
+**作用域**：Editor UI、Monaco 代码、行号 gutter、代码预览和 annotate。
+
+**用户要求**：
+
+- 所有代码字体和 UI 字体都比原来的 400 稍微加粗；
+- 不是只加粗关键词；
+- 全局生效。
+
+**实现**：
+
+- 新增 `EDITOR_BASE_FONT_WEIGHT = 500`；
+- `EDITOR_TEXT_STYLE` 所有角色带基础 500；
+- workspace 与原生控件继承全局 500；
+- Monaco `.view-lines`、`.margin-view-overlays`、preview、annotate
+  强制基础 500；
+- Terminal xterm normal weight 也使用 500；
+- 既有 600/700 强调层级保留。
+
+**运行态证据**：
+
+- workspace、Project 按钮、Project tree row、Monaco 代码、gutter、
+  Terminal screen/helper textarea 全为 **500**；
+- 项目标题 `dsh-editor` 仍为 **600**；
+- Editor 内字重集合只有 `500/600`，无残留 400。
+
+**回归**：
+
+- Typography / palette / inline style / terminal 定向
+  **19 pass / 0 fail**；
+- 完整 `npm test`：**3313 pass / 0 fail**；
+- lint、TypeScript、Prettier、bundle consistency、`git diff --check`、
+  `npm pack --dry-run` 通过。
+
+**长期约束**：
+
+- 基础字重必须由共享 token 控制；
+- 不能在组件里重新散落 `fontWeight: 400`；
+- 代码与 gutter 必须使用同一字重；
+- 字重提升不能改变字体族，也不能覆盖 600/700 的真实强调。
+
 ## 2026-11-20 — Rust 生命周期被当字符串导致整段漏色
 
 **作用域**：Rust `'a` / `'static` lifetime、struct 字段、impl、trait
@@ -24,7 +148,9 @@
 
 - RED：lifetime 后字段、参数、trait 方法缺失；
 - GREEN：着色定向回归 **44 pass / 0 fail**；
-- 完整门禁在收尾阶段验证。
+- 完整 `npm test`：**3311 pass / 0 fail**；
+- lint、TypeScript、Prettier、bundle consistency、`git diff --check`、
+  `npm pack --dry-run` 通过。
 
 **Computer Use / Ego Browser 证据**：
 

@@ -33,5 +33,6 @@ test('Every Monaco gutter shares the grey surface, divider and content gap', () 
 
 test('The gutter rule is global to every Monaco instance in the Editor surface', () => {
   assert.match(source, /'\.monaco-editor \.margin \{'/);
-  assert.doesNotMatch(source, /\[data-dsh-editor-workspace\] \.monaco-editor \.margin/);
+  assert.doesNotMatch(source, /\[data-dsh-editor-workspace\] \.monaco-editor \.margin\s*\{/);
+  assert.match(source, /\[data-dsh-editor-workspace\] \.monaco-editor \.margin-view-overlays/);
 });

@@ -17,6 +17,7 @@ export const EDITOR_LANGUAGE_FONT_FALLBACKS = {
 } as const;
 export const EDITOR_UI_FONT = `var(--dsh-editor-font-ui, ${EDITOR_LATIN_FONT})`;
 export const EDITOR_CODE_FONT = `var(--dsh-editor-font-code, ${EDITOR_LATIN_FONT})`;
+export const EDITOR_BASE_FONT_WEIGHT = 500;
 export const EDITOR_TERMINAL_FONT_STACK = 'Menlo, Monaco, ui-monospace, SFMono-Regular, Consolas, monospace';
 /** CSS-only token. Canvas-backed xterm must receive EDITOR_TERMINAL_FONT_STACK. */
 export const EDITOR_TERMINAL_FONT = `var(--dsh-editor-font-terminal, ${EDITOR_TERMINAL_FONT_STACK})`;
@@ -43,34 +44,44 @@ export const EDITOR_RESPONSIVE_FONT_SIZE = {
 export type EditorTextRole = 'title' | 'input' | 'control' | 'body' | 'label' | 'metadata' | 'code';
 
 /** Semantic text roles used by dialogs, tool windows and shared controls. */
-export const EDITOR_TEXT_STYLE: Record<EditorTextRole, Pick<CSSProperties, 'fontFamily' | 'fontSize'>> = {
+export const EDITOR_TEXT_STYLE: Record<
+  EditorTextRole,
+  Pick<CSSProperties, 'fontFamily' | 'fontSize' | 'fontWeight'>
+> = {
   title: {
     fontFamily: EDITOR_UI_FONT,
     fontSize: EDITOR_FONT_SIZE_SCALE.control,
+    fontWeight: EDITOR_BASE_FONT_WEIGHT,
   },
   input: {
     fontFamily: EDITOR_UI_FONT,
     fontSize: EDITOR_FONT_SIZE_SCALE.control,
+    fontWeight: EDITOR_BASE_FONT_WEIGHT,
   },
   control: {
     fontFamily: EDITOR_UI_FONT,
     fontSize: EDITOR_FONT_SIZE_SCALE.control,
+    fontWeight: EDITOR_BASE_FONT_WEIGHT,
   },
   body: {
     fontFamily: EDITOR_UI_FONT,
     fontSize: EDITOR_FONT_SIZE_SCALE.body,
+    fontWeight: EDITOR_BASE_FONT_WEIGHT,
   },
   label: {
     fontFamily: EDITOR_UI_FONT,
     fontSize: EDITOR_FONT_SIZE_SCALE.label,
+    fontWeight: EDITOR_BASE_FONT_WEIGHT,
   },
   metadata: {
     fontFamily: EDITOR_UI_FONT,
     fontSize: EDITOR_FONT_SIZE_SCALE.caption,
+    fontWeight: EDITOR_BASE_FONT_WEIGHT,
   },
   code: {
     fontFamily: EDITOR_CODE_FONT,
     fontSize: EDITOR_FONT_SIZE_SCALE.control,
+    fontWeight: EDITOR_BASE_FONT_WEIGHT,
   },
 };
 

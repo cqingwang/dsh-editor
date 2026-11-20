@@ -499,6 +499,7 @@ test('Rust lifetimes do not mask the declarations that follow them', () => {
   assert.deepEqual(declarations, [
     { value: 'Reader', tokenType: 'ideaClass' },
     { value: 'value', tokenType: 'ideaProperty' },
+    { value: 'Reader', tokenType: 'ideaClass' },
     { value: 'value', tokenType: 'ideaMethod' },
     { value: 'self', tokenType: 'ideaParameter' },
     { value: 'input', tokenType: 'ideaParameter' },
@@ -517,6 +518,102 @@ test('single-quoted strings keep masking identifiers in non-Rust languages', () 
     .filter((token) => token.tokenType === 'ideaProperty')
     .map((token) => text.slice(token.startCharacter, token.startCharacter + token.length));
   assert.deepEqual(propertyValues, []);
+});
+
+test('Rust generic parameters and where constraints use type-parameter coloring', () => {
+  const text = [
+    "pub trait Source<'a, T>",
+    'where',
+    '    T: Clone,',
+    '{',
+    "    fn read(&mut self, key: &'a str) -> Option<T>;",
+    '}',
+    '',
+    "pub struct Reader<'a, T>",
+    'where',
+    '    T: Clone,',
+    '{',
+    "    value: &'a T,",
+    '}',
+    '',
+    "impl<'a, T> Reader<'a, T>",
+    'where',
+    '    T: Clone,',
+    '{',
+    "    pub fn read(&mut self, key: &'a str) -> Option<T> {",
+    '        let local = self.value;',
+    '        None',
+    '    }',
+    '}',
+  ].join('\n');
+  const tokens = helpers.mergeIdeaLightSemanticTokens(helpers.collectIdeaLightHeuristicSemanticTokens(text, 'rust'));
+  const lines = text.split('\n');
+  const declarations = tokens.map((token) => ({
+    value: (lines[token.line] ?? '').slice(token.startCharacter, token.startCharacter + token.length),
+    tokenType: token.tokenType,
+  }));
+  assert.deepEqual(
+    declarations.filter((token) => token.value === 'T').map((token) => token.tokenType),
+    Array.from({ length: 6 }, () => 'ideaTypeParameter'),
+  );
+  assert.deepEqual(
+    declarations.filter((token) => ['Source', 'Reader', 'value', 'read', 'key', 'local'].includes(token.value)),
+    [
+      { value: 'Source', tokenType: 'ideaInterface' },
+      { value: 'read', tokenType: 'ideaMethod' },
+      { value: 'key', tokenType: 'ideaParameter' },
+      { value: 'Reader', tokenType: 'ideaClass' },
+      { value: 'value', tokenType: 'ideaProperty' },
+      { value: 'Reader', tokenType: 'ideaClass' },
+      { value: 'read', tokenType: 'ideaMethod' },
+      { value: 'key', tokenType: 'ideaParameter' },
+      { value: 'local', tokenType: 'ideaVariable' },
+      { value: 'value', tokenType: 'ideaProperty' },
+    ],
+  );
+});
+
+test('Rust impl targets color trait and implementing type declarations', () => {
+  const text = [
+    'use std::fmt::{Display, Formatter};',
+    '',
+    'pub struct Reader;',
+    '',
+    'impl Display for Reader {',
+    "    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {",
+    '        write!(formatter, "reader")',
+    '    }',
+    '}',
+    '',
+    'pub trait Source {',
+    '    type Item;',
+    '    fn item(&self) -> Self::Item;',
+    '}',
+  ].join('\n');
+  const tokens = helpers.mergeIdeaLightSemanticTokens(
+    helpers.collectIdeaLightHeuristicSemanticTokens(text, 'rust'),
+  );
+  const lines = text.split('\n');
+  const implTargets = tokens
+    .filter((token) => token.line === 4)
+    .map((token) => ({
+      value: (lines[token.line] ?? '').slice(token.startCharacter, token.startCharacter + token.length),
+      tokenType: token.tokenType,
+    }))
+    .filter((token) => ['Display', 'Reader'].includes(token.value));
+  assert.deepEqual(implTargets, [
+    { value: 'Display', tokenType: 'ideaInterface' },
+    { value: 'Reader', tokenType: 'ideaClass' },
+  ]);
+  assert.deepEqual(
+    tokens
+      .filter((token) => ['Source', 'Item', 'item'].includes(lines[token.line]?.slice(
+        token.startCharacter,
+        token.startCharacter + token.length,
+      )))
+      .map((token) => token.tokenType),
+    ['ideaInterface', 'ideaTypeAlias', 'ideaMethod'],
+  );
 });
 
 test('preview text ranges preserve IDEA variable and method foregrounds', () => {

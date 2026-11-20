@@ -1,5 +1,6 @@
 /* inline-styles.ts: dsh-editor React inline style sheet. Generated into lib/client.js by scripts/build-client.mjs. */
 import {
+  EDITOR_BASE_FONT_WEIGHT,
   EDITOR_CODE_FONT,
   EDITOR_CODE_FONT_SIZE,
   EDITOR_CODE_LINE_HEIGHT,
@@ -964,7 +965,7 @@ export const styles: EditorStyleSheet = {
     marginLeft: 'auto',
     color: 'var(--dsw-alias-label-tertiary)',
     ...EDITOR_TEXT_STYLE.metadata,
-    fontWeight: 400,
+    fontWeight: EDITOR_BASE_FONT_WEIGHT,
   },
   findToolGroupButton: {
     flex: 'none',
@@ -1704,7 +1705,7 @@ export const styles: EditorStyleSheet = {
     color: 'var(--dsw-alias-label-primary)',
     fontFamily: EDITOR_CODE_FONT,
     fontSize: EDITOR_CODE_FONT_SIZE,
-    fontWeight: 400,
+    fontWeight: EDITOR_BASE_FONT_WEIGHT,
     lineHeight: `${EDITOR_CODE_LINE_HEIGHT}px`,
     whiteSpace: 'pre',
   },
@@ -1912,14 +1913,14 @@ export const styles: EditorStyleSheet = {
     flex: 'none',
     color: 'var(--dsw-alias-label-tertiary)',
     fontSize: EDITOR_FONT_SIZE_SCALE.caption,
-    fontWeight: 400,
+    fontWeight: EDITOR_BASE_FONT_WEIGHT,
   },
   /* IDEA's muted "5 files" beside the bold group/directory name. */
   commitGroupFiles: {
     flex: 'none',
     color: 'var(--dsw-alias-label-tertiary)',
     fontSize: EDITOR_FONT_SIZE_SCALE.label,
-    fontWeight: 400,
+    fontWeight: EDITOR_BASE_FONT_WEIGHT,
   },
   commitGroupEmpty: {
     padding: '2px 12px 4px 26px',

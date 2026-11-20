@@ -1,6 +1,6 @@
 import React from 'react';
 import { styles } from '../../ui/styles';
-import { EDITOR_TERMINAL_FONT_STACK } from '../editor/editor-style-model';
+import { EDITOR_BASE_FONT_WEIGHT, EDITOR_TERMINAL_FONT_STACK } from '../editor/editor-style-model';
 import {
   createTerminalLinkProvider,
   loadXterm,
@@ -154,6 +154,7 @@ function TerminalScreen({
         const emulator = new Terminal({
           fontFamily: EDITOR_TERMINAL_FONT_STACK,
           fontSize,
+          fontWeight: EDITOR_BASE_FONT_WEIGHT,
           lineHeight: 1.25,
           cursorBlink: true,
           scrollback: 2000,

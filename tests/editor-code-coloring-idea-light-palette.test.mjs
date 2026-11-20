@@ -89,29 +89,45 @@ test('the grammar rules carry the IDEA font styles with the palette', () => {
   });
 });
 
-test('IDEA Light code coloring never uses bold text', () => {
+test('IDEA Light code token rules never use bold fontStyle', () => {
   const boldTokens = helpers.ideaLightTokenRules().filter((rule) => /bold/u.test(rule.fontStyle ?? ''));
   assert.deepEqual(boldTokens, []);
 });
 
-test('shared code surfaces force normal weight even for unlisted Monaco tokens', () => {
+test('shared code surfaces force the shared 500 weight even for unlisted Monaco tokens', () => {
   assert.match(
     injectedCss,
-    /\[data-dsh-editor-workspace\] \.monaco-editor \.view-lines \.view-line \*,[\s\S]*?\[data-dsh-editor-workspace\] \.dsh-editor-code-preview-line[\s\S]*?font-weight: 400 !important;/u,
+    /\[data-dsh-editor-workspace\] \.monaco-editor \.view-lines \.view-line \*,[\s\S]*?\[data-dsh-editor-workspace\] \.dsh-editor-code-preview-line[\s\S]*?font-weight: \$\{EDITOR_BASE_FONT_WEIGHT\} !important;/u,
   );
 });
 
-test('shared code surfaces force normal weight on Monaco line containers and every descendant', () => {
+test('shared code surfaces force the shared 500 weight on Monaco line containers and every descendant', () => {
   assert.match(
     injectedCss,
-    /\[data-dsh-editor-workspace\] \.monaco-editor \.view-lines \.view-line,[\s\S]*?\[data-dsh-editor-workspace\] \.monaco-editor \.view-lines \.view-line \*,[\s\S]*?font-weight: 400 !important;/u,
+    /\[data-dsh-editor-workspace\] \.monaco-editor \.view-lines \.view-line,[\s\S]*?\[data-dsh-editor-workspace\] \.monaco-editor \.view-lines \.view-line \*,[\s\S]*?font-weight: \$\{EDITOR_BASE_FONT_WEIGHT\} !important;/u,
   );
 });
 
-test('annotate source rows force normal code weight through the shared surface gate', () => {
+test('Monaco line numbers use the same shared code weight as the editor text', () => {
   assert.match(
     injectedCss,
-    /\[data-dsh-editor-workspace\] \.dsh-editor-annotate-code,[\s\S]*?\[data-dsh-editor-workspace\] \.dsh-editor-annotate-code \* \{[\s\S]*?font-weight: 400 !important;/u,
+    /\[data-dsh-editor-workspace\] \.monaco-editor \.margin-view-overlays,[\s\S]*?\[data-dsh-editor-workspace\] \.monaco-editor \.margin-view-overlays \*,[\s\S]*?font-weight: \$\{EDITOR_BASE_FONT_WEIGHT\} !important;/u,
+  );
+});
+
+test('annotate source rows force the shared code weight through the shared surface gate', () => {
+  assert.match(
+    injectedCss,
+    /\[data-dsh-editor-workspace\] \.dsh-editor-annotate-code,[\s\S]*?\[data-dsh-editor-workspace\] \.dsh-editor-annotate-code \* \{[\s\S]*?font-weight: \$\{EDITOR_BASE_FONT_WEIGHT\} !important;/u,
+  );
+});
+
+test('editor UI and native controls inherit the shared global 500 weight', () => {
+  assert.match(injectedCss, /--dsh-editor-font-weight: \$\{EDITOR_BASE_FONT_WEIGHT\}/u);
+  assert.match(injectedCss, /font-weight: var\(--dsh-editor-font-weight, 500\);/u);
+  assert.match(
+    injectedCss,
+    /\[data-dsh-editor-workspace\] button,[\s\S]*?\[data-dsh-editor-workspace\] select \{[\s\S]*?font-weight: inherit;/u,
   );
 });
 
