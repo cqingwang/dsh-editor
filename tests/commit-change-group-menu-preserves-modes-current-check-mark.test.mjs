@@ -133,6 +133,32 @@ test('Commit Options preserves busy state, action order and callbacks', () => {
   ]);
 });
 
+test('Commit Options disables Git-only actions when the workspace is not managed', () => {
+  const menu = commitOptionsMenu({
+    t,
+    position: { x: 44, y: 66 },
+    gitNotManaged: true,
+    fetchBusy: false,
+    updateBusy: false,
+    commitBusy: false,
+    stageAllAvailable: true,
+    groupBy: 'flat',
+    onApplyChangeGroupBy: () => {},
+    onFetch: () => {},
+    onUpdate: () => {},
+    onApplyPatchFile: () => {},
+    onApplyPatchClipboard: () => {},
+    onStageAll: () => {},
+    onStash: () => {},
+    onShelve: () => {},
+  });
+
+  for (const id of ['fetch', 'update', 'applyPatchFile', 'applyPatchClipboard', 'stageAll', 'stash', 'shelve']) {
+    assert.equal(childById(menu, id)?.disabled, true, `${id} must be disabled without Git`);
+  }
+  assert.equal(childById(menu, 'groupBy:flat')?.disabled, undefined);
+});
+
 test('editor workspace reuses the extracted Commit menu model', async () => {
   const workspace = await read('src/client/editor-workspace.tsx');
   const build = await read('scripts/build-client.mjs');
@@ -142,6 +168,7 @@ test('editor workspace reuses the extracted Commit menu model', async () => {
   assert.match(workspace, /from '\.\/components\/commit\/commit-options-menu'/u);
   assert.match(workspace, /changesViewOptionsMenu\(\{/u);
   assert.match(workspace, /commitOptionsMenu\(\{/u);
+  assert.match(workspace, /gitNotManaged: git\?\.isRepo === false/u);
   const viewOptions = workspace.slice(
     workspace.indexOf('const openChangesViewMenu = React.useCallback('),
     workspace.indexOf(

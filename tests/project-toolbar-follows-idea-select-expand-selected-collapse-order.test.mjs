@@ -15,13 +15,13 @@ function treeMenu() {
   return source.slice(source.indexOf('const buildTreeMenu = React.useCallback('), source.indexOf('/* Move one entry into a directory by drag-and-drop'));
 }
 
-test('Project toolbar follows the IDEA Select / Expand Selected / Collapse order', () => {
+test('Project toolbar keeps Select Opened File before Collapse without Expand Selected', () => {
   const panel = projectPanel();
   const reveal = panel.indexOf("id: 'reveal'");
-  const expandSelected = panel.indexOf("id: 'expandSelected'");
   const collapse = panel.indexOf("id: 'collapse'");
-  assert.ok(reveal >= 0 && expandSelected > reveal && collapse > expandSelected);
-  assert.doesNotMatch(panel, /id: 'expandAll', icon: 'expand'/);
+  assert.ok(reveal >= 0 && collapse > reveal);
+  assert.doesNotMatch(panel, /id: 'expandSelected'/);
+  assert.doesNotMatch(panel, /projectCanExpandSelection|onExpandSelected|editor\.revealSelected/);
 });
 
 test('Project context menu groups Copy Path actions under IDEA Copy Path/Reference', () => {

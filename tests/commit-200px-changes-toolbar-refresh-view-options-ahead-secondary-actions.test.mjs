@@ -25,6 +25,7 @@ const actions = [
   { id: 'refresh', pinned: true },
   { id: 'rollback' },
   { id: 'showDiff' },
+  { id: 'shelve' },
   { id: 'combinedDiff' },
   { id: 'copyPatch' },
   { id: 'createPatch' },
@@ -51,11 +52,12 @@ test('200px Changes toolbar keeps Refresh and View Options ahead of secondary ac
     'refresh',
     'rollback',
     'showDiff',
+    'shelve',
     'combinedDiff',
-    'copyPatch',
     'viewOptions',
   ]);
   assert.deepEqual(hiddenIds, [
+    'copyPatch',
     'createPatch',
     'stageAllTracked',
     'selectOpened',

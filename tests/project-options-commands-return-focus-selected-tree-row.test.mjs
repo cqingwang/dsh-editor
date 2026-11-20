@@ -16,7 +16,7 @@ test('Project Options commands return focus to the selected tree row', () => {
   assert.match(workspace, /const target =\s+row\?\.isConnected === true && row\.tabIndex >= 0 \? row : treeRef\.current;/u);
   assert.match(workspace, /const runProjectOption = React\.useCallback\(/);
   assert.match(workspace, /window\.setTimeout\(focusNow, 120\)/);
-  for (const id of ['refresh', 'expandAll']) {
+  for (const id of ['refresh']) {
     const start = projectOptions.indexOf(`id: '${id}'`);
     assert.notEqual(start, -1, `${id} is missing`);
     const row = projectOptions.slice(start, start + 300);
@@ -29,7 +29,7 @@ test('Project Options commands return focus to the selected tree row', () => {
   );
   assert.match(workspace, /onApplySortMode: \(mode\) => runProjectOption\(\(\) => applySortMode\(mode\)\)/);
   assert.match(workspace, /onRefresh: \(\) => runProjectOption\(\(\) => void refreshTree\(\)\)/);
-  assert.match(workspace, /onExpandAll: \(\) => runProjectOption\(\(\) => void expandAll\(\)\)/);
+  assert.doesNotMatch(workspace, /onExpandAll/);
   assert.match(projectOptions, /id: 'singleClickOpen'[\s\S]*?restoreFocus: false/u);
   assert.match(projectOptions, /id: 'openDirectoriesSingleClick'[\s\S]*?restoreFocus: false/u);
   assert.match(projectOptions, /id: 'appearance'[\s\S]*?id: 'hidden'[\s\S]*?restoreFocus: false/u);
@@ -43,11 +43,14 @@ test('Project Options commands return focus to the selected tree row', () => {
 
 test('palette-opening Project Options keep their own focus target', () => {
   const optionsCall = workspace.slice(
-    workspace.indexOf('projectOptionsMenu({'),
-    workspace.indexOf('onCreateChange={(value) =>', workspace.indexOf('projectOptionsMenu({')),
+    workspace.indexOf('projectOptionsMenuItems({'),
+    workspace.indexOf('onCreateChange={(value) =>', workspace.indexOf('projectOptionsMenuItems({')),
   );
   const gotoFile = optionsCall.slice(optionsCall.indexOf('onGotoFile:'), optionsCall.indexOf('onRecentFiles:'));
-  const recent = optionsCall.slice(optionsCall.indexOf('onRecentFiles:'), optionsCall.indexOf('onExpandAll:'));
+  const recent = optionsCall.slice(
+    optionsCall.indexOf('onRecentFiles:'),
+    optionsCall.indexOf('onTogglePreviewTab:'),
+  );
   assert.match(gotoFile, /onGotoFile: \(\) => void openQuickOpen\(\)/);
   assert.match(recent, /onRecentFiles: openRecent/);
   assert.doesNotMatch(gotoFile, /runProjectOption/);

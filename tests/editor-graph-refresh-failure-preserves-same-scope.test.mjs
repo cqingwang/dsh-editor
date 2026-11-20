@@ -11,6 +11,7 @@ function loadGraphWithFailure(initialGraph) {
   let graph = initialGraph;
   return read('src/client/editor-workspace.tsx').then((workspace) => {
     const loadGraph = loadTypeScriptCallback(workspace, 'loadGraph', {
+      git: { isRepo: true },
       callGit: async () => {
         throw new Error('graph failed');
       },

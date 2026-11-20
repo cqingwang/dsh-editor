@@ -37,6 +37,7 @@ interface ChangesViewOptionsMenuOptions extends ChangeGroupMenuOptions {}
 interface CommitOptionsMenuOptions {
   t: CommitMenuTranslate;
   position: CommitMenuPosition;
+  gitNotManaged?: boolean;
   fetchBusy: boolean;
   updateBusy: boolean;
   commitBusy: boolean;
@@ -105,6 +106,7 @@ export function changesViewOptionsMenu({
 export function commitOptionsMenu({
   t,
   position,
+  gitNotManaged = false,
   fetchBusy,
   updateBusy,
   commitBusy,
@@ -134,44 +136,46 @@ export function commitOptionsMenu({
       {
         id: 'fetch',
         label: fetchBusy ? t('editor.fetchBusy') : t('editor.fetchRemote'),
-        disabled: fetchBusy,
+        disabled: gitNotManaged || fetchBusy,
         run: onFetch,
       },
       {
         id: 'update',
         label: updateBusy ? t('editor.updateBusy') : t('editor.updateProject'),
-        disabled: updateBusy,
+        disabled: gitNotManaged || updateBusy,
         run: onUpdate,
       },
       null,
       {
         id: 'applyPatchFile',
         label: t('editor.applyPatch'),
-        disabled: commitBusy,
+        disabled: gitNotManaged || commitBusy,
         run: onApplyPatchFile,
       },
       {
         id: 'applyPatchClipboard',
         label: t('editor.applyPatchFromClipboard'),
-        disabled: commitBusy,
+        disabled: gitNotManaged || commitBusy,
         run: onApplyPatchClipboard,
       },
       null,
       {
         id: 'stageAll',
         label: t('editor.stageAll'),
-        disabled: commitBusy || !stageAllAvailable,
+        disabled: gitNotManaged || commitBusy || !stageAllAvailable,
         run: onStageAll,
       },
       null,
       {
         id: 'stash',
         label: t('editor.stash'),
+        disabled: gitNotManaged,
         run: onStash,
       },
       {
         id: 'shelve',
         label: t('editor.shelve'),
+        disabled: gitNotManaged,
         run: onShelve,
       },
       null,

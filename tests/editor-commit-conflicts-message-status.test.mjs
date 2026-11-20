@@ -24,7 +24,10 @@ test('conflicted files are detected, badged and resolvable from the change menu'
 test('commit message box submits with the platform shortcut', () => {
   const client = read('lib/client.js');
   assert.match(client, /\(event\.metaKey \|\| event\.ctrlKey\) && event\.key === 'Enter'/);
-  assert.match(client, /if \(!busy && selectedPaths\.size > 0 && message\.trim\(\) !== ''\) onCommit\(false\)/);
+  assert.match(
+    client,
+    /if \(!busy && !gitNotManaged && selectedPaths\.size > 0 && message\.trim\(\) !== ''\) onCommit\(false\)/,
+  );
 });
 
 test('editor status bar reports caret, file path and encoding', () => {

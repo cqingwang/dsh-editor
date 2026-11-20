@@ -9,6 +9,7 @@ const read = (path) => readFile(new URL(path, root), 'utf8');
 
 function historyCallbacks(callGit) {
   return {
+    git: { isRepo: true },
     callGit,
     beginLogRequest: () => new AbortController(),
     finishLogRequest: () => {},

@@ -11,9 +11,9 @@ const source = [
 ].join('\n');
 
 function projectOptions() {
-  const start = source.indexOf('export function projectOptionsMenu(');
+  const start = source.indexOf('export function projectOptionsMenuItems(');
   assert.notEqual(start, -1);
-  return source.slice(start);
+  return source.slice(start, source.indexOf('export function projectOptionsMenu(', start));
 }
 
 test('Project Options uses IDEA Behavior and Appearance submenus', () => {
@@ -48,9 +48,10 @@ test('sort and hidden-file preferences live under Appearance', () => {
 
 test('high-frequency navigation actions stay at the top level', () => {
   const options = projectOptions();
-  for (const id of ['refresh', 'gotoFile', 'recent', 'expandAll']) {
+  for (const id of ['refresh', 'gotoFile', 'recent']) {
     assert.match(options, new RegExp(`id: '${id}'`));
   }
+  assert.doesNotMatch(options, /id: 'expandAll'/);
 });
 
 test('submenu Left and Escape return focus without depending on animation frames', () => {

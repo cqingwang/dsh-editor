@@ -60,6 +60,7 @@ import {
   findUsagesSearchTarget,
   hasFindToolContentQuery,
   hostOnlyReplaceOperation,
+  isGitRepositoryMissingMessage,
   normalizeRecentSearchEntry,
   normalizeSearchOptions,
   parseIdeaScopeXml,
@@ -102,7 +103,7 @@ import { CommitPanel } from './components/commit/CommitPanel';
 import { MoveToPicker } from './components/commit/MoveToPicker';
 import { NamePrompt } from './components/commit/NamePrompt';
 import { RevisionPicker } from './components/commit/RevisionPicker';
-import { projectCreateMenu, projectOptionsMenu } from './components/project/project-options-menu';
+import { projectOptionsMenuItems } from './components/project/project-options-menu';
 import { changesViewOptionsMenu, commitOptionsMenu } from './components/commit/commit-options-menu';
 import { shelveMenu, stashMenu, type ShelfEntry } from './components/commit/stash-shelve-menu';
 import { commitLogMenu } from './components/commit/log-menu';
@@ -158,7 +159,6 @@ import {
   stageAllTargets,
 } from './diff';
 import {
-  ancestorsOf,
   basename,
   callFs,
   callGit,
@@ -166,7 +166,6 @@ import {
   createCodeEditorGroup,
   downloadPatchBlob,
   ensureEditorModel,
-  expandDirectorySubtrees,
   harnessEditorLocation,
   loadMonaco,
   patchDownloadName,
@@ -235,7 +234,6 @@ import {
   orderProjectEntriesByManual,
   planMoves,
   projectCanCollapseAll,
-  projectCanExpandAll,
   projectRightSplitPaths,
   projectSelectionSetAfterRowsChange,
   projectViewIsTree,
@@ -287,6 +285,7 @@ interface WorkspaceListResponse {
 }
 interface WorkspaceGitStatus {
   root: string;
+  isRepo?: boolean;
   branch: string;
   prefix: string;
   changes: DiffChange[];
@@ -1696,7 +1695,6 @@ function EditorWorkspace({
   const projectName = basename(root) || 'Workspace';
   const filteredView = projectViewIsTree(projectView) === false;
   const projectTreeActionsAvailable = filteredView === false;
-  const projectExpandAllAvailable = projectTreeActionsAvailable && projectCanExpandAll(entries, children, expanded);
   const projectRows = React.useMemo(
     () => flattenRows(entries, children, expanded, projectName, root, compactDirectories, sortMode, manualOrder),
     [compactDirectories, entries, children, expanded, manualOrder, projectName, root, sortMode],
@@ -1873,9 +1871,16 @@ function EditorWorkspace({
       });
       return value;
     } catch (failure) {
+      const message = failure instanceof Error ? failure.message : String(failure);
+      if (isGitRepositoryMissingMessage(message)) {
+        setGit({ root: '', isRepo: false, branch: '', prefix: '', changes: [] });
+        setCommitSelection(new Set());
+        setCommitError(null);
+        return null;
+      }
       setGit({ root: '', branch: '', prefix: '', changes: [] });
       setCommitSelection(new Set());
-      setCommitError(failure instanceof Error ? failure.message : String(failure));
+      setCommitError(message);
       return null;
     }
   }, []);
@@ -1949,6 +1954,15 @@ function EditorWorkspace({
    * Reload the first page of the log, honouring the author filter.
    * @returns {Promise<void>} resolves once the first page is set.
    */ const loadLog = React.useCallback(async () => {
+    if (git?.isRepo === false) {
+      cancelLogMoreRequest();
+      setCommits([]);
+      setLogDetail(null);
+      setLogError(null);
+      setLogExhausted(true);
+      setLogLoading(false);
+      return;
+    }
     const controller = beginLogRequest(`log\0${logAuthorRef.current}`);
     if (controller === null) return;
     try {
@@ -1978,7 +1992,7 @@ function EditorWorkspace({
     } finally {
       finishLogRequest(controller);
     }
-  }, [beginLogRequest, finishLogRequest]);
+  }, [beginLogRequest, cancelLogMoreRequest, finishLogRequest, git?.isRepo]);
   /**
    * Append the next page when the list is scrolled to the bottom.
    *
@@ -1986,6 +2000,7 @@ function EditorWorkspace({
    * again; the flag resets with every reload or filter change.
    */
   const loadMoreLog = React.useCallback(async () => {
+    if (git?.isRepo === false) return;
     if (loadingMoreRef.current || logExhausted || logRequestRef.current !== null) return;
     const requestAuthor = logAuthorRef.current;
     const requestSkip = commits.length;
@@ -2021,7 +2036,7 @@ function EditorWorkspace({
         loadingMoreRef.current = false;
       }
     }
-  }, [commits.length, logExhausted]);
+  }, [commits.length, git?.isRepo, logExhausted]);
   /**
    * Load the bounded commit graph for the Log tab's "Graph" toggle.
    *
@@ -2035,6 +2050,20 @@ function EditorWorkspace({
     async (branch?: string, at?: string) => {
       const branchValue = typeof branch === 'string' ? branch : '';
       const atValue = typeof at === 'string' ? at : '';
+      if (git?.isRepo === false) {
+        setGraph({
+          entries: [],
+          branches: [],
+          tags: [],
+          branchList: [],
+          tagList: [],
+          head: null,
+          branch: branchValue === '' ? null : branchValue,
+          at: atValue === '' ? null : atValue,
+        });
+        setLogError(null);
+        return;
+      }
       const controller = beginLogRequest(`graph\0${branchValue}\0${atValue}`);
       if (controller === null) return;
       try {
@@ -2082,8 +2111,33 @@ function EditorWorkspace({
         finishLogRequest(controller);
       }
     },
-    [beginLogRequest, finishLogRequest],
+    [beginLogRequest, finishLogRequest, git?.isRepo],
   );
+  /* A repository can disappear while the tool window is already open. Clear
+     every Git-owned view at the state boundary so stale notices, commit rows,
+     selections, and diff chrome cannot outlive `isRepo:false`. */
+  React.useEffect(() => {
+    if (git?.isRepo !== false) return;
+    logRequestRef.current?.controller.abort();
+    logRequestRef.current = null;
+    cancelLogMoreRequest();
+    commitSelectionLoadedRef.current = false;
+    setCommitNotice(null);
+    setIdentityMissing(false);
+    setPushError(null);
+    setAmend(false);
+    preAmendMessage.current = null;
+    setDiffTarget(null);
+    setDiffActive(false);
+    setSelectedCommit(null);
+    setHistoryPath(null);
+    setCommits([]);
+    setLogDetail(null);
+    setLogError(null);
+    /* Repository recovery must reopen Log, not inherit exhausted history. */ setLogExhausted(false);
+    setLogLoading(false);
+    setGraph(null);
+  }, [cancelLogMoreRequest, git?.isRepo]);
   /**
    * Select one commit: load the detail AND keep the list on that row.
    *
@@ -2249,6 +2303,13 @@ function EditorWorkspace({
       setPanelVisible(true);
       setCommitMode('log');
       setHistoryPath(path);
+      if (git?.isRepo === false) {
+        setCommits([]);
+        setLogExhausted(true);
+        setLogDetail(null);
+        setLogError(null);
+        return;
+      }
       const controller = beginLogRequest(`history\0${path}`);
       if (controller === null) return;
       try {
@@ -2266,7 +2327,7 @@ function EditorWorkspace({
         finishLogRequest(controller);
       }
     },
-    [beginLogRequest, finishLogRequest],
+    [beginLogRequest, finishLogRequest, git?.isRepo],
   );
   /**
    * Apply the log's author filter, debounced so typing does not spawn a git per key.
@@ -7218,49 +7279,6 @@ function EditorWorkspace({
     },
     [focusProjectAfterOption],
   );
-  /**
-   * Expand one or more directory subtrees, reusing one safety-bounded walk.
-   * @param {string[]} startPaths - directories to expand recursively.
-   * @returns {Promise<void>} resolves once the tree caches are updated.
-   */ const expandSubtrees = React.useCallback(
-    async (startPaths: string[]) => {
-      const value = await expandDirectorySubtrees(
-        startPaths,
-        { expanded: expandedRef.current, children: childrenRef.current },
-        async (directory) => {
-          const listing = await callFs<{ entries?: WorkspaceEntry[] }>({
-            op: 'list',
-            path: directory,
-            showHidden,
-            sort: sortMode,
-            foldersFirst,
-            showExcluded: showExcludedFiles,
-          });
-          return Array.isArray(listing.entries) ? listing.entries : [];
-        },
-      );
-      setChildren(value.children as Record<string, WorkspaceEntry[]>);
-      setExpanded(value.expanded);
-    },
-    [foldersFirst, showExcludedFiles, showHidden, sortMode],
-  );
-  /**
-   * IDEA ExpandRecursively: expand every selected directory and its descendants.
-   *
-   * A selected root intentionally traverses the whole workspace, matching
-   * IDEA. File-only and empty selections stay disabled in the toolbar.
-   * @returns {void}
-   */ const expandSelectedTree = React.useCallback(() => {
-    const starts = [...selection].flatMap((path) => {
-      const row = rows.find((entry) => entry.path === path);
-      return row?.kind === 'directory' ? ['', ...ancestorsOf(path), path] : [];
-    });
-    void expandSubtrees([...new Set(starts)]);
-  }, [expandSubtrees, rows, selection]);
-  /* Expand every directory under the root, bounded to keep huge repos responsive. */ const expandAll =
-    React.useCallback(async () => {
-      await expandSubtrees(entries.filter((entry) => entry.kind === 'directory').map((entry) => entry.path));
-    }, [entries, expandSubtrees]);
   /* Clear every expansion state. */ const collapseAll = React.useCallback(() => {
     setExpanded(new Set());
   }, []);
@@ -9871,6 +9889,10 @@ function EditorWorkspace({
     },
     [terminalOpen],
   );
+  const hideToolWindow = React.useCallback(() => {
+    setPanelVisible(false);
+    focusWorkspaceSurface();
+  }, [focusWorkspaceSurface]);
   const selectActivity = React.useCallback(
     (next: 'project' | 'commit' | 'terminal', options?: { keyboard?: boolean }) => {
       if (next === 'terminal') {
@@ -9908,22 +9930,26 @@ function EditorWorkspace({
           const focusInside = panelVisibleRef.current === true && focusInsideToolWindow;
           const action = toolWindowShortcutAction(activity, next, panelVisibleRef.current, focusInside);
           if (action === 'hide') {
-            setPanelVisible(false);
-            focusWorkspaceSurface();
+            hideToolWindow();
             return;
           }
           setPanelVisible(true);
           window.setTimeout(() => focusToolWindowContent(next), 0);
           return;
         }
-        setPanelVisible((visible) => !visible);
+        if (panelVisibleRef.current === true) {
+          hideToolWindow();
+          return;
+        }
+        setPanelVisible(true);
+        window.setTimeout(() => focusToolWindowContent(next), 0);
         return;
       }
       setActivity(next);
       setPanelVisible(true);
-      if (options?.keyboard === true) window.setTimeout(() => focusToolWindowContent(next), 0);
+      window.setTimeout(() => focusToolWindowContent(next), 0);
     },
-    [activity, focusToolWindowContent, focusWorkspaceSurface, terminalOpen],
+    [activity, focusToolWindowContent, hideToolWindow, terminalOpen],
   );
   /* The first Alt+F1 of IDEA's Select Opened File chord. */ const selectOpenedChordAt = React.useRef(0);
   /**
@@ -10467,6 +10493,7 @@ function EditorWorkspace({
    * with a half-written new message must not be silently overwritten.
    */ const toggleAmend = React.useCallback(
     (next: boolean) => {
+      if (next && (git?.isRepo === false || git?.lastCommit === null || git?.lastCommit === undefined)) return;
       setAmend(next);
       if (!next) {
         /* Turning amend off restores what the user had before it was turned on. */ if (
@@ -10477,8 +10504,7 @@ function EditorWorkspace({
         }
         return;
       }
-      const previous = git?.lastCommit;
-      if (previous === null || previous === undefined) return;
+      const previous = git.lastCommit;
       if (commitMessage.trim() !== '') return;
       preAmendMessage.current = commitMessage;
       const body = typeof previous.body === 'string' ? previous.body.trimEnd() : '';
@@ -10655,6 +10681,7 @@ function EditorWorkspace({
             x: position?.x ?? 240,
             y: position?.y ?? 120,
           },
+          gitNotManaged: git?.isRepo === false,
           fetchBusy,
           updateBusy,
           commitBusy,
@@ -10690,6 +10717,7 @@ function EditorWorkspace({
   );
   const commit = React.useCallback(
     async (push: boolean) => {
+      if (gitRef.current?.isRepo === false) return;
       const paths = [...commitSelection];
       if (commitMessage.trim() === '' || paths.length === 0) return;
       setCommitBusy(true);
@@ -11710,79 +11738,46 @@ function EditorWorkspace({
                 onRevealPath={revealInProjectTree}
                 onSelect={selectRow}
                 onApplySelection={applyTreeSelection}
-                onOpenCreateMenu={(event) => {
-                  /* PanelToolbar's overflow menu invokes an action without a
-                           DOM event. Fall back to the tree's box so keyboard Enter
-                           on "New…" still opens the choice menu. */ const rect =
-                    event?.currentTarget?.getBoundingClientRect?.() ?? treeRef.current?.getBoundingClientRect();
-                  if (rect === undefined || rect === null) return;
-                  setMenu(
-                    projectCreateMenu({
-                      t,
-                      position: {
-                        x: Math.max(4, rect.left),
-                        y: rect.bottom + 4,
-                      },
-                      onStartCreate: startCreate,
+                projectMenuItems={projectOptionsMenuItems({
+                  t,
+                  previewTabEnabled,
+                  singleClickOpen,
+                  openDirectoriesSingleClick,
+                  showExcludedFiles,
+                  compactDirectories,
+                  showHidden,
+                  sortMode,
+                  manualOrderEmpty: Object.keys(manualOrder).length === 0,
+                  foldersFirst,
+                  onRefresh: () => runProjectOption(() => void refreshTree()),
+                  onGotoFile: () => void openQuickOpen(),
+                  onRecentFiles: openRecent,
+                  onTogglePreviewTab: () => runProjectOption(() => togglePreviewTab()),
+                  onToggleSingleClickOpen: () => runProjectOption(() => toggleSingleClickOpen()),
+                  onToggleOpenDirectoriesSingleClick: () => runProjectOption(() => toggleOpenDirectoriesSingleClick()),
+                  onToggleShowExcludedFiles: () => runProjectOption(() => toggleShowExcludedFiles()),
+                  onToggleCompactDirectories: () => runProjectOption(() => toggleCompactDirectories()),
+                  onToggleHidden: () =>
+                    runProjectOption(() => {
+                      setShowHidden((current) => {
+                        const next = !current;
+                        try {
+                          window.localStorage.setItem('dsh-editor.project.showHidden', next ? '1' : '0');
+                        } catch {
+                          /* a storage-less browser keeps the in-memory choice */
+                        }
+                        return next;
+                      });
                     }),
-                  );
-                }}
-                optionsOpen={menu?.owner === 'project-options'}
-                onOpenOptions={(event) => {
-                  /* Same contract as New: Options may itself sit inside the
-                           overflow menu, whose run callback has no event. */ const rect =
-                    event?.currentTarget?.getBoundingClientRect?.() ?? treeRef.current?.getBoundingClientRect();
-                  if (rect === undefined || rect === null) return;
-                  setMenu(
-                    projectOptionsMenu({
-                      t,
-                      position: {
-                        x: Math.min(window.innerWidth - 212, Math.max(4, rect.right - 204)),
-                        y: rect.bottom + 4,
-                      },
-                      expandAllAvailable: projectExpandAllAvailable,
-                      previewTabEnabled,
-                      singleClickOpen,
-                      openDirectoriesSingleClick,
-                      showExcludedFiles,
-                      compactDirectories,
-                      showHidden,
-                      sortMode,
-                      manualOrderEmpty: Object.keys(manualOrder).length === 0,
-                      foldersFirst,
-                      onRefresh: () => runProjectOption(() => void refreshTree()),
-                      onGotoFile: () => void openQuickOpen(),
-                      onRecentFiles: openRecent,
-                      onExpandAll: () => runProjectOption(() => void expandAll()),
-                      onTogglePreviewTab: () => runProjectOption(() => togglePreviewTab()),
-                      onToggleSingleClickOpen: () => runProjectOption(() => toggleSingleClickOpen()),
-                      onToggleOpenDirectoriesSingleClick: () =>
-                        runProjectOption(() => toggleOpenDirectoriesSingleClick()),
-                      onToggleShowExcludedFiles: () => runProjectOption(() => toggleShowExcludedFiles()),
-                      onToggleCompactDirectories: () => runProjectOption(() => toggleCompactDirectories()),
-                      onToggleHidden: () =>
-                        runProjectOption(() => {
-                          setShowHidden((current) => {
-                            const next = !current;
-                            try {
-                              window.localStorage.setItem('dsh-editor.project.showHidden', next ? '1' : '0');
-                            } catch {
-                              /* a storage-less browser keeps the in-memory choice */
-                            }
-                            return next;
-                          });
-                        }),
-                      onApplySortMode: (mode) => runProjectOption(() => applySortMode(mode)),
-                      onResetManualOrder: () =>
-                        runProjectOption(() => {
-                          setManualOrder({});
-                          writeProjectManualOrder(root, {});
-                          flashStatus(t('editor.manualOrderReset'));
-                        }),
-                      onToggleFoldersFirst: () => runProjectOption(() => toggleFoldersFirst()),
+                  onApplySortMode: (mode) => runProjectOption(() => applySortMode(mode)),
+                  onResetManualOrder: () =>
+                    runProjectOption(() => {
+                      setManualOrder({});
+                      writeProjectManualOrder(root, {});
+                      flashStatus(t('editor.manualOrderReset'));
                     }),
-                  );
-                }}
+                  onToggleFoldersFirst: () => runProjectOption(() => toggleFoldersFirst()),
+                })}
                 onCreateChange={(value) =>
                   setCreateState((current) => (current === null ? current : { ...current, value }))
                 }
@@ -11799,13 +11794,11 @@ function EditorWorkspace({
                   )
                 }
                 onReveal={revealActive}
-                onExpandSelected={() => void expandSelectedTree()}
-                onExpandAll={expandAll}
                 canCollapseAll={projectCanCollapseAll(expanded)}
                 onCollapseAll={collapseAll}
                 onNotify={(message) => flashStatus(message)}
                 onRefresh={refreshTree}
-                onHide={() => setPanelVisible(false)}
+                onHide={hideToolWindow}
                 rowRefs={rowRefs}
                 treeRef={treeRef}
                 onTreeKeyDown={onTreeKeyDown}
@@ -12006,7 +11999,14 @@ function EditorWorkspace({
                 onRestoreScroll={rememberCommitScroll}
                 onMode={(next) => {
                   switchCommitMode(next);
-                  if (next === 'log' && commits.length === 0 && !logExhausted && !logLoading && !logError)
+                  if (
+                    next === 'log' &&
+                    git?.isRepo !== false &&
+                    commits.length === 0 &&
+                    !logExhausted &&
+                    !logLoading &&
+                    !logError
+                  )
                     void loadLog();
                 }}
                 commits={commits}
@@ -12058,7 +12058,7 @@ function EditorWorkspace({
                 onAmend={toggleAmend}
                 onCommit={commit}
                 onRefresh={loadGit}
-                onHide={() => setPanelVisible(false)}
+                onHide={hideToolWindow}
                 projectName={projectName}
                 branchMenuOpen={menu?.owner === 'branch-menu'}
                 onBranchMenu={(position) => void openBranchMenu(position)}

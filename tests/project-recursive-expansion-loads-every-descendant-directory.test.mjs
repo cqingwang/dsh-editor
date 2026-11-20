@@ -72,26 +72,8 @@ test('recursive expansion stops at the configured safety bound', async () => {
   assert.equal(result.truncated, true);
 });
 
-test('Expand Selected follows IDEA and acts on every selected path', () => {
-  const panel = projectPanelSource;
-  assert.match(panel, /disabled: !projectCanExpandSelection\(rows, selection\)/);
-  const wiring = workspaceSource.slice(
-    workspaceSource.indexOf('onExpandSelected='),
-    workspaceSource.indexOf('onExpandAll={expandAll}'),
-  );
-  assert.match(wiring, /void expandSelectedTree\(\)/);
-  assert.match(source, /const expandSelectedTree = React\.useCallback\(/);
-  assert.match(source, /\[\.\.\.selection\]/);
-  assert.match(source, /ancestorsOf\(path\)/);
-  assert.match(source, /expandSubtrees\(\[\.\.\.new Set\(starts\)\]\)/);
-});
-
-test('Expand All reuses the same recursive traversal', () => {
-  const expandAll = workspaceSource.slice(
-    workspaceSource.indexOf('const expandAll ='),
-    workspaceSource.indexOf('/* Clear every expansion state. */'),
-  );
-  assert.match(expandAll, /expandSubtrees\(/);
-  assert.match(expandAll, /entries\.filter\(\(entry\) => entry\.kind === 'directory'\)/);
-  assert.doesNotMatch(expandAll, /while \(queue\.length > 0/);
+test('Project no longer exposes the recursive Expand Selected toolbar action', () => {
+  assert.doesNotMatch(projectPanelSource, /id: 'expandSelected'|projectCanExpandSelection|editor\.revealSelected/);
+  assert.doesNotMatch(workspaceSource, /onExpandSelected|expandSelectedTree|projectCanExpandSelection/);
+  assert.doesNotMatch(workspaceSource, /onExpandAll|const expandAll =/);
 });

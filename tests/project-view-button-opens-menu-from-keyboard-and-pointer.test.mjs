@@ -18,6 +18,6 @@ test('Project View reuses one menu builder for click and keyboard gestures', () 
   );
   assert.match(
     viewButton,
-    /onContextMenu=\{\(event\) => \{\s+event\.preventDefault\(\);\s+event\.stopPropagation\(\);\s+openProjectViewMenu\(event\.currentTarget\);/s,
+    /onContextMenu=\{\(event\) => \{\s+event\.preventDefault\(\);\s+event\.stopPropagation\(\);\s+openProjectViewMenu\(event\.currentTarget, true\);/s,
   );
 });

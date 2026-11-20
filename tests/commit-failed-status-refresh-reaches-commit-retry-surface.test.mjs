@@ -19,5 +19,8 @@ test('a failed status refresh reaches the Commit retry surface', () => {
   assert.notEqual(end, -1);
   const loadGit = workspaceSource.slice(start, end);
   assert.match(loadGit, /setCommitError\(null\)/);
-  assert.match(loadGit, /catch \(failure\)[\s\S]*?setCommitError\(failure instanceof Error \? failure\.message : String\(failure\)\)/);
+  assert.match(
+    loadGit,
+    /catch \(failure\)[\s\S]*?const message = failure instanceof Error \? failure\.message : String\(failure\);[\s\S]*?setCommitError\(message\)/,
+  );
 });

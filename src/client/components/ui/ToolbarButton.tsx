@@ -14,6 +14,7 @@ export interface ToolbarButtonProps {
   ariaKeyShortcuts?: string;
   style?: React.CSSProperties | null;
   iconSize?: number;
+  className?: string;
 }
 function ToolbarButton({
   icon,
@@ -28,6 +29,7 @@ function ToolbarButton({
   ariaKeyShortcuts = undefined,
   style = null,
   iconSize = 16,
+  className,
 }: ToolbarButtonProps) {
   const handleKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>): void => {
     onKeyDown?.(event);
@@ -40,9 +42,13 @@ function ToolbarButton({
   return (
     <button
       type='button'
-      className={
-        active === true ? 'dsh-editor-toolbar-button dsh-editor-toolbar-button-active' : 'dsh-editor-toolbar-button'
-      }
+      className={[
+        'dsh-editor-toolbar-button',
+        active === true ? 'dsh-editor-toolbar-button-active' : '',
+        className ?? '',
+      ]
+        .filter(Boolean)
+        .join(' ')}
       style={{
         ...styles.toolbarButton,
         ...(disabled ? styles.toolbarButtonDisabled : null),

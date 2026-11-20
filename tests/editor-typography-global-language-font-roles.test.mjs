@@ -54,3 +54,36 @@ test('Find and Search Everywhere use the same semantic input and label typograph
   assert.match(findToolbar, /EDITOR_TEXT_STYLE\.label/u);
   assert.match(searchHint, /EDITOR_TEXT_STYLE\.label/u);
 });
+
+test('search action, text result and Find occurrence rows use semantic roles', () => {
+  const paletteRow = styleBlock(uiStyles, 'paletteRow', 'paletteRowActive');
+  const searchMeta = styleBlock(uiStyles, 'searchEverywhereMeta', 'searchFileResultItem');
+  const searchCategory = styleBlock(uiStyles, 'searchEverywhereCategory', 'searchEverywhereShortcut');
+  const searchShortcut = styleBlock(uiStyles, 'searchEverywhereShortcut', 'searchEverywhereMessage');
+  const findOccurrence = styleBlock(uiStyles, 'findToolOccurrence', 'findToolOccurrenceActive');
+  const findLocation = styleBlock(uiStyles, 'findToolLocation', 'findToolPreview');
+  assert.match(paletteRow, /fontSize: EDITOR_FONT_SIZE_SCALE\.body/u);
+  assert.match(searchMeta, /fontSize: EDITOR_FONT_SIZE_SCALE\.caption/u);
+  assert.match(searchCategory, /fontSize: EDITOR_FONT_SIZE_SCALE\.caption/u);
+  assert.match(searchShortcut, /fontSize: EDITOR_FONT_SIZE_SCALE\.caption/u);
+  assert.match(findOccurrence, /EDITOR_TEXT_STYLE\.label/u);
+  assert.match(findLocation, /EDITOR_TEXT_STYLE\.metadata/u);
+});
+
+test('Project and Commit tree rows use the shared semantic scale', () => {
+  const projectRow = styleBlock(uiStyles, 'treeRow', 'treeRowSelected');
+  const projectRootPath = styleBlock(uiStyles, 'treeRootPath', 'treePath');
+  const commitRow = styleBlock(uiStyles, 'commitTreeNode', 'commitDirRow');
+  const commitPath = styleBlock(uiStyles, 'commitFileDir', 'commitFileDirText');
+  const lineCounts = styleBlock(uiStyles, 'lineCounts', 'lineCountAdd');
+  assert.match(projectRow, /fontSize: EDITOR_FONT_SIZE_SCALE\.control/u);
+  assert.match(projectRootPath, /fontSize: EDITOR_FONT_SIZE_SCALE\.caption/u);
+  assert.match(commitRow, /fontSize: EDITOR_FONT_SIZE_SCALE\.body/u);
+  assert.match(commitPath, /fontSize: EDITOR_FONT_SIZE_SCALE\.caption/u);
+  assert.match(lineCounts, /fontSize: EDITOR_FONT_SIZE_SCALE\.caption/u);
+});
+
+test('Terminal chrome owns the global UI font while the PTY keeps its own font', () => {
+  const terminalPanel = styleBlock(uiStyles, 'terminalPanel', 'terminalTabStrip');
+  assert.match(terminalPanel, /fontFamily: EDITOR_UI_FONT/u);
+});

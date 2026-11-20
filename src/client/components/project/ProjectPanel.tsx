@@ -2,7 +2,7 @@ import React from 'react';
 import { styles } from '../../ui/styles';
 import { EDITOR_TEXT_STYLE } from '../editor/editor-style-model';
 import { Icon, POPUP_ICON_SIZE } from '../ui/Icon';
-import { ContextMenu } from '../ui/Menu';
+import { ContextMenu, type MenuEntry } from '../ui/Menu';
 import { PanelToolbar } from '../ui/PanelToolbar';
 import { ToolbarButton } from '../ui/ToolbarButton';
 import { TreeMessage } from '../ui/TreeMessage';
@@ -33,7 +33,6 @@ import {
   filterTreeRows,
   highlightParts,
   indexChangesByDirectory,
-  projectCanExpandSelection,
   projectTreePositions,
   projectViewDefinitions,
   revealInTree,
@@ -111,15 +110,11 @@ export interface ProjectPanelProps {
   onRevealPath: ProjectCallback;
   onSelect: (row: ProjectRow, event: ProjectTreeSelectionModifiers, selectionRows?: ProjectRow[]) => void;
   onApplySelection?: (selection: Set<string>, primary: string, anchor?: string) => void;
-  onOpenCreateMenu: (event?: React.MouseEvent<HTMLElement>) => void;
-  onOpenOptions: (event?: React.MouseEvent<HTMLElement>) => void;
-  optionsOpen: boolean;
+  projectMenuItems: MenuEntry[];
   onCreateChange: (value: string) => void;
   onCreateCommit: ProjectCallback;
   onCreateCancel: () => void;
   onReveal: ProjectCallback;
-  onExpandSelected: () => void;
-  onExpandAll: () => void;
   canCollapseAll: boolean;
   onCollapseAll: () => void;
   onNotify: (message: string) => void;
@@ -184,14 +179,11 @@ function ProjectPanel({
   onRevealPath,
   onSelect,
   onApplySelection,
-  onOpenCreateMenu,
-  onOpenOptions,
-  optionsOpen,
+  projectMenuItems,
   onCreateChange,
   onCreateCommit,
   onCreateCancel,
   onReveal,
-  onExpandSelected,
   canCollapseAll,
   onCollapseAll,
   onNotify,
@@ -546,20 +538,22 @@ function ProjectPanel({
   const viewDefinitions = React.useMemo(() => projectViewDefinitions(t), [t]);
   const currentViewLabel =
     viewDefinitions.find((definition) => definition.id === projectView)?.label ?? t('editor.projectViewProjectFiles');
-  const openProjectViewMenu = (button: HTMLElement): void => {
+  const openProjectViewMenu = (button: HTMLElement, includeProjectActions = false): void => {
     const rect = button.getBoundingClientRect();
+    const viewItems: MenuEntry[] = viewDefinitions.map((definition) => ({
+      id: `project-view:${definition.id}`,
+      label: definition.label,
+      active: definition.id === projectView,
+      shortcut: definition.id === projectView ? '✓' : '',
+      disabled: definition.available !== true,
+      run: () => onProjectViewChange(definition.id),
+    }));
     setViewMenu({
       x: Math.max(4, rect.left - 4),
       y: rect.bottom + 4,
-      title: t('editor.projectViewMenu'),
-      items: viewDefinitions.map((definition) => ({
-        id: `project-view:${definition.id}`,
-        label: definition.label,
-        active: definition.id === projectView,
-        shortcut: definition.id === projectView ? '✓' : '',
-        disabled: definition.available !== true,
-        run: () => onProjectViewChange(definition.id),
-      })),
+      title: includeProjectActions ? t('editor.project') : t('editor.projectViewMenu'),
+      items:
+        includeProjectActions && projectMenuItems.length > 0 ? [...viewItems, null, ...projectMenuItems] : viewItems,
     });
   };
   const positionForProjectRow = (row: ProjectRow) =>
@@ -873,13 +867,12 @@ function ProjectPanel({
         />
       )}
       <PanelToolbar
+        dense
         t={t}
         ariaLabel={t('editor.project')}
         icon='project'
         title={t('editor.project')}
-        titleActionStyle={{
-          maxWidth: '40%',
-        }}
+        titleFlexible
         titleAction={
           <span style={styles.projectViewTitle}>
             <button
@@ -932,12 +925,12 @@ function ProjectPanel({
                 if (event.key !== 'ContextMenu' && !(event.shiftKey === true && event.key === 'F10')) return;
                 event.preventDefault();
                 event.stopPropagation();
-                openProjectViewMenu(event.currentTarget);
+                openProjectViewMenu(event.currentTarget, true);
               }}
               onContextMenu={(event) => {
                 event.preventDefault();
                 event.stopPropagation();
-                openProjectViewMenu(event.currentTarget);
+                openProjectViewMenu(event.currentTarget, true);
               }}>
               <Icon
                 name='chevronDown'
@@ -946,38 +939,15 @@ function ProjectPanel({
             </button>
           </span>
         }
-        left={[
-          /* IDEA keeps the creation entry and "Select Opened File" visible.
-       Navigation popups remain reachable from Options below. */
-          {
-            id: 'newEntry',
-            group: 'create',
-            icon: 'newFile',
-            label: t('editor.newFileOrDirectory'),
-            onClick: onOpenCreateMenu,
-          },
+        right={[
           {
             id: 'reveal',
             group: 'navigation',
             icon: 'target',
             label: t('editor.reveal'),
-            /* IDEA keeps Select Opened File in the direct Project toolbar;
-         unlike New/Expand/Collapse it must not disappear first when the
-         tool window narrows. */
-            pinned: true,
             disabled: hasActiveFile !== true,
             ariaKeyShortcuts: 'Alt+F1 1',
             onClick: onReveal,
-          },
-        ]}
-        right={[
-          {
-            id: 'expandSelected',
-            group: 'navigation',
-            icon: 'expand',
-            label: t('editor.revealSelected'),
-            disabled: !projectCanExpandSelection(rows, selection) || supportsExpansion !== true,
-            onClick: onExpandSelected,
           },
           {
             id: 'collapse',
@@ -987,15 +957,8 @@ function ProjectPanel({
             disabled: !canCollapseAll || supportsExpansion !== true,
             onClick: onCollapseAll,
           },
-          {
-            id: 'options',
-            group: 'window',
-            icon: 'settings',
-            label: t('editor.options'),
-            ariaHasPopup: 'menu',
-            ariaExpanded: optionsOpen === true,
-            onClick: onOpenOptions,
-          },
+        ]}
+        trailingRight={[
           {
             id: 'hide',
             group: 'window',

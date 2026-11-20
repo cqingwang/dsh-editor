@@ -9,11 +9,17 @@ const source = (readFileSync(join(root, 'src/client/components/project/ProjectPa
 
 test('Project toolbar follows IDEA action order in both groups', () => {
   const panel = source.slice(source.indexOf('function ProjectPanel('), source.indexOf('/**\n     * IDEA-style context menu'));
-  const toolbar = panel.slice(panel.indexOf('left={['), panel.indexOf('dropActive={toolbarDropActive}'));
-  const left = [...toolbar.matchAll(/id: '(newEntry|reveal)'/g)].map((match) => match[1]);
-  const right = [...toolbar.matchAll(/id: '(expandSelected|collapse|options|hide)'/g)].map((match) => match[1]);
-  assert.deepEqual(left, ['newEntry', 'reveal']);
-  assert.deepEqual(right, ['expandSelected', 'collapse', 'options', 'hide']);
+  const toolbar = panel.slice(panel.indexOf('right={['), panel.indexOf('dropActive={toolbarDropActive}'));
+  const directRight = toolbar.slice(toolbar.indexOf('right={['), toolbar.indexOf('trailingRight={'));
+  const directTrailing = toolbar.slice(toolbar.indexOf('trailingRight={'), toolbar.indexOf('overflowMenuItems={'));
+  const right = [...directRight.matchAll(/id: '(reveal|collapse|hide)'/g)].map((match) => match[1]);
+  const trailing = [...directTrailing.matchAll(/id: '(reveal|collapse|hide)'/g)].map((match) => match[1]);
+  assert.deepEqual(right, ['reveal', 'collapse']);
+  assert.deepEqual(trailing, ['hide']);
+  assert.doesNotMatch(panel, /left=\{\[[\s\S]*?id: 'reveal'/);
+  assert.doesNotMatch(directRight, /id: 'expandSelected'/);
+  assert.doesNotMatch(toolbar, /overflowMenuItems=/);
+  assert.doesNotMatch(toolbar, /id: 'newEntry'|id: 'options'/);
 });
 
 test('diff side headers have an explicit divider and retain both version labels', () => {

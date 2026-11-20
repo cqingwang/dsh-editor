@@ -14,8 +14,11 @@ test('SearchFileResultItem owns file identity presentation without interaction s
   assert.match(component, /export interface SearchFileResultItemProps/u);
   assert.match(component, /export function SearchFileResultItem/u);
   assert.match(component, /<EntryIcon/u);
+  assert.match(component, /entry=\{\{\s*path,\s*kind: 'file',?\s*\}\}/u);
+  assert.match(component, /EDITOR_TEXT_STYLE\.body/u);
   assert.match(component, /<GitStatusBadge/u);
   assert.match(component, /data-dsh-search-file-result-item=''/u);
+  assert.doesNotMatch(component, /<Icon\s+name='file'/u);
   assert.doesNotMatch(component, /role='option'/u);
   assert.doesNotMatch(component, /onClick=/u);
   assert.doesNotMatch(component, /onContextMenu=/u);

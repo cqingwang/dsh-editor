@@ -62,6 +62,7 @@ export interface CommitLogProps {
   t: Translate;
   scrollRefs?: CommitLogScrollRefs;
   hidden?: boolean;
+  disabled?: boolean;
   commits: CommitLogEntry[];
   loading: boolean;
   detail: CommitLogDetail | null;
@@ -96,6 +97,7 @@ function CommitLogView({
   t,
   scrollRefs,
   hidden = false,
+  disabled = false,
   commits,
   loading,
   detail,
@@ -393,6 +395,7 @@ function CommitLogView({
           graphMode={graphMode}
           graph={graph}
           loading={loading}
+          disabled={disabled}
           onFilterChange={setFilter}
           onFilterVisibleChange={setShowFilter}
           onAuthorChange={(value) => onAuthor?.(value)}

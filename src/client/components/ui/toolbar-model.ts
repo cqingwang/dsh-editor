@@ -21,18 +21,22 @@ export function panelToolbarFit(
   rightCount: number,
   badgeWidth = 0,
   pinnedLeftCount = 0,
+  actionSlotWidth = 25,
+  overflowActionCount = 0,
 ): { left: number; right: number } {
   const totalWidth = Math.max(0, Number(width) || 0);
+  const slotWidth = Math.max(1, Number(actionSlotWidth) || 25);
   const totalActions =
     Math.max(0, Math.floor(Number(leftCount) || 0)) + Math.max(0, Math.floor(Number(rightCount) || 0));
+  const forcedOverflowSlots = Math.max(0, Math.floor(Number(overflowActionCount) || 0)) > 0 ? 1 : 0;
   let room = totalWidth - 14 - Math.max(0, Number(titleWidth) || 0);
   let left = Math.max(0, Math.floor(Number(leftCount) || 0));
   let right = Math.max(0, Math.floor(Number(rightCount) || 0));
   const badge = Math.max(0, Number(badgeWidth) || 0);
   const badgeRoom = badge > 0 ? badge + 4 : 0;
-  if (totalActions * 25 + badgeRoom <= room) return { left, right };
+  if ((totalActions + forcedOverflowSlots) * slotWidth + badgeRoom <= room) return { left, right };
   /* One "»" button is required once the full set does not fit. */
-  room -= 25;
+  room -= slotWidth;
   /* The branch chip is fixed information, not an action that may overflow.
      Reserve it before distributing slots or actions will push it past the
      toolbar edge after consuming the remaining width. */
@@ -43,12 +47,12 @@ export function panelToolbarFit(
   const reservedLeft = Math.min(
     left,
     Math.max(0, Math.floor(Number(pinnedLeftCount) || 0)),
-    Math.max(0, Math.floor(room / 25)),
+    Math.max(0, Math.floor(room / slotWidth)),
   );
-  room -= reservedLeft * 25;
-  right = Math.min(right, Math.max(0, Math.floor(room / 25)));
-  room -= right * 25;
-  left = reservedLeft + Math.min(left - reservedLeft, Math.max(0, Math.floor(room / 25)));
+  room -= reservedLeft * slotWidth;
+  right = Math.min(right, Math.max(0, Math.floor(room / slotWidth)));
+  room -= right * slotWidth;
+  left = reservedLeft + Math.min(left - reservedLeft, Math.max(0, Math.floor(room / slotWidth)));
   return { left, right };
 }
 

@@ -23,7 +23,7 @@ test('the commit status strip renders outside the tab switch', () => {
   assert.ok(stripAt > 0, 'status strip missing');
   /* It must come BEFORE the log surface, so the Log tab shows it too. */
   assert.ok(stripAt < logBranchAt, 'status strip must render before the tab branch');
-  assert.match(panel, /error !== null \|\| notice !== null \|\| \(pushFailure !== null && pushFailure !== undefined\)/);
+  assert.match(panel, /error !== null \|\|[\s\S]*?notice !== null \|\|[\s\S]*?gitNotManaged \|\|[\s\S]*?pushFailure !== null && pushFailure !== undefined/u);
 });
 
 test('the changes tab no longer duplicates the status strip', () => {

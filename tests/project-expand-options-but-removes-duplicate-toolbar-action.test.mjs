@@ -13,21 +13,19 @@ const projectOptionsMenuSource = readFileSync(
   'utf8',
 );
 
-test('Project keeps Expand All in Options but removes the duplicate toolbar action', () => {
-  assert.equal((projectOptionsMenuSource.match(/id: 'expandAll'/g) ?? []).length, 1);
-  assert.match(
-    projectOptionsMenuSource,
-    /id: 'expandAll',[\s\S]*?label: t\('editor\.expandAll'\),[\s\S]*?disabled: !expandAllAvailable,[\s\S]*?restoreFocus: false,/,
-  );
+test('Project never exposes an expand-all action in the toolbar or Options', () => {
   assert.doesNotMatch(projectPanelSource, /id: 'expandAll'/);
-  assert.doesNotMatch(projectPanelSource, /icon: 'expand', label: t\('editor\.expandAll'\)/);
+  assert.doesNotMatch(projectPanelSource, /id: 'expandSelected'/);
+  assert.doesNotMatch(projectPanelSource, /projectCanExpandSelection|onExpandSelected|editor\.revealSelected/);
+  assert.doesNotMatch(projectOptionsMenuSource, /id: 'expandAll'/);
+  assert.doesNotMatch(projectOptionsMenuSource, /expandAllAvailable|onExpandAll/);
+  assert.doesNotMatch(
+    workspaceSource,
+    /projectExpandAllAvailable|const expandAll =|onExpandAll|onExpandSelected|expandSelectedTree|projectCanExpandSelection/,
+  );
 });
 
-test('Project toolbar still keeps Expand Selected and Collapse All', () => {
-  assert.match(
-    projectPanelSource,
-    /id: 'expandSelected',[\s\S]*?label: t\('editor\.revealSelected'\),[\s\S]*?disabled: !projectCanExpandSelection/u,
-  );
+test('Project toolbar keeps Collapse All while removing every expand action', () => {
   assert.match(
     projectPanelSource,
     /id: 'collapse',[\s\S]*?label: t\('editor\.collapseAll'\),[\s\S]*?disabled: !canCollapseAll/u,
@@ -35,18 +33,13 @@ test('Project toolbar still keeps Expand Selected and Collapse All', () => {
   assert.match(source, /canCollapseAll: projectCanCollapseAll\(expanded\)/);
 });
 
-test('Project Options resolves Expand All from the EditorWorkspace state', () => {
-  assert.match(
-    source,
-    /const projectExpandAllAvailable = projectTreeActionsAvailable\s+&& projectCanExpandAll\(entries, children, expanded\);/,
+test('Project Options keeps navigation commands without an expand-all command', () => {
+  const optionsCall = workspaceSource.slice(
+    workspaceSource.indexOf('projectOptionsMenuItems({'),
+    workspaceSource.indexOf('onCreateChange={(value) =>', workspaceSource.indexOf('projectOptionsMenuItems({')),
   );
-  assert.match(
-    workspaceSource,
-    /expandAllAvailable: projectExpandAllAvailable,/,
-  );
-  assert.match(
-    projectOptionsMenuSource,
-    /id: 'expandAll',[\s\S]*?label: t\('editor\.expandAll'\),[\s\S]*?disabled: !expandAllAvailable,/,
-  );
-  assert.doesNotMatch(projectOptionsMenuSource, /disabled: !canExpandAll,/);
+  assert.match(optionsCall, /onRefresh: \(\) => runProjectOption\(\(\) => void refreshTree\(\)\)/);
+  assert.match(optionsCall, /onGotoFile: \(\) => void openQuickOpen\(\)/);
+  assert.match(optionsCall, /onRecentFiles: openRecent/);
+  assert.doesNotMatch(optionsCall, /onExpandAll/);
 });

@@ -88,7 +88,6 @@ test('Project exposes IDEA AutoscrollToSource as one unified single-click action
   const menu = projectOptionsMenu({
     t: (key) => key,
     position: { x: 0, y: 0 },
-    expandAllAvailable: true,
     previewTabEnabled: false,
     singleClickOpen: false,
     openDirectoriesSingleClick: false,
@@ -101,7 +100,6 @@ test('Project exposes IDEA AutoscrollToSource as one unified single-click action
     onRefresh() {},
     onGotoFile() {},
     onRecentFiles() {},
-    onExpandAll() {},
     onTogglePreviewTab() {},
     onToggleSingleClickOpen() {},
     onToggleOpenDirectoriesSingleClick() {},

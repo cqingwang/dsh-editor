@@ -3,6 +3,10 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 const client = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+const projectMenu = await readFile(
+  new URL('../src/client/components/project/project-options-menu.ts', import.meta.url),
+  'utf8',
+);
 const readme = await readFile(new URL('../README.md', import.meta.url), 'utf8');
 
 test('active editor tabs do not auto-reveal themselves in the Project tree', () => {
@@ -24,12 +28,8 @@ test('Select Opened File remains the only active-tab tree locator', () => {
 });
 
 test('Project Behavior no longer exposes an automatic follow preference', () => {
-  const options = client.slice(
-    client.indexOf('onOpenOptions: (event) => {'),
-    client.indexOf('onCreateChange: (value) =>'),
-  );
-  assert.doesNotMatch(options, /id: 'autoscroll'/u);
-  assert.doesNotMatch(options, /toggleAutoScroll/u);
+  assert.doesNotMatch(projectMenu, /id: 'autoscroll'/u);
+  assert.doesNotMatch(projectMenu, /toggleAutoScroll/u);
 });
 
 test('README describes explicit Select Opened File instead of auto-follow', () => {

@@ -18,6 +18,7 @@ test('an aborted Load More page cannot append commits from the previous author',
   const loadingMoreRef = { current: false };
   const logAuthorRef = { current: 'Alice' };
   const loadMoreLog = loadTypeScriptCallback(workspace, 'loadMoreLog', {
+    git: { isRepo: true },
     callGit: async () => {
       await pageGate;
       return { commits: [{ hash: 'alice-2' }] };

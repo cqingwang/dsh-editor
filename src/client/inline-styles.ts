@@ -1213,14 +1213,15 @@ export const styles: EditorStyleSheet = {
   projectViewTitle: {
     display: 'inline-flex',
     alignItems: 'center',
+    flex: '1 1 auto',
     gap: 3,
     minWidth: 0,
   },
   projectRootButton: {
     display: 'inline-flex',
     alignItems: 'center',
+    flex: '1 1 auto',
     minWidth: 0,
-    maxWidth: 180,
     height: 22,
     padding: '0 2px',
     border: 'none',

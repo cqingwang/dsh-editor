@@ -12,6 +12,7 @@ test('opening File History cancels a pending author-filter reload', async () => 
   const cleared = [];
   const authorTimer = { current: 7 };
   const showFileHistory = loadTypeScriptCallback(workspace, 'showFileHistory', {
+    git: { isRepo: true },
     authorTimer,
     window: {
       clearTimeout: (timer) => cleared.push(timer),

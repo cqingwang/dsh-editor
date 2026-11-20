@@ -10,7 +10,8 @@ test('the Log toolbar disables Refresh while its request is loading', async () =
   const log = await read('src/client/components/commit/CommitLog.tsx');
 
   assert.match(toolbar, /loading: boolean;/u);
-  assert.match(toolbar, /icon='refresh'[\s\S]*?disabled=\{loading\}/u);
+  assert.match(toolbar, /disabled\?: boolean;/u);
+  assert.match(toolbar, /icon='refresh'[\s\S]*?disabled=\{disabled \|\| loading\}/u);
   assert.match(log, /<CommitLogToolbar[\s\S]*?loading=\{loading\}/u);
 });
 

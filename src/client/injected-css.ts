@@ -532,6 +532,8 @@ export function installStyles(): void {
            container; size the toggle text against the editor surface. */
     '@container dsh-editor-editor (max-width: 440px) { .dsh-editor-diff-view-label, .dsh-editor-diff-hint { display: none !important; } }',
     '@container dsh-editor-editor (max-width: 440px) { .dsh-editor-terminal-title { display: none !important; } }',
+    '.dsh-editor-terminal-strip { container: dsh-terminal-strip / inline-size; }',
+    '@container dsh-terminal-strip (max-width: 260px) { .dsh-editor-terminal-secondary-action { display: none !important; } }',
     /* Quarter width: the three-control hunk nav (↑ n/n ↓) does not fit
            next to undo/redo/close. Collapse it to the clickable counter chip. */
     '@container dsh-editor-editor (max-width: 440px) { .dsh-editor-hunk-nav { display: none !important; } }',

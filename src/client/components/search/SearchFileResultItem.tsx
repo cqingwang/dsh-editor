@@ -1,5 +1,6 @@
 import React from 'react';
 import { styles } from '../../ui/styles';
+import { EDITOR_TEXT_STYLE } from '../editor/editor-style-model';
 import { EntryIcon } from '../ui/EntryIcon';
 import { GitStatusBadge } from '../ui/GitStatusBadge';
 import type { GitStatusInfo } from '../ui/git-status-model';
@@ -46,6 +47,7 @@ export function SearchFileResultItem({
       )}
       <span
         style={{
+          ...EDITOR_TEXT_STYLE.body,
           ...styles.paletteName,
           flex: '1 1 auto',
           ...nameStyle,

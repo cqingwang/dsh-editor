@@ -7,9 +7,9 @@ import { loadTypeScriptModule } from './ts-source.mjs';
 const root = new URL('../', import.meta.url);
 const read = (path) => readFile(new URL(path, root), 'utf8');
 const source = await read('src/client/components/project/project-options-menu.ts');
-const { projectCreateMenu, projectOptionsMenu } = loadTypeScriptModule(source, [
-  'projectCreateMenu',
+const { projectOptionsMenu, projectOptionsMenuItems } = loadTypeScriptModule(source, [
   'projectOptionsMenu',
+  'projectOptionsMenuItems',
 ]);
 const t = (key) => key;
 
@@ -22,26 +22,38 @@ function childById(menu, id) {
   return null;
 }
 
-test('Project create menu preserves IDEA actions and shortcuts', () => {
-  const opened = [];
-  const menu = projectCreateMenu({
+test('Project header actions do not duplicate Project tree creation', () => {
+  const items = projectOptionsMenuItems({
     t,
-    position: { x: 14, y: 42 },
-    onStartCreate: (kind) => opened.push(kind),
+    previewTabEnabled: false,
+    singleClickOpen: false,
+    openDirectoriesSingleClick: false,
+    showExcludedFiles: false,
+    compactDirectories: false,
+    showHidden: false,
+    sortMode: 'name',
+    manualOrderEmpty: true,
+    foldersFirst: true,
+    onRefresh() {},
+    onGotoFile() {},
+    onRecentFiles() {},
+    onTogglePreviewTab() {},
+    onToggleSingleClickOpen() {},
+    onToggleOpenDirectoriesSingleClick() {},
+    onToggleShowExcludedFiles() {},
+    onToggleCompactDirectories() {},
+    onToggleHidden() {},
+    onApplySortMode() {},
+    onResetManualOrder() {},
+    onToggleFoldersFirst() {},
   });
 
-  assert.equal(menu.x, 14);
-  assert.equal(menu.y, 42);
-  assert.equal(menu.title, 'editor.newFile');
   assert.deepEqual(
-    menu.items.map((item) => item?.id),
-    ['newFile', 'newFolder'],
+    items.map((item) => item?.id ?? null),
+    ['refresh', 'gotoFile', 'recent', null, 'behavior', 'appearance'],
   );
-  assert.equal(childById(menu, 'newFile')?.shortcut, '⌘N');
-  assert.equal(childById(menu, 'newFolder')?.shortcut, '⌥⌘N');
-  childById(menu, 'newFile').run();
-  childById(menu, 'newFolder').run();
-  assert.deepEqual(opened, ['file', 'directory']);
+  assert.equal(childById({ items }, 'newFile'), null);
+  assert.equal(childById({ items }, 'newFolder'), null);
 });
 
 test('Project options menu preserves toggles, sort state and disabled actions', () => {
@@ -49,7 +61,6 @@ test('Project options menu preserves toggles, sort state and disabled actions', 
   const menu = projectOptionsMenu({
     t,
     position: { x: 8, y: 64 },
-    expandAllAvailable: false,
     previewTabEnabled: true,
     singleClickOpen: false,
     openDirectoriesSingleClick: true,
@@ -62,7 +73,6 @@ test('Project options menu preserves toggles, sort state and disabled actions', 
     onRefresh: () => calls.push('refresh'),
     onGotoFile: () => calls.push('gotoFile'),
     onRecentFiles: () => calls.push('recent'),
-    onExpandAll: () => calls.push('expandAll'),
     onTogglePreviewTab: () => calls.push('previewTab'),
     onToggleSingleClickOpen: () => calls.push('singleClickOpen'),
     onToggleOpenDirectoriesSingleClick: () => calls.push('openDirectoriesSingleClick'),
@@ -77,7 +87,7 @@ test('Project options menu preserves toggles, sort state and disabled actions', 
   assert.equal(menu.owner, 'project-options');
   assert.equal(menu.x, 8);
   assert.equal(menu.y, 64);
-  assert.equal(childById(menu, 'expandAll')?.disabled, true);
+  assert.equal(childById(menu, 'expandAll'), null);
   assert.equal(childById(menu, 'previewTab')?.shortcut, '✓');
   assert.equal(childById(menu, 'singleClickOpen')?.shortcut, '');
   assert.equal(childById(menu, 'openDirectoriesSingleClick')?.shortcut, '✓');
@@ -91,7 +101,6 @@ test('Project options menu preserves toggles, sort state and disabled actions', 
     'refresh',
     'gotoFile',
     'recent',
-    'expandAll',
     'previewTab',
     'singleClickOpen',
     'openDirectoriesSingleClick',
@@ -108,7 +117,6 @@ test('Project options menu preserves toggles, sort state and disabled actions', 
     'refresh',
     'gotoFile',
     'recent',
-    'expandAll',
     'previewTab',
     'singleClickOpen',
     'openDirectoriesSingleClick',
@@ -126,16 +134,11 @@ test('editor workspace reuses the extracted Project menu model', async () => {
   const build = await read('scripts/build-client.mjs');
   const client = await read('lib/client.js');
 
-  assert.match(workspace, /import \{ projectCreateMenu, projectOptionsMenu \} from '\.\/components\/project\/project-options-menu';/u);
-  assert.match(workspace, /projectCreateMenu\(\{/u);
-  assert.match(workspace, /projectOptionsMenu\(\{/u);
-  const createHandler = workspace.slice(
-    workspace.indexOf('onOpenCreateMenu={'),
-    workspace.indexOf('optionsOpen=', workspace.indexOf('onOpenCreateMenu={')),
-  );
-  assert.doesNotMatch(createHandler, /id: 'newFile'/u);
-  assert.doesNotMatch(createHandler, /id: 'newFolder'/u);
+  assert.match(workspace, /import \{ projectOptionsMenuItems \} from '\.\/components\/project\/project-options-menu';/u);
+  assert.match(workspace, /projectOptionsMenuItems\(\{/u);
+  assert.doesNotMatch(workspace, /onOpenCreateMenu=|onOpenOptions=/u);
   assert.match(build, /project-options-menu\.ts/u);
-  assert.match(client, /function projectCreateMenu\(/u);
+  assert.match(client, /function projectOptionsMenuItems\(/u);
   assert.match(client, /function projectOptionsMenu\(/u);
+  assert.doesNotMatch(client, /function projectToolbarMenu\(|function projectCreateMenu\(/u);
 });

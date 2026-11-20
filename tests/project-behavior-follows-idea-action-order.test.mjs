@@ -12,9 +12,9 @@ const source = [
 ].join('\n');
 
 function projectOptions() {
-  const start = source.indexOf('export function projectOptionsMenu(');
+  const start = source.indexOf('export function projectOptionsMenuItems(');
   assert.notEqual(start, -1);
-  return source.slice(start);
+  return source.slice(start, source.indexOf('export function projectOptionsMenu(', start));
 }
 
 test('Project Behavior follows IDEA action order', () => {

@@ -3133,62 +3133,6 @@ export function readProjectSingleClickOpen() {
 }
 
 /**
- * Whether Expand Selected has at least one selected directory to act on.
- *
- * IDEA enables the action for a selected root and recursively expands the
- * whole project. File-only and empty selections remain disabled because they
- * have no expandable target.
- * @param {object[]|null} rows - visible Project rows.
- * @param {Set<string>|null} selection - selected paths.
- * @returns {boolean} true when at least one selected row is an expandable directory.
- */
-export function projectCanExpandSelection(
-  rows: ProjectTreeRow[] | null | undefined,
-  selection: Set<string> | null | undefined,
-): boolean {
-  const selected: Set<string> = selection instanceof Set ? selection : new Set<string>();
-  if (selected.size === 0) return false;
-  return (Array.isArray(rows) ? rows : []).some(
-    (row) => row?.kind === 'directory' && selected.has(row.path) && (row.root === true || row.path !== ''),
-  );
-}
-
-/**
- * Whether IDEA's Expand All action has any collapsed directory to open.
- *
- * `TreeExpander.isExpandAllEnabled()` is false when the tree cannot expand
- * further. DSH knows that boundary from the expanded set plus the cached
- * listings, so an already-expanded tree must not expose a no-op action.
- * @param {object[]|null} entries - top-level directory listing.
- * @param {Record<string, object[]>|null} children - loaded directory listings.
- * @param {Set<string>|null} expanded - expanded directory paths.
- * @returns {boolean} true when at least one directory still needs expansion.
- */
-export function projectCanExpandAll(
-  entries: ProjectTreeRow[] | null | undefined,
-  children: Record<string, ProjectTreeRow[]> | null | undefined,
-  expanded: Set<string> | null | undefined,
-): boolean {
-  const expandedSet: Set<string> = expanded instanceof Set ? expanded : new Set<string>();
-  const queue: string[] = (Array.isArray(entries) ? entries : [])
-    .filter((entry) => entry?.kind === 'directory' && typeof entry.path === 'string')
-    .map((entry) => entry.path);
-  const seen = new Set<string>();
-  while (queue.length > 0) {
-    const path = queue.shift();
-    if (seen.has(path)) continue;
-    seen.add(path);
-    if (!expandedSet.has(path)) return true;
-    const listing = children?.[path];
-    if (!Array.isArray(listing)) return true;
-    for (const child of listing) {
-      if (child?.kind === 'directory' && typeof child.path === 'string') queue.push(child.path);
-    }
-  }
-  return false;
-}
-
-/**
  * Whether IDEA's Collapse All action has any expanded directory to close.
  * @param {Set<string>|null} expanded - expanded directory paths.
  * @returns {boolean} true when the tree contains an expanded directory.

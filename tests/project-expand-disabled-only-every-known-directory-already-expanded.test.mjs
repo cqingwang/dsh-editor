@@ -11,23 +11,7 @@ const workspaceSource = readFileSync(join(root, 'src/client/editor-workspace.tsx
 const optionsSource = readFileSync(join(root, 'src/client/components/project/project-options-menu.ts'), 'utf8');
 const terminalSource = readFileSync(join(root, 'src/client/terminal.ts'), 'utf8');
 const source = [projectPanelSource, workspaceSource, optionsSource].join('\n');
-const projectCanExpandAll = loadTypeScriptFunction(terminalSource, 'projectCanExpandAll');
 const projectCanCollapseAll = loadTypeScriptFunction(terminalSource, 'projectCanCollapseAll');
-
-test('Expand All is disabled only when every known directory is already expanded', () => {
-  const entries = [
-    { path: 'src', kind: 'directory' },
-    { path: 'README.md', kind: 'file' },
-  ];
-  const children = {
-    src: [{ path: 'src/nested', kind: 'directory' }],
-    'src/nested': [],
-  };
-  assert.equal(projectCanExpandAll(entries, children, new Set([''])), true);
-  assert.equal(projectCanExpandAll(entries, children, new Set(['src'])), true);
-  assert.equal(projectCanExpandAll(entries, children, new Set(['src', 'src/nested'])), false);
-  assert.equal(projectCanExpandAll([{ path: 'README.md', kind: 'file' }], {}, new Set([''])), false);
-});
 
 test('Collapse All is disabled when the tree has no expanded directory', () => {
   assert.equal(projectCanCollapseAll(new Set()), false);
@@ -35,13 +19,16 @@ test('Collapse All is disabled when the tree has no expanded directory', () => {
   assert.equal(projectCanCollapseAll(new Set(['src'])), true);
 });
 
-test('Project keeps IDEA expander states without duplicating Expand All in the toolbar', () => {
-  assert.doesNotMatch(source, /id: 'expandAll', icon: 'expand', label: t\('editor\.expandAll'\)/);
+test('Project keeps Collapse All without any toolbar expand action', () => {
+  assert.doesNotMatch(source, /id: 'expandAll'|id: 'expandSelected'|editor\.revealSelected/);
   assert.match(
     source,
     /id: 'collapse',\s+group: 'navigation',\s+icon: 'collapse',\s+label: t\('editor\.collapseAll'\),\s+disabled: !canCollapseAll/s,
   );
-  assert.match(optionsSource, /id: 'expandAll',\s+label: t\('editor\.expandAll'\),\s+disabled: !expandAllAvailable,/);
-  assert.match(workspaceSource, /const projectExpandAllAvailable = projectTreeActionsAvailable && projectCanExpandAll\(entries, children, expanded\)/);
+  assert.doesNotMatch(optionsSource, /id: 'expandAll'|expandAllAvailable|onExpandAll/);
+  assert.doesNotMatch(
+    workspaceSource,
+    /projectExpandAllAvailable|const expandAll =|onExpandAll|onExpandSelected|expandSelectedTree|projectCanExpandSelection/,
+  );
   assert.match(workspaceSource, /canCollapseAll=\{projectCanCollapseAll\(expanded\)\}/);
 });

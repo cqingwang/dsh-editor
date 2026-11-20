@@ -1180,23 +1180,37 @@ function TerminalPanel({
     showScreenMenu(rect.left + 12, rect.top + 12, emulator, terminal, pane, emulator.getSelectionPosition?.() ?? null);
   };
 
-  /* Recompute the match count whenever the query changes. */
+  /* Recompute the match count whenever the query or live terminal buffer changes. */
   React.useEffect(() => {
     if (find === null) return;
     /* Remember the query so reopening the bar continues where the user left off. */
     lastTerminalQuery.current = find.query;
     const emulator = findEmulator();
     if (emulator === null) return;
-    const total = countTerminalMatches(emulator, find.query);
-    setFind((current) =>
-      current === null || current.total === total
-        ? current
-        : {
-            ...current,
-            total,
-            index: Math.min(current.index, Math.max(0, total - 1)),
-          },
-    );
+    const recomputeTotal = () => {
+      const total = countTerminalMatches(emulator, find.query);
+      setFind((current) => {
+        if (current === null) return current;
+        const index = Math.min(current.index, Math.max(0, total - 1));
+        return current.total === total && current.index === index ? current : { ...current, total, index };
+      });
+    };
+    let timer: number | null = null;
+    /* High-output terminals can emit several parsed writes per frame. Bound the
+       repeated full-buffer scans while keeping the counter visibly live. */
+    const syncTotal = () => {
+      if (timer !== null) return;
+      timer = window.setTimeout(() => {
+        timer = null;
+        recomputeTotal();
+      }, 50);
+    };
+    recomputeTotal();
+    const writeParsed = emulator.onWriteParsed?.(syncTotal);
+    return () => {
+      writeParsed?.dispose();
+      if (timer !== null) window.clearTimeout(timer);
+    };
   }, [find?.query, splitId]);
 
   /* ⌘/Ctrl+F inside either terminal pane opens the dock's own find bar. */
@@ -1753,7 +1767,9 @@ function TerminalPanel({
     <div
       style={styles.terminalPanel}
       data-dsh-editor-terminal=''>
-      <div style={styles.terminalTabStrip}>
+      <div
+        className='dsh-editor-terminal-strip'
+        style={styles.terminalTabStrip}>
         <span
           className='dsh-editor-terminal-title'
           style={styles.terminalTitleLabel}
@@ -1989,12 +2005,14 @@ function TerminalPanel({
           label={t('editor.terminalNewPredefinedSession')}
           onClick={() => void openShellMenu()}
           disabled={busy}
+          className='dsh-editor-terminal-secondary-action'
         />
         <ToolbarButton
           icon='split'
           label={splitId === null ? t('editor.terminalSplit') : t('editor.terminalUnsplit')}
           onClick={() => void toggleSplit()}
           disabled={available === false || activeId === null}
+          className='dsh-editor-terminal-secondary-action'
         />
         <ToolbarButton
           icon='search'
@@ -2006,6 +2024,7 @@ function TerminalPanel({
             )
           }
           disabled={available === false}
+          className='dsh-editor-terminal-secondary-action'
         />
         <ToolbarButton
           icon='settings'
@@ -2023,6 +2042,32 @@ function TerminalPanel({
                   shortcut: '⌘K',
                   disabled: activeId === null,
                   run: () => emulatorRef.current?.clear(),
+                },
+                {
+                  id: 'newPredefined',
+                  label: t('editor.terminalNewPredefinedSession'),
+                  disabled: busy,
+                  run: (): void => {
+                    void openShellMenu();
+                  },
+                },
+                {
+                  id: 'split',
+                  label: splitId === null ? t('editor.terminalSplit') : t('editor.terminalUnsplit'),
+                  disabled: available === false || activeId === null,
+                  run: (): void => {
+                    void toggleSplit();
+                  },
+                },
+                {
+                  id: 'find',
+                  label: t('editor.find'),
+                  disabled: available === false,
+                  run: () =>
+                    openTerminalFind(
+                      focusedPaneRef.current === 'right' ? splitEmulatorRef.current : emulatorRef.current,
+                      focusedPaneRef.current,
+                    ),
                 },
                 {
                   id: 'increaseFont',
@@ -2098,22 +2143,23 @@ function TerminalPanel({
           <ToolbarButton
             icon='chevronDown'
             label={t('editor.findNext')}
+            disabled={find.total === 0}
             onClick={() => moveTerminalSelection(findEmulator(), find, setFind, 1)}
           />
           <ToolbarButton
             icon='chevronRight'
             label={t('editor.findPrevious')}
+            disabled={find.total === 0}
             onClick={() => moveTerminalSelection(findEmulator(), find, setFind, -1)}
           />
-          <button
-            type='button'
-            style={styles.conflictAction}
+          <ToolbarButton
+            icon='close'
+            label={t('editor.closeTerminalFind')}
             onClick={() => {
               setFind(null);
               findEmulator()?.focus();
-            }}>
-            ×
-          </button>
+            }}
+          />
         </div>
       )}
       {available ? (

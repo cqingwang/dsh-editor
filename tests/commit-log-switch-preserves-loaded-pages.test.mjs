@@ -12,6 +12,6 @@ test('switching back to Commit Log does not discard already loaded pages', () =>
   assert.doesNotMatch(handler, /if \(next === 'log'\) void loadLog\(\);/u);
   assert.match(
     handler,
-    /if \(next === 'log' && commits\.length === 0 && !logExhausted && !logLoading && !logError\)\s+void loadLog\(\);/u,
+    /if \(\s*next === 'log' &&\s+git\?\.isRepo !== false &&\s+commits\.length === 0 &&\s+!logExhausted &&\s+!logLoading &&\s+!logError\s*\)\s+void loadLog\(\);/u,
   );
 });

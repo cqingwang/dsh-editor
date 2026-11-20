@@ -33,6 +33,7 @@ test('status reports branch identity, last commit and porcelain changes', async 
   await writeFile(join(dir, 'added.txt'), 'new\n');
 
   const status = await gitStatus(dir);
+  assert.equal(status.isRepo, true);
   assert.equal(status.branch, 'main');
   assert.equal(status.prefix, '');
   assert.equal(status.detached, false);
@@ -44,6 +45,17 @@ test('status reports branch identity, last commit and porcelain changes', async 
       ['tracked.txt', ' M'],
     ],
   );
+});
+
+test('status treats a non-git workspace as an empty tool-window state', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'dsh-editor-non-git-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+
+  const status = await gitStatus(dir);
+  assert.equal(status.isRepo, false);
+  assert.equal(status.branch, '');
+  assert.deepEqual(status.changes, []);
+  assert.equal(status.lastCommit, null);
 });
 
 test('stage moves one path into the index and reset moves it back', async (t) => {

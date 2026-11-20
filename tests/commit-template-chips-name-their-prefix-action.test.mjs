@@ -26,10 +26,10 @@ test('commit template chips expose their full localized action as the accessible
 test('commit actions keep native disabled semantics', () => {
   assert.match(
     panel,
-    /disabled=\{busy \|\| selectedPaths\.size === 0 \|\| message\.trim\(\) === ''\}\s+onClick=\{\(\) => onCommit\(false\)\}/u,
+    /disabled=\{busy \|\| gitNotManaged \|\| selectedPaths\.size === 0 \|\| message\.trim\(\) === ''\}\s+onClick=\{\(\) => onCommit\(false\)\}/u,
   );
   assert.match(
     panel,
-    /disabled=\{busy \|\| selectedPaths\.size === 0 \|\| message\.trim\(\) === ''\}\s+onClick=\{\(\) => onCommit\(true\)\}/u,
+    /disabled=\{busy \|\| gitNotManaged \|\| selectedPaths\.size === 0 \|\| message\.trim\(\) === ''\}\s+onClick=\{\(\) => onCommit\(true\)\}/u,
   );
 });

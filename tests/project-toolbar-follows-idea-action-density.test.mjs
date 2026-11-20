@@ -26,14 +26,19 @@ function projectPanel() {
 
 test('the Project toolbar follows IDEA action density', () => {
   const panel = projectPanel();
-  const toolbar = slice('left={[', 'dropActive={toolbarDropActive}');
+  const toolbar = slice('right={[', 'dropActive={toolbarDropActive}');
 
-  assert.match(toolbar, /id: 'newEntry'/);
+  assert.match(projectPanelSource, /<PanelToolbar\s+dense\s+t=\{t\}/u);
   assert.match(toolbar, /id: 'reveal',[\s\S]*?icon: 'target',[\s\S]*?label: t\('editor\.reveal'\)/);
-  assert.match(toolbar, /id: 'expandSelected'/);
   assert.match(toolbar, /id: 'collapse',[\s\S]*?group: 'navigation',[\s\S]*?icon: 'collapse'[\s\S]*?label: t\('editor\.collapseAll'\)/);
-  assert.match(toolbar, /id: 'options',[\s\S]*?icon: 'settings',[\s\S]*?label: t\('editor\.options'\)/);
   assert.match(toolbar, /id: 'hide',[\s\S]*?group: 'window',[\s\S]*?icon: 'hide'[\s\S]*?label: t\('editor\.hide'\)/);
+  const directRight = slice('right={[', 'trailingRight={');
+  const directTrailing = slice('trailingRight={', 'dropActive={toolbarDropActive}');
+  assert.doesNotMatch(toolbar, /id: 'newEntry'/);
+  assert.doesNotMatch(directRight, /id: 'options'/);
+  assert.doesNotMatch(directRight, /id: 'hide'/);
+  assert.match(directTrailing, /id: 'hide'/);
+  assert.doesNotMatch(toolbar, /overflowMenuItems=/);
 
   /* IDEA's visible toolbar is not a second place to configure the tree. */
   assert.doesNotMatch(toolbar, /id: 'sort'/);
@@ -42,36 +47,48 @@ test('the Project toolbar follows IDEA action density', () => {
   assert.doesNotMatch(toolbar, /id: 'refresh'/);
   assert.doesNotMatch(toolbar, /id: 'gotoFile'/);
   assert.doesNotMatch(toolbar, /id: 'recent'/);
-  assert.ok(panel.includes('onOpenOptions'));
+  assert.doesNotMatch(toolbar, /id: 'expandSelected'|projectCanExpandSelection|onExpandSelected|editor\.revealSelected/);
+  assert.ok(panel.includes('projectMenuItems'));
 });
 
-test('the right toolbar group keeps Options and Hide while the middle overflows', () => {
+test('the dense Project toolbar uses IDEA action pitch without shrinking icons', () => {
+  assert.match(panelToolbarSource, /dense\?: boolean;/u);
+  assert.match(panelToolbarSource, /const actionSlotWidth = dense \? 22 : 25;/u);
+  assert.match(panelToolbarSource, /actionSlotWidth,\s+overflowMenuItems\.length,/u);
+  assert.match(panelToolbarSource, /gap: dense \? 0 : 1,/u);
+  assert.match(panelToolbarSource, /style=\{dense \? \{ width: 22 \} : null\}/u);
+  assert.match(panelToolbarSource, /minWidth: dense \? 2 : 4/u);
+  assert.match(panelToolbarSource, /overflowMenuItems\?: MenuEntry\[\];/u);
+  assert.match(panelToolbarSource, /const overflowMenuEntries: MenuEntry\[\]/u);
+  assert.match(panelToolbarSource, /observer\?\.observe\(titleRef\.current\)/u);
+});
+
+test('the shared toolbar renders More before the trailing Hide action', () => {
   const toolbar = panelToolbarSource;
   assert.match(toolbar, /const next = panelToolbarFit\(/);
-  assert.match(toolbar, /right\.length - fits\.right/);
-  assert.match(toolbar, /right\.slice\(right\.length - fits\.right\)\.map\(renderAction\)/);
-  assert.match(toolbar, /right\.slice\(0, right\.length - fits\.right\)/);
+  assert.match(toolbar, /const combinedRight = \[\.\.\.right, \.\.\.trailingRight\];/);
+  assert.match(toolbar, /combinedRight\.slice\(0, combinedRight\.length - fits\.right\)/);
+  const more = toolbar.indexOf("icon='more'");
+  assert.ok(toolbar.indexOf('directRightBeforeTrailing.map(renderAction)') < more);
+  assert.ok(more < toolbar.indexOf('directTrailing.map(renderAction)'));
   assert.doesNotMatch(toolbar, /right\.slice\(0, fits\.right\)\.map\(renderAction\)/);
-  assert.doesNotMatch(toolbar, /\.\.\.right\.slice\(fits\.right\)/);
 });
 
-test('Expand Selected follows IDEA recursive selection semantics', () => {
+test('Project toolbar no longer wires Expand Selected', () => {
   const panel = projectPanel();
-  assert.match(panel, /disabled: !projectCanExpandSelection\(rows, selection\)/);
-  assert.match(panel, /label: t\('editor\.revealSelected'\)/);
-
-  const wiring = workspaceSource.slice(
-    workspaceSource.indexOf('onExpandSelected='),
-    workspaceSource.indexOf('onExpandAll={expandAll}'),
+  assert.doesNotMatch(panel, /projectCanExpandSelection|onExpandSelected|editor\.revealSelected/);
+  assert.doesNotMatch(
+    workspaceSource,
+    /onExpandSelected|expandSelectedTree|projectCanExpandSelection/,
   );
-  assert.match(wiring, /void expandSelectedTree\(\)/);
 });
 
 test('Options keeps the hidden actions reachable in one grouped menu', () => {
   const wiring = optionsSource;
-  for (const id of ['refresh', 'gotoFile', 'recent', 'expandAll', 'behavior', 'appearance']) {
+  for (const id of ['refresh', 'gotoFile', 'recent', 'behavior', 'appearance']) {
     assert.match(wiring, new RegExp(`id: '${id}'`));
   }
+  assert.doesNotMatch(wiring, /id: 'expandAll'|expandAllAvailable|onExpandAll/);
   for (const id of ['singleClickOpen', 'openDirectoriesSingleClick', 'hidden']) {
     assert.match(wiring, new RegExp(`id: '${id}'`));
   }
@@ -83,17 +100,13 @@ test('Options keeps the hidden actions reachable in one grouped menu', () => {
   assert.match(workspaceSource, /onApplySortMode: \(mode\) => runProjectOption\(\(\) => applySortMode\(mode\)\)/);
 });
 
-test('the creation entry opens IDEA File and Directory choices', () => {
+test('the Project action menu leaves creation to the tree context menu', () => {
   const wiring = optionsSource;
-  assert.match(wiring, /id: 'newFile'/);
-  assert.match(wiring, /id: 'newFolder'/);
-  assert.match(wiring, /shortcut: '⌘N'/);
-  assert.match(wiring, /shortcut: '⌥⌘N'/);
-  assert.match(wiring, /onStartCreate\('file'\)/);
-  assert.match(wiring, /onStartCreate\('directory'\)/);
+  assert.doesNotMatch(wiring, /id: 'newFile'|id: 'newFolder'|onStartCreate/);
+  assert.match(workspaceSource, /id: 'newFile',[\s\S]*?startCreate\('file', createParent\)/);
+  assert.match(workspaceSource, /id: 'newFolder',[\s\S]*?startCreate\('directory', createParent\)/);
 });
 
-test('both locale dictionaries describe Expand Selected consistently', () => {
-  assert.match(source, /revealSelected: '展开所选'/);
-  assert.match(source, /revealSelected: 'Expand Selected'/);
+test('the removed Expand Selected action cannot return through locale wiring', () => {
+  assert.doesNotMatch(source, /revealSelected:/);
 });

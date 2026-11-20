@@ -112,7 +112,7 @@ test('the Project Options menu exposes both navigation popups', () => {
   assert.match(projectOptionsSource, /id: 'gotoFile',\s+label: t\('editor\.gotoFileHint'\)/);
   assert.match(projectOptionsSource, /id: 'recent',\s+label: t\('editor\.recentFilesHint'\)/);
   const options = workspaceSource.slice(
-    workspaceSource.indexOf('onOpenOptions={(event) => {'),
+    workspaceSource.indexOf('projectOptionsMenuItems({'),
     workspaceSource.indexOf('onCreateChange={(value) =>'),
   );
   assert.match(options, /onGotoFile: \(\) => void openQuickOpen\(\)/);

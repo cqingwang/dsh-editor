@@ -117,6 +117,7 @@ export interface TerminalEmulator {
   loadAddon: (addon: { fit?: () => void }) => void;
   onData: (handler: (data: string) => void) => { dispose: () => void };
   onTitleChange: (handler: (title: string) => void) => { dispose: () => void };
+  onWriteParsed?: (handler: () => void) => { dispose: () => void };
   open: (node: HTMLElement) => void;
   registerLinkProvider: (provider: TerminalLinkProvider) => { dispose: () => void };
   reset: () => void;
@@ -1005,10 +1006,55 @@ function openTerminalTarget(target: { path?: string; line?: number | null; colum
 }
 
 /**
+ * Terminal cells are addressed by display columns, not JavaScript string
+ * offsets. Wide CJK/emoji glyphs occupy two cells and combining marks occupy
+ * none, so xterm selection APIs need this conversion.
+ * @param {string} value - displayed terminal text.
+ * @returns {number} terminal cell width.
+ */
+function terminalCellWidth(value: string): number {
+  let width = 0;
+  for (const character of value) {
+    const codePoint = character.codePointAt(0) ?? 0;
+    if (
+      codePoint === 0 ||
+      codePoint === 0x200b ||
+      codePoint === 0x200c ||
+      codePoint === 0x200d ||
+      codePoint === 0xfe0e ||
+      codePoint === 0xfe0f ||
+      (codePoint >= 0x0300 && codePoint <= 0x036f) ||
+      (codePoint >= 0x1ab0 && codePoint <= 0x1aff) ||
+      (codePoint >= 0x1dc0 && codePoint <= 0x1dff) ||
+      (codePoint >= 0x20d0 && codePoint <= 0x20ff) ||
+      (codePoint >= 0xfe20 && codePoint <= 0xfe2f)
+    )
+      continue;
+    width +=
+      (codePoint >= 0x1100 && codePoint <= 0x115f) ||
+      codePoint === 0x2329 ||
+      codePoint === 0x232a ||
+      (codePoint >= 0x2e80 && codePoint <= 0xa4cf && codePoint !== 0x303f) ||
+      (codePoint >= 0xac00 && codePoint <= 0xd7a3) ||
+      (codePoint >= 0xf900 && codePoint <= 0xfaff) ||
+      (codePoint >= 0xfe10 && codePoint <= 0xfe19) ||
+      (codePoint >= 0xfe30 && codePoint <= 0xfe6f) ||
+      (codePoint >= 0xff00 && codePoint <= 0xff60) ||
+      (codePoint >= 0xffe0 && codePoint <= 0xffe6) ||
+      (codePoint >= 0x1f300 && codePoint <= 0x1faff) ||
+      (codePoint >= 0x20000 && codePoint <= 0x3fffd)
+        ? 2
+        : 1;
+  }
+  return width;
+}
+
+/**
  * Every occurrence of one query inside the terminal's retained buffer.
  *
- * xterm exposes the scrollback as 0-based lines from the top of `buffer.active`;
- * trimming trailing blanks keeps the column offsets aligned with the printed text.
+ * xterm exposes the scrollback as physical rows. A logical terminal line can
+ * span several rows where only the continuation row has `isWrapped=true`;
+ * scanning each physical row alone misses queries that cross that boundary.
  * @param {object} emulator - xterm instance.
  * @param {string} needle - query.
  * @param {number} limit - safety ceiling for huge scrollbacks.
@@ -1021,16 +1067,31 @@ export function terminalMatches(
 ): Array<{ row: number; column: number }> {
   if (needle === '') return [];
   const buffer = emulator.buffer.active;
+  const length = Math.max(0, Math.floor(Number(buffer.length) || 0));
   const hits = [];
-  for (let row = 0; row < buffer.length && hits.length < limit; row += 1) {
-    const line = buffer.getLine(row);
-    if (line === undefined) continue;
-    const text = line.translateToString(true);
-    let column = text.indexOf(needle);
-    while (column >= 0) {
-      hits.push({ row, column });
-      column = text.indexOf(needle, column + Math.max(1, needle.length));
+  let row = 0;
+  while (row < length && hits.length < limit) {
+    const segments: Array<{ row: number; text: string; start: number }> = [];
+    let text = '';
+    let nextRow = row;
+    do {
+      const line = buffer.getLine(nextRow);
+      if (line === undefined) break;
+      const segment = line.translateToString?.(true) ?? '';
+      segments.push({ row: nextRow, text: segment, start: text.length });
+      text += segment;
+      nextRow += 1;
+    } while (nextRow < length && buffer.getLine(nextRow)?.isWrapped === true);
+    let offset = text.indexOf(needle);
+    while (offset >= 0 && hits.length < limit) {
+      const segment = segments.find((candidate) => offset < candidate.start + candidate.text.length);
+      if (segment !== undefined) {
+        const localOffset = offset - segment.start;
+        hits.push({ row: segment.row, column: terminalCellWidth(segment.text.slice(0, localOffset)) });
+      }
+      offset = text.indexOf(needle, offset + Math.max(1, needle.length));
     }
+    row = Math.max(nextRow, row + 1);
   }
   return hits;
 }
@@ -1072,7 +1133,7 @@ export function moveTerminalSelection(
   }
   const index = (((find.index + direction) % hits.length) + hits.length) % hits.length;
   const hit = hits[index];
-  emulator.select(hit.column, hit.row, needle.length);
+  emulator.select(hit.column, hit.row, terminalCellWidth(needle));
   emulator.scrollToLine(hit.row - Math.floor(emulator.rows / 2));
   setFind({ ...find, index, total: hits.length });
 }

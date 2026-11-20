@@ -1,5 +1,1135 @@
 # dsh-editor 工程记忆
 
+## 2026-11-20 — 仓库消失时清除 Git 状态，恢复后重新可加载
+
+**作用域**：Commit 键盘提交、`loadGit` 后状态边界、Commit Log/Diff/Amend、
+仓库原地移除与恢复。
+
+**症状/证据**：
+
+- 非 Git 工作区虽然显示 not-managed，但 `⌘/Ctrl+Enter` 分支没有检查
+  `gitNotManaged`；
+- `commit()` 自身也没有非 Git 边界，依赖 UI disabled 并不足以防止快捷路径；
+- `.git` 在编辑器打开期间消失时，旧 commit 行、详情、Diff、notice、
+  push error、Amend 等状态可能继续存在；
+- 清理时把 `logExhausted` 设为 true 会让仓库恢复后 Log 仍停在
+  “No commits yet”，必须额外点 Refresh。
+
+**根因**：
+
+- 非 Git 清理只覆盖 commit selection/error，没有覆盖完整 Git-owned view；
+- 键盘提交与业务 callback 没有共享仓库可用性边界；
+- 把“仓库不存在”误建模成“历史已耗尽”。
+
+**修复**：
+
+- Commit 文本框的 `⌘/Ctrl+Enter` 增加 `!gitNotManaged`；
+- `commit()` 首行检查 `gitRef.current?.isRepo === false`；
+- 用单一状态边界在 `isRepo:false` 时：
+  - abort 当前 Log 请求与 Load More；
+  - 清空 commit notice、identity warning、push error、Amend snapshot；
+  - 关闭旧 Diff、commit detail、history、commits、log error 和 graph；
+  - 重置 `commitSelectionLoadedRef`，为下一次仓库出现重新建立选择；
+- 非 Git 时 `logExhausted=false`：仓库恢复后再次打开 Log 可重新加载首屏。
+
+**运行态证据**：
+
+- 原 Git workspace 打开旧 commit 与 `Commit: a.ts` diff 后移走 `.git`：
+  - not-managed 出现，无 raw fatal；
+  - branch trigger 消失；
+  - 旧 commit 行与 Diff tab 消失；
+  - Amend disabled，Commit/Commit and Push disabled；
+  - 输入消息后按 `⌘Enter` 不产生 commit notice 或 Git 错误；
+- 恢复 `.git`：
+  - `main` 回归，Change 1，All changes selected；
+  - Amend 恢复可用；
+  - 再次打开 Log 自动加载 `initial audit commit`，无 “No commits yet” 卡死；
+- 临时 workspace 和目录均已清理；
+- 截图：
+  `/tmp/dsh-editor-non-git-keyboard-cleanup.png`
+  `/tmp/dsh-editor-repository-recovery.png`
+
+**验证**：
+
+- RED：键盘提交/完整清理契约 1 fail；
+- GREEN：非 Git 与键盘提交定向回归通过；
+- 完整 `npm test`：**3279 pass / 0 fail**；
+- `editor-workspace.tsx` 保持 **12499** wc-lines（split-lines 12500）；
+- ESLint、TypeScript、Prettier、bundle consistency、`git diff --check`
+  与 `npm pack --dry-run` 全部通过。
+
+**长期约束**：
+
+- disabled UI 不是安全边界，所有 Git action callback 仍需 fail-fast；
+- 仓库不可用与历史耗尽是两种状态，不能共用 `logExhausted=true`；
+- Git-owned 状态必须在 `isRepo` 状态边界集中清理，不在单个面板分散打补丁。
+
+## 2026-11-20 — 非 Git 时 Commit Options 与 Amend 必须显式禁用
+
+**作用域**：Commit Options 菜单模型、CommitPanel 的 Amend 控件、
+非 Git 工作区。
+
+**症状/证据**：
+
+- 非 Git 工作区已显示 not-managed，但 Commit Options 仍允许点击
+  Fetch Remotes、Update Project、Apply Patch、Stage All、Stash、Shelve；
+- “Amend last commit” 仍可勾选，回调甚至会先写入 `amend=true`，再因
+  没有 `lastCommit` 提前返回；
+- 这些入口会重新触发 Git 失败路径，破坏“非 Git 只显示中性空状态”的约定。
+
+**根因**：
+
+- `commitOptionsMenu` 只认识 busy state，不认识仓库可用性；
+- CommitPanel 只在 Commit/Push 按钮上使用 `gitNotManaged`，漏掉了 Amend；
+- `toggleAmend` 先更新状态再校验 `lastCommit`，校验顺序不满足 fail-fast。
+
+**修复**：
+
+- `CommitOptionsMenuOptions` 新增 `gitNotManaged`，所有 Git 专属动作显式
+  disabled；Group By 等纯 UI 动作保持可用；
+- EditorWorkspace 从唯一事实 `git.isRepo === false` 传入该状态；
+- Amend checkbox 由 `busy || gitNotManaged` 禁用，label cursor 同步降级；
+- `toggleAmend(true)` 在 `isRepo:false` 或无 `lastCommit` 时立即返回。
+
+**运行态证据**：
+
+- 临时非 Git workspace 的 Commit Options：
+  - 7 个 Git 专属动作全部原生 disabled；
+  - Group By 仍可操作；
+  - 页面无 raw `fatal: not a git repository`；
+- Amend checkbox 的 `disabled === true`、`checked === false`，label cursor
+  为 `default`；
+- 切到 Git workspace 后 `main` 与 Changes 正常恢复，再切回非 Git 仍保持
+  not-managed；
+- 临时 workspace 登记与目录均已清理；
+- 截图：
+  `/tmp/dsh-editor-non-git-options-disabled.png`
+  `/tmp/dsh-editor-non-git-amend-disabled.png`
+
+**验证**：
+
+- 定向回归 **24 pass / 0 fail**；
+- 完整 `npm test`：**3278 pass / 0 fail**；
+- ESLint、TypeScript、source imports、Prettier、bundle consistency、
+  `git diff --check`、`npm pack --dry-run` 全部通过。
+
+**长期约束**：
+
+- 非 Git 时 Git 动作必须 disabled，不能只依赖“没有 changes”间接禁用；
+- 菜单模型必须显式接收 `gitNotManaged`，不得让业务动作自行猜测；
+- state setter 之前完成 fail-fast 校验，禁止先进入无效 amend 状态。
+
+## 2026-11-20 — 非 Git 时 Log/Graph/History/Commit 入口必须显式禁用
+
+**作用域**：Commit workspace loaders、CommitLog/CommitLogToolbar、
+CommitPanel 操作按钮、非 Git workspace。
+
+**症状/证据**：
+
+- 主 Changes 页已显示 not-managed，但 Log tab 仍可触发 `git log`；
+- Graph/Refresh 按钮在无 Git 时看似可用但实际 no-op；
+- Commit/Push 仅靠“无 changes/无 selection”间接禁用，语义不够直接。
+
+**根因**：
+
+- `isRepo:false` 只用于状态提示，没有贯穿 Log、Graph、History 和工具栏边界；
+- CommitLog 不知道仓库是否存在。
+
+**修复**：
+
+- `loadLog`、`loadMoreLog`、`loadGraph`、`showFileHistory` 首先检查
+  `git.isRepo === false`，清空结果和 logError，不发 Git 请求；
+- Log tab 首次打开条件增加 `git.isRepo !== false`；
+- CommitPanel 的 Commit / Commit and Push / Push retry 显式受
+  `gitNotManaged` 禁用；
+- CommitLog 新增 `disabled`，Graph/Refresh/branch select/author filter
+  在无 Git 时禁用。
+
+**运行态证据**：
+
+- 临时非 Git workspace 的 Log tab：
+  - 无 raw fatal；
+  - not-managed notice 保持可见；
+  - Commit、Commit and Push、Graph、Refresh disabled；
+  - Log 无提交时仍显示其正常空态。
+
+**验证**：
+
+- 非 Git / Log / Graph / History / Commit toolbar 定向回归
+  **17 pass / 0 fail**；
+- 完整 `npm test`：**3277 pass / 0 fail**；
+- lint、TypeScript、Prettier、bundle consistency、`git diff --check` 通过。
+- `npm pack --dry-run` 通过。
+
+**长期约束**：
+
+- `isRepo:false` 时任何 Log/Graph/History loader 都不得调用 Git；
+- Git 专属按钮必须通过 disabled 明确表达不可用，不能只做静默 no-op；
+- 非 Git 的更广菜单入口（Apply Patch/Stash/Update）后续必须按同一
+  `isRepo` 事实审计和收口。
+
+## 2026-11-20 — 非 Git 工作区是正常空状态，不显示 raw fatal
+
+**作用域**：host `gitStatus`、WorkspaceGitStatus、CommitPanel 状态条、
+Commit 非 Git 文案与兼容 fallback。
+
+**症状/证据**：
+
+- 打开普通目录的 Commit 面板显示
+  `fatal: not a git repository (or any of the parent directories): .git`；
+- git CLI 的 stderr 被 `describeGitError` 当作业务错误直接展示；
+- 用户要求显示“当前不受git管理”。
+
+**根因**：
+
+- `gitStatus` 未先判断目录是否在 Git worktree 内；
+- “没有仓库”和“Git 命令失败”没有结构化区分；
+- 已运行旧 host 时，客户端没有兼容归一化路径。
+
+**修复**：
+
+- `gitStatus` 先执行 `rev-parse --is-inside-work-tree`；
+- 非仓库返回 `isRepo:false`、空 branch/prefix/changes，不抛异常；
+- 正常仓库返回 `isRepo:true`；
+- CommitPanel 对 `isRepo === false` 渲染中性 notice；
+- zh 文案：`当前不受git管理`；en：
+  `This workspace is not managed by Git`；
+- 客户端 `isGitRepositoryMissingMessage` 兼容旧 host 的 raw fatal，
+  识别后设置 `isRepo:false` 并清除 commit error。
+
+**运行态证据**：
+
+- 临时非 Git workspace：
+  - `fatal` 消失；
+  - locale=en 显示 “This workspace is not managed by Git”；
+  - 中文词典精确匹配“当前不受git管理”；
+- 临时 workspace entry 与目录均已清理。
+
+**回归与验证**：
+
+- host 非 Git status 回归；
+- UI/本地化/兼容 fallback 回归；
+- 定向 **25 pass / 0 fail**；
+- 完整 `npm test`：**3276 pass / 0 fail**；
+- lint、TypeScript、Prettier、bundle consistency、`git diff --check` 通过。
+
+**长期约束**：
+
+- 非 Git 工作区不得把 raw `fatal: not a git repository` 放进 Commit UI；
+- `gitStatus` 的 isRepo 是结构化事实，UI 文案必须通过 locale token；
+- 必须保留旧 host fatal 文案兼容归一化，但不能把它用于其他 Git 错误；
+- 清理临时非 Git workspace 后不得留下注册表条目或临时目录。
+
+## 2026-11-20 — Project 头部菜单归并到视图箭头，标题吃满剩余宽度
+
+**作用域**：ProjectPanel、project-options-menu、PanelToolbar、Project View
+箭头、Project 根节点右键菜单。
+
+**症状/证据**：
+
+- 最右 More 菜单仍在，里面重复出现 `New File / New Directory`；
+- 用户要求将 Refresh、Go to File、Recent Files、Behavior、Appearance 合入
+  `dsh-editor` 旁的小箭头右键菜单；
+- 即使按钮已右对齐，项目名与靶心之间仍有大块空白，项目名不能使用剩余宽度。
+
+**根因**：
+
+- Project 业务菜单继续挂在 PanelToolbar 常驻 overflow 上；
+- `projectToolbarMenu` 混合了创建动作与选项动作；
+- `panelTitle` 仍是 `flex: 0 0 auto`，spacer grow 吃掉空白；
+- 项目名按钮有固定 maxWidth，标题内部也没有 flex grow。
+
+**修复**：
+
+- 删除 project-toolbar/create menu，改为 `projectOptionsMenuItems`；
+- Project View 箭头：
+  - 左键：纯 View 菜单；
+  - 右键 / ContextMenu / Shift+F10：View + projectMenuItems 合并菜单；
+- 合并菜单不含新建项；根节点右键继续保留新建文件/目录；
+- PanelToolbar 新增 `titleFlexible`：标题 `flex: 1 1 0%`，spacer 固定，
+  flexible 标题测量按 0；
+- flexible 标题移除 `marginRight`，只保留 dense spacer 的 2px；
+- projectViewTitle / projectRootButton 同步 flex，项目名使用剩余宽度。
+
+**运行态证据**：
+
+- 200px Project toolbar 中：
+  - View 右边界 `220`；
+  - Target 左边界 `222`；
+  - 间距固定 `2px`；
+  - More 按钮数量 `0`；
+- 左键箭头仅显示三个 View；
+- 合并菜单显示 View + Refresh / Go to File / Recent Files / Behavior / Appearance；
+- 合并菜单无 New File/New Directory；
+- 根节点右键仍有 New File/New Directory。
+
+**回归与验证**：
+
+- Project tests：**525 pass / 0 fail**；
+- 完整 `npm test`：**3274 pass / 0 fail**；
+- lint、TypeScript、Prettier、bundle consistency、`git diff --check` 通过。
+
+**长期约束**：
+
+- 不再给 Project 工具栏增加常驻 More 业务菜单；
+- New File/New Directory 只在 Project 树/根节点右键中出现；
+- 头部动作菜单由 Project View 箭头右键承载；
+- 固定按钮带之前的所有空间归标题/项目名，spacer 只能保留最小安全间距；
+- 标题伸缩统一使用 `PanelToolbar.titleFlexible`，不得在宿主手写 flex hack。
+
+## 2026-11-20 — 工具窗口 Hide/Stripe 恢复必须归还键盘所有权
+
+**作用域**：`EditorWorkspace.selectActivity`、`hideToolWindow`、
+Project/Commit activity stripe、Project/Commit `onHide`。
+
+**症状/证据**：
+
+- 点击 Project `Hide` 后，工具窗口消失但 activeElement 为 `BODY`；
+- 点击 Project stripe 恢复面板后，焦点仍停在 `.dsh-editor-stripe-item`；
+- Commit 切换同样没有把键盘交给 Changes 或 Log；
+- 快捷键路径已有 focus-aware 逻辑，但鼠标/Enter/Space 分支绕过了它。
+
+**根因**：
+
+- `onHide` 只有 `setPanelVisible(false)`，没有恢复编辑器或可见 diff；
+- stripe 激活只在 `options.keyboard === true` 时调用
+  `focusToolWindowContent`；
+- 可见性状态、焦点所有权和活动工具窗口切换没有统一收口。
+
+**修复**：
+
+- 新增共享 `hideToolWindow()`：
+  `setPanelVisible(false)` 后调用 `focusWorkspaceSurface()`；
+- Project 与 Commit 的 `onHide` 复用该回调；
+- stripe 重新显示同活动或切换到 Project/Commit 时，统一调用
+  `focusToolWindowContent(next)`；
+- 继续使用 `focusSurfaceWhenReady` 的有界帧重试，不新增 setTimeout 大山。
+
+**运行态证据**：
+
+- Hide Project 后焦点为 Monaco `编辑器内容` textarea；
+- 点击 Project stripe 后焦点为 Project tree；
+- 点击 Commit stripe 后焦点为 Changes tree；
+- Project/Commit 互相切换均把焦点送入对应内容；
+- More 的 Behavior/Appearance 子菜单 ArrowRight/两级 Esc 仍正常。
+
+**回归与验证**：
+
+- `tests/editor-tool-window-hide-restores-editor-and-stripe-focuses-content.test.mjs`；
+- 更新 `tests/commit-diff-alt-2-hide-restores-diff-focus.test.mjs`
+  与 tool-window focus 历史契约；
+- 定向 **21 pass / 0 fail**；完整 `npm test`：**3274 pass / 0 fail**；
+- lint、TypeScript、Prettier、bundle consistency、`git diff --check`、
+  `npm pack --dry-run` 通过。
+
+**长期约束**：
+
+- 工具窗口隐藏后不得把焦点留在 BODY；
+- activity stripe 恢复/切换 Project 或 Commit 后，必须把键盘交给内容表面；
+- 可见 diff 存在时，Hide 必须复用 `focusWorkspaceSurface()` 回到 diff，
+  不能直接聚焦普通 Monaco；
+- Project/Commit 的 Hide 必须共用 `hideToolWindow`，不得各自复制焦点逻辑。
+
+## 2026-11-20 — Project 工具栏右侧动作成组，Hide 固定在 More 之后
+
+**作用域**：`PanelToolbar.tsx`、`ProjectPanel.tsx`、Project 工具栏布局。
+
+**症状/证据**：
+
+- 靶心仍在 `PanelToolbar.left`，spacer 位于靶心之后，导致它和右侧窗口
+  按钮分成两组；
+- Project 标题区被固定 `maxWidth: 40%` 卡住，空闲宽度没有优先给项目名称；
+- More 永远排在所有直接按钮之后，无法满足“Hide 最右”；
+- 用户明确修正：“收起按钮”是收起 Project 面板的 Hide，不是 Collapse All。
+
+**根因**：
+
+- 共享 PanelToolbar 缺少“More 后固定尾部动作”的通用槽位；
+- Project 自己通过 left/right 分组模拟尾部布局，导致动作顺序和空间分配错误。
+
+**修复**：
+
+- PanelToolbar 新增 `trailingRight`；
+- 普通右侧动作在 More 前，`trailingRight` 在 More 后；
+- 容量计算使用 `right + trailingRight`，窄窗口仍优先保留尾部动作；
+- Project 使用 `right = [reveal, collapse]`、`trailingRight = [hide]`；
+- 标题/视图区宽度改为 `calc(100% - 100px)`；
+- 最终顺序固定为 `靶心 → Collapse All → More → Hide`。
+
+**运行态证据**：
+
+- 200px Project toolbar 中 Hide 的右边界为 `288`，与 toolbar 右边界一致；
+- 按钮连续位于右侧，无标题后提前出现的靶心；
+- More 打开/Esc 回焦保持正常。
+
+**回归与验证**：
+
+- Project toolbar 定向测试 **50 pass / 0 fail**；
+- 完整 `npm test`：**3272 pass / 0 fail**；
+- lint、TypeScript、Prettier、bundle consistency、`git diff --check`、
+  `npm pack --dry-run` 通过。
+
+**长期约束**：
+
+- Hide 是 Project 面板的收起按钮，必须固定最右；
+- More 必须位于 Hide 左侧；
+- 靶心、Collapse All、More、Hide 都属于右侧动作带，不放回标题左组；
+- 新增“More 后固定尾部动作”需求时复用 `PanelToolbar.trailingRight`，
+  不新增宿主私有 popup 或手工 absolute 定位。
+
+## 2026-11-20 — Project 最右 More 是唯一工具窗口 action menu
+
+**作用域**：Project 工具窗口 toolbar、`project-options-menu.ts`、
+`ProjectPanel.tsx`、共享 `PanelToolbar` overflow、`ContextMenu`。
+
+**症状/证据**：
+
+- More 菜单内仍出现 `Options` 父项，用户需要再进一层才能看到配置；
+- 原 `New` 是独立工具栏按钮和独立 popup owner，`New File` /
+  `New Directory` 又藏在它自己的二级菜单；
+- 同一 Project 工具栏同时存在 create、options、overflow 三套菜单构造路径；
+- 历史测试仍在要求已经被删除的 `newEntry` / `options` 工具栏动作，导致
+  实现与测试契约漂移。
+
+**根因**：
+
+- 菜单业务模型没有统一 owner；
+- 共享 `PanelToolbar` 只接受“被折叠的 toolbar action”，无法接收完整业务
+  menu items；
+- 宿主因此继续维护 `onOpenCreateMenu`、`onOpenOptions` 和 `optionsOpen`，
+  绕过共享 overflow/ContextMenu 容器。
+
+**修复**：
+
+- `projectToolbarMenu` 统一生成 Project 一级菜单；
+- 一级固定顺序为 `New File`、`New Directory`、`Refresh`、`Go to File`、
+  `Recent Files`、`Behavior`、`Appearance`；
+- 删除 `New` 外层入口和 `Options` 外层父项；
+- `ProjectPanel` 只接收 `toolbarMenuItems: MenuEntry[]`；
+- `PanelToolbar` 只负责 `overflowMenuItems` 与隐藏 action 的拼接、锚点和呈现；
+- `ContextMenu` 继续独占键盘导航、子菜单、视口钳制和焦点恢复。
+
+**运行态证据**：
+
+- Project toolbar 可见：`Select Opened File / Collapse All / More / Hide`；
+- More 一级没有 `New` 或 `Options` menuitem；
+- 点击两个创建项后分别聚焦 `New File` / `New Directory` 内联输入；
+- Esc 取消后焦点回 Project 树；
+- `Shift+F10` 打开 More 后焦点在 `New File`，ArrowDown 到
+  `New Directory`，Esc 返回 `More actions`。
+
+**回归与验证**：
+
+- `tests/project-toolbar-flattens-new-and-options-menu.test.mjs`；
+- Project menu/toolbar/focus/mid-width 定向 **74 pass / 0 fail**；
+- 完整 `npm test`：**3272 pass / 0 fail**；
+- `npm run lint:client-types`、Prettier、bundle consistency、
+  `git diff --check`、`npm pack --dry-run` 通过。
+
+**长期约束**：
+
+- Project 最右 More 是唯一 Project action menu，不恢复太阳/Options 外层按钮；
+- 不恢复 `New` 外层入口；`New File` / `New Directory` 必须在一级；
+- 不把 `Options` 作为一级父项重新嵌套；
+- Project 菜单模型由 `projectToolbarMenu` 拥有；
+- `PanelToolbar` 只拥有 overflow 拼接与呈现边界，不拥有 Project 业务菜单；
+- Project 的 Hide 必须通过 `trailingRight` 固定在 More 右侧；
+- 后续菜单修复必须继续复用 `ContextMenu`，不得新增平行 popup/状态机。
+
+## 2026-11-20 — Terminal UI chrome 必须显式使用全局 UI font
+
+**作用域**：TerminalPanel、terminal tab strip、Terminal Options、
+notice/status、xterm PTY surface。
+
+**症状/证据**：
+
+- Terminal tab 和 Options 运行时实际继承 Trebuchet，但 TerminalPanel
+  没有显式声明 UI font；
+- 正确字体依赖宿主继承，宿主样式变化会让 UI chrome 一起漂移；
+- PTY surface 使用独立 Menlo 字体，不能被 UI font 覆盖。
+
+**修复**：
+
+- `terminalPanel` 显式引用 `EDITOR_UI_FONT`；
+- xterm emulator 继续使用 `EDITOR_TERMINAL_FONT_STACK`；
+- UI chrome 与 PTY surface 保持两套明确字体域。
+
+**运行态证据**：
+
+- tab：11px Trebuchet；
+- Terminal Options item：12px Trebuchet；
+- xterm rows：9px Menlo/Monaco 优先 stack；
+- xterm row font-weight 为 400。
+
+**回归与验证**：
+
+- `tests/editor-typography-global-language-font-roles.test.mjs`；
+- 新增 TerminalPanel UI font 契约；
+- Typography / terminal font / terminal actions 定向 **13 pass**；
+- 完整 `npm test`：**3270 pass / 0 fail**。
+
+**长期约束**：
+
+- Terminal UI chrome 必须显式使用全局 UI font token；
+- PTY surface 必须继续使用独立 terminal font stack；
+- 不得用 UI font 覆盖 xterm，也不得让 tab/Options 继承终端 monospace。
+
+## 2026-11-20 — Project tree 与 Commit Changes 的字体角色边界
+
+**作用域**：Project 文件树、Commit Changes 文件/目录行、父路径、
+行数统计、全局 typography token。
+
+**运行态证据**：
+
+- Project `README.md` 行：13px，control role；
+- Commit Changes 文件/目录 row：12px，body role；
+- Commit 父路径：10px，caption role；
+- Commit `+2/−1`：9px，micro/caption 行数层级；
+- 全部使用全局 Trebuchet UI font stack。
+
+**结论**：
+
+- Project tree 是 navigation surface，字号使用 control；
+- Commit Changes 是 change list，字号使用 body；
+- 两者的像素差异是语义差异，不是缺陷；
+- 需要统一的是字体来源和角色定义，不是所有表面使用同一个字号。
+
+**回归**：
+
+- `tests/editor-typography-global-language-font-roles.test.mjs`；
+- 已锁定 treeRow control、treeRootPath caption、commitTreeNode body、
+  commitFileDir caption、lineCounts caption；
+- Typography / ProjectPanel / CommitPanel / Changes row 定向 **11 pass**。
+
+## 2026-11-20 — Search Action、Text 与 Find occurrence 的语义字体边界
+
+**作用域**：Search Everywhere Action/Text 行、Find occurrence 行、
+`paletteRow`、`searchEverywhereMeta/Category/Shortcut`、
+`findToolOccurrence/Location`。
+
+**运行态证据**：
+
+- Search Everywhere Action：
+  - title 12px，对应 body；
+  - subtitle/category/shortcut 10px，对应 caption；
+- Find occurrence：
+  - preview 11px，对应 label；
+  - location/path 10px，对应 metadata；
+- 全部使用 Trebuchet 全局 UI font stack。
+
+**结论**：
+
+- Action title 与 Find preview 字号不同，但语义角色不同，不能为了
+  “看起来一致”强行改成同一个像素值；
+- 需要一致的是 token 来源、语言 fallback 和组件责任，不是跨角色的
+  数字相等；
+- 当前各角色均由共享 scale/role 提供，没有宿主偶然继承出的 16px。
+
+**回归**：
+
+- `tests/editor-typography-global-language-font-roles.test.mjs`；
+- 新增断言覆盖 action row body、caption metadata 和 Find occurrence
+  label/metadata；
+- Typography / shared item / Find popup 定向 **15 pass**。
+
+## 2026-11-20 — SearchFileResultItem 必须自己拥有语义字体
+
+**作用域**：`SearchFileResultItem`、Find in Files、Search Everywhere、
+Show Usages、全局 typography token。
+
+**症状/证据**：
+
+- 同一个共享文件 item 在不同宿主继承出不同字号：
+  - Search Everywhere 文件名 12px；
+  - Find in Files File scope 文件名 11px；
+- item 容器本身不声明字体，字号完全由宿主 row 决定；
+- 这破坏了“共享 item 自洽、宿主只负责交互”的积木边界。
+
+**根因**：
+
+- `SearchFileResultItem` 的文件名 span 只应用 `styles.paletteName`；
+- `styles.paletteName` 只负责裁切和溢出，不含 typography；
+- Search Everywhere row 与 Find row 分别提供了不同的继承字号。
+
+**修复**：
+
+- 文件名 span 显式应用 `EDITOR_TEXT_STYLE.body`；
+- metadata/detail 继续使用 caption token；
+- 不修改 Search Everywhere 或 Find 宿主来掩盖问题。
+
+**回归与运行态**：
+
+- `tests/search-file-result-item-shared-find-search-everywhere.test.mjs`；
+- 新增 `EDITOR_TEXT_STYLE.body` 契约；
+- 修复后 Find 与 Search Everywhere 文件名均为 12px；
+- shared UI font stack 均为 Trebuchet；
+- 定向回归 **14 pass / 0 fail**；
+- 完整 `npm test`：**3267 pass / 0 fail**。
+
+**长期约束**：
+
+- 共享 item 的文字角色必须由共享 item 自己声明；
+- 不得依赖宿主 row 的偶然继承字号；
+- 业务宿主只负责 row 的交互、ARIA 和选中态；
+- 字体差异只能在共享 typography token 层修复。
+
+## 2026-11-20 — 搜索文件 item 的复用边界与类型图标
+
+**作用域**：Find in Files、Search Everywhere、Show Usages、
+Project speed search、`SearchFileResultItem`、`FileTreeView`、`EntryIcon`。
+
+**运行态证据**：
+
+- Search Everywhere Files 查询 `app` 使用共享
+  `[data-dsh-search-file-result-item]`，JS 图标颜色为
+  `#F0DB4F` / `#323330`；
+- Find 切到 File scope 查询 `app` 使用同一个共享 item，JS 图标一致；
+- Find 与 Search Everywhere 查询 `README` 都显示 Markdown 图标，
+  颜色组合与 JS 图标不同；
+- Project speed search 使用 `FileTreeView` 行，但同样通过 `EntryIcon`
+  显示 Markdown 类型图标。
+
+**职责边界**：
+
+- 扁平搜索结果必须复用 `SearchFileResultItem`；
+- Project speed search 保留树行 `FileTreeView`，因为它还拥有层级、
+  展开、拖拽、多选、上下文菜单和 ARIA tree 语义；
+- 两类行共享底层 `EntryIcon`，但不强行共享交互宿主；
+- 文件图标必须由真实 path 推导，不得退回统一的 `<Icon name='file'>`。
+
+**回归**：
+
+- `tests/search-file-result-item-shared-find-search-everywhere.test.mjs`；
+- 新增断言：`EntryIcon entry={{ path, kind: 'file' }}`，且无统一 file Icon；
+- Search item / Project row / speed-search 定向 **17 pass**。
+
+## 2026-11-20 — 200px Commit Changes 工具栏动作与 overflow 契约
+
+**作用域**：Commit Changes `CompactActionBar`、200px tool window、
+Refresh/View Options pinned actions、More 菜单键盘焦点。
+
+**运行态证据**：
+
+- Changes pane 实际宽 200px；
+- action bar width/clientWidth/scrollWidth 都是 200px，页面无横向滚动；
+- 直达动作顺序：
+  - Refresh；
+  - Roll back；
+  - Show diff；
+  - Shelve Silently；
+  - Show Combined Diff；
+  - View Options；
+  - More actions；
+- More 菜单保留 Copy Patch / Create Patch / Stage All Tracked /
+  Select Opened / Expand All / Collapse All；
+- More 菜单跳过 disabled 项并聚焦首个 enabled 项，Escape 返回 opener；
+- View Options 直接打开分组值菜单，Escape 返回 View Options。
+
+**测试纠偏**：
+
+- `commit-200px-changes-toolbar-refresh-view-options-ahead-secondary-actions`
+  的人工 action 数组曾遗漏真实存在的 `shelve`；
+- 现已按 CommitPanel 真实顺序更新：
+  - 直达：Refresh / Rollback / Show Diff / Shelve / Combined Diff /
+    View Options；
+  - overflow：Copy Patch / Create Patch / Stage All Tracked /
+    Select Opened / Expand All / Collapse All。
+
+**长期约束**：
+
+- 200px 下 Refresh 和 View Options 必须保持 pinned 直达；
+- overflow 必须保留其余所有动作，不得通过删除动作换取宽度；
+- 菜单打开时跳过 disabled 动作，Escape 必须回到 opener；
+- 修改 CommitPanel action 顺序时同步更新该 200px 契约测试。
+
+**回归**：
+
+- Commit Changes 200px / min-width / popup semantics 定向 **12 pass**。
+
+## 2026-11-20 — Find 与 Search Everywhere 必须复用同一 Floating Tool Popup
+
+**作用域**：Find in Files、Search Everywhere、共享 FloatingToolPopup、
+backdrop、拖动、八向缩放、边框、字体 token、焦点返回。
+
+**运行态证据**：
+
+- 两种 popup 的计算样式一致：
+  - border `1px solid rgb(173,178,184)`；
+  - background `rgb(255,255,255)`；
+  - z-index popup `2501` / backdrop `2499`；
+  - font-family `Trebuchet MS, SF Pro Text, Segoe UI, sans-serif`；
+  - font-size `16px`；
+  - radius `8px`；
+  - backdrop `rgba(0,0,0,0.28)` 且 full inset；
+  - 8 个 resize handles；
+- Search Everywhere 通过 west resize 和 shared title drag 改变 geometry；
+- Find in Files 通过 shared title drag 和 SE resize 改变 geometry；
+- 点击任一 backdrop 都关闭弹框，并把焦点返回 `编辑器内容`。
+
+**架构约束**：
+
+- 业务弹框不得自己创建 backdrop、拖动 listener、resize handles 或
+  popup geometry；
+- Find / Replace / Search Everywhere / Workspace Directory Picker 必须继续
+  复用 `FloatingToolPopup`；
+- border、background、shadow、z-index 只由共享 surface 拥有；
+- 业务组件只声明自身内容、ARIA、焦点和 command 语义；
+- 所有差异通过 surfaceStyle/props 扩展，不得复制第二套弹框容器。
+
+**回归**：
+
+- `tests/search-floating-popup-shared-find-search.test.mjs`；
+- `tests/search-findtoolpopup-reusable-tsx-floating-surface.test.mjs`；
+- `tests/editor-popup-border-icon-size-shared.test.mjs`；
+- `tests/search-find-files-popup-content-sized-without-full-screen-dimmer.test.mjs`；
+- 定向回归 **17 pass / 0 fail**。
+
+## 2026-11-20 — Terminal Find 的命中坐标必须使用终端 cell 宽度
+
+**作用域**：Terminal Find、`terminalMatches`、`moveTerminalSelection`、
+CJK/Emoji、combining marks、xterm selection。
+
+**症状/证据**：
+
+- 旧实现把 JavaScript `indexOf` 返回的 UTF-16 offset 直接作为 xterm
+  `column`；
+- CJK/Emoji 在终端中占两个 cell，因此 CJK 前缀后的命中会向左偏；
+- `emulator.select()` 使用 `needle.length`，宽字符选区长度偏短；
+- 初始宽字符回归显示：
+  - 期望 `column=4`，实际 `column=2`；
+  - 期望 selection width `6`，实际 `4`（使用 `AB测试` 场景验证）。
+
+**根因**：
+
+- JavaScript string offset 与 terminal display-cell column 不是同一坐标；
+- 原实现没有考虑 East Asian width、Emoji、combining marks 和
+  variation selectors。
+
+**修复**：
+
+- 增加 terminal cell width 换算；
+- 命中时先计算 segment 前缀的 display-cell width，再返回真实 column；
+- selection 长度改用 query 的 display-cell width。
+
+**回归与运行态**：
+
+- `tests/terminal-find-wide-characters-use-cell-columns.test.mjs`；
+- RED：宽字符坐标回归 **3 fail**；
+- GREEN：Terminal Find / 软换行 / 宽字符定向 **9 pass / 0 fail**；
+- DSH Web 输出 `中文AB测试CD`，Find `AB测试` 显示 `1/1`；
+- Enter 后 Cmd+C，`pbpaste` 精确得到 `AB测试`；
+- 多 CJK 命中 `测试` 按 buffer order 显示 `1/2`，Enter 与 Cmd/Ctrl+G
+  均可双向循环；
+- 53-column 终端中，`跨行测试` 被软换行拆成 `跨行` / `测试`，
+  Find 仍为 `1/1`，Cmd+C 复制得到完整 `跨行测试`；
+- Close 后焦点回到 `Terminal input`；
+- 完整 `npm test`：**3267 pass / 0 fail**。
+
+**长期约束**：
+
+- Terminal Find 命中列不得直接使用 JS string offset；
+- 选区长度必须使用 terminal cell width；
+- CJK、Emoji、combining marks 与 zero-width 字符属于同一坐标换算边界；
+- 修改搜索或换行逻辑后必须同时运行 wrapped-row 与 wide-character 回归。
+
+## 2026-11-20 — Terminal Find 必须跨软换行搜索逻辑行
+
+**作用域**：Terminal Find、`terminalMatches`、xterm `isWrapped` 物理行、
+split terminal、Cmd/Ctrl+G 导航。
+
+**症状/证据**：
+
+- 右侧 split terminal 中同一长 token 实际存在多次；
+- 旧 Find 对每个 physical row 单独 `indexOf`，只命中未跨行的片段，
+  显示 `1/1`；
+- 查询 `SPLIT_RIGHT_TOKEN_42` 在窄 pane 中被终端自动拆到多个 row 后，
+  无法作为一个完整结果被找到。
+
+**根因**：
+
+- xterm buffer 行是 physical rows；自动软换行后的 continuation row 通过
+  `isWrapped=true` 与上一行组成同一个 logical line；
+- 旧实现没有合并 logical line，长查询跨 row 时自然无法命中。
+
+**修复**：
+
+- 扫描时按 `isWrapped` 合并连续 physical rows；
+- 在 logical line 的连续文本中查找 query；
+- 命中 offset 映射回真实 physical row / column；
+- 保留 2000 命中上限，并确保不同 logical line 不会跨行误拼接。
+
+**回归与运行态**：
+
+- `tests/terminal-find-matches-queries-across-wrapped-rows.test.mjs`；
+- RED：**2 fail**；
+- GREEN：Terminal Find / split / 历史快捷键定向 **17 pass / 0 fail**；
+- DSH Web 右侧 split：
+  - `SPLIT_RIGHT_TOKEN_42` 显示 `1/2`；
+  - Cmd+G 到 `2/2`，Shift+Cmd+G 回 `1/2`；
+  - Close 后焦点回到右侧 `Terminal input`；
+  - `RIGHT_LIVE_901` 从 `No matches` 实时更新为 `1/1`；
+- 完整 `npm test`：**3263 pass / 0 fail**。
+
+**长期约束**：
+
+- Terminal Find 必须按 logical line 搜索，不得退回逐 physical row 的
+  单行 `indexOf`；
+- continuation row 的识别使用 xterm `isWrapped`；
+- 命中坐标必须映射回真实 physical row / column；
+- 合并 logical line 时不得把两个独立命令输出行误拼成一个查询窗口。
+
+## 2026-11-20 — Project 工具栏双下箭头 Expand Selected 永久移除
+
+**作用域**：Project 直接工具栏、Select Opened File 右侧动作、
+`expandSelected`、`editor.revealSelected`、EditorWorkspace 递归展开接线。
+
+**症状/证据**：
+
+- 用户截图红框指向 Project 工具栏 Select Opened File 右侧的双下箭头；
+- 该按钮实现名称为 `Expand Selected`，不是 Options 里的 `Expand All`；
+- 用户明确说明该按钮没有实际价值，要求删除且后续不要重新加入。
+
+**根因**：
+
+- 早期为了贴近 IDEA action registry 在工具栏保留了 `Expand Selected`；
+- 后续用户已判定该动作在当前 DSH Project 使用场景没有价值，但代码仍
+  保留完整 UI、文案、状态判断和 workspace 递归接线。
+
+**修复**：
+
+- Project 直接工具栏删除 `id: 'expandSelected'`；
+- 删除 `editor.revealSelected` 中英文文案；
+- 删除 `onExpandSelected`、`expandSelectedTree`、`expandSubtrees`；
+- 删除无调用方的 `projectCanExpandSelection`；
+- 删除只测旧按钮启用状态的测试，改为源码级“不得重新接线”契约；
+- 保留 Collapse All、Select Opened File，以及文件树节点自身的展开箭头。
+
+**回归与运行态**：
+
+- `tests/project-expand-options-but-removes-duplicate-toolbar-action.test.mjs`；
+- `tests/project-toolbar-follows-idea-action-density.test.mjs`；
+- `tests/project-toolbar-follows-idea-action-order-groups.test.mjs`；
+- `tests/project-toolbar-recovers-actions-idea-mid-width-breakpoints.test.mjs`；
+- RED：Project 契约 **8 fail**；
+- GREEN：Project 定向回归 **32 pass / 0 fail**；
+- DSH Web Project 工具栏实际按钮为 Copy path / Project View /
+  New File or Directory… / Select Opened File / Collapse All / Hide /
+  More actions；
+- `hasExpandSelected=false`，`hasCollapseAll=true`；
+- Options 中 Expand All 和 Expand Selected 均不存在；
+- 完整 `npm test`：**3261 pass / 0 fail**。
+
+**长期约束**：
+
+- Project 直接工具栏不得重新加入 `Expand Selected` 双下箭头按钮；
+- 不得通过 `onExpandSelected`、`editor.revealSelected`、
+  `projectCanExpandSelection` 或等价别名恢复；
+- 保留 `Collapse All`；
+- 文件树行内展开/折叠和目录节点箭头属于节点交互，不受该约束影响。
+
+## 2026-11-20 — Terminal Find 计数必须跟随实时 buffer 写入
+
+**作用域**：Terminal Find、`TerminalEmulator`、xterm `onWriteParsed`、
+TerminalPanel match count effect、窄工具窗 UI。
+
+**症状/证据**：
+
+- Find 打开后计数为 `1/2`；
+- 保持 Find 打开执行命令，终端已经写出新内容，但计数仍为 `1/2`；
+- 关闭再打开 Find 后计数变为 `1/3`，证明 buffer 已更新而 UI 未订阅；
+- 在 311px 终端容器内，`NO_SUCH_TERMINAL_MATCH_42` 正确显示
+  `No matches`，Next/Previous disabled，证明按钮语义本身正常。
+
+**根因**：
+
+- Find effect 只在 `find.query` 或 `splitId` 变化时重新扫描 buffer；
+- `TerminalEmulator` 接口没有暴露 xterm 的 `onWriteParsed`，业务层无法
+  知道新的 PTY 输出已经解析进屏幕缓冲；
+- 计数因此只在用户改 query 或重开 Find 时刷新。
+
+**修复**：
+
+- `TerminalEmulator` 增加可选 `onWriteParsed` subscription；
+- Find effect 订阅当前目标 emulator，并在每次 write-parsed 后重新调用
+  `countTerminalMatches`；
+- 50ms timer 合并持续输出期间的多次全 buffer 扫描；
+- cleanup 释放 xterm subscription，并取消待执行 timer。
+
+**回归与运行态**：
+
+- `tests/terminal-find-bar-close-button-reuses-shared-control.test.mjs`；
+- RED：新增实时 buffer 契约 **1 fail**；
+- GREEN：Terminal Find / split / 历史快捷键定向 **19 pass / 0 fail**；
+- DSH Web：
+  - Find 容器实际宽 **311px**，height=37；
+  - 输入、计数和三个 24×24px 按钮全部在右/下边界内；
+  - 无匹配时 Next/Previous disabled；
+  - 保持 Find 打开执行 `echo DSH_LIVE_VERIFY_50MS`，从
+    `No matches` 实时变为 `1/1` 且导航自动启用；
+  - Enter / Shift+Enter 维持匹配索引往返；
+  - Close 后焦点回到 `Terminal input`；
+- 完整 `npm test`：**3265 pass / 0 fail**。
+
+**长期约束**：
+
+- Terminal Find 计数必须同时依赖 query、目标 pane 和实时 buffer；
+- 不得只在 query 改变时计算一次；
+- scrollback 扫描必须合并高频写入，不能对每个输出块同步全量扫描；
+- 监听必须和 Find effect 生命周期绑定，关闭或切换 emulator 时释放；
+- 窄宽布局优先使用 wrap，保持输入和所有动作可达。
+
+## 2026-11-20 — Project 永久移除 Expand All
+
+**作用域**：Project 主工具栏、Project Options、ProjectPanel props、
+EditorWorkspace 接线、`projectCanExpandAll` 状态判断。
+
+**症状/证据**：
+
+- Project 主工具栏已移除重复的 Expand All，但最右 More → Options 仍保留
+  `Expand All`；
+- 该动作会递归展开整个工程，缺少 `Expand Selected` 的当前选择语义；
+- 用户明确判定其没有实际价值，要求删除且后续不得重新加入；
+- `expandAllAvailable`、`onExpandAll` 和 `expandAll()` 仍贯穿菜单与
+  workspace，存在再次暴露旧动作的链路。
+
+**根因**：
+
+- 早期 IDEA action 对齐为了保持菜单完整性保留了 Expand All；
+- 后续只移除了工具栏重复入口，没有清理 Options 与回调链路；
+- 菜单模型和 workspace 状态仍把该动作当成长期能力。
+
+**修复**：
+
+- 从 `projectOptionsMenu` 删除 `expandAll` 菜单项和相邻分隔符；
+- 删除 `expandAllAvailable` / `onExpandAll` 参数；
+- 删除 ProjectPanel 的 `onExpandAll` 属性与 EditorWorkspace 接线；
+- 删除无调用方的 `expandAll()` 和 `projectCanExpandAll()`；
+- 保留 `editor.expandAll` 给 Find 工具窗和 Combined Diff 使用，禁止把
+  其他作用域的 Expand All 一并删除。
+
+**回归与证据**：
+
+- `tests/project-expand-options-but-removes-duplicate-toolbar-action.test.mjs`；
+- `tests/project-expand-disabled-only-every-known-directory-already-expanded.test.mjs`；
+- `tests/project-create-menu-preserves-idea-actions-shortcuts.test.mjs`；
+- `tests/project-options-commands-return-focus-selected-tree-row.test.mjs`；
+- `tests/project-options-idea-behavior-appearance-submenus.test.mjs`；
+- `tests/project-options-single-click-migration.test.mjs`；
+- `tests/project-recursive-expansion-loads-every-descendant-directory.test.mjs`；
+- `tests/project-toolbar-follows-idea-action-density.test.mjs`；
+- RED：更新契约后 **9 fail**；
+- GREEN：Project 定向回归 **32 pass / 0 fail**；
+- DSH Web 运行态：
+  - Project 工具栏为 Copy path、Project View、Select Opened File、
+    Expand Selected、Collapse All、Hide、More actions；
+  - More 菜单为 New File or Directory… / Options；
+  - Options 菜单为 Refresh / Go to File / Recent Files / Behavior /
+    Appearance，页面可见文本不含 Expand All；
+- 完整 `npm test`：**3264 pass / 0 fail**。
+
+**长期约束**：
+
+- Project 工具栏和 Project Options 不得再出现 Expand All；
+- Project 只保留 `Expand Selected` 与 `Collapse All`；
+- 不得通过 `onExpandAll`、`expandAllAvailable` 或等价别名重新接线；
+- Find 工具窗和 Combined Diff 的 Expand All 属于独立作用域，不受此约束。
+
+## 2026-11-20 — Terminal Find 的关闭动作必须复用共享可访问按钮
+
+**作用域**：Terminal dock Find bar、close action、ToolbarButton、
+键盘焦点、650px 窄编辑器宽度。
+
+**症状/证据**：
+
+- Terminal Find 关闭按钮是裸 `<button>×</button>`；
+- 它借用 `conflictAction` 样式，没有 ToolbarButton 的 16px icon、
+  点击区和 aria/title 语义；
+- Floating Find 与 Search Everywhere 已有共享 labelled close control，
+  Terminal Find 成为剩余分叉。
+
+**根因**：
+
+- 早期 Terminal Find 用临时文本按钮实现关闭；
+- 后续共享 ToolbarButton 能力扩展后，没有回收这个局部实现；
+- 导致读屏和键盘用户只能听到 `×`，不知道动作目标。
+
+**修复**：
+
+- 改用 `<ToolbarButton icon='close' label={t('editor.closeTerminalFind')}>`；
+- 新增中英文 `closeTerminalFind` 文案；
+- 保留关闭 Find 后 focus 当前 Terminal emulator 的行为。
+
+**回归与运行态**：
+
+- `tests/terminal-find-bar-close-button-reuses-shared-control.test.mjs`；
+- 650px 视口：
+  - Find bar 自动换成两行，height=58；
+  - input width=162；
+  - 查询 `DSH` 显示 `1/10`；
+  - Next / Previous / Close 均 24×24px 且未越界；
+  - Close aria-label=`Close Terminal Find`；
+  - 点击后 Find 消失，焦点回到 `Terminal input`；
+- 相关 Terminal Find 定向回归 **9 pass / 0 fail**；
+- 完整 `npm test`：**3265 pass / 0 fail**。
+
+**长期约束**：
+
+- Terminal Find 的关闭动作必须使用共享 ToolbarButton；
+- close control 必须有本地化 aria-label/title；
+- 窄宽度优先通过 wrap 保持所有 Find 控件可用，不得用重叠或裁切换取
+  单行；
+- 关闭、Escape 和上下文菜单关闭都必须把焦点交回当前 terminal emulator。
+
+## 2026-11-20 — Project 工具栏使用共享紧凑密度并把 Options 收入 More
+
+**作用域**：Project PanelToolbar、动作 fit、靶心/Expand/Collapse/Hide、
+Project Options、标题宽度观察、200px 工具窗。
+
+**症状/证据**：
+
+- 200px 工具窗中，靶心与右侧动作组之间约 11px 空白；
+- 每个动作按钮宽 24px，图标 16px，视觉间隔偏大；
+- Collapse All 被挤入 More，而太阳/Options 仍直接占用一个按钮；
+- 用户要求压缩右侧按钮间距，并把 Options 并入最右折叠菜单。
+
+**根因**：
+
+- PanelToolbar 没有密度档，Project 只能沿用默认 24px + gap1 动作；
+- `panelToolbarFit` 未为“始终存在的 More 入口”预留槽位；
+- 标题宽度变化没有触发重新 fit，曾导致 New 被误判可直显并把 More
+  推出右边界。
+
+**修复**：
+
+- PanelToolbar 增加通用 `dense`：
+  - action width 22px；
+  - gap 0；
+  - spacer minWidth 2px；
+  - More 也使用 22px；
+- `panelToolbarFit` 增加 action slot width 与 forced-overflow 参数；
+- PanelToolbar 观察标题宽度变化并重新测量；
+- Project 直接动作保留 Expand/Collapse/Hide，移除太阳/Options；
+- Options 通过 `overflowActions` 进入 More，不新增第二套菜单。
+
+**回归与运行态**：
+
+- `tests/project-toolbar-follows-idea-action-density.test.mjs`；
+- `tests/project-toolbar-recovers-actions-idea-mid-width-breakpoints.test.mjs`；
+- `tests/editor-panel-toolbar-reserves-trailing-idea-actions-before-middle-actions.test.mjs`；
+- 定向回归 **18 pass / 0 fail**；
+- 200px 运行态：
+  - 靶心、Expand、Collapse、Hide、More 全在右边界内；
+  - 按钮宽 22px，gap 0；
+  - Collapse All 直接可见；
+  - More 位于 x=268..290，toolbar right=293；
+  - More 菜单包含 New 与 Options；
+  - Options 可继续打开完整 Project 设置菜单；
+- 完整 `npm test`：**3263 pass / 0 fail**。
+
+**长期约束**：
+
+- Project 工具栏的紧凑密度必须通过 PanelToolbar 的共享 `dense` 能力；
+- forced overflow 入口必须计入 fit 槽位，不能只统计 left/right 动作；
+- 标题或 badge 宽度变化后必须重新 fit；
+- 太阳/Options 不得重新成为 Project 直接按钮；其入口固定放在最右 More；
+- 代码图标仍保持 16px，压缩只调整横向按钮槽位和间距。
+
+## 2026-11-20 — 窄终端工具条不得挤掉 tab 与 overflow 按钮
+
+**作用域**：Terminal dock、tablist、Terminal Options、ToolbarButton、
+container query、隐藏终端菜单。
+
+**症状/证据**：
+
+- 650px 视口下 terminal strip 宽约 179px；
+- 六个直接工具按钮占满空间，tablist 只剩 9.5px；
+- 隐藏 tab 的 `»` 随 `overflow:hidden` 一起被裁掉；
+- 用户无法通过指针切换终端 tab，也无法打开隐藏 tab 菜单。
+
+**根因**：
+
+- Terminal 工具条没有响应式操作优先级；
+- 所有动作始终直接占位，没有为 tablist 保留最低可用宽度；
+- 单靠压缩 tab 不能恢复可达性，因为 `visibleTabCount` 仍会渲染当前 tab，
+  但外层容器已没有可点击面积。
+
+**修复**：
+
+- 共享 `ToolbarButton` 增加可选 `className` 转发；
+- terminal strip 建立 `dsh-terminal-strip` inline-size container；
+- `max-width: 260px` 时隐藏 New Predefined、Split、Find 的直接按钮；
+- 这三个动作加入既有 Terminal Options 菜单，复用共享 `ContextMenu`；
+- New、Terminal Options、Hide 继续直接显示。
+
+**回归与运行态**：
+
+- `tests/terminal-only-direct-session-actions-strip.test.mjs`；
+- RED：窄条操作折叠断言失败；
+- GREEN：相关终端定向回归 **7 pass / 0 fail**；
+- 修复后 650px：
+  - tablist 从 9.5px 恢复到 51px；
+  - `»` 为 22×22px，`elementFromPoint` 命中真实按钮；
+  - 点击后列出 5 个隐藏终端；
+  - Options 菜单包含 New Predefined、Split、Find；
+- 完整 `npm test`：**3262 pass / 0 fail**。
+
+**长期约束**：
+
+- 窄工具条不得把 tablist 或 `»` 压缩到不可点击；
+- 次要从操作可以折叠，但必须有同一 Terminal Options 菜单中的可达入口；
+- 响应式阈值必须基于 terminal strip 的 container query，不得用 viewport
+  media query 猜测编辑器宽度；
+- 通用按钮 class 注入只能由 ToolbarButton 转发，TerminalPanel 不得复制
+  原生 button 交互。
+
+## 2026-11-20 — 共享弹框边框必须有可见的边界层级
+
+**作用域**：Search Everywhere、Find、Find Scope、菜单、tooltip、
+Go to Line、Name Prompt、`POPUP_BORDER`。
+
+**症状/证据**：
+
+- DSH Search Everywhere 修复前 computed border 为
+  `1px solid rgba(0,0,0,0.12)`；
+- 截图里弹框边界几乎不可见，和 IDEA Search Everywhere 的可辨认边界
+  不一致；
+- 图标、点击区域和焦点环本身正常：图标 `16×16`、按钮 `24×24`、
+  焦点环 `2px`。
+
+**根因**：
+
+- 共享 `POPUP_BORDER` 只使用 `--dsw-alias-border-l3`（12% 黑），
+  对浮层容器对比不足；
+- 若在 Search/Find 各自补边框，会破坏 FloatingToolPopup 的视觉职责
+  边界并造成多份样式分叉。
+
+**修复**：
+
+- 只修改共享 `POPUP_BORDER`：
+  `1px solid var(--dsw-alias-border-selected, var(--dsw-alias-border-l4, var(--dsw-alias-border-l3)))`；
+- `inline-styles.ts` 与 `ui/styles.ts` 两个发布入口同步；
+- Search Everywhere、Find、Find Scope、菜单、tooltip、Go to Line、
+  Name Prompt 等自动继承，不新增局部 border。
+
+**回归与运行态**：
+
+- `tests/editor-popup-border-icon-size-shared.test.mjs`；
+- `tests/search-floating-popup-shared-find-search.test.mjs`；
+- RED：旧 `POPUP_BORDER` 断言失败；
+- GREEN：相关定向回归 **14 pass / 0 fail**；
+- DSH Web：
+  - Search Everywhere 与 Find 边框均为 `rgb(173,178,184)`；
+  - 图标 `16×16`，按钮 `24×24`，焦点环 `2px`；
+  - 遮罩继续为共享 `rgba(0,0,0,0.28)`；
+- 完整 `npm test`：**3261 pass / 0 fail**。
+
+**长期约束**：
+
+- 所有 popup 外框必须复用 `<FloatingToolPopup>` 和共享 `POPUP_BORDER`；
+- 业务 surface 不得自行声明 border、shadow、background 或 z-index；
+- 调整浮层可见性时只改共享 token，不在单个 Search/Find 调用方打补丁；
+- 固定回归必须同时检查边框 token、`16px` 图标和共享遮罩。
+
 ## 2026-11-20 — 所有代码展示面必须共享 IDEA Light token 链
 
 **作用域**：Search Everywhere Preview、Persistent Find Preview、

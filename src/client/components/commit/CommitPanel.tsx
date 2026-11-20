@@ -72,6 +72,7 @@ export interface CommitPanelProps {
   git:
     | {
         changes?: DiffChange[];
+        isRepo?: boolean;
         detached?: boolean;
         ahead?: number;
         behind?: number;
@@ -319,6 +320,7 @@ function CommitPanel({
     return () => window.removeEventListener('keydown', onKeyDown, true);
   }, [mode]);
   const changes = React.useMemo(() => (Array.isArray(git?.changes) ? git.changes : []), [git?.changes]);
+  const gitNotManaged = git?.isRepo === false;
   const changesByPath = React.useMemo(() => new Map(changes.map((change) => [change.path, change])), [changes]);
   const stageAllTrackedPaths = React.useMemo(() => stageAllTargets(changes, true), [changes]);
   const changeSplit = React.useMemo(() => splitChanges(changes), [changes]);
@@ -1193,8 +1195,9 @@ function CommitPanel({
       {
         /* Errors and notices belong to the tool window, not to one of its tabs: a failed
        cherry-pick from the Log tab used to produce no feedback at all. */
-        error !== null || notice !== null || (pushFailure !== null && pushFailure !== undefined) ? (
+        error !== null || notice !== null || gitNotManaged || (pushFailure !== null && pushFailure !== undefined) ? (
           <div style={styles.commitStatusStack}>
+            {gitNotManaged ? <div style={styles.commitNotice}>{t('editor.gitNotManaged')}</div> : null}
             {error !== null ? (
               <div
                 style={{
@@ -1251,7 +1254,7 @@ function CommitPanel({
                   type='button'
                   style={styles.conflictAction}
                   onClick={() => onPush?.()}
-                  disabled={busy || pushing}>
+                  disabled={busy || gitNotManaged || pushing}>
                   {pushing ? t('editor.pushing') : t('editor.retryPush')}
                 </button>
               </div>
@@ -1261,6 +1264,7 @@ function CommitPanel({
       }
       <CommitLog
         hidden={mode !== 'log'}
+        disabled={gitNotManaged}
         t={t}
         scrollRefs={scrollRefs}
         commits={commits}
@@ -1518,13 +1522,14 @@ function CommitPanel({
                     gap: 6,
                     minWidth: 0,
                     flex: '1 1 auto',
-                    cursor: 'pointer',
+                    cursor: busy || gitNotManaged ? 'default' : 'pointer',
                   }}>
                   <input
                     type='checkbox'
                     className='dsh-editor-checkbox'
                     style={styles.checkbox}
                     checked={amend}
+                    disabled={busy || gitNotManaged}
                     onChange={(event) => onAmend(event.target.checked)}
                     aria-label={t('editor.amend')}
                   />
@@ -1573,7 +1578,7 @@ function CommitPanel({
                   /* ⌘/Ctrl+Enter commits without reaching for the mouse. */
                   if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
                     event.preventDefault();
-                    if (!busy && selectedPaths.size > 0 && message.trim() !== '') onCommit(false);
+                    if (!busy && !gitNotManaged && selectedPaths.size > 0 && message.trim() !== '') onCommit(false);
                     return;
                   }
                   /* ↑/↓ walk the message history only when the caret sits on the first/last line. */
@@ -1621,7 +1626,7 @@ function CommitPanel({
                 <button
                   type='button'
                   style={styles.commitPrimary}
-                  disabled={busy || selectedPaths.size === 0 || message.trim() === ''}
+                  disabled={busy || gitNotManaged || selectedPaths.size === 0 || message.trim() === ''}
                   onClick={() => onCommit(false)}>
                   {busy
                     ? t('editor.committing')
@@ -1633,7 +1638,7 @@ function CommitPanel({
                   type='button'
                   className='dsh-editor-commit-secondary'
                   style={styles.commitSecondary}
-                  disabled={busy || selectedPaths.size === 0 || message.trim() === ''}
+                  disabled={busy || gitNotManaged || selectedPaths.size === 0 || message.trim() === ''}
                   onClick={() => onCommit(true)}
                   title={t('editor.commitAndPush')}
                   aria-label={t('editor.commitAndPush')}>

@@ -10,7 +10,11 @@ const diffSource = await readFile(new URL('../src/client/components/diff/DiffPre
 test('hiding Commit from the keyboard returns focus to the visible diff', () => {
   assert.match(
     workspaceSource,
-    /if \(action === 'hide'\) \{[\s\S]*?setPanelVisible\(false\);[\s\S]*?focusWorkspaceSurface\(\);/u,
+    /if \(action === 'hide'\) \{[\s\S]*?hideToolWindow\(\);/u,
+  );
+  assert.match(
+    workspaceSource,
+    /const hideToolWindow = React\.useCallback\(\(\) => \{[\s\S]*?setPanelVisible\(false\);[\s\S]*?focusWorkspaceSurface\(\);/u,
   );
   assert.doesNotMatch(
     workspaceSource,

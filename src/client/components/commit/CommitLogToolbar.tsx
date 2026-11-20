@@ -26,6 +26,7 @@ interface CommitLogToolbarProps {
   graphMode: boolean;
   graph?: CommitLogGraph | null;
   loading: boolean;
+  disabled?: boolean;
   onFilterChange: (value: string) => void;
   onFilterVisibleChange: (visible: boolean) => void;
   onAuthorChange: (value: string) => void;
@@ -43,6 +44,7 @@ function CommitLogToolbar({
   graphMode,
   graph,
   loading,
+  disabled = false,
   onFilterChange,
   onFilterVisibleChange,
   onAuthorChange,
@@ -115,6 +117,7 @@ function CommitLogToolbar({
           className='dsh-editor-log-branch'
           style={styles.graphBranchSelect}
           value={graph?.branch ?? ''}
+          disabled={disabled}
           aria-label={t('editor.graphBranch')}
           title={t('editor.graphBranch')}
           onChange={(event) => onGraphBranch(event.target.value)}>
@@ -174,6 +177,7 @@ function CommitLogToolbar({
         }}
         placeholder={t('editor.logAuthorPlaceholder')}
         value={author ?? ''}
+        disabled={disabled}
         aria-label={t('editor.logAuthor')}
         onChange={(event) => onAuthorChange(event.target.value)}
       />
@@ -188,12 +192,13 @@ function CommitLogToolbar({
           icon='graph'
           label={t('editor.logGraph')}
           active={graphMode}
+          disabled={disabled}
           onClick={onToggleGraph}
         />
         <ToolbarButton
           icon='refresh'
           label={t('editor.refresh')}
-          disabled={loading}
+          disabled={disabled || loading}
           onClick={onRefresh}
         />
       </span>

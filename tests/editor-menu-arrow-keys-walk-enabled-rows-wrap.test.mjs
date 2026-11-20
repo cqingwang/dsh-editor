@@ -9,6 +9,7 @@ const source =
   readFileSync(join(root, 'src/client/components/ui/Menu.tsx'), 'utf8') +
   '\n' +
   readFileSync(join(root, 'lib/client.js'), 'utf8');
+const panelToolbar = readFileSync(join(root, 'src/client/components/ui/PanelToolbar.tsx'), 'utf8');
 
 function load(name) {
   const marker = `    function ${name}(`;
@@ -104,17 +105,11 @@ test('ContextMenu maps printable keys through shared typeahead', () => {
   assert.match(source, /typeaheadPrefixRef/u);
 });
 
-test('keyboard invocation of Project overflow actions has a tree fallback anchor', () => {
-  const create = source.slice(
-    source.indexOf('onOpenCreateMenu: (event) => {'),
-    source.indexOf('onOpenOptions: (event) => {'),
+test('keyboard invocation of Project overflow actions reuses the More button anchor', () => {
+  assert.match(
+    panelToolbar,
+    /openOverflowMenu\(event\.currentTarget\.getBoundingClientRect\(\)\)/u,
   );
-  assert.match(create, /event\?\.currentTarget\?\.getBoundingClientRect\?\.\(\)/);
-  assert.match(create, /\?\? treeRef\.current\?\.getBoundingClientRect\(\)/);
-  const options = source.slice(
-    source.indexOf('onOpenOptions: (event) => {'),
-    source.indexOf('onCreateChange: (value) =>'),
-  );
-  assert.match(options, /event\?\.currentTarget\?\.getBoundingClientRect\?\.\(\)/);
-  assert.match(options, /\?\? treeRef\.current\?\.getBoundingClientRect\(\)/);
+  assert.match(panelToolbar, /event\.key === 'ContextMenu'[\s\S]*?event\.key === 'F10'/u);
+  assert.match(panelToolbar, /items: overflowMenuEntries/u);
 });

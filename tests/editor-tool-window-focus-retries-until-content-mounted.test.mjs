@@ -179,7 +179,7 @@ test('tool-window shortcuts retry their mounted content instead of focusing BODY
   const hideEnd = workspaceSource.indexOf('setPanelVisible(true);', hideStart);
   assert.ok(hideStart > 0 && hideEnd > hideStart);
   const hideBlock = workspaceSource.slice(hideStart, hideEnd);
-  assert.match(hideBlock, /setPanelVisible\(false\);[\s\S]*?focusWorkspaceSurface\(\);/u);
+  assert.match(hideBlock, /hideToolWindow\(\);/u);
   assert.doesNotMatch(hideBlock, /setTimeout/u);
 
   const editorStart = workspaceSource.indexOf('const focusWorkspaceSurface = React.useCallback(');

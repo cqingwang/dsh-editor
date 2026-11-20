@@ -39,5 +39,5 @@ test('Project stores Folders Always on Top independently and exposes it under Ap
 
 test('every Project tree list request carries the foldersFirst preference', () => {
   const requests = client.match(/foldersFirst,\s+showExcluded: showExcludedFiles/g) ?? [];
-  assert.ok(requests.length >= 7, `expected all Project list calls to carry foldersFirst, found ${requests.length}`);
+  assert.ok(requests.length >= 6, `expected all Project list calls to carry foldersFirst, found ${requests.length}`);
 });

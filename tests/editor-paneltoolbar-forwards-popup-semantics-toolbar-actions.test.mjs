@@ -18,15 +18,14 @@ test('PanelToolbar forwards popup semantics from toolbar actions', () => {
   assert.match(panelToolbarSource, /ariaExpanded=\{action\.ariaExpanded\}/);
 });
 
-test('Project Options exposes menu and live expanded state', () => {
+test('Project header actions are delegated to the view arrow context menu', () => {
   const panel = block('function ProjectPanel({', '/**\n     * IDEA-style context menu');
-  assert.match(panel, /optionsOpen,/);
-  assert.match(
-    panel,
-    /id: 'options',[\s\S]*?ariaHasPopup: 'menu',[\s\S]*?ariaExpanded: optionsOpen/,
-  );
-  assert.match(source, /owner: 'project-options'/);
-  assert.match(source, /optionsOpen: menu\?\.owner === 'project-options'/);
+  assert.doesNotMatch(panel, /optionsOpen|onOpenOptions|id: 'options'/);
+  assert.match(source, /projectMenuItems: MenuEntry\[\]/);
+  assert.match(panel, /openProjectViewMenu\(event\.currentTarget, true\)/);
+  assert.doesNotMatch(panel, /overflowMenuItems=/);
+  assert.match(source, /function projectOptionsMenuItems\(/);
+  assert.match(source, /projectOptionsMenuItems\(\{/);
 });
 
 test('Commit Options exposes menu and live expanded state', () => {

@@ -36,9 +36,19 @@ test('PanelToolbar uses the pure fit result and a bounded Project view title', (
   assert.match(panelToolbarSource, /setFits\(\(current\) =>/);
   assert.match(panelToolbarSource, /maxWidth: '45%'/);
   assert.match(panelToolbarSource, /titleActionStyle/);
+  assert.match(panelToolbarSource, /titleFlexible \? 0 : \(titleRef\.current\?\.offsetWidth \?\? 0\)/);
+  assert.match(panelToolbarSource, /flex: '1 1 0%'/);
+  assert.match(panelToolbarSource, /marginRight: 0/);
+  assert.match(panelToolbarSource, /flex: '0 0 auto'/);
 });
 
-test('Project direct toolbar keeps Options and Hide at 200px', () => {
+test('Project toolbar keeps Hide trailing and delegates flattened actions to More', () => {
   const panel = source.slice(source.indexOf('function ProjectPanel('), source.indexOf('/**\n     * IDEA-style context menu'));
-  assert.match(panel, /id: 'options'[\s\S]*?id: 'hide'/s);
+  const directRight = panel.slice(panel.indexOf('right={['), panel.indexOf('trailingRight={'));
+  const directTrailing = panel.slice(panel.indexOf('trailingRight={'), panel.indexOf('overflowMenuItems={'));
+  assert.doesNotMatch(directRight, /id: 'options'/);
+  assert.doesNotMatch(directRight, /id: 'hide'/);
+  assert.match(directTrailing, /id: 'hide'/);
+  assert.doesNotMatch(panel, /overflowMenuItems=/u);
+  assert.match(panel, /openProjectViewMenu\(event\.currentTarget, true\)/u);
 });

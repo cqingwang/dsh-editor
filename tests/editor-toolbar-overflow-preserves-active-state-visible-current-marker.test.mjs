@@ -6,7 +6,7 @@ import { compactActionBarSource, panelToolbarSource } from './ui-sources.mjs';
 const source = (await readFile(new URL('../src/client/components/ui/Menu.tsx', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
 
 test('toolbar overflow preserves active state and a visible current marker', () => {
-  assert.match(panelToolbarSource, /items: groupCompactActions\(hidden\)\.map/);
+  assert.match(panelToolbarSource, /items: overflowMenuEntries/);
   assert.match(panelToolbarSource, /shortcut: action\.active === true \? '✓' : ''/);
   assert.match(panelToolbarSource, /active: typeof action\.active === 'boolean' \? action\.active : undefined/);
 

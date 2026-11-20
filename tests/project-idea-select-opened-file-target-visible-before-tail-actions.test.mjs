@@ -13,10 +13,9 @@ const coreSource = await readFile(new URL('../src/client/editor-core.ts', import
 const source = `${projectPanelSource}\n${workspaceSource}\n${coreSource}`;
 const panelToolbarFit = loadTypeScriptFunction(toolbarModelSource, 'panelToolbarFit');
 
-test('Project keeps the IDEA Select Opened File target visible before tail actions overflow', () => {
-  assert.deepEqual(panelToolbarFit(201, 80.4, 2, 4, 0, 1), { left: 1, right: 2 });
-  assert.deepEqual(panelToolbarFit(220, 94.5, 2, 4, 0, 1), { left: 1, right: 2 });
-  assert.deepEqual(panelToolbarFit(220, 94.5, 2, 4, 0, 0), { left: 0, right: 3 });
+test('Project keeps its action strip right-aligned as the pane narrows', () => {
+  assert.deepEqual(panelToolbarFit(200, 76, 0, 3, 0, 0, 22, 1), { left: 0, right: 3 });
+  assert.deepEqual(panelToolbarFit(170, 76, 0, 3, 0, 0, 22, 1), { left: 0, right: 2 });
 });
 
 test('PanelToolbar renders pinned leading actions through the shared selection policy', () => {
@@ -27,12 +26,12 @@ test('PanelToolbar renders pinned leading actions through the shared selection p
   assert.match(toolbarModelSource, /export function selectCompactActions/);
 });
 
-test('Project target action is pinned and retains IDEA reveal semantics', () => {
+test('Project title fills the space before the fixed right-aligned actions', () => {
   const panel = projectPanelSource;
-  assert.match(panel, /titleActionStyle=\{\{\s+maxWidth: '40%',\s+\}\}/s);
-  const reveal = panel.slice(panel.indexOf("id: 'reveal'"), panel.indexOf("id: 'expandSelected'"));
+  assert.match(panel, /titleFlexible(?:\s|>)/u);
+  assert.doesNotMatch(panel, /titleActionStyle=/u);
+  const reveal = panel.slice(panel.indexOf("id: 'reveal'"), panel.indexOf("id: 'collapse'"));
   assert.match(reveal, /icon: 'target'/);
-  assert.match(reveal, /pinned: true/);
   assert.match(reveal, /disabled: hasActiveFile !== true/);
   assert.match(reveal, /onClick: onReveal/);
 });

@@ -7,6 +7,18 @@ import { findScopePatternsMatch, fuzzyScore, wholeWordIndex } from './find-tool'
 import { editorReplaceAll } from './terminal';
 import React from 'react';
 
+/**
+ * Recognize the git CLI sentence emitted for a directory outside any repository.
+ *
+ * New hosts return `isRepo: false` from status; this narrow compatibility check
+ * keeps an already-running older host from surfacing its raw fatal line.
+ * @param message - normalized request failure text.
+ * @returns whether the workspace has no Git repository.
+ */
+export function isGitRepositoryMissingMessage(message: string): boolean {
+  return /not a git repository/iu.test(message);
+}
+
 interface SearchPreviewWindow {
   start: number;
   end: number;
