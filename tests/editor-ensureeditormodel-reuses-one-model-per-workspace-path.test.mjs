@@ -134,6 +134,7 @@ test('two editor groups share a model and disposing one never disposes it', () =
     'detectTheme',
     'ensureEditorTheme',
     'EDITOR_UI_FONT',
+    'cancelScheduledEditorSemanticTokens',
     `let codeEditorGroupSequence = 0;
      const EDITOR_CODE_FONT_SIZE = 13;
      const EDITOR_CODE_LINE_HEIGHT = 20;
@@ -147,6 +148,7 @@ test('two editor groups share a model and disposing one never disposes it', () =
     () => 'vs',
     () => 'dsh-editor-idea-light',
     '"Trebuchet MS", sans-serif',
+    () => {},
   );
   const models = new Map();
   const model = ensureEditorModel(monaco, models, 'src/a.ts', 'shared');
@@ -178,6 +180,7 @@ test('editor group actions forward IDEA shortcuts and dispose once', () => {
     'detectTheme',
     'ensureEditorTheme',
     'EDITOR_UI_FONT',
+    'cancelScheduledEditorSemanticTokens',
     `let codeEditorGroupSequence = 0;
      const EDITOR_CODE_FONT_SIZE = 13;
      const EDITOR_CODE_LINE_HEIGHT = 20;
@@ -191,6 +194,7 @@ test('editor group actions forward IDEA shortcuts and dispose once', () => {
     () => 'vs',
     () => 'dsh-editor-idea-light',
     '"Trebuchet MS", sans-serif',
+    () => {},
   );
   const calls = [];
   const group = create(

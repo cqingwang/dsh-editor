@@ -24,35 +24,75 @@ test('Commit treats a non-git workspace as a normal state', () => {
   assert.match(locales, /gitNotManaged: '当前不受git管理'/u);
   assert.match(locales, /gitNotManaged: 'This workspace is not managed by Git'/u);
   assert.equal(
-    isGitRepositoryMissingMessage(
-      'fatal: not a git repository (or any of the parent directories): .git',
-    ),
+    isGitRepositoryMissingMessage('fatal: not a git repository (or any of the parent directories): .git'),
     true,
   );
   assert.equal(isGitRepositoryMissingMessage('fatal: ambiguous argument HEAD'), false);
   assert.match(workspace, /if \(isGitRepositoryMissingMessage\(message\)\)[\s\S]*?reportGitFailure\(failure\)/u);
-  assert.match(reporter, /isGitRepositoryMissingMessage\(message\)[\s\S]*?isRepo: false[\s\S]*?setCommitError\(null\)/u);
+  assert.match(
+    reporter,
+    /isGitRepositoryMissingMessage\(message\)[\s\S]*?isRepo: false[\s\S]*?setCommitError\(null\)/u,
+  );
 });
 
 test('Git-only Commit actions are inert without a repository', () => {
   assert.match(workspace, /const loadLog = React\.useCallback\(async \(\) => \{\s+if \(git\?\.isRepo === false\)/u);
-  assert.match(workspace, /const loadMoreLog = React\.useCallback\(async \(\) => \{\s+if \(git\?\.isRepo === false\) return;/u);
+  assert.match(
+    workspace,
+    /const loadMoreLog = React\.useCallback\(async \(\) => \{\s+if \(git\?\.isRepo === false\) return;/u,
+  );
   assert.match(workspace, /async \(branch\?: string, at\?: string\) => \{[\s\S]*?if \(git\?\.isRepo === false\)/u);
   assert.match(workspace, /async \(path: string\) => \{[\s\S]*?if \(git\?\.isRepo === false\)/u);
   assert.match(workspace, /next === 'log' &&\s+git\?\.isRepo !== false/u);
   assert.equal(
-    (panel.match(/disabled=\{busy \|\| gitNotManaged \|\| selectedPaths\.size === 0 \|\| message\.trim\(\) === ''\}/gu) ?? [])
-      .length,
+    (
+      panel.match(
+        /disabled=\{busy \|\| gitNotManaged \|\| selectedPaths\.size === 0 \|\| message\.trim\(\) === ''\}/gu,
+      ) ?? []
+    ).length,
     2,
   );
   assert.match(panel, /disabled=\{busy \|\| gitNotManaged \|\| pushing\}/u);
   assert.match(panel, /<CommitLog\s+hidden=\{mode !== 'log'\}\s+disabled=\{gitNotManaged\}/u);
   assert.match(panel, /checked=\{amend\}\s+disabled=\{busy \|\| gitNotManaged\}/u);
-  assert.match(workspace, /if \(next && \(git\?\.isRepo === false \|\| git\?\.lastCommit === null \|\| git\?\.lastCommit === undefined\)\) return;/u);
+  assert.match(
+    workspace,
+    /if \(next && \(git\?\.isRepo === false \|\| git\?\.lastCommit === null \|\| git\?\.lastCommit === undefined\)\) return;/u,
+  );
   assert.match(log, /disabled\?: boolean/u);
   assert.match(logToolbar, /disabled\?: boolean/u);
   assert.match(logToolbar, /label=\{t\('editor\.logGraph'\)\}[\s\S]*?disabled=\{disabled\}/u);
   assert.match(logToolbar, /disabled=\{disabled \|\| loading\}/u);
+});
+
+test('Changes action strip uses native disabled semantics in not-managed state', () => {
+  const actionsStart = panel.indexOf('actions={[', panel.indexOf('<CompactActionBar'));
+  const actionsEnd = panel.indexOf(']}', actionsStart);
+  assert.ok(actionsStart >= 0 && actionsEnd > actionsStart);
+  const actions = panel.slice(actionsStart, actionsEnd);
+  const actionSource = (id) => {
+    const start = actions.indexOf(`id: '${id}'`);
+    const end = actions.indexOf('},', start);
+    assert.ok(start >= 0 && end > start, `missing action: ${id}`);
+    return actions.slice(start, end);
+  };
+  for (const id of [
+    'rollback',
+    'showDiff',
+    'shelve',
+    'combinedDiff',
+    'copyPatch',
+    'createPatch',
+    'stageAllTracked',
+    'selectOpened',
+  ]) {
+    assert.match(actionSource(id), /disabled:[\s\S]*?gitNotManaged/u, id);
+  }
+  assert.match(actionSource('expandChanges'), /disabled: changes\.length === 0/u);
+  assert.match(actionSource('collapseChanges'), /disabled: changes\.length === 0/u);
+  assert.match(actionSource('refresh'), /pinned: true,[\s\S]*?onClick: onRefresh/u);
+  assert.doesNotMatch(actionSource('refresh'), /disabled: gitNotManaged/u);
+  assert.doesNotMatch(actionSource('viewOptions'), /disabled: gitNotManaged/u);
 });
 
 test('keyboard commit and stale Git-owned state stay closed without a repository', () => {

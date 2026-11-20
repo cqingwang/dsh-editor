@@ -1,5 +1,797 @@
 # dsh-editor 工程记忆
 
+## 2026-11-20 — Rust 生命周期被当字符串导致整段漏色
+
+**作用域**：Rust `'a` / `'static` lifetime、struct 字段、impl、trait
+方法、参数，以及 semantic token 的语言缓存。
+
+**症状/证据**：
+
+- `pub struct Reader<'a> { value: &'a str }` 中 `value` 字段完全漏色；
+- `pub fn value(&self, input: &'a str)` 的 `input` 被误判为 property；
+- trait 的 `read(&mut self, key: &'a str)` 整个方法参数缺失；
+- 根因是通用单引号掩码把 lifetime 当成未闭合字符串，后续代码一直被
+  掩盖。
+
+**修复**：
+
+- collector 接收 model language；
+- 仅 Rust 将 `'` + identifier + 非闭合单引号识别为 lifetime；
+- 其他语言继续按单引号字符串处理；
+- full/range semantic cache 加入 language identity。
+
+**RED/GREEN**：
+
+- RED：lifetime 后字段、参数、trait 方法缺失；
+- GREEN：着色定向回归 **44 pass / 0 fail**；
+- 完整门禁在收尾阶段验证。
+
+**Computer Use / Ego Browser 证据**：
+
+- IDEA：`/private/tmp/idea-rust-lifetime-sample.png`；
+- DSH：`/private/tmp/dsh-rust-lifetimes-final-build.png`；
+- DSH 最终构建中 `Reader/Source/value` 为紫色，`read` 为方法棕色，
+  `input/key` 为参数黑，`local` 为局部变量青色。
+
+**长期约束**：
+
+- 单引号既可能是字符串，也可能是 Rust lifetime/char，不能跨语言统一处理；
+- cache key/value 必须包含 language，防止同 model 改语言后复用错误 token；
+- 临时跨语言样例必须在验证后删除，不能污染工作树。
+
+## 2026-11-20 — Rust pub fn 参数模板与 *const 误判
+
+**作用域**：Rust `pub(crate) fn`、`extern "C" fn`、函数参数、指针类型和
+generated large JavaScript file 的可视区着色性能。
+
+**症状/证据**：
+
+- IDEA 中 `session_request(holder: *mut HttpSession, url: *const u8, ...)`
+  的参数名为参数色；
+- DSH 中 `holder` 完全没有 token；
+- `url/headers/body/timeout` 被 property-key 规则误标为 property；
+- `u8` 被 JS/TS `const` 局部变量规则误标为 variable。
+
+**根因**：
+
+- typed-language modifier 列表没有 Rust `pub` / `pub(crate)`；
+- 函数名靠通用 call 规则仍可着色，但参数组没有进入
+  `addParameterGroup`；
+- 通用 `const/let/var` 正则把 `*const u8` 当成 JS/TS const 声明。
+
+**修复**：
+
+- modifier 识别 `pub`、`pub(...)` 和 `const`；
+- `const/let/var` 局部变量规则排除前置 `*`；
+- Rust 函数参数重新使用统一 parameter priority 94；
+- 不全局排除 `self`，避免破坏 Python `self` 参数。
+
+**RED/GREEN**：
+
+- RED：`holder` 缺失，`url/headers/body/timeout` 为 property，`u8` 为
+  variable；
+- GREEN：着色定向回归 **42 pass / 0 fail**；
+- 完整 `npm test`：**3309 pass / 0 fail**；
+- lint、TypeScript、Prettier、bundle consistency、`git diff --check`、
+  `npm pack --dry-run` 通过。
+
+**Computer Use / Ego Browser 证据**：
+
+- IDEA：`/private/tmp/idea-rust-params.png`；
+- DSH：`/private/tmp/dsh-rust-params-final.png`；
+- DSH 运行态 `session_request` 为 `rgb(145, 76, 7)`，参数为
+  `rgb(0, 0, 0)`，`u8/u64` 为 `rgb(0, 0, 128)`。
+
+**性能证据**：
+
+- `lib/client.js` 63,207 行；
+- 首次打开无滚动完整着色约 1,231ms；
+- 跳到第 30,000 行后可见区着色约 373ms；
+- 当前窗口末行 forceTokenization 未显示明显中段跳转瓶颈。
+
+**长期约束**：
+
+- `*const T` 的 `const` 不是局部变量声明；
+- Rust visibility group 必须与普通 `pub` 同等进入函数参数扫描；
+- 语言模板修复不能以全局 reserved word 覆盖其他语言的合法参数名。
+
+## 2026-11-20 — 新文件首屏无颜色：先 force 可见词法 tokenization
+
+**作用域**：Monaco 编辑器新文件首次绑定、快速切 tab、滚动后的视口着色。
+
+**症状/证据**：
+
+- 新文件在 `scrollTop=0` 时注释、字符串、关键字和类型字段可能全是普通
+  前景色，滚动后才完整着色；
+- 之前已强制 semantic viewport provider，但 semantic tokens 不负责注释、
+  字符串和关键字等词法分类；
+- 首次实现主动词法 tokenization 时直接解绑调用了
+  `model.tokenization.forceTokenization`，ego-browser 实际打开编辑器报：
+  `Cannot read properties of undefined (reading 'validateLineNumber')`。
+
+**根因**：
+
+- 新挂载或隐藏后重建的 Monaco editor 可能错过首次词法 tokenization；
+- semantic retry 只能补语义字段/方法/类型，无法替代词法 tokenization；
+- `forceTokenization` 依赖 `this` 上的 tokenization 状态，不能作为裸函数
+  调用。
+
+**修复**：
+
+- 新增 `requestEditorLexicalTokens`；
+- 优先使用 Monaco 的
+  `getVisibleRangesPlusViewportAboveBelow()`，缺少该 API 时将普通可视区
+  上下各扩一屏；
+- 把 `forceTokenization` 绑定到 tokenization 实例，只 force 到窗口末行；
+- model 绑定有界重试与滚动刷新统一执行：
+  1. force 可见词法 tokenization；
+  2. request viewport semantic tokens。
+
+**RED/GREEN**：
+
+- RED：缺少 lexical helper，刷新定向回归 **9 fail**；
+- GREEN：着色定向回归 **40 pass / 0 fail**；
+- 完整 `npm test`：**3308 pass / 0 fail**；
+- lint、TypeScript、source imports、Prettier、bundle consistency、
+  `git diff --check`、`npm pack --dry-run` 通过。
+
+**Ego Browser 手动验证**：
+
+- Harness Web `http://192.168.2.172:3081/` 重启后手动验证；
+- 新开 `code-navigation.ts`、`commit.ts`，`scrollTop=0`；
+- 首屏同时存在注释灰、关键字蓝、字符串绿、类型/字段紫和括号蓝；
+- 没有通过滚动触发颜色；
+- 截图：
+  `/private/tmp/dsh-color-fresh-file-open.png`、
+  `/private/tmp/dsh-color-commit-first-paint.png`。
+
+**长期约束**：
+
+- `forceTokenization` 必须保留接收者；
+- 词法刷新必须先于 semantic request；
+- 只使用可视区上下各一屏的末行，不主动扫描整文件；
+- 运行态验收必须检查实际 computed color，且确认 `scrollTop=0`。
+
+## 2026-11-20 — 无显式类型类字段与 class body 模板边界
+
+**作用域**：JS/TS class field、private field、static field、object method、
+getter/setter、import alias、嵌套 destructuring。
+
+**症状/证据**：
+
+- `static count = 0`、`private cache = new Map()` 被标成 local variable；
+- `#secret = "hidden"` 完全漏色；
+- 通用局部变量规则不能区分 class body 顶层字段和方法体局部变量。
+
+**修复**：
+
+- 新增 class body 顶层字段扫描；
+- 支持访问修饰符、`static/readonly/declare/override` 和 `#private`；
+- property priority 77，覆盖重叠的 local variable；
+- 方法体、static block 内局部变量不提升为 property；
+- 同步锁定 import alias、object method、getter/setter、nested
+  destructuring 和 enum member 模板。
+
+**RED/GREEN**：
+
+- RED：无类型 class fields 为 variable 或缺失，`#secret` 无 token；
+- GREEN：semantic template 回归通过；
+- 完整 `npm test`：**3308 pass / 0 fail**。
+
+**长期约束**：
+
+- class 字段规则不能全局按“identifier + =”猜测；
+- 扫描范围必须限制在 class body 顶层；
+- 参数、局部变量和 property 的 priority 保持分离，避免重叠 token。
+
+## 2026-11-20 — destructuring 与 enum member 找色模板
+
+**作用域**：TypeScript/JavaScript object destructuring、Java/C#/TS/Rust/
+Swift enum members。
+
+**症状/证据**：
+
+- destructuring alias 的 key 与 local binding 需要不同语义色；
+- enum 成员没有 constant token；
+- Java `DONE(1)` 会被通用 call 规则误判为 method；
+- Swift `case started, finished`、Rust tuple/struct variant 需要保持
+  enum body 层级解析。
+
+**修复**：
+
+- 保留 destructuring alias 的 property/local variable 分离；
+- 新增 enum block scanner：
+  - 仅在 enum body 内读取成员；
+  - 跟踪 `()[]{}` 层级，顶层逗号切分；
+  - Java enum 常量段遇 `;` 后停止，不扫描后续方法；
+  - 支持 Swift `case`；
+  - enum member 使用 `ideaConstant`，priority 82，覆盖误判 method。
+
+**RED/GREEN**：
+
+- RED：enum 成员全部缺失，`DONE` 被着色为 ideaMethod；
+- GREEN：声明、typed-language、palette、refresh 定向回归
+  **36 pass / 0 fail**；
+- 完整 `npm test`：**3303 pass / 0 fail**；
+- lint、TypeScript、source imports、Prettier、bundle consistency、
+  `git diff --check`、`npm pack --dry-run` 通过。
+
+**Ego Browser 手动验证**：
+
+- Harness Web 服务 `http://192.168.2.172:3081/`；
+- 手动打开 `dsh-editor/diff.ts`；
+- `scrollTop=0`；
+- `dirname`、`basename`、`DiffChange`、`path`、`status`、`staged`、
+  `stagedLines`、`additions`、`deletions`、`DiffChangeBands`、
+  `unversioned` 全部为 `rgb(102, 14, 122)`；
+- 没有滚动。
+
+**长期约束**：
+
+- enum scanner 必须限制在 enum body 内，不能全局猜大写 identifier；
+- 括号层级必须参与逗号切分，避免 `DONE(1, 2)` 被拆开；
+- enum constant priority 必须高于通用 method/call；
+- destructuring key 与 alias binding 必须保留不同 token type。
+
+## 2026-11-20 — TS/JS interface、type literal 与 object key 缺失 property 色
+
+**作用域**：`EditorDiffAreaProps` 等 TypeScript interface 字段、
+type literal 字段、object literal key。
+
+**症状/证据**：
+
+- interface 名称已经着深紫色，但 `active`、`target`、`monacoReady`、
+  `onClose` 等声明字段仍是普通前景色；
+- 用户两张前后截图都存在该问题，说明不是 viewport race；
+- object literal key 同样没有 IDEA property 色。
+
+**根因**：
+
+- heuristic semantic grammar 只识别 `object.value` 点成员、
+  access-modifier field 和 `val/var/let`；
+- interface/type/object 声明 key 本身没有 property candidate。
+
+**修复**：
+
+- 新增 `^ / newline / { / ; / ,` 边界后的 key + optional `:` 规则；
+- 支持 `readonly/public/private/protected/static/abstract/declare/override`；
+- 输出 `ideaProperty`，priority 73；
+- parameter priority 94 仍覆盖同名参数，重叠合并规则不变。
+
+**RED/GREEN**：
+
+- RED：interface/type/object 新用例中只有 `renderValue` method token，
+  property token 全缺失；
+- GREEN：声明、typed-language、palette、refresh 定向回归
+  **35 pass / 0 fail**；
+- 完整 `npm test`：**3302 pass / 0 fail**；
+- lint、TypeScript、source imports、Prettier、bundle consistency、
+  `git diff --check`、`npm pack --dry-run` 通过。
+
+**Ego Browser 手动运行态证据**：
+
+- 重启 Harness Desktop 与 Harness 提供的 Web 服务（DSH Pocket `3081`）；
+- 手动进入 `dsh-editor` 工作区并打开 `EditorDiffArea.tsx`；
+- `scrollTop=0`；
+- interface 字段 `active/target/monacoReady/includedInCommit/onClose/
+  onRestored` 全部为 `rgb(102, 14, 122)`；
+- `React`、`DiffPreview`、`DiffTarget`、`DiffTextPosition`、
+  `RepositoryVersionPreview`、`Translate`、`EditorDiffAreaProps`
+  全部为深紫色；
+- 没有执行滚动。
+
+**长期约束**：
+
+- 类型声明名称和类型成员 key 是两个独立 token，不能只处理前者；
+- object/type member key 与参数名重叠时，参数 priority 必须更高；
+- 新 key 规则必须支持 one-line object literal，不能只匹配行首。
+
+## 2026-11-20 — 快速切换五文件时 semantic retry 只能跟随最终 model
+
+**作用域**：`pendingSemanticModels`、16/50ms bounded retry、快速 tab switch。
+
+**风险/证据**：
+
+- 每个 model 会保留多次 semantic refresh timer；
+- 快速切换文件时，旧 timer 可能在另一个文件成为 active 后触发；
+- 如果没有 editor/model identity guard，旧文件 token 可能写进当前视口。
+
+**验证与回归**：
+
+- 新增 5-model 单元回归：
+  - 每个 model 仅发生自己的首次请求；
+  - 所有旧 model timer 均被 identity guard 丢弃；
+  - 最终 model 在 6 次上限内完成 bounded retry；
+- Web 运行态打开 5 个文件，并将每个文件第一次目标请求强制 no-op；
+- 以 15ms 间隔快速切换 6 次，最终停在 `diff.ts`：
+  - `scrollTop=0`；
+  - `hasSomeSemanticTokens=true`；
+  - 切换开始 180ms 后只有最终 `diff.ts` 的一次 request；
+  - 没有任何旧 model 的迟到请求。
+- 完整 `npm test`：**3301 pass / 0 fail**；
+- ESLint、TypeScript、source imports、Prettier、bundle consistency、
+  `git diff --check`、`npm pack --dry-run` 通过。
+
+**长期约束**：
+
+- pending/completed WeakMap 必须按 editor 隔离；
+- 每次 timer 回调都必须重新校验 `editor.getModel() === model`；
+- 旧 model cleanup 只能删除属于自己的 pending entry，不能清掉新 model；
+- rapid switch 回归必须覆盖 5 个以上 model，而不是只看单次 stale timer。
+
+## 2026-11-20 — 重启后仍异常：Web host 独立刷新与最小重试次数
+
+**作用域**：Desktop/Web 宿主更新流程、首次 semantic viewport retry、
+`hasSomeSemanticTokens` 提前为 true。
+
+**症状/证据**：
+
+- 用户重启 Harness 后，Web 版仍表现为打开文件时没有完整语义色；
+- 旧 `63247` 标签对应的 Web host 已经不存在；
+- Desktop Harness 重启不会刷新独立 Web host；
+- `hasSomeSemanticTokens()` 可能因局部 token 较早为 true，最短两次请求
+  仍不够稳健。
+
+**修复**：
+
+- 最小 semantic request 次数从 2 提升为 4：
+  - 0、16、66、116ms 都实际执行请求；
+  - 116ms 后才允许根据 token 状态结束；
+  - 上限保持 6 次；
+- Desktop 与 Web 分别以最新 `lib/client.js` 重启；
+- Web 标签必须导航到新 host 打印的 token URL。
+
+**运行态证据**：
+
+- 新 Web host：PID `58715`，端口 `63247`；
+- `EditorDiffArea.tsx` 在 `scrollTop=0` 时：
+  - `hasSomeSemanticTokens=true`；
+  - `React`、`DiffPreview`、`DiffTarget`、`DiffTextPosition`、
+    `RepositoryVersionPreview`、`Translate`、`EditorDiffAreaProps`
+    全部立即着色；
+- Harness 自带 Web 服务实际为 DSH Pocket `http://127.0.0.1:3081/`：
+  - 重启 Harness 后通过访问密码进入；
+  - 在 `dsh-editor` 工作区打开同一文件；
+  - `scrollTop=0` 时首行 import/member/type 语义色完整显示。
+- Harness Desktop 再次重启为新进程，打开文件首行即显示语义色。
+
+**回归**：
+
+- 着色定向回归 **33 pass / 0 fail**；
+- 完整 `npm test` **3300 pass / 0 fail**；
+- lint、TypeScript、source imports、Prettier、bundle consistency、
+  `git diff --check`、`npm pack --dry-run` 通过。
+
+**长期约束**：
+
+- Desktop 和 Web 是独立进程，发布 plugin client 后必须分别重启；
+- 浏览器刷新不能替代 Web host 重启；
+- 首次 semantic retry 不得在两次请求内过早结束；
+- 最小重试次数和最大次数都必须显式固定并测试。
+
+## 2026-11-20 — 首次 viewport semantic request 未生效时必须自动重试
+
+**作用域**：打开文件后的首次可见区语义着色、`requestEditorSemanticTokensWhenReady`、
+Monaco viewport contribution 初始化竞态。
+
+**症状/证据**：
+
+- 用户提供同文件打开前/后截图：初次打开可视区只有普通词法色，滑动后
+  import/member/type 等语义 token 才出现；
+- 文件 model、语言和语法 tokenization 已正常，问题只在首次 semantic
+  viewport 请求没有落实。
+
+**根因**：
+
+- 旧实现把 `_tokenizeViewportNow()` 可调用当成刷新成功；
+- contribution 已创建但 provider/layout 尚未 ready 时，这次调用可能安全
+  返回却没有任何 token；
+- 旧实现随后不再安排补偿，下一次有效刷新只能由用户滚动触发；
+- contribution 方法存在不等于 semantic tokens 已应用到 model。
+
+**修复**：
+
+- 保留 model 绑定后的立即请求；
+- 至少执行两次请求，第一次重试在 16ms 后；
+- 后续每 50ms 检查 `model.tokenization.hasSomeSemanticTokens()`，
+  未产生 token 才继续请求；
+- 每个 model 最多 6 次请求，成功后记录完成；
+- `pendingSemanticModels` 防止同一 model 重入；
+- 非 shared-provider 语言直接跳过；
+- 每个 timer 校验 `editor.getModel() === model`，旧 model 不会污染新文件。
+
+**RED/GREEN 与回归**：
+
+- RED：旧行为把立即 request 返回当完成，没有验证 token 是否实际应用；
+- GREEN：新增 applied-token、provider race、bounded retry、
+  non-provider language、stale-model 回归；
+- 着色定向回归：**33 pass / 0 fail**；
+- 完整 `npm test`：**3300 pass / 0 fail**；
+- ESLint、TypeScript、source imports、Prettier、bundle consistency、
+  `git diff --check`、`npm pack --dry-run` 通过。
+
+**运行态证据**：
+
+- 隔离 DSH Web 打开与截图相同的
+  `src/client/components/editor/EditorDiffArea.tsx`；
+- 将第一次目标 model 的 `_tokenizeViewportNow()` 强制改为 no-op，
+  精确复现“首次请求发生但不生效”；
+- 第二次请求在 **17ms** 后执行；
+- `scrollTop=0` 时 `DiffPreview`、`DiffTarget`、`DiffTextPosition`、
+  `RepositoryVersionPreview`、`Translate`、`EditorDiffAreaProps`
+  已全部着深紫色；
+- 整个过程没有滚动输入。
+- 重启实际 Harness 宿主（PID 3759，启动时间晚于最新
+  `lib/client.js`）后打开同一 `EditorDiffArea.tsx`：
+  - 第 1 行仍在视口顶部；
+  - 没有执行滚动；
+  - import/member/type 语义色在文件打开时完整显示。
+- Web 版由独立 `dsh web` 宿主提供，重启 Harness Desktop 不会更新既有
+  Web host；旧 `63247` 标签对应的进程已经不存在；
+- 使用最新 `lib/client.js` 新启动 Web host 后，同一文件在
+  `scrollTop=0` 时立即显示 `React`、`DiffPreview`、`DiffTarget`、
+  `DiffTextPosition`、`RepositoryVersionPreview`、`Translate`、
+  `EditorDiffAreaProps` 语义色。
+
+**长期约束**：
+
+- “调用过刷新”不能替代“tokens 已存在”的证据；
+- 首次打开必须至少经历一次 post-layout retry，不能只依赖 Monaco 滚动回调；
+- 重试必须有次数上限，并阻止同一 model 重入；
+- timer 必须带 editor/model identity guard；
+- 非语义语言不得启动无意义重试；
+- 插件 bundle 或 host 路由变化后，Desktop 与 Web 必须分别重启对应 host；
+  仅刷新旧 Web 页面不能可靠加载新 bundle。
+
+## 2026-11-20 — typed language 成员、参数和局部变量补齐 IDEA 语义类别
+
+**作用域**：Java、C#、Kotlin、Swift 等 typed language 的 field/property、
+method、parameter、local variable semantic tokens。
+
+**症状/证据**：
+
+- Java `private String value;` 的 `value` 仍是普通前景色；
+- C# one-line `public string Value { get; set; }` 的 `Value` 没有 property 色；
+- `public String render(String inputValue)` 的参数解析曾把类型 `String`
+  当作参数名；
+- typed local `String localValue = ...` 没有 IDEA local-variable 色；
+- 既有规则主要覆盖 JS/TS 的 `const/let/var`、点成员和 `function`。
+
+**根因**：
+
+- semantic grammar 只理解 JS/TS member 形式；
+- parameter segment 固定取第一个 identifier，未区分 typed language 的
+  `Type name` 形状；
+- field/property 与 local declaration 没有独立候选和优先级；
+- 仅按行首匹配，漏掉 `{ ... }` 内的 one-line C# member。
+
+**修复**：
+
+- 新增 typed-language member scanner：
+  - modifierful class method；
+  - `fun/func/fn/def` method；
+  - access-modifier field/property；
+  - `val/var/let` typed property；
+  - Kotlin/C# primary constructor property；
+  - typed local initialization；
+- member 边界允许 `^`、换行、`{`、`}`、`;`；
+- parameter 名改为 `:`/`=` 前最后一个 identifier；
+- declaration priority 高于通用 call/local 猜测。
+
+**RED/GREEN 与回归**：
+
+- RED：新增 typed-language 用例缺少 field/property、typed parameter、
+  Java typed local token；
+- GREEN：typed-language、IDEA Light、range 与 scroll refresh 定向回归
+  **30 pass / 0 fail**；
+- 完整 `npm test`：**3297 pass / 0 fail**；
+- ESLint、TypeScript、source imports、Prettier、bundle consistency、
+  `git diff --check`、`npm pack --dry-run` 通过。
+
+**运行态证据**：
+
+- 隔离 DSH Web / profile `r526` / 端口 `63248`；
+- Java：
+  - class/interface/record/enum 目标均为 `rgb(102, 14, 122)`；
+  - field `value` 为 `rgb(102, 14, 122)`；
+  - method `render` 为 `rgb(145, 76, 7)`；
+  - 编辑中新增 `FreshJavaVisible` 后无需滚动即完成语义着色；
+- C# one-line auto-property `Value` 为 `rgb(102, 14, 122)`；
+- 387 行混合 typed-language 扫描：median **1.058ms**、p95 **1.262ms**、
+  max **1.854ms**；
+- 10,001 行 TypeScript 连续滚动 120 frames：
+  - 123 次 viewport refresh；
+  - median **0.5ms**、max **2.3ms**；
+  - 末屏 class/interface/enum 全部为深紫色；
+- Computer Use 对照 IDEA Java `MainActivity.java`：可见区 token 完整且
+  稳定；DSH 按用户指定使用 TS/JS 共享语义类别，而不是复制 Java 自身
+  较弱的字段/方法配色。
+
+**附带审计**：
+
+- Dark media 下仍使用 `vs-dark`，尚未提供 IDEA Dark semantic palette；
+  Light 深紫色不能直接套到深色背景；
+- Dark 支持需作为独立 palette/theme 任务，不在本轮偷换 Light 色值。
+
+**长期约束**：
+
+- typed parameter 必须识别类型前缀，不能把类型名当作参数名；
+- one-line member 与多行成员必须共享同一 grammar；
+- field/property/parameter/local 候选必须通过 priority 解决重叠，
+  不得依赖输出顺序；
+- 新语义不得越过 comments/strings mask，也不得把任意调用猜成声明。
+
+## 2026-11-20 — 滚动语义着色不再等待 Monaco 100ms debounce
+
+**作用域**：Monaco 主编辑器/右侧 split 的 `onDidScrollChange`、viewport
+semantic tokens、快速跳到未着色区域。
+
+**症状/证据**：
+
+- 文件打开后的首屏已能主动着色，但滚动到新区域仍可能先显示无色文本；
+- Monaco `ViewportSemanticTokensContribution` 使用
+  `RunOnceScheduler(..., 100)`，滚动刷新存在约 100ms debounce；
+- 用户快速跳页时，旧的显式刷新只覆盖 model 绑定，不覆盖后续滚动。
+
+**根因**：
+
+- 共享编辑器只在可见 model 绑定时调用 `_tokenizeViewportNow()`；
+- 滚动 handler 只清理 definition hover，没有主动刷新语义窗口；
+- 完全依赖 Monaco 自带 debounce，导致可视区着色晚于滚动。
+
+**修复**：
+
+- 新增 `scheduleEditorSemanticTokens`，同一 editor 的连续 scroll event
+  共用一个 `requestAnimationFrame`；
+- 下一绘制帧检查 model 仍存在后调用
+  `requestEditorSemanticTokens(editor)`；
+- editor group 的 `onDidScrollChange` 同时清理 hover 并安排该刷新；
+- dispose 时通过 `cancelScheduledEditorSemanticTokens` 取消 pending frame；
+- 保留现有动态窗口：provider 按可视行数向上、向下各扩展一屏，再裁剪到
+  Monaco 请求范围。
+
+**RED/GREEN 与回归**：
+
+- RED：pre-fix 源码没有滚动 scheduler，也没有 scroll 接线；
+- GREEN：首屏刷新、动态窗口、rAF 合并、detached model、dispose 取消
+  定向测试 **9 pass / 0 fail**；
+- 完整 `npm test`：**3296 pass / 0 fail**；
+- ESLint、TypeScript、source imports、Prettier、bundle consistency、
+  `git diff --check`、`npm pack --dry-run` 通过。
+
+**运行态证据**：
+
+- 隔离 DSH Web / profile `r526` / 端口 `63247`；
+- 清空当前 model semantic tokens 后滚动到可视 **218–259 行**：
+  - 显式 viewport 请求约在 **49ms** 发生；
+  - Monaco 自身 debounce 请求约在 **153ms** 发生；
+  - model 恢复 `hasSomeSemanticTokens() === true`；
+- provider 实际读取 **44–361 行**，确认仍按当前可视窗口上下扩展；
+- Python、Kotlin、Swift、C# 的类/接口/struct/record 目标均为
+  `rgb(102, 14, 122)`；
+- C# 文件快速切换 Swift、Kotlin、C# 六次后，最终首屏声明仍正常着色。
+- Computer Use 对照 IDEA `rollup.config.mjs` 可见编辑区：当前视口 token
+  在静止态完整着色，不存在切换到新区域后再补色的空窗。
+
+**长期约束**：
+
+- 滚动刷新必须按绘制帧合并，不能对每个 scroll event 直接发起扫描；
+- pending frame 必须在 editor dispose 时取消；
+- 滚动刷新不得绕过 model 存在性检查，也不得改变 token 规则或调色；
+- Monaco 自带 debounce 可以保留，但用户可见刷新不能只依赖它。
+
+## 2026-11-20 — 首屏语义刷新成功即停止并去重 editor/model
+
+**作用域**：`requestEditorSemanticTokensWhenReady`、主编辑器/右侧 split
+model 绑定、快速标签切换。
+
+**症状/证据**：
+
+- 为保证首屏着色，上一版在每次绑定后执行“立即请求 + 50ms 再请求”；
+- 运行态测量发现一次文件切换产生多次 viewport semantic 调用；
+- 同一 editor 已成功请求过的同一 model 再次绑定时仍重复请求；
+- range provider 缓存避免了重复扫描，但 Monaco 仍重复做 token styling。
+
+**根因**：
+
+- 补偿刷新无条件执行，没有判断立即请求是否成功；
+- 没有记录 editor 最近一次成功刷新的 model。
+
+**修复**：
+
+- 立即请求成功时直接返回，不安排 50ms 补偿；
+- 只有 contribution 尚未就绪时才安排一次 50ms 重试；
+- 使用 `WeakMap<editor, model>` 记录成功刷新；
+- 同一 model 重复绑定直接跳过，新 model 仍立即刷新；
+- 保留 model identity guard，旧 model 不会异步写回。
+
+**RED/GREEN 与回归**：
+
+- RED：成功路径仍无条件挂补偿定时器，同 model 第二次绑定仍请求；
+- GREEN：刷新去重、补偿重试、动态窗口与着色规则定向回归
+  **23 pass / 0 fail**；
+- 完整 `npm test`：**3292 pass / 0 fail**；
+- ESLint、TypeScript、source imports、Prettier、bundle consistency、
+  `git diff --check`、`npm pack --dry-run` 通过。
+
+**运行态证据**：
+
+- 5,003 行 TypeScript 与 Rust 文件切换；
+- 两个 model 均在 `scrollTop=0` 时产生首屏 semantic 请求；
+- TypeScript 切回后 `hasSomeSemanticTokens() === true`；
+- 本插件显式刷新每次新 model 一次，Monaco 自身 range 调度保留。
+
+**长期约束**：
+
+- 补偿刷新必须由立即请求失败触发，不得无条件双请求；
+- 同一 editor/model 成功刷新后不得重复显式请求；
+- 去重键必须使用真实 model identity，不能使用路径或版本号猜测；
+- 新 model、编辑器重挂载和 contribution 延迟仍必须可刷新。
+
+## 2026-11-20 — 新文件首屏主动触发语义着色，窗口按上下各一屏计算
+
+**作用域**：Monaco 主编辑器、右侧 split、viewport semantic tokens、
+新文件/标签切换首屏着色。
+
+**症状/证据**：
+
+- range provider 已把整文档扫描改成可视范围，但新文件打开后偶发仍然黑屏；
+- 滚动一次后才着色，说明 model 已生成但 Monaco 的 viewport semantic
+  contribution 没有在首屏完成有效请求；
+- 固定 120 行上下文不随编辑器高度变化，短面板和高面板体验不一致。
+
+**根因**：
+
+- 绑定 model 后只依赖 Monaco 自身延迟调度；
+- 编辑器首次创建、语言贡献加载和 model 切换之间存在竞争；
+- 滚动会触发 `onDidScrollChange`，所以旧行为表现为“滑一下才着色”；
+- 固定 margin 不是用户要求的“可视区域上下各一屏”。
+
+**修复**：
+
+- `requestEditorSemanticTokens` 直接调用
+  `editor.contrib.viewportSemanticTokens._tokenizeViewportNow()`；
+- 主编辑器和 split 在绑定当前 model 后立即请求一次；
+- 50ms 后再补一次，覆盖首次布局尚未稳定的情况；
+- 两次请求都校验 `editor.getModel() === model`，旧 model 不会写回；
+- `semanticTokenLineWindow` 以当前可视行数为单位，上下各扩展一屏；
+- range provider 和窗口缓存的性能边界保持不变。
+
+**RED/GREEN 与回归**：
+
+- RED：主动 refresh helper、workspace 两处调用、动态窗口均缺失；
+- GREEN：语义刷新、range window、语义 token、IDEA Light 定向回归
+  **23 pass / 0 fail**；
+- 完整 `npm test`：**3290 pass / 0 fail**；
+- ESLint、TypeScript、source imports、Prettier、bundle consistency、
+  `git diff --check`、`npm pack --dry-run` 通过。
+
+**运行态证据**：
+
+- 10,003 行 TypeScript 文件打开后 `scrollTop=0`：
+  - 主动 viewport semantic token 请求已发生；
+  - `hasSomeSemanticTokens() === true`；
+  - `UserShape`、`UserProfile` 已着 `#660e7a`；
+- Rust 文件切换后同样无需滚动即完成 struct/trait 着色。
+
+**长期约束**：
+
+- 文件/model 可见后必须主动请求可见语义 token，不依赖用户滚动；
+- 上下文窗口必须按 viewport 行数动态计算，保持上下各一屏；
+- 异步补偿刷新必须带 model identity guard；
+- 私有 contribution 不可用时必须安全降级，不影响编辑器基本功能。
+
+## 2026-11-20 — 语义着色改为 viewport range，类型声明目标统一深紫色
+
+**作用域**：Monaco IDEA Light semantic tokens、TS/JS/TSX、Java/Kotlin/
+Rust/Go/C/C++/C# 等代码语言声明目标、首屏着色性能。
+
+**症状/证据**：
+
+- 编辑器首次打开大文件时语义着色出现慢；
+- 滚动后颜色才补全，说明整文档 provider 的同步扫描阻塞了首屏；
+- class/interface/struct 等声明目标与普通文本接近，视觉上像未着色；
+- 旧 provider 只注册在 TS/JS，其他代码语言没有同类声明目标 token；
+- struct/trait/protocol/object/record 以及 Go `type X struct` 未覆盖。
+
+**根因**：
+
+- 使用 `registerDocumentSemanticTokensProvider` 扫描整个文档；
+- token 结果必须等全文件正则扫描、合并和编码完成；
+- class/interface/typeAlias 调色值与普通文本过近；
+- 声明词法规则只包含 TS 风格 keyword。
+
+**修复**：
+
+- 切换到 `registerDocumentRangeSemanticTokensProvider`，按 Monaco viewport
+  请求增量计算；
+- 请求范围前后保留 120 行上下文，支持跨行声明识别；
+- token 先映射为绝对行，再裁剪到请求范围；
+- 仅缓存当前 model 最近 12 个窗口，避免内存无界增长；
+- range provider 不支持时保留旧 document provider fallback；
+- provider 注册到主要代码语言；
+- 声明规则覆盖 class/struct/record/union/object、interface/trait/protocol/
+  mixin、enum、type/typealias/typedef/using、Go struct/interface、module；
+- class/interface/enum/typeAlias 调色统一为 `#660e7a`。
+
+**RED/GREEN 与回归**：
+
+- RED：range 裁剪函数、struct/trait/protocol 识别、range provider 契约缺失；
+- GREEN：语义 token + IDEA Light palette 定向回归
+  **20 pass / 0 fail**；
+- 完整 `npm test`：**3287 pass / 0 fail**；
+- ESLint、TypeScript、source imports、Prettier、bundle consistency、
+  `git diff --check`、`npm pack --dry-run` 通过。
+
+**运行态证据**：
+
+- 2,504 行 TS 文件在 `scrollTop=0` 时 `hasSomeSemanticTokens() === true`；
+- `UserShape` / `UserProfile` / `UserId` 实际为 `rgb(102, 14, 122)`；
+- Rust `NativeRecord` / `Renderable`、Java `JavaRecord` /
+  `NestedShape` / `Point`、C `CRecord` / `CValue` 均为同一颜色；
+- 打开文件后无需滚动即可看到声明目标着色。
+
+**长期约束**：
+
+- 大文件语义 token 默认使用 range/viewport 增量，不恢复整文档同步扫描；
+- 语义 provider 的上下文窗口必须有界，缓存必须有上限；
+- 新语言声明目标应复用同一 token 类型和调色板，不创建语言私有颜色；
+- range 返回必须使用文档绝对行号，并在 token 边界处裁剪。
+
+## 2026-11-20 — not-managed 时 Changes 动作必须 native disabled
+
+**作用域**：Commit Changes 的 CompactActionBar、溢出菜单、Log author/Graph、
+not-managed 状态。
+
+**症状/证据**：
+
+- Rollback、Show Diff、Shelve、Combined Diff、Patch、Stage All、
+  Select Opened 主要依赖 selection/change count 间接 disabled；
+- not-managed 时这些动作没有直接表达仓库不可用；
+- Expand/Collapse 在空 Changes 树上仍可点击但 no-op；
+- 视觉可点击会造成“命令应该生效”的错觉。
+
+**根因**：
+
+- 仓库可用性只显式接入 Commit/Push/Amend 等主按钮；
+- Changes action model 没有把 `gitNotManaged` 纳入上下文动作边界；
+- 空树状态没有统一驱动 expand/collapse disabled。
+
+**修复**：
+
+- Rollback、Show Diff、Shelve、Combined Diff、Copy/Create Patch、
+  Stage All Tracked、Select Opened 的 disabled 条件显式加入 `gitNotManaged`；
+- Expand/Collapse 在 `changes.length === 0` 时 disabled；
+- Refresh 与 View Options 保持 enabled，用于刷新恢复和调整视图；
+- author filter、Graph、Log Refresh 继续由 CommitLog `disabled` 统一禁用。
+
+**RED/GREEN 与回归**：
+
+- RED：新增回归首先在 8 个 Git/selection 动作上缺少 `gitNotManaged` 失败；
+- GREEN：Changes toolbar、not-managed、Stage All、Shelve 定向回归通过；
+- 完整 `npm test`：**3285 pass / 0 fail**；
+- ESLint、TypeScript、source imports、Prettier、bundle consistency、
+  `git diff --check`、`npm pack --dry-run` 通过。
+
+**运行态证据**：
+
+- 隔离 DSH Web 注入 not-managed；
+- 可见动作 Rollback / Show Diff / Shelve / Combined Diff disabled；
+- 溢出菜单 Copy/Create Patch、Stage All、Select Opened、
+  Expand/Collapse 全部 disabled；
+- Changes Refresh 与 View Options enabled；
+- Log author filter 与 Commit Graph disabled；
+- Retry Push 不出现；
+- Computer Use 对照 IDEA：上下文不成立的 action 仍保留在 action bar 中，
+  使用 disabled 语义而不是隐藏。
+
+**长期约束**：
+
+- not-managed 是显式动作上下文，不得只依赖空 selection 间接禁用；
+- 保留恢复/查看类动作，Git 写读动作必须 native disabled；
+- 隐藏面板中的动作也要由同一模型禁用，避免切回后短暂可执行；
+- 不应为了“看起来干净”删除 IDEA 风格的标准 disabled 入口。
+
 ## 2026-11-20 — Log/Graph/History 请求必须按仓库可用性分流错误
 
 **作用域**：`loadLog`、`loadMoreLog`、`loadGraph`、`showFileHistory`、

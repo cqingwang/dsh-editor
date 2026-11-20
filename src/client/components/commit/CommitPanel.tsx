@@ -1323,7 +1323,7 @@ function CommitPanel({
                           count: chosenChangeList.filter((entry) => entry.staged !== true).length,
                         })
                       : t('editor.rollbackSelected'),
-                  disabled: chosenChangeList.filter((entry) => entry.staged !== true).length === 0,
+                  disabled: gitNotManaged || chosenChangeList.filter((entry) => entry.staged !== true).length === 0,
                   onClick: () => {
                     if (chosenChangeList.length > 0) onRollbackSelected?.(chosenChangeList);
                   },
@@ -1333,7 +1333,7 @@ function CommitPanel({
                   group: 'diff',
                   icon: 'diff',
                   label: t('editor.showDiff'),
-                  disabled: selectedChange === null,
+                  disabled: gitNotManaged || selectedChange === null,
                   active:
                     diffTarget !== null &&
                     selectedChange !== null &&
@@ -1348,7 +1348,7 @@ function CommitPanel({
                   group: 'shelve',
                   icon: 'stash',
                   label: t('editor.shelve'),
-                  disabled: commitShelveActionDisabled(chosenChangeList.length, busy, onShelve),
+                  disabled: gitNotManaged || commitShelveActionDisabled(chosenChangeList.length, busy, onShelve),
                   onClick: (event) => {
                     const rect = event?.currentTarget?.getBoundingClientRect?.();
                     onShelve?.(
@@ -1369,7 +1369,7 @@ function CommitPanel({
                   group: 'diff',
                   icon: 'combinedDiff',
                   label: t('editor.showCombinedDiff'),
-                  disabled: chosenChangeList.length < 2,
+                  disabled: gitNotManaged || chosenChangeList.length < 2,
                   onClick: () => onShowCombinedDiff?.(chosenChangeList),
                 },
                 {
@@ -1377,7 +1377,7 @@ function CommitPanel({
                   group: 'patch',
                   icon: 'clipboard',
                   label: t('editor.copyPatchToClipboard'),
-                  disabled: chosenChangeList.length === 0,
+                  disabled: gitNotManaged || chosenChangeList.length === 0,
                   onClick: () => onCopyPatch?.(chosenChangeList),
                 },
                 {
@@ -1385,7 +1385,7 @@ function CommitPanel({
                   group: 'patch',
                   icon: 'patchExport',
                   label: t('editor.createPatchFromChanges'),
-                  disabled: chosenChangeList.length === 0,
+                  disabled: gitNotManaged || chosenChangeList.length === 0,
                   onClick: () => onCreatePatch?.(chosenChangeList),
                 },
                 {
@@ -1393,7 +1393,7 @@ function CommitPanel({
                   group: 'local',
                   icon: 'check',
                   label: t('editor.stageAllTracked'),
-                  disabled: busy || stageAllTrackedPaths.length === 0,
+                  disabled: busy || gitNotManaged || stageAllTrackedPaths.length === 0,
                   onClick: () => onStageAllTracked?.(),
                 },
                 {
@@ -1425,7 +1425,7 @@ function CommitPanel({
                   group: 'view',
                   icon: 'target',
                   label: t('editor.selectOpenedChange'),
-                  disabled: onSelectOpenedChange === undefined,
+                  disabled: gitNotManaged || onSelectOpenedChange === undefined,
                   onClick: () => onSelectOpenedChange?.(),
                 },
                 {
@@ -1433,6 +1433,7 @@ function CommitPanel({
                   group: 'view',
                   icon: 'expand',
                   label: t('editor.expandChanges'),
+                  disabled: changes.length === 0,
                   onClick: () => onExpandChanges?.(),
                 },
                 {
@@ -1440,6 +1441,7 @@ function CommitPanel({
                   group: 'view',
                   icon: 'collapse',
                   label: t('editor.collapseChanges'),
+                  disabled: changes.length === 0,
                   onClick: () => onCollapseChanges?.(),
                 },
               ]}

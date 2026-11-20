@@ -6,6 +6,7 @@ import { EDITOR_CODE_FONT_SIZE, EDITOR_CODE_LINE_HEIGHT, EDITOR_UI_FONT } from '
 import {
   IDEA_LIGHT_SEMANTIC_TOKEN_LEGEND,
   IDEA_LIGHT_THEME_ID,
+  clipIdeaLightSemanticTokensToRange,
   collectIdeaLightHeuristicSemanticTokens,
   encodeIdeaLightSemanticTokens,
   ideaLightTokenRules,
@@ -85,6 +86,20 @@ interface EditorActionHandlers {
 
 interface MonacoContextMenuContribution extends Monaco.editor.IEditorContribution {
   _getMenuActions?: (...args: unknown[]) => Array<{ id?: string }>;
+}
+
+interface MonacoViewportSemanticTokensContribution extends Monaco.editor.IEditorContribution {
+  _tokenizeViewportNow?: () => void;
+}
+
+interface MonacoSemanticTokenizationState {
+  forceTokenization?: (lineNumber: number) => void;
+  hasSomeSemanticTokens?: () => boolean;
+}
+
+interface MonacoVisibleRanges {
+  getVisibleRanges?: () => Monaco.Range[];
+  getVisibleRangesPlusViewportAboveBelow?: () => Monaco.Range[];
 }
 
 interface WorkspaceTreeEntry {
@@ -373,19 +388,130 @@ export function detectTheme(): 'vs-dark' | 'vs' {
 
 const registeredIdeaLightThemes = new WeakSet<object>();
 const registeredIdeaLightSemanticLanguages = new WeakSet<object>();
-const ideaLightSemanticCache = new WeakMap<Monaco.editor.ITextModel, { versionId: number; data: Uint32Array }>();
+const ideaLightSemanticCache = new WeakMap<
+  Monaco.editor.ITextModel,
+  { versionId: number; languageId: string; data: Uint32Array }
+>();
+const ideaLightRangeSemanticCache = new WeakMap<Monaco.editor.ITextModel, Map<string, Uint32Array>>();
+const requestedSemanticModels = new WeakMap<MonacoEditor, MonacoTextModel>();
+const pendingSemanticModels = new WeakMap<MonacoEditor, MonacoTextModel>();
+const scheduledSemanticTokenFrames = new WeakMap<MonacoEditor, number>();
+const IDEA_SEMANTIC_RANGE_CACHE_LIMIT = 12;
+const SEMANTIC_TOKEN_REFRESH_FIRST_RETRY_MS = 16;
+const SEMANTIC_TOKEN_REFRESH_RETRY_MS = 50;
+const SEMANTIC_TOKEN_REFRESH_MAX_ATTEMPTS = 6;
+const SEMANTIC_TOKEN_REFRESH_MIN_ATTEMPTS = 4;
+const IDEA_SEMANTIC_LANGUAGE_IDS = [
+  'typescript',
+  'typescriptreact',
+  'javascript',
+  'javascriptreact',
+  'python',
+  'go',
+  'rust',
+  'java',
+  'c',
+  'cpp',
+  'csharp',
+  'php',
+  'ruby',
+  'kotlin',
+  'swift',
+  'dart',
+  'lua',
+  'r',
+  'scala',
+  'fsharp',
+  'clojure',
+  'elixir',
+  'julia',
+  'perl',
+  'pascal',
+  'protobuf',
+  'solidity',
+  'graphql',
+] as const;
 
 async function provideIdeaLightSemanticTokens(
   monaco: MonacoApi,
   model: Monaco.editor.ITextModel,
 ): Promise<{ data: Uint32Array }> {
+  const languageId = model.getLanguageId();
   const cached = ideaLightSemanticCache.get(model);
-  if (cached?.versionId === model.getVersionId()) return { data: cached.data };
+  if (cached?.versionId === model.getVersionId() && cached.languageId === languageId) {
+    return { data: cached.data };
+  }
   const text = model.getValue();
-  const tokens = collectIdeaLightHeuristicSemanticTokens(text);
+  const tokens = collectIdeaLightHeuristicSemanticTokens(text, languageId);
   const data = encodeIdeaLightSemanticTokens(tokens);
-  ideaLightSemanticCache.set(model, { versionId: model.getVersionId(), data });
+  ideaLightSemanticCache.set(model, { versionId: model.getVersionId(), languageId, data });
   return { data };
+}
+
+function provideIdeaLightSemanticTokensForRange(
+  monaco: MonacoApi,
+  model: Monaco.editor.ITextModel,
+  range: Monaco.Range,
+): { data: Uint32Array } {
+  const lineCount = Math.max(1, model.getLineCount());
+  const requestedStartLine = Math.min(lineCount, Math.max(1, range.startLineNumber));
+  const requestedEndLine = Math.min(lineCount, Math.max(requestedStartLine, range.endLineNumber));
+  const semanticWindow = semanticTokenLineWindow(requestedStartLine, requestedEndLine, lineCount);
+  const expandedStartLine = semanticWindow.startLine;
+  const expandedEndLine = semanticWindow.endLine;
+  const requestedStartCharacter = Math.max(0, range.startColumn - 1);
+  const requestedEndCharacter = Math.max(0, range.endColumn - 1);
+  const languageId = model.getLanguageId();
+  const key = `${model.getVersionId()}:${languageId}:${expandedStartLine}:${expandedEndLine}:${requestedStartCharacter}:${requestedEndCharacter}`;
+  const cached = ideaLightRangeSemanticCache.get(model)?.get(key);
+  if (cached !== undefined) return { data: cached };
+
+  const expandedRange = new monaco.Range(
+    expandedStartLine,
+    1,
+    expandedEndLine,
+    model.getLineMaxColumn(expandedEndLine),
+  );
+  const text = model.getValueInRange(expandedRange);
+  const clipped = clipIdeaLightSemanticTokensToRange(
+    collectIdeaLightHeuristicSemanticTokens(text, languageId),
+    {
+      startLine: requestedStartLine - 1,
+      startCharacter: requestedStartCharacter,
+      endLine: requestedEndLine - 1,
+      endCharacter: requestedEndCharacter,
+    },
+    expandedStartLine - 1,
+  );
+  const data = encodeIdeaLightSemanticTokens(clipped);
+  let cache = ideaLightRangeSemanticCache.get(model);
+  if (cache === undefined) {
+    cache = new Map();
+    ideaLightRangeSemanticCache.set(model, cache);
+  }
+  if (cache.size >= IDEA_SEMANTIC_RANGE_CACHE_LIMIT) cache.clear();
+  cache.set(key, data);
+  return { data };
+}
+
+/**
+ * Extend the requested viewport by one equivalent screen above and below.
+ * Keeping the margin proportional to the visible span preserves the same
+ * pre-tokenized runway on short and tall editor panes without unbounded work.
+ */
+export function semanticTokenLineWindow(
+  startLine: number,
+  endLine: number,
+  lineCount: number,
+): { startLine: number; endLine: number } {
+  const total = Math.max(1, Math.floor(lineCount));
+  const start = Math.min(total, Math.max(1, Math.floor(startLine)));
+  const end = Math.min(total, Math.max(start, Math.floor(endLine)));
+  const viewportLines = Math.max(1, end - start + 1);
+  return {
+    startLine: Math.max(1, start - viewportLines),
+    endLine: Math.min(total, end + viewportLines),
+  };
 }
 
 /**
@@ -404,17 +530,173 @@ export function ensureIdeaLightSemanticTokens(monaco: MonacoApi): boolean {
   ) {
     return registeredIdeaLightSemanticLanguages.has(monaco);
   }
-  const provider: Monaco.languages.DocumentSemanticTokensProvider = {
-    getLegend: () => IDEA_LIGHT_SEMANTIC_TOKEN_LEGEND,
-    provideDocumentSemanticTokens: (model, _lastResultId, token) =>
-      token.isCancellationRequested ? null : provideIdeaLightSemanticTokens(monaco, model),
-    releaseDocumentSemanticTokens: () => {},
-  };
-  for (const language of ['typescript', 'typescriptreact', 'javascript', 'javascriptreact']) {
-    languages.registerDocumentSemanticTokensProvider({ language }, provider);
+  if (typeof languages.registerDocumentRangeSemanticTokensProvider === 'function') {
+    const provider: Monaco.languages.DocumentRangeSemanticTokensProvider = {
+      getLegend: () => IDEA_LIGHT_SEMANTIC_TOKEN_LEGEND,
+      provideDocumentRangeSemanticTokens: (model, range, token) =>
+        token.isCancellationRequested ? null : provideIdeaLightSemanticTokensForRange(monaco, model, range),
+    };
+    for (const language of IDEA_SEMANTIC_LANGUAGE_IDS) {
+      languages.registerDocumentRangeSemanticTokensProvider({ language }, provider);
+    }
+  } else {
+    const provider: Monaco.languages.DocumentSemanticTokensProvider = {
+      getLegend: () => IDEA_LIGHT_SEMANTIC_TOKEN_LEGEND,
+      provideDocumentSemanticTokens: (model, _lastResultId, token) =>
+        token.isCancellationRequested ? null : provideIdeaLightSemanticTokens(monaco, model),
+      releaseDocumentSemanticTokens: () => {},
+    };
+    for (const language of IDEA_SEMANTIC_LANGUAGE_IDS) {
+      languages.registerDocumentSemanticTokensProvider({ language }, provider);
+    }
   }
   registeredIdeaLightSemanticLanguages.add(monaco);
   return true;
+}
+
+/** Ask Monaco to resolve semantic tokens for the current visible ranges now. */
+export function requestEditorSemanticTokens(editor: MonacoEditor | null | undefined): boolean {
+  const contribution = editor?.getContribution?.('editor.contrib.viewportSemanticTokens') as
+    | MonacoViewportSemanticTokensContribution
+    | null
+    | undefined;
+  if (typeof contribution?._tokenizeViewportNow !== 'function') return false;
+  contribution._tokenizeViewportNow();
+  return true;
+}
+
+/**
+ * Force Monaco to tokenize the visible lexical runway before semantic tokens.
+ *
+ * Monaco's semantic provider only supplies grammar classifications. Comments,
+ * strings and keywords still depend on the model's lexical tokenization. A
+ * hidden or freshly mounted editor can miss that first tokenization request,
+ * leaving the viewport monochrome until the user scrolls.
+ */
+export function requestEditorLexicalTokens(editor: MonacoEditor | null | undefined): boolean {
+  const model = editor?.getModel?.() ?? null;
+  const tokenization = (model as (MonacoTextModel & { tokenization?: MonacoSemanticTokenizationState }) | null)
+    ?.tokenization;
+  const forceTokenization = tokenization?.forceTokenization?.bind(tokenization);
+  if (model === null || typeof forceTokenization !== 'function') return false;
+
+  const viewportEditor = editor as MonacoEditor & MonacoVisibleRanges;
+  const viewportRunway = viewportEditor.getVisibleRangesPlusViewportAboveBelow?.() ?? [];
+  const visibleRanges = viewportRunway.length > 0 ? viewportRunway : (viewportEditor.getVisibleRanges?.() ?? []);
+  if (visibleRanges.length === 0) return false;
+
+  let startLine = Number.POSITIVE_INFINITY;
+  let endLine = 0;
+  for (const range of visibleRanges) {
+    startLine = Math.min(startLine, range.startLineNumber);
+    endLine = Math.max(endLine, range.endLineNumber);
+  }
+  if (viewportRunway.length === 0) {
+    const expanded = semanticTokenLineWindow(startLine, endLine, model.getLineCount());
+    startLine = expanded.startLine;
+    endLine = expanded.endLine;
+  }
+  forceTokenization(Math.max(1, Math.min(model.getLineCount(), endLine)));
+  return true;
+}
+
+function modelHasSomeSemanticTokens(model: MonacoTextModel): boolean {
+  const tokenization = (model as MonacoTextModel & { tokenization?: MonacoSemanticTokenizationState }).tokenization;
+  return tokenization?.hasSomeSemanticTokens?.() === true;
+}
+
+/**
+ * Refresh the visible semantic-token window once on the next paint.
+ *
+ * Monaco's stock viewport contribution debounces scroll-driven refresh by
+ * 100ms. Coalescing one explicit request per paint removes the blank window
+ * after a scroll without issuing a request for every scroll event.
+ */
+export function scheduleEditorSemanticTokens(editor: MonacoEditor | null | undefined): boolean {
+  if (editor === null || editor === undefined || scheduledSemanticTokenFrames.has(editor)) return false;
+  const requestFrame =
+    typeof window.requestAnimationFrame === 'function'
+      ? window.requestAnimationFrame.bind(window)
+      : (callback: () => void) => window.setTimeout(callback, 16);
+  const frame = requestFrame(() => {
+    scheduledSemanticTokenFrames.delete(editor);
+    if (editor.getModel?.() === null || editor.getModel?.() === undefined) return;
+    requestEditorLexicalTokens(editor);
+    requestEditorSemanticTokens(editor);
+  });
+  scheduledSemanticTokenFrames.set(editor, frame);
+  return true;
+}
+
+/** Cancel a pending scroll-driven semantic-token refresh during editor disposal. */
+export function cancelScheduledEditorSemanticTokens(editor: MonacoEditor | null | undefined): void {
+  if (editor === null || editor === undefined) return;
+  const frame = scheduledSemanticTokenFrames.get(editor);
+  if (frame === undefined) return;
+  if (typeof window.cancelAnimationFrame === 'function') window.cancelAnimationFrame(frame);
+  else window.clearTimeout(frame);
+  scheduledSemanticTokenFrames.delete(editor);
+}
+
+/**
+ * Re-run semantic tokenization after a model becomes visible.
+ *
+ * Monaco normally schedules this from its own model-change event, but the lazy
+ * language contribution and editor mount can consume that first request. One
+ * guarded retry prevents a new file from staying uncolored until the user
+ * scrolls.
+ */
+export function requestEditorSemanticTokensWhenReady(
+  editor: MonacoEditor | null | undefined,
+  model: MonacoTextModel | null | undefined,
+): void {
+  if (editor === null || editor === undefined || model === null || model === undefined) return;
+  const hasSharedSemanticProvider = IDEA_SEMANTIC_LANGUAGE_IDS.includes(
+    model.getLanguageId() as (typeof IDEA_SEMANTIC_LANGUAGE_IDS)[number],
+  );
+  if (!hasSharedSemanticProvider) {
+    requestEditorLexicalTokens(editor);
+    return;
+  }
+  if (requestedSemanticModels.get(editor) === model || pendingSemanticModels.get(editor) === model) {
+    requestEditorLexicalTokens(editor);
+    return;
+  }
+
+  pendingSemanticModels.set(editor, model);
+  let attempts = 0;
+  const finish = (): void => {
+    if (pendingSemanticModels.get(editor) === model) pendingSemanticModels.delete(editor);
+    requestedSemanticModels.set(editor, model);
+  };
+  const attempt = (): void => {
+    if (editor.getModel?.() !== model) {
+      if (pendingSemanticModels.get(editor) === model) pendingSemanticModels.delete(editor);
+      return;
+    }
+    requestEditorLexicalTokens(editor);
+    requestEditorSemanticTokens(editor);
+    attempts += 1;
+    if (attempts >= SEMANTIC_TOKEN_REFRESH_MAX_ATTEMPTS) {
+      finish();
+      return;
+    }
+    window.setTimeout(
+      () => {
+        if (editor.getModel?.() !== model) {
+          if (pendingSemanticModels.get(editor) === model) pendingSemanticModels.delete(editor);
+          return;
+        }
+        if (attempts >= SEMANTIC_TOKEN_REFRESH_MIN_ATTEMPTS && modelHasSomeSemanticTokens(model)) {
+          finish();
+          return;
+        }
+        attempt();
+      },
+      attempts === 1 ? SEMANTIC_TOKEN_REFRESH_FIRST_RETRY_MS : SEMANTIC_TOKEN_REFRESH_RETRY_MS,
+    );
+  };
+  attempt();
 }
 
 /**
@@ -779,7 +1061,10 @@ export function createCodeEditorGroup(
       clearDefinitionHover();
       updateFindUsagesAvailability();
     }),
-    editor.onDidScrollChange?.(clearDefinitionHover),
+    editor.onDidScrollChange?.(() => {
+      clearDefinitionHover();
+      scheduleEditorSemanticTokens(editor);
+    }),
   ];
   const definitionClickSubscription = editor.onMouseDown?.((event) => {
     const browserEvent = event?.event?.browserEvent ?? null;
@@ -805,6 +1090,7 @@ export function createCodeEditorGroup(
       definitionHoverContainer?.removeEventListener('mouseleave', clearDefinitionHover);
       for (const subscription of availabilitySubscriptions) subscription?.dispose?.();
       definitionClickSubscription?.dispose?.();
+      cancelScheduledEditorSemanticTokens(editor);
       for (const action of actions) action.dispose?.();
       editor.dispose();
     },

@@ -29,6 +29,10 @@ test('IDEA Light palette keeps the observed semantic colors', () => {
       typeParameter: helpers.IDEA_LIGHT_TOKEN_COLORS.typeParameter,
       annotation: helpers.IDEA_LIGHT_TOKEN_COLORS.annotation,
       jsxComponent: helpers.IDEA_LIGHT_TOKEN_COLORS.jsxComponent,
+      class: helpers.IDEA_LIGHT_TOKEN_COLORS.class,
+      interface: helpers.IDEA_LIGHT_TOKEN_COLORS.interface,
+      enum: helpers.IDEA_LIGHT_TOKEN_COLORS.enum,
+      typeAlias: helpers.IDEA_LIGHT_TOKEN_COLORS.typeAlias,
     },
     {
       keyword: '000080',
@@ -42,6 +46,10 @@ test('IDEA Light palette keeps the observed semantic colors', () => {
       typeParameter: '20999d',
       annotation: '808000',
       jsxComponent: 'b21dbf',
+      class: '660e7a',
+      interface: '660e7a',
+      enum: '660e7a',
+      typeAlias: '660e7a',
     },
   );
 });
@@ -66,6 +74,9 @@ test('the grammar rules carry the IDEA font styles with the palette', () => {
   assert.equal(byToken.get('ideaMethod').foreground, '914c07');
   assert.equal(byToken.get('ideaParameter').foreground, '000000');
   assert.equal(byToken.get('ideaClass').fontStyle, undefined);
+  assert.equal(byToken.get('ideaClass').foreground, '660e7a');
+  assert.equal(byToken.get('ideaInterface').foreground, '660e7a');
+  assert.equal(byToken.get('ideaTypeAlias').foreground, '660e7a');
   assert.equal(byToken.get('ideaJsxComponent').foreground, 'b21dbf');
   assert.deepEqual(byToken.get('ideaAnnotation'), {
     token: 'ideaAnnotation',
@@ -127,6 +138,14 @@ test('editor surfaces consume the shared IDEA Light theme instead of raw vs', as
 
   assert.match(core, /ensureEditorTheme\(monaco\)/u);
   assert.match(core, /ensureIdeaLightSemanticTokens\(monaco\)/u);
+  assert.match(core, /registerDocumentRangeSemanticTokensProvider/u);
+  assert.match(core, /provideDocumentRangeSemanticTokens/u);
+  assert.match(core, /getValueInRange\(expandedRange\)/u);
+  assert.match(core, /semanticTokenLineWindow/u);
+  assert.match(core, /end - start \+ 1/u);
+  assert.match(core, /'rust'/u);
+  assert.match(core, /'java'/u);
+  assert.match(core, /'cpp'/u);
   assert.match(core, /'semanticHighlighting\.enabled': true/u);
   assert.match(core, /rules:\s*base === 'vs' \? ideaLightTokenRules\(\) : \[\]/u);
   assert.match(repositoryVersion, /theme:\s*ensureEditorTheme\(monaco\)/u);

@@ -174,6 +174,7 @@ import {
   PROJECT_PREFETCH_DEPTH,
   PROJECT_PREFETCH_VISIT_LIMIT,
   remapPathAfterMove,
+  requestEditorSemanticTokensWhenReady,
   searchTextFailureMessage,
   selectedEditorFindQuery,
 } from './editor-core';
@@ -3661,6 +3662,7 @@ function EditorWorkspace({
     }
     const model = ensureEditorModel(monaco, modelsRef.current, activePath, file.content);
     if (editor.getModel() !== model) editor.setModel(model);
+    requestEditorSemanticTokensWhenReady(editor, model);
     /* An inline create/rename in the tree keeps focus, and so does a plain tree
            click: IDEA opens the file but leaves the caret on the row you clicked, so
            the next arrow key walks the tree instead of the code. Focus is only
@@ -4025,6 +4027,7 @@ function EditorWorkspace({
     }
     const model = ensureEditorModel(monaco, modelsRef.current, path, file.content);
     if (editor.getModel() !== model) editor.setModel(model);
+    requestEditorSemanticTokensWhenReady(editor, model);
     syncEditorStatus(editor);
   }, [monacoReady, syncEditorStatus]);
   React.useEffect(() => {

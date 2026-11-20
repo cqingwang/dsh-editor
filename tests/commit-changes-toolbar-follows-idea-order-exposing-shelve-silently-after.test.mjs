@@ -4,7 +4,10 @@ import test from 'node:test';
 
 import { transpileTypeScriptFunction } from './ts-source.mjs';
 
-const source = (await readFile(new URL('../src/client/components/commit/CommitPanel.tsx', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
+const source =
+  (await readFile(new URL('../src/client/components/commit/CommitPanel.tsx', import.meta.url), 'utf8')) +
+  '\n' +
+  (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
 const commitPanelSource = await readFile(
   new URL('../src/client/components/commit/CommitPanel.tsx', import.meta.url),
   'utf8',
@@ -29,7 +32,7 @@ test('Changes toolbar follows IDEA order by exposing Shelve Silently after Show 
   assert.ok(refresh >= 0 && rollback > refresh && showDiff > rollback);
   assert.ok(shelve > showDiff && combinedDiff > shelve);
   assert.match(panel, /id: 'shelve',[\s\S]*?icon: 'stash',[\s\S]*?label: t\('editor\.shelve'\)/);
-  assert.match(panel, /id: 'shelve',[\s\S]*?disabled: commitShelveActionDisabled\(/u);
+  assert.match(panel, /id: 'shelve',[\s\S]*?disabled: gitNotManaged \|\| commitShelveActionDisabled\(/u);
 });
 
 test('Shelve toolbar action reuses the existing shelf menu and selection semantics', () => {
@@ -47,8 +50,17 @@ test('Shelve is disabled when no changes can be shelved or no handler exists', (
   const disabled = new Function(
     `${transpileTypeScriptFunction(commitPanelSource, 'commitShelveActionDisabled')}; return commitShelveActionDisabled;`,
   )();
-  assert.equal(disabled(0, false, () => {}), true);
-  assert.equal(disabled(1, false, () => {}), false);
-  assert.equal(disabled(1, true, () => {}), true);
+  assert.equal(
+    disabled(0, false, () => {}),
+    true,
+  );
+  assert.equal(
+    disabled(1, false, () => {}),
+    false,
+  );
+  assert.equal(
+    disabled(1, true, () => {}),
+    true,
+  );
   assert.equal(disabled(1, false, undefined), true);
 });

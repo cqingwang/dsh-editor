@@ -17,7 +17,7 @@ test('the Changes toolbar exposes IDEA Show Diff for the selected row', () => {
      overflows instead of laying actions beyond its right edge. */
   assert.match(panel, /<CompactActionBar/);
   assert.match(panel, /ariaLabel=\{t\('editor\.changesActions'\)\}/);
-  assert.match(panel, /label: t\('editor\.showDiff'\),\s+disabled: selectedChange === null,/u);
+  assert.match(panel, /label: t\('editor\.showDiff'\),\s+disabled: gitNotManaged \|\| selectedChange === null,/u);
   assert.match(panel, /if \(selectedChange !== null\) onShowDiff\?\.\(selectedChange\);/);
   assert.match(panel, /active:\s+diffTarget !== null[\s\S]*?diffTarget\.path === selectedChange\.path/u);
   assert.match(panel, /onShowDiff,\n\s+onShowCombinedDiff,\n\s+onRollbackSelected,/);
