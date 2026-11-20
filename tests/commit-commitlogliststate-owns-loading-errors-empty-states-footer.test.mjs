@@ -12,7 +12,8 @@ test('CommitLogListState owns loading, errors, empty states and footer', async (
   assert.match(state, /section: 'status' \| 'footer'/u);
   assert.match(state, /function CommitLogListState\(/u);
   assert.match(state, /section === 'status' && !graphMode && loading && logFailure === null/u);
-  assert.match(state, /section === 'status' && logFailure !== null/u);
+  assert.match(state, /section === 'status' && logFailure !== null && \(graphMode \|\| commitCount === 0\)/u);
+  assert.match(state, /section === 'footer' && logFailure !== null && !graphMode && commitCount > 0/u);
   assert.match(state, /t\('editor\.logFailed'/u);
   assert.match(state, /t\('editor\.logRetry'\)/u);
   assert.match(state, /aria-disabled=\{loading \? true : undefined\}/u);
@@ -20,7 +21,7 @@ test('CommitLogListState owns loading, errors, empty states and footer', async (
   assert.match(state, /loading \? t\('editor\.loading'\) : t\('editor\.logRetry'\)/u);
   assert.match(state, /!loading && commitCount > 0 && visibleCount === 0/u);
   assert.match(state, /commitCount === 0 && !loading && logFailure === null/u);
-  assert.match(state, /section === 'footer' && exhausted && visibleCount > 0/u);
+  assert.match(state, /section === 'footer' && exhausted && visibleCount > 0 && logFailure === null/u);
   assert.doesNotMatch(state, /React\.createElement/u);
   assert.match(state, /export \{ CommitLogListState \};/u);
 });

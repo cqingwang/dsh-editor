@@ -96,6 +96,7 @@ function CommitLogToolbar({
           ref={filterInputRef}
           style={styles.findInput}
           autoFocus={true}
+          aria-label={t('editor.logFilter')}
           title={t('editor.logFilterHint')}
           placeholder={t('editor.logFilterPlaceholder')}
           value={filter}

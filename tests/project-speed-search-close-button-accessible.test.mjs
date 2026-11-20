@@ -30,6 +30,6 @@ test('Project speed search row reuses the shared icon size', () => {
 test('closing Project speed search returns focus to the tree', () => {
   assert.match(
     panel,
-    /const closeTreeSearch = \(\) => \{\s*directSpeedSearchRef\.current = '';\s*clearTreeSearchState\(\);\s*setSearchOpen\(false\);\s*window\.setTimeout\(\(\) => treeRef\.current\?\.focus\(\), 0\);/u,
+    /const closeTreeSearch = React\.useCallback\(\(\) => \{[\s\S]*?clearTreeSearchState\(\);[\s\S]*?setSearchOpen\(false\);[\s\S]*?onApplySelection\(previous\.selection, previous\.primary, previous\.primary\);[\s\S]*?window\.setTimeout\(\(\) => treeRef\.current\?\.focus\(\), 0\);[\s\S]*?\}, \[clearTreeSearchState, onApplySelection, treeRef\]\);/u,
   );
 });

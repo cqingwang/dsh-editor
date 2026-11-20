@@ -50,7 +50,10 @@ test('action tooltips expose description and disabled reason', () => {
 
 test('Filter menu keeps ContextMenu keyboard navigation and opener focus', () => {
   const menu = source;
-  assert.match(menu, /querySelector<HTMLButtonElement>\('button\[data-menu-item-id\]:not\(:disabled\)'\)/);
+  assert.match(
+    menu,
+    /querySelector<HTMLButtonElement>\(\s*'\[data-menu-scroll\] button\[data-menu-item-id\]:not\(:disabled\)'/,
+  );
   assert.match(menu, /event\.key === 'ArrowDown' \|\| event\.key === 'ArrowUp'/);
   assert.match(menu, /previous !== null && previous\.isConnected\) previous\.focus\(\)/);
 });

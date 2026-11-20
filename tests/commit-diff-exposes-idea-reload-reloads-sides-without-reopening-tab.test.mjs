@@ -15,6 +15,9 @@ test('Diff exposes IDEA Reload and reloads both sides without reopening the tab'
   const diff = diffPreview();
   assert.match(diff, /const \[reloadGeneration, setReloadGeneration\] = React\.useState\(0\)/);
   assert.match(diff, /id: 'reloadDiff'[\s\S]*?icon: 'refresh'[\s\S]*?label: t\('editor\.diffReload'\)[\s\S]*?setReloadGeneration\(\(current\) => current \+ 1\)/);
-  assert.match(diff, /\}, \[captureDiffViewState, persistRestored, reloadGeneration, restoreDiffViewState, target\]\);/);
+  assert.match(
+    diff,
+    /\},\s+\[\s+captureDiffViewState,\s+clearCombinedColorDecorations,\s+clearConflictMarkerDecorations,\s+persistRestored,\s+reloadGeneration,\s+restoreDiffViewState,\s+target,\s+\]\);/u,
+  );
   assert.ok(source.split('diffReload:').length - 1 >= 2);
 });

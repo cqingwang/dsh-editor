@@ -33,13 +33,20 @@ export interface FloatingToolPopupProps {
 
 export interface FindToolPopupProps extends FloatingToolPopupProps {}
 
+const FLOATING_TOOL_POPUP_BACKDROP_Z_INDEX = 2499;
+const FLOATING_TOOL_POPUP_Z_INDEX = 2501;
+
 const FLOATING_TOOL_POPUP_SURFACE_STYLE: React.CSSProperties = {
+  zIndex: FLOATING_TOOL_POPUP_Z_INDEX,
   border: POPUP_BORDER,
   borderRadius: 8,
   background: 'var(--dsw-alias-bg-base)',
   boxShadow: '0 16px 48px rgba(0, 0, 0, 0.28)',
   overflow: 'hidden',
 };
+
+const FLOATING_POPUP_MOVE_IGNORE_SELECTOR =
+  'button, input, textarea, select, a, [role="button"], [role="menuitem"], [role="tree"], [role="treeitem"], [role="listbox"], [role="option"], [role="tab"], [role="slider"], [data-dsh-file-tree]';
 
 function floatingPopupResizeHandleStyle(direction: string): React.CSSProperties {
   const base: React.CSSProperties = {
@@ -154,6 +161,18 @@ function FloatingToolPopup({
   );
 
   React.useEffect(() => {
+    if (!open || trapFocus !== true || onRequestClose === undefined) return undefined;
+    const handleDocumentEscape = (event: KeyboardEvent): void => {
+      if (event.defaultPrevented || event.isComposing || event.key !== 'Escape') return;
+      event.preventDefault();
+      event.stopPropagation();
+      onRequestClose();
+    };
+    document.addEventListener('keydown', handleDocumentEscape);
+    return () => document.removeEventListener('keydown', handleDocumentEscape);
+  }, [onRequestClose, open, trapFocus]);
+
+  React.useEffect(() => {
     if (!open) return;
 
     const handleViewportResize = (): void => {
@@ -187,11 +206,7 @@ function FloatingToolPopup({
             : null;
       if (action === null) return;
       const target = event.target instanceof Element ? event.target : null;
-      if (
-        action === 'move' &&
-        target !== null &&
-        target.closest('button, input, textarea, select, a, [role="menuitem"]') !== null
-      ) {
+      if (action === 'move' && target !== null && target.closest(FLOATING_POPUP_MOVE_IGNORE_SELECTOR) !== null) {
         return;
       }
       const surface = surfaceRef.current;
@@ -265,7 +280,7 @@ function FloatingToolPopup({
           style={{
             ...styles.paletteBackdrop,
             paddingTop: 0,
-            zIndex: 2499,
+            zIndex: FLOATING_TOOL_POPUP_BACKDROP_Z_INDEX,
             pointerEvents: onBackdropMouseDown === undefined ? 'none' : 'auto',
           }}
           data-dsh-floating-tool-backdrop=''

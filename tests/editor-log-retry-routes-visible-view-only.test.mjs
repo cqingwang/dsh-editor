@@ -5,7 +5,7 @@ import test from 'node:test';
 const root = new URL('../', import.meta.url);
 const read = (path) => readFile(new URL(path, root), 'utf8');
 
-test('flat Log Retry starts only the flat request', async () => {
+test('flat Log Retry starts only the visible flat request', async () => {
   const workspace = await read('src/client/editor-workspace.tsx');
   const start = workspace.indexOf('const reloadVisibleLog = React.useCallback');
   assert.notEqual(start, -1);
@@ -15,7 +15,11 @@ test('flat Log Retry starts only the flat request', async () => {
 
   assert.match(retryBlock, /void loadLog\(\);/u);
   assert.doesNotMatch(retryBlock, /loadGraph\(/u);
-  assert.match(workspace, /onRetry=\{reloadVisibleLog\}/u);
+  assert.match(
+    workspace,
+    /const retryVisibleLog = \(\): void =>\s+commits\.length > 0 && logError !== null && historyPath === null \? void loadMoreLog\(\) : reloadVisibleLog\(\);/u,
+  );
+  assert.match(workspace, /onRetry=\{retryVisibleLog\}/u);
 });
 
 test('Graph Retry remains routed through CommitLog onLoadGraph', async () => {

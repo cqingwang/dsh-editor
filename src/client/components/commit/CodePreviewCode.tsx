@@ -1,6 +1,7 @@
 import React from 'react';
 import { styles } from '../../ui/styles';
-import { codePreviewMatchRanges, markCodePreviewMatches } from '../../commit';
+import { codePreviewMatchRanges, markCodePreviewMatches, paintCodePreviewTextRanges } from '../../commit';
+import { ideLightTextStyleRanges } from '../editor/editor-theme-model';
 
 export interface CodePreviewSegment {
   text: string;
@@ -25,6 +26,7 @@ function CodePreviewCode({ text, html, segments, style }: CodePreviewCodeProps) 
     const node = ref.current;
     if (node === null || typeof html !== 'string') return;
     node.innerHTML = html;
+    paintCodePreviewTextRanges(node, ideLightTextStyleRanges(node.textContent ?? ''));
     const ranges = codePreviewMatchRanges(segments);
     if (ranges.length > 0) markCodePreviewMatches(node, ranges);
   }, [html, segmentKey, text]);

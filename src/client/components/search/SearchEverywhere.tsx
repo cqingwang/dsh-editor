@@ -43,6 +43,29 @@ import { fileExtensionFilterMatches, fuzzyScore, normalizeFileExtensionFilter } 
 
 type Translate = (key: string, params?: Record<string, unknown>) => string;
 
+/**
+ * Resolve what one Escape key owns inside Search Everywhere.
+ *
+ * Item Info is the only transient layer that closes before the dialog; every
+ * other focus owner, including toolbar buttons and results, must dismiss the
+ * dialog itself.
+ * @param resultInfoOpen - whether the Item Info overlay is visible.
+ * @returns the first surface Escape should close.
+ */
+export function searchEverywhereEscapeTarget(resultInfoOpen: boolean): 'close-result-info' | 'dismiss' {
+  return resultInfoOpen ? 'close-result-info' : 'dismiss';
+}
+
+/** Choose grammatically correct result-count copy for one Search Everywhere status. */
+export function searchResultStatusLabel(count: number, t: Translate): string {
+  const total = Number.isFinite(Number(count)) ? Math.max(0, Math.trunc(Number(count))) : 0;
+  return total === 1
+    ? t('editor.searchResultCountOne')
+    : t('editor.searchResultCount', {
+        count: total,
+      });
+}
+
 interface SearchEverywhereState {
   query: string;
   tab: string;
@@ -368,7 +391,11 @@ function SearchEverywhere({
         title: entry,
         subtitle: t('editor.searchRecentQuery'),
         icon: 'history',
-        run: () => onQuery(entry),
+        keepOpen: true,
+        run: () => {
+          onQuery(entry);
+          window.setTimeout(() => searchInputRef.current?.focus?.(), 0);
+        },
       })),
     [onQuery, recentSearches, t],
   );
@@ -405,9 +432,7 @@ function SearchEverywhere({
           ? effectiveTab === 'text' && effectiveQuery.length < 2
             ? t('editor.searchTextHint')
             : t('editor.searchNoMatches')
-          : t('editor.searchResultCount', {
-              count: results.length,
-            });
+          : searchResultStatusLabel(results.length, t);
   const showFindInFilesFallback = searchEverywhereOffersFindInFiles({
     tab: effectiveTab,
     query: effectiveQuery,
@@ -772,10 +797,11 @@ function SearchEverywhere({
   };
   const handleSearchEverywhereDialogKeyDown = (event: React.KeyboardEvent<HTMLDivElement>): void => {
     if (trapSearchEverywhereFocus(event)) return;
-    if (event.key === 'Escape' && resultInfo !== null) {
+    if (event.key === 'Escape') {
       event.preventDefault();
       event.stopPropagation();
-      closeResultInfo();
+      if (searchEverywhereEscapeTarget(resultInfo !== null) === 'close-result-info') closeResultInfo();
+      else dismissSearchEverywhere();
       return;
     }
     openSearchHistoryShortcut(event);

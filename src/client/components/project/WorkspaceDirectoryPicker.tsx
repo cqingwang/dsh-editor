@@ -50,9 +50,14 @@ interface PickerSurfaceProps {
 }
 
 function PickerSurface({ onPopupDragStart, children }: PickerSurfaceProps) {
+  const handlePointerDown = (event: React.PointerEvent<HTMLElement>): void => {
+    if (!(event.target instanceof Element)) return;
+    if (event.target.closest('[data-dsh-workspace-directory-drag]') === null) return;
+    onPopupDragStart?.(event);
+  };
   return (
     <div
-      onPointerDown={onPopupDragStart}
+      onPointerDown={handlePointerDown}
       style={{
         display: 'flex',
         flexDirection: 'column',
@@ -478,7 +483,6 @@ function WorkspaceDirectoryPicker({
       }}
       onGeometryChange={setGeometry}
       surfaceStyle={{
-        zIndex: 4000,
         display: 'flex',
         flexDirection: 'column',
         color: 'var(--dsw-alias-label-primary)',

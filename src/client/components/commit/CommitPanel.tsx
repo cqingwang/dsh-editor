@@ -50,6 +50,23 @@ export function commitShelveActionDisabled(changeCount: number, busy: boolean, o
   return changeCount === 0 || busy === true || typeof onShelve !== 'function';
 }
 
+/** Muted parent path shared by directory and file rows in the Change tree. */
+function CommitSecondaryPath({ text }: { text?: string }) {
+  const value = typeof text === 'string' ? text : '';
+  return (
+    <span
+      className='dsh-editor-commit-path-suffix'
+      style={styles.commitFileDir}
+      title={value === '' ? undefined : value}>
+      <span
+        className='dsh-editor-commit-path-suffix-text'
+        style={styles.commitFileDirText}>
+        {value}
+      </span>
+    </span>
+  );
+}
+
 export interface CommitPanelProps {
   t: Translate;
   git:
@@ -861,7 +878,7 @@ function CommitPanel({
                   {
                     /* IDEA puts the parent path after the name ("spark  doc"),
                which is how two same-named folders are told apart. */
-                    row.parent === '' ? null : <span style={styles.commitFileDir}>{row.parent}</span>
+                    <CommitSecondaryPath text={row.parent} />
                   }
                   <LineCounts counts={subtotalOf(row.changes, group.id)} />
                 </div>
@@ -900,7 +917,7 @@ function CommitPanel({
                 aria-level={row.depth + 2}
                 aria-posinset={rowIndex + 1}
                 aria-setsize={rows.length}
-                aria-selected={selectedForChange}
+                aria-selected={selectedInRange || selectedForChange}
                 style={{
                   ...styles.commitTreeNode,
                   ...styles.commitFileRow,
@@ -1011,7 +1028,7 @@ function CommitPanel({
                     </span>
                   ) : null}
                 </span>
-                <span style={styles.commitFileDir}>{parentDirLabel(change.path) || projectName}</span>
+                <CommitSecondaryPath text={parentDirLabel(change.path) || projectName} />
                 <LineCounts
                   counts={
                     group.id === 'staged'
@@ -1478,6 +1495,7 @@ function CommitPanel({
               ref={scrollRefs?.changes ?? null}
               tabIndex={0}
               role='tree'
+              aria-multiselectable={true}
               aria-busy={busy ? 'true' : undefined}
               data-dsh-changes-list=''
               aria-label={t('editor.changes')}
@@ -1510,7 +1528,7 @@ function CommitPanel({
                     onChange={(event) => onAmend(event.target.checked)}
                     aria-label={t('editor.amend')}
                   />
-                  {t('editor.amend')}
+                  <span style={styles.amendLabel}>{t('editor.amend')}</span>
                   {git?.lastCommit?.subject ? (
                     <span
                       style={styles.amendSubject}
@@ -1546,6 +1564,7 @@ function CommitPanel({
                 ref={commitMessageRef}
                 style={styles.commitTextarea}
                 value={message}
+                aria-label={t('editor.commitMessage')}
                 placeholder={t('editor.commitMessagePlaceholder')}
                 spellCheck={false}
                 onChange={(event) => onMessage(event.target.value)}
@@ -1578,6 +1597,9 @@ function CommitPanel({
                       type='button'
                       className='dsh-editor-template-chip'
                       style={styles.commitTemplateChip}
+                      aria-label={t('editor.commitTemplateHint', {
+                        prefix,
+                      })}
                       title={t('editor.commitTemplateHint', {
                         prefix,
                       })}
@@ -1626,7 +1648,7 @@ function CommitPanel({
               <div style={styles.commitNotice}>
                 {allSelected
                   ? t('editor.allSelected')
-                  : t('editor.partialSelected', {
+                  : t(selectedPaths.size === 1 ? 'editor.partialSelectedOne' : 'editor.partialSelected', {
                       count: selectedPaths.size,
                     })}
               </div>

@@ -79,11 +79,15 @@ test('Find expands a collapsed target group before converging the active index',
   assert.match(component, /const handoffRevision = Math\.max\(0, Number\(state\.handoffRevision\) \|\| 0\)/);
   assert.match(
     component,
+    /const handoffHandledRevision = Math\.max\(0, Number\(state\.handoffHandledRevision\) \|\| 0\)/,
+  );
+  assert.match(
+    component,
     /const handoffTarget = React\.useMemo\(\s+\(\) => findToolHandoffTarget\(scopedFileResults, scopedMatches, state\.index, findGroupBy\),/u,
   );
-  assert.match(component, /handoffReadyRevisionRef/);
+  assert.match(component, /onHandoffHandled\?\.\(handoffRevision\)/);
   assert.match(component, /setCollapsedFiles\(\(current\) => \{[\s\S]*next\.delete\(handoffTarget\.path\)/);
-  assert.match(component, /if \(handoffRevision !== handoffReadyRevisionRef\.current\) return;/);
+  assert.match(component, /if \(handoffRevision <= handoffHandledRevision\) return;/);
   assert.match(component, /if \(state\.index !== activeIndex\) onMove\(0, occurrences\.length, activeIndex\)/);
 });
 

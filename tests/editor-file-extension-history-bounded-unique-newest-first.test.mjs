@@ -72,8 +72,10 @@ test('Directory and Changed Files scopes stay constrained during Replace All', (
 
 test('Find in Files defaults to an IDEA-style popup and has an explicit persistent dock', () => {
   const popup = source.slice(source.indexOf('findToolPopup: {'), source.indexOf('findToolToolbar: {'));
-  assert.match(popup, /zIndex: 4000/u);
+  assert.doesNotMatch(popup, /zIndex:/u);
   assert.doesNotMatch(popup, /position: 'fixed'/u);
+  assert.match(source, /FLOATING_TOOL_POPUP_Z_INDEX = 2501/u);
+  assert.match(source, /zIndex: FLOATING_TOOL_POPUP_Z_INDEX/u);
   assert.match(source, /data-dsh-floating-tool-popup/);
   assert.match(source, /kind: ['"]find['"]/);
   assert.match(source, /'data-dsh-find-tool-dock': ''/);

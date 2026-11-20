@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
@@ -7,6 +8,10 @@ import { loadTypeScriptFunction } from './ts-source.mjs';
 const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
 const projectPanelSource = await readFile(
   new URL('../src/client/components/project/ProjectPanel.tsx', import.meta.url),
+  'utf8',
+);
+const fileTreeViewSource = await readFile(
+  new URL('../src/client/components/project/FileTreeView.tsx', import.meta.url),
   'utf8',
 );
 const selectionModel = await readFile(
@@ -41,6 +46,16 @@ test('plain Project-tree click replaces every prior selection', () => {
   assert.deepEqual([...next.selection], ['README.md']);
   assert.equal(next.primary, 'README.md');
   assert.equal(next.anchor, 'README.md');
+});
+
+test('Project and Change trees expose multi-selection semantics', () => {
+  assert.match(fileTreeViewSource, /aria-multiselectable=\{true\}/u);
+  assert.match(fileTreeViewSource, /aria-activedescendant=\{activeDescendantId\}/u);
+  assert.match(fileTreeViewSource, /id=\{rowDomId\(rowIndex\)\}/u);
+  assert.match(
+    readFileSync(new URL('../src/client/components/commit/CommitPanel.tsx', import.meta.url), 'utf8'),
+    /aria-multiselectable=\{true\}/u,
+  );
 });
 
 test('Command click adds a file to the existing selection', () => {
@@ -114,7 +129,7 @@ test('Project rows commit selection on mousedown and do not toggle again on clic
     projectPanelSource.indexOf('onRowPointerDown={(state, event) => {'),
     projectPanelSource.indexOf('onRowClick={(state, event) => {'),
   );
-  assert.match(rowBlock, /onRowPointerDown=\{\(state, event\) => \{[\s\S]*?onSelect\(row, event\);/u);
+  assert.match(rowBlock, /onRowPointerDown=\{\(state, event\) => \{[\s\S]*?selectVisibleRow\(row, event\);/u);
   assert.match(rowBlock, /treeRef\.current\?\.focus\(\);/u);
   assert.doesNotMatch(rowBlock, /onClick=\{\(event\) => \{\s*onSelect\(row, event\);/u);
 });

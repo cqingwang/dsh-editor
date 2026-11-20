@@ -51,7 +51,17 @@ test('DiffPreview aborts a superseded git diff load', () => {
   const marker = diff.indexOf('const previousViewKey = diffViewKeyRef.current;');
   const start = diff.lastIndexOf('React.useEffect(() => {', marker);
   const end = diff.indexOf(
-    '  }, [captureDiffViewState, persistRestored, reloadGeneration, restoreDiffViewState, target]);',
+    [
+      '  }, [',
+      '    captureDiffViewState,',
+      '    clearCombinedColorDecorations,',
+      '    clearConflictMarkerDecorations,',
+      '    persistRestored,',
+      '    reloadGeneration,',
+      '    restoreDiffViewState,',
+      '    target,',
+      '  ]);',
+    ].join('\n'),
     start,
   );
   assert.ok(start >= 0 && end > start, 'Diff load effect is missing');

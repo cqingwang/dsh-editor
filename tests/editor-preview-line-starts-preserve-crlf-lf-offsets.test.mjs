@@ -53,6 +53,6 @@ test('Find Preview computes and renders the active match ranges once', () => {
   );
   assert.match(findTool, /const previewSegments = previewLineParts\[index\] \?\? \[\]/);
   assert.match(findTool, /segments=\{previewSegments\}/);
-  assert.match(source, /className = 'dsh-editor-code-preview-match'/);
+  assert.match(source, /paintCodePreviewRanges\(root, ranges, 'dsh-editor-code-preview-match'/);
   assert.match(source, /setAttribute\('data-dsh-find-preview-match', '1'\)/);
 });

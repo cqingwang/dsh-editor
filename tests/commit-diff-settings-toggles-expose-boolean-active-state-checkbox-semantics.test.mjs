@@ -28,7 +28,7 @@ test('ContextMenu submenu parents expose popup and expanded state', () => {
   assert.match(menu, /aria-haspopup=\{Array\.isArray\(child\.items\) && child\.items\.length > 0 \? 'menu' : undefined\}/);
   assert.match(
     menu,
-    /aria-expanded=\{\s+Array\.isArray\(child\.items\) && child\.items\.length > 0 \? submenu === child\.id : undefined\s+\}/s,
+    /aria-expanded=\{Array\.isArray\(child\.items\) && child\.items\.length > 0 \? submenu === child\.id : undefined\}/,
   );
 });
 

@@ -197,6 +197,9 @@ test('repeating the shortcut focuses an open Find without resetting it', () => {
     workspaceSource.indexOf('openFindTool(textQuery, \'find\')', workspaceSource.indexOf('const openFindInFilesFromShortcut =')),
   );
   assert.match(shortcut, /if \(findTool !== null\)/);
-  assert.match(shortcut, /mode: 'find'/);
+  assert.match(
+    shortcut,
+    /current\.surface === 'dock' && hasSelectionQuery === false \? current\.mode : 'find'/u,
+  );
   assert.match(shortcut, /input\[role="combobox"\]/);
 });

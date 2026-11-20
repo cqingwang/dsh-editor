@@ -2,7 +2,10 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) + '\n' + (await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8'));
+const source =
+  (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')) +
+  '\n' +
+  (await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8'));
 
 function extractSource(name) {
   const marker = `    function ${name}(`;
@@ -35,23 +38,26 @@ test('collapsed find files hide only their occurrence rows', () => {
   ];
   const files = [{ path: 'c.md', title: 'c.md' }];
   const expanded = rowsFor(files, matches, new Set());
-  assert.deepEqual(expanded.rows.map((row) => row.rowKey), [
-    'file:c.md',
-    'text:b.txt:2:1',
-    'text:b.txt:5:1',
-    'text:a.txt:1:1',
-  ]);
+  assert.deepEqual(
+    expanded.rows.map((row) => row.rowKey),
+    ['file:c.md', 'text:b.txt:2:1', 'text:b.txt:5:1', 'text:a.txt:1:1'],
+  );
   const collapsed = rowsFor(files, matches, new Set(['b.txt']));
-  assert.deepEqual(collapsed.rows.map((row) => row.rowKey), [
-    'file:c.md',
-    'text:a.txt:1:1',
-  ]);
+  assert.deepEqual(
+    collapsed.rows.map((row) => row.rowKey),
+    ['file:c.md', 'text:a.txt:1:1'],
+  );
   assert.equal(collapsed.groups.length, 2);
 });
 
 test('Find tool window exposes group collapse, expand/collapse all and source preview', () => {
-  const dialog = source.slice(source.lastIndexOf('function FindToolWindowView('), source.indexOf('const FindToolWindow = FindToolWindowView;', source.lastIndexOf('function FindToolWindowView(')));
-  assert.match(dialog, /const \[collapsedFiles, setCollapsedFiles\] = React\.useState/);
+  const dialog = source.slice(
+    source.lastIndexOf('function FindToolWindowView('),
+    source.indexOf('const FindToolWindow = FindToolWindowView;', source.lastIndexOf('function FindToolWindowView(')),
+  );
+  assert.match(dialog, /state\.collapsedFiles/u);
+  assert.match(dialog, /onCollapsedFilesChange\?\.\(\[\.\.\.next\]\)/u);
+  assert.doesNotMatch(dialog, /const \[collapsedFiles, setCollapsedFiles\] = React\.useState/);
   assert.match(dialog, /const \[previewOpen, setPreviewOpen\] = React\.useState/);
   assert.match(dialog, /findToolExpandFile/);
   assert.match(dialog, /findToolCollapseFile/);
@@ -59,6 +65,9 @@ test('Find tool window exposes group collapse, expand/collapse all and source pr
   assert.match(dialog, /t\('editor\.collapseAll'\)/);
   assert.match(dialog, /t\('editor\.findToolPreviewSource'\)/);
   assert.match(dialog, /data-dsh-find-preview=''/);
-  assert.match(dialog, /callFs(?:<[^>]+>)?\(\s+\{\s+op: 'read',\s+path: active\.path,\s+\},\s+\{\s+signal: previewAbort\.signal,\s+\},\s+\)/u);
+  assert.match(
+    dialog,
+    /callFs(?:<[^>]+>)?\(\s+\{\s+op: 'read',\s+path: active\.path,\s+\},\s+\{\s+signal: previewAbort\.signal,\s+\},\s+\)/u,
+  );
   assert.match(dialog, /searchEverywherePreviewWindow\(/);
 });

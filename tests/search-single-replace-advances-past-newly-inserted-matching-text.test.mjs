@@ -69,6 +69,9 @@ test('Single replacement records the replaced row and applies one advance reques
     claimReplaceAttempt: () => true,
     replaceWriteBusyRef: { current: false },
     releaseReplaceAttempt: () => {},
+    replaceGenerationIsCurrent: (current, requestGeneration) =>
+      current.searchGeneration === requestGeneration,
+    replaceFailureState: (current) => current,
     callFs: async () => ({ files: ['a.ts'], replacements: 1, operationId: 'op-1' }),
     loadGit: async () => {},
     reloadFile: async () => {},

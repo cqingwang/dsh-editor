@@ -10,7 +10,7 @@ const panelSource = await readFile(
 test('closing Project speed search clears every query-owned status immediately', () => {
   const helper = panelSource.slice(
     panelSource.indexOf('const clearTreeSearchState = React.useCallback((): void => {'),
-    panelSource.indexOf('const closeTreeSearch = () => {'),
+    panelSource.indexOf('const closeTreeSearch = React.useCallback(() => {'),
   );
   for (const setter of [
     "setSearch('')",
@@ -25,10 +25,10 @@ test('closing Project speed search clears every query-owned status immediately',
 
 test('Esc, the close button and Enter share the same state cleanup', () => {
   const close = panelSource.slice(
-    panelSource.indexOf('const closeTreeSearch = () => {'),
+    panelSource.indexOf('const closeTreeSearch = React.useCallback(() => {'),
     panelSource.indexOf(
       'const openSelectedContextMenuFromKeyboard',
-      panelSource.indexOf('const closeTreeSearch = () => {'),
+      panelSource.indexOf('const closeTreeSearch = React.useCallback(() => {'),
     ),
   );
   assert.match(close, /clearTreeSearchState\(\);/u);

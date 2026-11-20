@@ -51,7 +51,7 @@ test('Project menu opens every selected file through the ordered batch action', 
     source.indexOf('const buildTreeMenu = React.useCallback('),
     source.indexOf('/* Move one entry into a directory by drag-and-drop'),
   );
-  assert.match(menu, /const splitCandidates = projectRightSplitPaths\(rows, selection, row\.path\)/);
+  assert.match(menu, /const splitCandidates = projectRightSplitPaths\(selectionRows \?\? rows, selection, row\.path\)/);
   assert.match(menu, /disabled: isRoot \|\| splitCandidates\.length === 0/);
   assert.match(menu, /openInRightSplit\(splitCandidates\)/);
   assert.match(menu, /title:\s*batch\.length > 1 \? t\('editor\.selectionCount', \{ count: batch\.length \}\) : null/);

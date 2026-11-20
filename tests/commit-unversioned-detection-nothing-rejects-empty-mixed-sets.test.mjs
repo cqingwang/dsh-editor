@@ -28,7 +28,10 @@ test('unversioned rollback is labelled and confirmed as deletion', () => {
   assert.match(localesSource, /rollbackUnversioned: 'Delete Unversioned File',/);
   assert.match(localesSource, /rollbackUnversionedCount: '删除 {count} 个未纳入版本控制的文件',/);
   assert.match(localesSource, /rollbackUnversionedConfirm: '删除 {count} 个未纳入版本控制的文件？此操作不可撤销。',/);
-  assert.match(source, /const allUnversioned = allPathsUnversioned\(selected, changesByPathRef\.current\);/);
+  assert.match(
+    source,
+    /const allUnversioned = changeModel\.allPathsUnversioned\(selected, changesByPathRef\.current\);/,
+  );
   assert.match(source, /batchLabel\('editor\.rollbackUnversioned', 'editor\.rollbackUnversionedCount'\)/);
   assert.match(source, /rollback\(paths, allUnversioned \? \{ unversioned: true \} : undefined\)/);
 });

@@ -1,5 +1,7 @@
 import React from 'react';
 import { styles } from '../../ui/styles';
+import { useCodePreviewColorizedLines } from '../../commit';
+import { CodePreviewCode } from '../commit/CodePreviewCode';
 import { PathLabel } from '../ui/PathLabel';
 import { ToolbarButton } from '../ui/ToolbarButton';
 import { formatCommitDate } from '../../find-tool';
@@ -12,6 +14,7 @@ export interface AnnotateLine {
   summary: string;
   author: string;
   date: unknown;
+  content: string;
 }
 
 export interface AnnotatePreviewProps {
@@ -38,6 +41,9 @@ function AnnotatePreview({
   onOpenCommit,
   selected,
 }: AnnotatePreviewProps) {
+  const annotateTextLines = React.useMemo(() => lines.map((row) => (row.content === '' ? ' ' : row.content)), [lines]);
+  const annotateColorizedLines = useCodePreviewColorizedLines(annotateTextLines, target?.path ?? '');
+
   return (
     <div
       style={styles.diffPane}
@@ -61,19 +67,33 @@ function AnnotatePreview({
         <div style={styles.empty}>{t('editor.loading')}</div>
       ) : (
         <div style={styles.annotateScroll}>
-          {lines.map((row) => (
+          {lines.map((row, index) => (
             <div
               key={row.line}
               style={{
                 ...styles.annotateRow,
                 ...(selected === row.hash ? styles.commitGraphRowActive : null),
               }}
-              className='dsh-editor-annotate-row'
-              title={`${row.hash} · ${row.summary}\n${t('editor.annotateOpenCommit')}`}
-              onClick={() => onOpenCommit?.(row.hash)}>
-              <span style={styles.annotateMeta}>{`${row.author} · ${formatCommitDate(row.date)}`}</span>
-              <span style={styles.annotateHash}>{row.hash.slice(0, 7)}</span>
-              <span style={styles.annotateLineNo}>{String(row.line)}</span>
+              className='dsh-editor-annotate-row'>
+              <button
+                type='button'
+                style={styles.annotateGutter}
+                className='dsh-editor-annotate-gutter'
+                title={`${row.hash} · ${row.summary}\n${t('editor.annotateOpenCommit')}`}
+                aria-label={`${row.author} · ${formatCommitDate(row.date)} · ${row.hash.slice(0, 7)} · ${t('editor.annotateOpenCommit')}`}
+                onClick={() => onOpenCommit?.(row.hash)}>
+                <span style={styles.annotateMeta}>{`${row.author} · ${formatCommitDate(row.date)}`}</span>
+                <span style={styles.annotateHash}>{row.hash.slice(0, 7)}</span>
+                <span style={styles.annotateLineNo}>{String(row.line)}</span>
+              </button>
+              <code
+                style={styles.annotateCode}
+                className='dsh-editor-annotate-code'>
+                <CodePreviewCode
+                  text={annotateTextLines[index] ?? ' '}
+                  html={annotateColorizedLines?.[index] ?? null}
+                />
+              </code>
             </div>
           ))}
         </div>

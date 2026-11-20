@@ -5,18 +5,19 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
+const detailPane = readFileSync(join(root, 'src/client/components/commit/CommitLogDetailPane.tsx'), 'utf8');
 const source = [
   readFileSync(join(root, 'src/client/editor-workspace.tsx'), 'utf8'),
-  readFileSync(join(root, 'src/client/components/commit/CommitLogDetailPane.tsx'), 'utf8'),
+  detailPane,
   readFileSync(join(root, 'src/client/locales.ts'), 'utf8'),
 ].join('\n');
 
 test('a file-history filter can be left for the whole log in one click', () => {
   /* The chip used to offer only "×", which silently threw the filter away; IDEA's
      Log tab has an explicit "show all" action next to the filter it is applying. */
-  const start = source.indexOf('historyPath === null');
+  const start = detailPane.indexOf('historyPath === null');
   assert.notEqual(start, -1);
-  const block = source.slice(start, start + 1600);
+  const block = detailPane.slice(start, start + 1600);
   assert.match(block, /t\('editor\.historyShowAll'\)/);
   assert.match(block, /onClick=\{\(\) => onClearHistory\?\.\(\)\}/);
   /* The chip names the file it is filtering by, not just "file history". */

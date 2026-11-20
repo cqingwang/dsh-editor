@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
-import { loadTypeScriptCallback } from './ts-source.mjs';
+import { loadTypeScriptCallback, loadTypeScriptModule } from './ts-source.mjs';
 
 import { fileCompareText } from '../lib/index.js';
 
@@ -56,9 +56,14 @@ test('compareText flags a binary clipboard as binary', async (t) => {
 
 test('the tree offers clipboard compare and directory staging', () => {
   const client = read('src/client/editor-workspace.tsx');
+  const { projectFileComparisonActions } = loadTypeScriptModule(
+    read('src/client/components/project/project-selection-model.ts'),
+    ['projectFileComparisonActions'],
+  );
   const compared = [];
   const staged = [];
   const buildTreeMenu = loadTypeScriptCallback(client, 'buildTreeMenu', {
+    projectFileComparisonActions,
     filteredView: false,
     projectRowMenuCapabilities: () => ({
       isDirectory: true,

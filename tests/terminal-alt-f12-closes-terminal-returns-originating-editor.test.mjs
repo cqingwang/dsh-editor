@@ -100,7 +100,10 @@ test('the dock only reclaims focus when the terminal is genuinely visible', () =
   const screen = screenSource;
   assert.match(screen, /const \[visible, setVisible\] = React\.useState\(false\);/);
   assert.match(screen, /node\.offsetParent !== null/);
-  assert.match(screen, /if \(!ready\) return;[\s\S]*?emulatorRef\.current\?\.focus\(\);[\s\S]*?\}, \[ready, visible, focusGeneration\]\);/);
+  assert.match(
+    screen,
+    /if \(!ready \|\| reclaimFocus !== true\) return;[\s\S]*?emulatorRef\.current\?\.focus\(\);[\s\S]*?\}, \[ready, reclaimFocus, visible, focusGeneration\]\);/,
+  );
 });
 
 test('the Commit action bar exposes IDEA Select Opened / Expand / Collapse', () => {

@@ -33,8 +33,13 @@ test('Search Everywhere replaces clean files through the host and commits dirty 
 });
 
 test('The popup preserves replacement state and immediately re-searches after success', () => {
-  assert.match(replaceInFiles, /textRevision: \(current\.textRevision \?\? 0\) \+ 1/);
-  assert.match(replaceInFiles, /replaceBusy: false/);
+  const successState = source.slice(
+    source.indexOf('function searchEverywhereReplaceSuccessState('),
+    source.indexOf('function replaceHistoryTextBytes('),
+  );
+  assert.match(replaceInFiles, /searchEverywhereReplaceSuccessState\(/);
+  assert.match(successState, /textRevision: \(Number\(current\.textRevision\) \|\| 0\) \+ 1/);
+  assert.match(successState, /replaceBusy: false/);
   assert.match(replaceInFiles, /rememberCurrentSearchQuery\(query\)/);
   assert.match(replaceInFiles, /rememberCurrentReplacement\(replacement\)/);
 });

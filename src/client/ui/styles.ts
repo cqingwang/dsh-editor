@@ -2,6 +2,8 @@
 import type { CSSProperties } from 'react';
 import {
   EDITOR_CODE_FONT,
+  EDITOR_CODE_FONT_SIZE,
+  EDITOR_CODE_LINE_HEIGHT,
   EDITOR_FONT_SIZE_SCALE,
   EDITOR_RESPONSIVE_FONT_SIZE,
   EDITOR_TEXT_STYLE,
@@ -10,7 +12,8 @@ import {
 
 export { EDITOR_UI_FONT };
 
-export const POPUP_BORDER = '1px solid var(--dsw-alias-border-l2)';
+export const POPUP_BORDER =
+  '1px solid var(--dsw-alias-border-selected, var(--dsw-alias-border-l4, var(--dsw-alias-border-l3)))';
 
 export const styles: Record<string, CSSProperties> = {
   root: {
@@ -278,7 +281,6 @@ export const styles: Record<string, CSSProperties> = {
     maxHeight: '78vh',
   },
   searchEverywherePopup: {
-    zIndex: 2501,
     display: 'flex',
   },
   searchEverywhereTabs: {
@@ -575,7 +577,6 @@ export const styles: Record<string, CSSProperties> = {
     background: 'var(--dsw-alias-bg-base)',
   },
   findToolPopup: {
-    zIndex: 4000,
     display: 'flex',
     flexDirection: 'column',
   },
@@ -605,6 +606,9 @@ export const styles: Record<string, CSSProperties> = {
     whiteSpace: 'nowrap',
     fontWeight: 600,
     ...EDITOR_TEXT_STYLE.title,
+  },
+  findToolPopupTitle: {
+    flex: '0 0 auto',
   },
   findToolCount: {
     flex: 'none',
@@ -1052,6 +1056,10 @@ export const styles: Record<string, CSSProperties> = {
   menu: {
     position: 'fixed',
     zIndex: 2600,
+    boxSizing: 'border-box',
+    display: 'flex',
+    flexDirection: 'column',
+    overflow: 'visible',
     minWidth: 188,
     padding: '4px 0',
     border: POPUP_BORDER,
@@ -1060,6 +1068,12 @@ export const styles: Record<string, CSSProperties> = {
     boxShadow: '0 8px 24px rgba(0, 0, 0, 0.28)',
     ...EDITOR_TEXT_STYLE.body,
     userSelect: 'none',
+  },
+  menuScroll: {
+    flex: '1 1 auto',
+    minHeight: 0,
+    overflowY: 'auto',
+    overflowX: 'hidden',
   },
   menuItem: {
     display: 'flex',
@@ -1640,11 +1654,28 @@ export const styles: Record<string, CSSProperties> = {
   },
   annotateRow: {
     display: 'flex',
-    alignItems: 'center',
-    gap: 8,
+    alignItems: 'stretch',
     height: 20,
-    padding: '0 10px 0 8px',
+    minWidth: 'max-content',
     whiteSpace: 'nowrap',
+  },
+  annotateGutter: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 6,
+    flex: '0 0 auto',
+    width: 140,
+    minWidth: 0,
+    padding: '0 8px',
+    border: 0,
+    borderRight: '0.5px solid var(--dsw-alias-border-l3)',
+    borderRadius: 0,
+    background: 'transparent',
+    color: 'inherit',
+    fontFamily: EDITOR_UI_FONT,
+    fontSize: EDITOR_FONT_SIZE_SCALE.micro,
+    textAlign: 'left',
+    cursor: 'pointer',
   },
   annotateMeta: {
     flex: '0 1 auto',
@@ -1663,6 +1694,17 @@ export const styles: Record<string, CSSProperties> = {
     minWidth: 30,
     textAlign: 'right',
     color: 'var(--dsw-alias-label-tertiary)',
+  },
+  annotateCode: {
+    flex: '0 0 auto',
+    minWidth: 'max-content',
+    padding: '0 12px 0 10px',
+    color: 'var(--dsw-alias-label-primary)',
+    fontFamily: EDITOR_CODE_FONT,
+    fontSize: EDITOR_CODE_FONT_SIZE,
+    fontWeight: 400,
+    lineHeight: `${EDITOR_CODE_LINE_HEIGHT}px`,
+    whiteSpace: 'pre',
   },
   commitGraph: {
     display: 'flex',
@@ -2037,12 +2079,17 @@ export const styles: Record<string, CSSProperties> = {
     minWidth: 4,
   },
   amendSubject: {
+    flex: '1 1 auto',
     minWidth: 0,
     marginLeft: 6,
     overflow: 'hidden',
     textOverflow: 'ellipsis',
     color: 'var(--dsw-alias-label-tertiary)',
     fontSize: EDITOR_FONT_SIZE_SCALE.caption,
+    whiteSpace: 'nowrap',
+  },
+  amendLabel: {
+    flex: '0 0 auto',
     whiteSpace: 'nowrap',
   },
   diffPane: {
@@ -2384,6 +2431,7 @@ export const styles: Record<string, CSSProperties> = {
      space, so the numbers drifted into the middle of the row and the path
      was pushed to the far edge. Only the counts own the right edge now. */
   commitFileDir: {
+    boxSizing: 'border-box',
     justifySelf: 'stretch',
     width: '100%',
     minWidth: 0,
@@ -2393,6 +2441,13 @@ export const styles: Record<string, CSSProperties> = {
     textOverflow: 'ellipsis',
     color: 'var(--dsw-alias-label-tertiary)',
     fontSize: EDITOR_FONT_SIZE_SCALE.caption,
+  },
+  commitFileDirText: {
+    display: 'block',
+    minWidth: 0,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
   },
   /* Name and its "N files" / conflict chip share one intrinsic-width cell so
      the grid's next column can be the flexible parent path. */
@@ -2456,6 +2511,7 @@ export const styles: Record<string, CSSProperties> = {
   },
   commitButtonRow: {
     display: 'flex',
+    flexWrap: 'wrap',
     alignItems: 'center',
     gap: 6,
   },
@@ -2463,7 +2519,7 @@ export const styles: Record<string, CSSProperties> = {
      "Commit and Push…") — not one filled primary plus a bare icon. Equal weight
      is deliberate: pushing is a separate, remote-visible decision. */
   commitPrimary: {
-    flex: '0 1 auto',
+    flex: '1 1 96px',
     minWidth: 96,
     height: 27,
     padding: '0 14px',
@@ -2476,8 +2532,8 @@ export const styles: Record<string, CSSProperties> = {
     cursor: 'pointer',
   },
   commitSecondary: {
-    flex: '1 1 auto',
-    minWidth: 0,
+    flex: '1 1 150px',
+    minWidth: 150,
     height: 27,
     padding: '0 14px',
     border: '0.5px solid var(--dsw-alias-border-l3)',

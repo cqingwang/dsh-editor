@@ -21,6 +21,41 @@ export interface ProjectTreeSelectionResult {
   anchor: string | null;
 }
 
+export type ProjectTreeSelectionModifiers = Pick<ProjectTreeSelectionRequest, 'metaKey' | 'ctrlKey' | 'shiftKey'>;
+
+export interface ProjectFileComparisonActionOptions {
+  batchSize: number;
+  path: string;
+  compareWithClipboard: (path: string) => void;
+  compareWithRevision: (path: string) => void;
+  t: (key: string) => string;
+}
+
+/** Single-path comparisons stay enabled only while the Project selection is singular. */
+export function projectFileComparisonActions({
+  batchSize,
+  path,
+  compareWithClipboard,
+  compareWithRevision,
+  t,
+}: ProjectFileComparisonActionOptions) {
+  const disabled = batchSize > 1;
+  return [
+    {
+      id: 'compareClipboard',
+      label: t('editor.compareWithClipboard'),
+      disabled,
+      run: (): void => compareWithClipboard(path),
+    },
+    {
+      id: 'compareRevision',
+      label: t('editor.compareWithRevision'),
+      disabled,
+      run: (): void => compareWithRevision(path),
+    },
+  ];
+}
+
 export function projectTreeSelectionAfterPointer(
   request: ProjectTreeSelectionRequest | null | undefined,
 ): ProjectTreeSelectionResult {
@@ -91,6 +126,40 @@ export function projectContextMenuRowAfterKeyboard<T extends ProjectTreeSelectio
   if (!Array.isArray(rows) || typeof selectedPath !== 'string' || selectedPath === '') return null;
   const row = rows.find((entry) => entry?.path === selectedPath && entry.kind !== 'placeholder' && entry.root !== true);
   return row ?? null;
+}
+
+/** Whether collapsing one directory would hide the current primary row. */
+export function projectPrimaryHiddenByCollapse(directory: unknown, selectedPath: unknown): boolean {
+  return (
+    typeof directory === 'string' &&
+    directory !== '' &&
+    typeof selectedPath === 'string' &&
+    selectedPath !== directory &&
+    selectedPath.startsWith(`${directory}/`)
+  );
+}
+
+/** Remove hidden descendants while retaining outside selections and the directory. */
+export function projectSelectionAfterDirectoryCollapse(
+  selection: Iterable<string> | null | undefined,
+  directory: unknown,
+  includeDirectory = true,
+): Set<string> {
+  const next = new Set<string>();
+  const path = typeof directory === 'string' ? directory : '';
+  const prefix = path === '' ? '' : `${path}/`;
+  let directorySelected = false;
+  for (const entry of selection ?? []) {
+    if (typeof entry !== 'string') continue;
+    if (path !== '' && entry === path) {
+      directorySelected = true;
+      continue;
+    }
+    if (path !== '' && entry.startsWith(prefix)) continue;
+    next.add(entry);
+  }
+  if (path !== '' && (includeDirectory || directorySelected)) next.add(path);
+  return next;
 }
 
 export interface ProjectRowMenuCapabilities {

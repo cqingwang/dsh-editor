@@ -43,6 +43,10 @@ test('blame attributes each line to the commit that introduced it', async (t) =>
     value.lines.map((row) => row.summary),
     ['first commit', 'first commit', 'second commit'],
   );
+  assert.deepEqual(
+    value.lines.map((row) => row.content),
+    ['line1', 'line2', 'line3'],
+  );
   assert.equal(value.truncated, false);
   /* The date is an ISO instant so the panel can format it consistently. */
   assert.match(value.lines[0].date, /^\d{4}-\d{2}-\d{2}T/u);
@@ -89,11 +93,11 @@ test('the porcelain parser carries metadata forward for repeated commits', () =>
   ].join('\n');
   const rows = parseBlamePorcelain(output);
   assert.deepEqual(
-    rows.map((row) => [row.line, row.author, row.summary]),
+    rows.map((row) => [row.line, row.author, row.summary, row.content]),
     [
-      [1, 'Alice', 'first commit'],
-      [2, 'Alice', 'first commit'],
-      [3, 'Bob', 'second commit'],
+      [1, 'Alice', 'first commit', 'line one'],
+      [2, 'Alice', 'first commit', 'line two'],
+      [3, 'Bob', 'second commit', 'line three'],
     ],
   );
   /* A truncated answer must not throw; unknown lines are skipped. */
@@ -107,6 +111,9 @@ test('annotate replaces the editor area and the diff closes it', () => {
   const annotateArea = read('src/client/components/editor/EditorAnnotateArea.tsx');
   assert.match(annotate, /function AnnotatePreview\(/);
   assert.match(annotate, /className='dsh-editor-annotate-pane'/);
+  assert.match(annotate, /className='dsh-editor-annotate-code'/);
+  assert.match(annotate, /annotateTextLines/);
+  assert.match(annotate, /<CodePreviewCode/);
   assert.match(annotate, /t\('editor\.annotateTruncated'\)/);
   assert.match(annotateArea, /if \(!active \|\| target === null\) return null;/);
   assert.match(client, /<EditorAnnotateArea[\s\S]*?active=\{annotateTarget !== null\}/);

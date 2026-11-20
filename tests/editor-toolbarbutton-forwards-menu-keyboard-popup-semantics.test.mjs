@@ -13,7 +13,9 @@ test('ToolbarButton forwards menu keyboard and popup semantics', () => {
   assert.match(buttonSource, /ariaExpanded = undefined/);
   assert.match(buttonSource, /aria-haspopup=\{ariaHasPopup\}/);
   assert.match(buttonSource, /aria-expanded=\{ariaExpanded\}/);
-  assert.match(buttonSource, /onKeyDown=\{onKeyDown\}/);
+  assert.match(buttonSource, /const handleKeyDown = \(event: React\.KeyboardEvent<HTMLButtonElement>\): void => \{/);
+  assert.match(buttonSource, /onKeyDown\?\.\(event\)/);
+  assert.match(buttonSource, /onKeyDown=\{handleKeyDown\}/);
   assert.match(buttonSource, /onContextMenu=\{onContextMenu\}/);
 });
 

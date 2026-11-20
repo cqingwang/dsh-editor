@@ -32,7 +32,10 @@ test('Changes file menu follows IDEA Revert, Diff, EditSource, Copy Reference pr
     "id: 'compareClipboard'",
   ];
   const positions = ids.map((id) => menu.indexOf(id));
-  assert.ok(positions.every((position) => position >= 0), 'every expected IDEA action should exist');
+  assert.ok(
+    positions.every((position) => position >= 0),
+    'every expected IDEA action should exist',
+  );
   for (let index = 1; index < positions.length; index += 1) {
     assert.ok(positions[index] > positions[index - 1], `${ids[index]} should follow ${ids[index - 1]}`);
   }
@@ -51,6 +54,6 @@ test('Changes menu keeps multi-row safety and IDEA dirty-group order', () => {
   const menu = changeMenu();
   assert.match(menu, /id: 'combinedDiff',[\s\S]*?disabled: paths\.length < 2/);
   assert.match(menu, /id: 'compareRevision',[\s\S]*?disabled: paths\.length > 1/);
-  assert.match(menu, /id: 'compareHead',[\s\S]*?disabled: paths\.length > 1 \|\| !canCompareWithHead/);
+  assert.match(menu, /id: 'compareHead',[\s\S]*?disabled: paths\.length > 1 \|\| !changeModel\.canCompareWithHead/);
   assert.match(menu, /id: 'compareClipboard',[\s\S]*?disabled: paths\.length > 1/);
 });

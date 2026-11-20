@@ -67,7 +67,8 @@ test('the submenu position is driven by that decision', () => {
   const next = source.indexOf('export { ContextMenu };', start + 10);
   const block = source.slice(start, next === -1 ? undefined : next);
   assert.match(block, /submenuGeometry\(/);
-  assert.match(block, /styles\.submenuLeft/);
+  assert.match(block, /placement\.side === 'left'/);
+  assert.match(block, /left: 'auto'/);
 });
 
 test('the submenu width is capped so it cannot overflow a narrow window', () => {

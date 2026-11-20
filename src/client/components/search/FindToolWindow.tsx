@@ -65,6 +65,8 @@ interface FindToolWindowState {
   searchGeneration?: number;
   loadedGeneration?: number;
   replaceAdvanceRowKey?: string | null;
+  collapsedFiles?: string[];
+  handoffHandledRevision?: number;
   [key: string]: unknown;
 }
 
@@ -154,6 +156,8 @@ export interface FindToolWindowProps {
   onReplaceMode: () => void;
   onOpenSettings?: () => void;
   onOpenInFindWindow: () => void;
+  onCollapsedFilesChange?: (paths: string[]) => void;
+  onHandoffHandled?: (revision: number) => void;
   onPopupDragStart?: (event: React.MouseEvent<HTMLElement>) => void;
   onClose: () => void;
   minimized?: boolean;
@@ -203,6 +207,8 @@ function FindToolWindowView({
   onReplaceMode,
   onOpenSettings,
   onOpenInFindWindow,
+  onCollapsedFilesChange,
+  onHandoffHandled,
   onPopupDragStart,
   onClose,
   minimized = false,
@@ -223,12 +229,22 @@ function FindToolWindowView({
   const replaceInputRef = React.useRef(null);
   const fileMaskInputRef = React.useRef(null);
   const scopeModeButtonRefs = React.useRef(new Map());
+  const scopeEditorButtonRef = React.useRef<HTMLButtonElement | null>(null);
   const replaceFocusPendingRef = React.useRef(false);
-  const handoffReadyRevisionRef = React.useRef(0);
   const replaceAdvanceReadyRef = React.useRef(0);
   const rerunSelectionRef = React.useRef(null);
   const FIND_TOOL_LISTBOX_ID = 'dsh-editor-find-tool-listbox';
-  const [collapsedFiles, setCollapsedFiles] = React.useState(() => new Set());
+  const collapsedFiles = React.useMemo(
+    () => new Set(Array.isArray(state.collapsedFiles) ? state.collapsedFiles : []),
+    [state.collapsedFiles],
+  );
+  const setCollapsedFiles = React.useCallback(
+    (update: Set<string> | ((current: Set<string>) => Set<string>)) => {
+      const next = typeof update === 'function' ? update(collapsedFiles) : update;
+      onCollapsedFilesChange?.([...next]);
+    },
+    [collapsedFiles, onCollapsedFilesChange],
+  );
   const [focusedGroupPath, setFocusedGroupPath] = React.useState(null);
   const [previewOpen, setPreviewOpen] = React.useState(true);
   const [previewSoftWrap, setPreviewSoftWrap] = React.useState(true);
@@ -249,6 +265,10 @@ function FindToolWindowView({
   );
   const [filterMenu, setFilterMenu] = React.useState(null);
   const [scopeEditorOpen, setScopeEditorOpen] = React.useState(false);
+  const closeScopeEditor = React.useCallback(() => {
+    setScopeEditorOpen(false);
+    window.setTimeout(() => scopeEditorButtonRef.current?.focus?.(), 0);
+  }, []);
   const [pinned, setPinned] = React.useState(() => readStoredText('dsh-editor.find.pinned', '0') === '1');
   const [scopeMode, setScopeMode] = React.useState(() =>
     state.searchScopeMode === 'files' || state.searchScopeMode === 'directory' || state.searchScopeMode === 'scope'
@@ -274,6 +294,8 @@ function FindToolWindowView({
         : dirname(activeFilePath),
   );
   const [scopeRecursive, setScopeRecursive] = React.useState(() => state.searchScopeRecursive !== false);
+  const resultGroupingIdentity = `${scopeMode}:${scopePreset}:${findGroupBy}`;
+  const previousResultGroupingRef = React.useRef<string | null>(null);
   const [historyMenu, setHistoryMenu] = React.useState(null);
   const [resultMenu, setResultMenu] = React.useState(null);
   const [previewState, setPreviewState] = React.useState({
@@ -469,6 +491,7 @@ function FindToolWindowView({
     onQuery(query);
   };
   const handoffRevision = Math.max(0, Number(state.handoffRevision) || 0);
+  const handoffHandledRevision = Math.max(0, Number(state.handoffHandledRevision) || 0);
   const handoffTarget = React.useMemo(
     () => findToolHandoffTarget(scopedFileResults, scopedMatches, state.index, findGroupBy),
     [findGroupBy, scopedFileResults, scopedMatches, state.index],
@@ -499,8 +522,12 @@ function FindToolWindowView({
     rerunSelectionRef.current = null;
   }, [collapsedFiles, occurrenceIndexByKey, occurrences, onMove, state.loadedGeneration, state.searchGeneration]);
   React.useEffect(() => {
+    const previousIdentity = previousResultGroupingRef.current;
+    previousResultGroupingRef.current = resultGroupingIdentity;
+    if (previousIdentity === null || previousIdentity === resultGroupingIdentity) return;
+    onCollapsedFilesChange?.([]);
     if (state.index !== 0) onMove(0, 0);
-  }, [scopeMode, scopePreset, findGroupBy]);
+  }, [onCollapsedFilesChange, onMove, resultGroupingIdentity, state.index]);
   React.useEffect(() => {
     const mask = String(state.fileMask ?? '');
     if (mask.trim() !== '') {
@@ -1377,9 +1404,9 @@ function FindToolWindowView({
       (action.id === 'redoReplace' && canRedoLastReplace === true),
   );
   React.useEffect(() => {
-    if (handoffRevision === handoffReadyRevisionRef.current) return;
+    if (handoffRevision <= handoffHandledRevision) return;
     if (handoffTarget === null) {
-      handoffReadyRevisionRef.current = handoffRevision;
+      onHandoffHandled?.(handoffRevision);
       return;
     }
     if (handoffTarget.kind === 'text' && collapsedFiles.has(handoffTarget.path)) {
@@ -1394,8 +1421,18 @@ function FindToolWindowView({
     const visiblePosition = occurrenceIndexByKey.get(handoffTarget.rowKey) ?? -1;
     if (visiblePosition < 0) return;
     if (state.index !== visiblePosition) onMove(0, occurrences.length, visiblePosition);
-    handoffReadyRevisionRef.current = handoffRevision;
-  }, [collapsedFiles, handoffRevision, handoffTarget, occurrenceIndexByKey, occurrences, onMove, state.index]);
+    onHandoffHandled?.(handoffRevision);
+  }, [
+    collapsedFiles,
+    handoffHandledRevision,
+    handoffRevision,
+    handoffTarget,
+    occurrenceIndexByKey,
+    occurrences,
+    onHandoffHandled,
+    onMove,
+    state.index,
+  ]);
   React.useEffect(() => {
     if (replaceAdvanceRevision === 0 || replaceAdvanceRevision === replaceAdvanceReadyRef.current) return;
     if (state.loading === true || state.loadedGeneration !== state.searchGeneration) return;
@@ -1419,9 +1456,9 @@ function FindToolWindowView({
     });
   }, [activeIndex, query, scopeMode, scopePreset, state.matches, state.files, collapsedFiles]);
   React.useEffect(() => {
-    if (handoffRevision !== handoffReadyRevisionRef.current) return;
+    if (handoffRevision > handoffHandledRevision) return;
     if (state.index !== activeIndex) onMove(0, occurrences.length, activeIndex);
-  }, [handoffRevision, state.index, activeIndex, occurrences.length, onMove]);
+  }, [handoffHandledRevision, handoffRevision, state.index, activeIndex, occurrences.length, onMove]);
   React.useEffect(() => {
     if (!previewOpen || active === null || typeof active.path !== 'string' || active.path === '') {
       if (previewOpen && rerunSelectionRef.current !== null && state.loading === true) {
@@ -1642,7 +1679,10 @@ function FindToolWindowView({
           )}
           <span
             className='dsh-editor-find-tool-title'
-            style={styles.findToolTitle}
+            style={{
+              ...styles.findToolTitle,
+              ...(floating ? styles.findToolPopupTitle : null),
+            }}
             title={query}>
             {surfaceTitle}
           </span>
@@ -1670,6 +1710,7 @@ function FindToolWindowView({
               type='checkbox'
               checked={fileMaskEnabled}
               aria-label={t('editor.searchFileMaskLabel')}
+              title={t('editor.searchFileMaskLabel')}
               onChange={(event) => {
                 const enabled = event.target.checked;
                 setFileMaskEnabled(enabled);
@@ -1948,6 +1989,7 @@ function FindToolWindowView({
           }
           data-dsh-find-scope=''>
           <div
+            className='dsh-editor-find-scope-mode-group'
             role='group'
             aria-label={t('editor.findScopeModeGroup')}
             style={styles.findToolScopeModeGroup}>
@@ -2068,6 +2110,7 @@ function FindToolWindowView({
               </select>
               <button
                 type='button'
+                ref={scopeEditorButtonRef}
                 style={styles.findToolScopeMore}
                 title={t('editor.findEditScopes')}
                 aria-label={t('editor.findEditScopes')}
@@ -2626,7 +2669,7 @@ function FindToolWindowView({
             setScopePreset(nextPreset);
             emitFindScopeChange('scope', nextPreset, scopeDirectoryDraft);
           }}
-          onClose={() => setScopeEditorOpen(false)}
+          onClose={closeScopeEditor}
         />
       ) : null}
       {groupByMenu === null ? null : (

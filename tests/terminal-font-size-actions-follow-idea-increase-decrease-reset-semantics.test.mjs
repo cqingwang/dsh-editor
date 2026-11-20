@@ -12,23 +12,31 @@ const source = [
   readFileSync(join(root, 'src/client/components/terminal/TerminalPanel.tsx'), 'utf8'),
   readFileSync(join(root, 'src/client/locales.ts'), 'utf8'),
 ].join('\n');
+const terminalDefaultFontSize = Number(
+  source.match(/export const TERMINAL_DEFAULT_FONT_SIZE = (\d+);/u)?.[1],
+);
+const terminalFontSizeMigrationKey = source.match(
+  /const TERMINAL_FONT_SIZE_MIGRATION_KEY = '([^']+)';/u,
+)?.[1];
 
 const terminalFontSize = new Function(
   'TERMINAL_DEFAULT_FONT_SIZE',
   `${transpileTypeScriptFunction(source, 'terminalFontSize')}; return terminalFontSize;`,
-)(11);
+)(terminalDefaultFontSize);
 
 test('terminal font size actions follow IDEA increase/decrease/reset semantics', () => {
+  assert.equal(terminalDefaultFontSize, 9);
   assert.equal(terminalFontSize(12, 'increase'), 13);
   assert.equal(terminalFontSize(24, 'increase'), 24);
   assert.equal(terminalFontSize(12, 'decrease'), 11);
   assert.equal(terminalFontSize(8, 'decrease'), 8);
-  assert.equal(terminalFontSize(17, 'reset'), 11);
-  assert.equal(terminalFontSize(Number.NaN, 'reset'), 11);
+  assert.equal(terminalFontSize(17, 'reset'), 9);
+  assert.equal(terminalFontSize(Number.NaN, 'reset'), 9);
 });
 
-test('Terminal decrements the current persisted font by one only once', () => {
-  const values = new Map([['dsh-editor.terminal.fontSize', '13']]);
+test('Terminal decrements the persisted pre-request font by one only once', () => {
+  assert.equal(terminalFontSizeMigrationKey, 'dsh-editor.terminal.fontSize.decrementToNineMigrated');
+  const values = new Map([['dsh-editor.terminal.fontSize', '10']]);
   const storage = {
     getItem: (key) => (values.has(key) ? values.get(key) : null),
     setItem: (key, value) => values.set(key, value),
@@ -45,13 +53,15 @@ return { terminalFontSize, storeFontSize, readTerminalFontSize };`,
   );
   const helpers = factory(
     { localStorage: storage },
-    11,
+    terminalDefaultFontSize,
     'dsh-editor.terminal.fontSize',
-    'dsh-editor.terminal.fontSize.decrementMigrated',
+    terminalFontSizeMigrationKey,
   );
 
-  assert.equal(helpers.readTerminalFontSize(), 12);
-  assert.equal(values.get('dsh-editor.terminal.fontSize'), '12');
+  assert.equal(helpers.readTerminalFontSize(), 9);
+  assert.equal(values.get('dsh-editor.terminal.fontSize'), '9');
+  assert.equal(values.get(terminalFontSizeMigrationKey), '1');
+  assert.equal(helpers.readTerminalFontSize(), 9);
   helpers.storeFontSize(13);
   assert.equal(helpers.readTerminalFontSize(), 13);
 });
@@ -59,15 +69,15 @@ return { terminalFontSize, storeFontSize, readTerminalFontSize };`,
 test('Terminal Options exposes explicit font-size actions instead of a cycle', () => {
   assert.match(
     source,
-    /id: 'increaseFont',\s+label: t\('editor\.terminalIncreaseFontSize'\),\s+run: \(\) => setFontSize\(\(size\) => storeFontSize\(terminalFontSize\(size, 'increase'\)\)\)/s,
+    /id: 'increaseFont',\s+label: t\('editor\.terminalIncreaseFontSize'\),\s+run: \(\) => updateTerminalFontSize\('increase'\)/s,
   );
   assert.match(
     source,
-    /id: 'decreaseFont',\s+label: t\('editor\.terminalDecreaseFontSize'\),\s+run: \(\) => setFontSize\(\(size\) => storeFontSize\(terminalFontSize\(size, 'decrease'\)\)\)/s,
+    /id: 'decreaseFont',\s+label: t\('editor\.terminalDecreaseFontSize'\),\s+run: \(\) => updateTerminalFontSize\('decrease'\)/s,
   );
   assert.match(
     source,
-    /id: 'resetFont',\s+label: t\('editor\.terminalResetFontSize'\),\s+run: \(\) => setFontSize\(\(size\) => storeFontSize\(terminalFontSize\(size, 'reset'\)\)\)/s,
+    /id: 'resetFont',\s+label: t\('editor\.terminalResetFontSize'\),\s+run: \(\) => updateTerminalFontSize\('reset'\)/s,
   );
   assert.doesNotMatch(source, /id: 'fontSize'/);
   assert.match(source, /const \[fontSize, setFontSize\] =\s+React\.useState\(readTerminalFontSize\)/u);

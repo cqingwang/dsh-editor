@@ -82,7 +82,7 @@ interface HarnessReferenceRuntime {
 
 interface LocaleService {
   bind: (namespace: string) => (key: string) => string;
-  register: (namespace: string, dictionaries: { zh: Record<string, string>; en: Record<string, string> }) => unknown;
+  register: (namespace: string, dictionaries: { zh: Record<string, string>; en: Record<string, string> }) => () => void;
 }
 
 interface WorkspacesService {
@@ -349,6 +349,8 @@ function createController(ctx: ControllerContext): void {
   let editorConversationWorkspaceId = '';
   let restoreActiveToolWindowOnMount = false;
   let restoreToolWindowActivity: 'project' | 'commit' = 'project';
+  let editorWorkspaceFocusRequest = 0;
+  let lastEditorWorkspaceFocusTarget: HTMLElement | null = null;
   let workspaceDirectoryProvider: 'unknown' | 'public' | 'bridge' = 'unknown';
   /* Last workspace row under the pointer, used because DSH's menu portal
          does not retain the row identity for cloned items. */
@@ -453,7 +455,20 @@ function createController(ctx: ControllerContext): void {
              terminal placement. Rebuild instead of retaining the previous scope. */
       destroyHost();
     }
+    const reopeningMountedHost = host !== null && active === false;
+    const restorationTarget = reopeningMountedHost ? lastEditorWorkspaceFocusTarget : null;
+    if (reopeningMountedHost && (restorationTarget === null || restorationTarget.isConnected !== true)) {
+      /* Closing the split only hides this React root. Changing ordinary props
+         cannot signal "show it again", so generation makes the mounted tool
+         window reclaim its own keyboard surface after the host removes idle. */
+      editorWorkspaceFocusRequest += 1;
+    }
     setActive(true);
+    if (restorationTarget !== null && restorationTarget.isConnected === true) {
+      focusSurfaceWhenReady(() => (restorationTarget.isConnected === true ? restorationTarget : null), {
+        reassertFrames: 60,
+      });
+    } else if (reopeningMountedHost) renderEditorMount();
   }
 
   function closeWorkspaceDirectoryPicker(): void {
@@ -1030,6 +1045,23 @@ function createController(ctx: ControllerContext): void {
     if (badge.textContent !== label) badge.textContent = label;
   }
 
+  /** Render the mounted Editor root with the current controller-owned props. */
+  function renderEditorMount(): void {
+    root?.render(
+      React.createElement(EditorMount, {
+        workspaceComponent: EditorWorkspace,
+        t,
+        workspaceId: editorWorkspaceId,
+        restoreToolWindowFocus: restoreActiveToolWindowOnMount,
+        focusRequest: editorWorkspaceFocusRequest,
+        initialHarnessCollapsed: harnessCollapsed,
+        onToggleHarness: toggleHarnessLayout,
+        onCloseEditor: () => setActive(false),
+        onInsertHarnessReference: (request) => insertHarnessReferencesIntoComposer(ctx, request),
+      }),
+    );
+  }
+
   function ensureHost(body: HTMLElement | null): HTMLDivElement | null {
     const hostParent = findHostParent();
     /* The host parent is React-owned and may be replaced while the session,
@@ -1053,19 +1085,13 @@ function createController(ctx: ControllerContext): void {
     host = document.createElement('div');
     host.setAttribute('data-dsh-editor-host', '');
     hostParent.appendChild(host);
+    host.addEventListener('focusin', (event) => {
+      const target = event.target instanceof HTMLElement ? event.target : null;
+      if (target === null || target.closest('[data-dsh-editor-activity-stripe]') !== null) return;
+      lastEditorWorkspaceFocusTarget = target;
+    });
     root = createRoot(host);
-    root.render(
-      React.createElement(EditorMount, {
-        workspaceComponent: EditorWorkspace,
-        t,
-        workspaceId: editorWorkspaceId,
-        restoreToolWindowFocus: restoreActiveToolWindowOnMount,
-        initialHarnessCollapsed: harnessCollapsed,
-        onToggleHarness: toggleHarnessLayout,
-        onCloseEditor: () => setActive(false),
-        onInsertHarnessReference: (request) => insertHarnessReferencesIntoComposer(ctx, request),
-      }),
-    );
+    renderEditorMount();
     if (restoreActiveToolWindowOnMount && host !== null) {
       const mountedHost = host;
       focusSurfaceWhenReady(
@@ -1138,6 +1164,7 @@ function createController(ctx: ControllerContext): void {
       host.remove();
       host = null;
     }
+    lastEditorWorkspaceFocusTarget = null;
   }
 
   function setActive(next: boolean): void {
@@ -1592,13 +1619,14 @@ function createController(ctx: ControllerContext): void {
 export function apply(ctx: ControllerContext): void {
   try {
     installStyles();
-    ctx.effect(() => {
-      ctx.locale.register(NS, {
-        zh: flattenDictionary(zh),
-        en: flattenDictionary(en),
-      });
-      return () => {};
-    }, 'dsh-editor: dictionaries');
+    ctx.effect(
+      () =>
+        ctx.locale.register(NS, {
+          zh: flattenDictionary(zh),
+          en: flattenDictionary(en),
+        }),
+      'dsh-editor: dictionaries',
+    );
     createController(ctx);
   } catch (error) {
     console.error('dsh-editor: apply failed', error);

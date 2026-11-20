@@ -1,5 +1,3791 @@
 # dsh-editor 工程记忆
 
+## 2026-11-20 — 所有代码展示面必须共享 IDEA Light token 链
+
+**作用域**：Search Everywhere Preview、Persistent Find Preview、
+Annotate、Commit Diff、IDEA Light semantic token、no-bold。
+
+**运行态证据**：
+
+- Search Everywhere Preview、Persistent Find Preview、Annotate 对同一
+  `src/app.js` 行输出：
+  - keyword `rgb(0,0,128)`；
+  - string `rgb(0,128,0)`；
+  - local variable `rgb(69,131,131)`；
+  - 全部 weight=`400`；
+- Find match overlay 只增加匹配背景，不改变 IDEA foreground；
+- Commit Diff 使用 `dsh-editor-diff-light`，keyword 和 class 继续来自
+  共享 token rules，可见 token weight=`400`；
+- IntelliJ IDEA Light 编辑器已通过 Computer Use 截图作为视觉对照。
+
+**职责边界**：
+
+- Search/Find/Annotate 的轻量预览必须由
+  `useCodePreviewColorizedLines()` + `CodePreviewCode` +
+  `ideLightTextStyleRanges()` 组合完成；
+- Monaco Commit Diff 必须由 `ensureDiffTheme()` 注入共享
+  `ideaLightTokenRules()`；
+- 业务展示面不得自行复制调色板、字体权重或第二套 token class。
+
+**长期约束**：
+
+- 新增任何代码展示面都必须先复用上述共享链，再考虑业务布局；
+- 对照 IDEA 时必须同时检查 foreground、italic/weight 与 semantic 分类，
+  不能只看某一处颜色；
+- 代码 token、预览行和 diff token 的 weight 必须保持 `400`，禁止 bold；
+- 运行态证据应记录 computed color/weight，视觉截图仅作补充。
+
+## 2026-11-20 — IDEA Light grammar token 必须先确认真实 theme 状态
+
+**作用域**：Monaco main editor、`dsh-editor-idea-light` theme、
+grammar token、semantic token、computed color、no-bold 回归。
+
+**症状/证据**：
+
+- 在对运行中的 Monaco 临时调用 `defineTheme` / `setTheme` 做 probe 后，
+  主编辑器曾显示 `export const` 为 `mtk1` 黑色；
+- 该状态同时伴随 semantic span 消失，但 `getRawOptions().theme` 仍指向
+  `dsh-editor-idea-light`；
+- 干净 reload 后同一文件恢复：
+  - keyword navy `rgb(0,0,128)`；
+  - string green `rgb(0,128,0)`；
+  - number blue `rgb(0,0,255)`；
+  - local/return variable teal `rgb(69,131,131)`；
+  - property magenta `rgb(102,14,122)`；
+  - method orange `rgb(145,76,7)`；
+  - type parameter cyan `rgb(32,153,157)`；
+  - 所有 leaf token weight=`400`，boldCount=`0`。
+
+**根因边界**：
+
+- theme probe 改变的是运行态临时主题，不是源码配色已经回归；
+- Monaco token theme、semantic token provider 和 DOM class 更新存在
+  独立生命周期，短时间快照可能处在中间状态；
+- 仅凭 `mtk1` 或一次 computed color 断言会制造假阳性，不能据此修改
+  共享 IDEA Light 色板。
+
+**结论与长期约束**：
+
+- 配色回归必须先确认 `getRawOptions().theme === 'dsh-editor-idea-light'`，
+  并排除临时 probe；必要时 reload 后重新取证；
+- IDEA Light grammar 颜色继续来自共享 `ideaLightTokenRules()`，禁止在
+  单个 editor/preview 调用方另写 token 色值；
+- 任何代码 token、行容器和后代都不得使用 bold；no-bold 继续由共享
+  CSS 的 `font-weight: 400 !important` 门禁保证。
+
+## 2026-11-20 — Replace 部分成功必须记录 clean-only Undo 快照
+
+**作用域**：Find/Search Everywhere Replace All、clean host success、
+dirty commit failure、Undo Last Replace、operationId、dirty snapshot。
+
+**症状/证据**：
+
+- clean 文件已写盘并完成 UI 刷新；
+- dirty buffer commit 失败且回滚；
+- 部分失败提示、busy、焦点、active result 和滚动已正常；
+- 但 `canUndoLastReplace=false`，用户无法撤销已成功的 clean 部分。
+
+**根因**：
+
+- catch 没有保留成功 host response 的 operationId/files；
+- 原 undo 栈只在完整成功后写入；
+- clean host transaction 与 dirty transaction 是独立快照，dirty 失败不应
+  把有效 host 事务一并丢弃。
+
+**修复**：
+
+- 新增 `hostOnlyReplaceOperation(value, files)`：
+  - operationId 和 files 都必须非空；
+  - 返回 `clean:true`、`dirty:[]`、host files 和 replacements；
+- Search Everywhere/Find host 成功后保存原始 host response；
+- dirty commit 失败时把该 clean-only operation 写入 undo 栈；
+- Undo 复用既有 `undoReplaceText(operationId)`；
+- 不把回滚后的 dirty model 写入 after snapshot。
+
+**回归与运行态**：
+
+- `tests/search-mixed-replace-host-success-dirty-failure-refreshes-host.test.mjs`；
+- clean-only helper 对空 operationId/files 返回 null；
+- 两条 replace catch 路径均写入 clean-only undo operation；
+- Redo 只在 `operation.clean` 时调用 `redoReplaceText(operationId)`，
+  `dirty=[]` 时没有可重放的 dirty plan；
+- workspace 根目录切换同时清空 Replace Undo/Redo 栈；
+- 真实 host replaceText 创建 operationId，dirty model 注入 commit failure；
+- 部分失败后 Undo Last Replace 可用；
+- Undo 后 clean 磁盘/model 恢复 TOKEN；
+- dirty model 与 dirty 磁盘保持 TOKEN 内容；
+- 完整 `npm test`：**3259 pass / 0 fail**；补充 Redo/workspace
+  回归后为 **3261 pass / 0 fail**；
+- lint、TypeScript、source imports、Prettier、bundle 一致性、
+  `git diff --check`、`npm pack --dry-run` 通过。
+
+**适用环境**：DSH Web、Find Replace All、host replaceText 事务、
+Monaco dirty transaction。
+
+**长期约束**：
+
+- clean host 成功与 dirty commit 失败时，必须保留 clean-only Undo 快照；
+- clean-only operation 的 `dirty` 必须为空，不能伪造已回滚的 dirty after；
+- operationId 或 changed files 缺失时不得声称可 Undo；
+- success 和 partial-failure 的 undo 记录必须使用共享纯函数构造；
+- Redo 必须继续复用 host operationId，不得重放已失败的 dirty transaction；
+- 切换 workspace 后不得保留上一工作区的 Replace Undo/Redo 历史。
+
+## 2026-11-20 — Replace 部分成功不得卡住 error/busy，且必须刷新 clean 文件
+
+**作用域**：Find/Search Everywhere Replace All、clean host 写入、
+dirty Monaco transaction、部分失败、open-file reload、工程树刷新、
+replacement 焦点与结果滚动。
+
+**症状/证据**：
+
+- clean 文件已成功写盘；
+- dirty model commit 注入失败后，clean open model 已更新为 DONE；
+- dirty model 保持未保存内容；
+- 但 replaceBusy 长时间保持 true，error 为 null；
+- 运行态诊断出现 `ReferenceError: hostChanged is not defined`。
+
+**根因**：
+
+- Find 路径把 `hostChanged` 声明在 try 内，catch 中无法访问；
+- catch 中同步等待 refresh I/O，阻塞 error/busy 结算；
+- success 和 failure 没有共享 host refresh helper；
+- clean host 成功与 dirty commit 失败属于不可原子合并的两个事务，
+  UI 必须明确“部分完成”。
+
+**修复**：
+
+- 新增 `refreshHostReplaceChanges(paths)`：
+  - reload 当前打开的 host changed 文件；
+  - `loadGit()` 刷新工程状态；
+- Search Everywhere 和 Find 两条替换路径共用该 helper；
+- `hostChanged` 在 try 前声明；
+- catch 先更新 error、replaceBusy 和 replacement 焦点，再异步执行
+  best-effort refresh；
+- 新增 `searchReplacePartialFailure` 中英文文案；
+- dirty commit 仍在 host success boundary 之后执行。
+
+**回归与运行态**：
+
+- `tests/search-mixed-replace-host-success-dirty-failure-refreshes-host.test.mjs`；
+- clean host 成功 + dirty `pushEditOperations` 失败；
+- clean model 刷新为 DONE；
+- dirty model 保持未保存 TOKEN 内容；
+- 磁盘 clean 文件为 DONE，dirty 文件未变；
+- error 明确说明部分完成且已刷新磁盘文件；
+- replaceBusy=false；
+- active result、list scrollTop、replacement 焦点保持不变；
+- 完整 `npm test`：**3258 pass / 0 fail**；
+- lint、TypeScript、source imports、Prettier、bundle 一致性、
+  `git diff --check`、`npm pack --dry-run` 通过。
+
+**适用环境**：DSH Web、Find Replace All、混合 dirty/clean 文件、
+Monaco model transaction、host replaceText。
+
+**长期约束**：
+
+- catch 作用域内使用的请求状态必须在 try 外声明；
+- error/busy/焦点结算优先于 best-effort refresh，刷新失败不能吞掉失败反馈；
+- success 与 failure 必须复用同一 host refresh helper；
+- clean 写入成功而 dirty commit 失败时必须明确提示部分完成；
+- dirty transaction 仍只能在 clean host success boundary 之后执行。
+
+## 2026-11-20 — Find 折叠与 handoff 处理进度必须属于 session state
+
+**作用域**：Find popup/dock、文件组折叠、handoff revision、surface
+remount、query/scope/group 变化。
+
+**症状/证据**：
+
+- dock 中折叠 `src/app.js` 后 visible option 为 2；
+- 切到 popup 再回 dock，option 恢复为 3，折叠丢失；
+- popup 挂载瞬间 collapsedFiles 从 `["src/app.js"]` 变成 `[]`；
+- 旧 handoff revision 在 remount 后被再次处理，主动展开目标文件组。
+
+**根因**：
+
+- `collapsedFiles` 是 FindToolWindow 局部 `useState`；
+- `handoffReadyRevisionRef` 是局部 ref；
+- surface 切换会 remount 组件，两个状态同时归零；
+- handoff effect 误把旧 revision 当成新请求。
+
+**修复**：
+
+- `collapsedFiles` 提升到 Find session state，通过
+  `onCollapsedFilesChange` 受控更新；
+- `handoffHandledRevision` 提升到 Find session state，通过
+  `onHandoffHandled` 回写；
+- handoff effect 只处理 `handoffRevision > handoffHandledRevision`；
+- query transition 清空折叠；
+- 真实 scope/group identity 变化才清空折叠并重置 index；
+- surface 切换本身不再修改折叠，也不再重复执行 handoff。
+
+**回归与运行态**：
+
+- `tests/search-collapsed-find-files-hide-only-their-occurrence-rows.test.mjs`；
+- `tests/search-find-opens-popup-transfer-same-state-dock.test.mjs`；
+- `tests/editor-handoff-target-resolves-requested-file-text-row-clamps-invalid.test.mjs`；
+- dock 折叠 app.js：option=`2`，collapsed=`["src/app.js"]`；
+- popup 中 collapsed/handoffHandled 保持；
+- 返回 dock 后 option=`2`、app.js 仍折叠；
+- query 改为 endValue 后 collapsed=`[]`；
+- 完整 `npm test`：**3256 pass / 0 fail**；
+- lint、TypeScript、source imports、Prettier、bundle 一致性、
+  `git diff --check`、`npm pack --dry-run` 通过。
+
+**适用环境**：DSH Web、Find popup/dock、React 条件挂载、Search
+Everywhere→Find handoff。
+
+**长期约束**：
+
+- surface remount 不得重置 Find session 的 view state；
+- 折叠、active result、handoff 处理进度都必须由同一 session owner 持有；
+- 新 query 和真实 scope/group identity 变化才允许清空过期折叠；
+- handoff revision 是“一次性命令”，不是每次 mount 都执行的初始化逻辑；
+- 临时运行态调试代码不得留在最终源码或 bundle。
+
+## 2026-11-20 — Find surface remount 不得重置 active result
+
+**作用域**：Find popup、Find dock、surface remount、active result、
+Preview target、列表滚动与 scope/group 重置逻辑。
+
+**症状/证据**：
+
+- popup 中点击第 3 个结果 `src/nav-target.js:2:3`；
+- 切到 dock 后，active 回到第 1 个结果 `src/app.js:1:8`；
+- Preview 同步错误切回 app.js；
+- popup/dock 共用同一 Find state，但作为不同 React 挂载实例渲染。
+
+**根因**：
+
+- scope/group 变化时将 index 归零的 effect 在每次 component mount 时
+  都执行；
+- surface 切换导致组件 remount，被误判为 scope/group 真变化；
+- 数字 index 因此被重置，active row identity、Preview 和滚动随之丢失。
+
+**修复**：
+
+- 生成 `resultGroupingIdentity = scopeMode:scopePreset:findGroupBy`；
+- `previousResultGroupingRef` 保存上一次 identity；
+- mount 时 ref 与当前 identity 相同，effect 直接返回；
+- 只有 identity 真正变化时才执行原有的 `onMove(0, 0)`；
+- surface 本身不再参与 result selection 重置。
+
+**回归与运行态**：
+
+- `tests/search-find-opens-popup-transfer-same-state-dock.test.mjs`；
+- RED：源码没有 grouping identity guard；
+- GREEN：相关 Find 定向回归 **18 pass / 0 fail**；
+- DSH Web：
+  - popup→dock→popup 的 active id 始终为
+    `text:src/nav-target.js:2:3`；
+  - Preview 文件始终为 nav-target.js；
+  - 120 行临时文件第 110 行在 popup scrollTop=`1826`、距顶部 `32px`；
+  - dock scrollTop=`1829`、距顶部 `29px`，属于不同 pane 高度下的正常居中；
+  - 返回 popup 恢复 `1826/32px`，active row 始终可见；
+  - 临时文件已删除。
+- 完整 `npm test`：**3255 pass / 0 fail**；
+- lint、TypeScript、source imports、Prettier、bundle 一致性、
+  `git diff --check`、`npm pack --dry-run` 通过。
+
+**适用环境**：DSH Web、Find popup/dock、React 条件挂载。
+
+**长期约束**：
+
+- surface 切换只改变承载容器，不得重置 active result、Preview target
+  或滚动锚点；
+- 只有真正的 query、scope 或 group identity 变化才能重置 result
+  selection；
+- component mount/remount 不能作为业务状态变化信号；
+- 回归必须同时验证 active row identity、Preview 内容和目标行可见性。
+
+## 2026-11-20 — Replace 成功与失败都必须校验查询代际
+
+**作用域**：Search Everywhere Replace、Find Replace All、Find 单次
+Replace、查询期间的异步 host I/O、错误反馈、结果清理与 replacement
+焦点。
+
+**症状/证据**：
+
+- Find 的失败路径已有 stale-safe helper，但 Search Everywhere 失败会直接
+  写 error，且不请求 replacement 焦点；
+- Search Everywhere 成功后无条件清空 `textMatches`；
+- Find Replace All / 单次 Replace 成功后无条件清空、推进结果并增加
+  `searchGeneration`；
+- 替换 I/O 期间查询框仍可修改，因此旧写入完成会覆盖新查询的可见结果；
+- 现有回归只覆盖 stale failure，没有覆盖 stale success。
+
+**根因**：
+
+- 请求归属判断散落在失败分支和成功分支，且 Search Everywhere 没有与
+  Find 等价的 generation 契约；
+- “写盘成功”被错误等同于“仍然拥有当前查询界面”；
+- busy、错误、焦点和可见结果清理没有统一由请求代际门控。
+
+**修复**：
+
+- `replaceAttemptIsCurrent` 同时校验 Search Everywhere request id 与原始
+  query；
+- `replaceGenerationIsCurrent` 统一 Find generation 判断；
+- `replaceFailureSettlement` 仅在当前请求时写 error 并请求 replacement
+  焦点，stale 时只释放 busy；
+- `searchEverywhereReplaceSuccessState` 仅在当前请求时清空结果，stale
+  成功只释放 busy；
+- Find 两条成功 updater 先校验 generation，stale 时保留新查询结果；
+- 所有 preflight 错误也复用共享 failure settlement，不再各自维护焦点。
+
+**回归与运行态**：
+
+- `tests/search-current-query-replacement-failures-focus.test.mjs`；
+- `tests/search-single-replace-advances-past-newly-inserted-matching-text.test.mjs`；
+- 当前查询失败：error 可见，replacement 输入获焦，query/replacement 保留；
+- 延迟失败后改查询：新查询结果保持，旧错误不附着，焦点留在 query；
+- 延迟成功后改查询：新查询结果保持，旧成功不清理新结果，焦点留在
+  query；
+- 延迟成功的临时文件实际写盘后已删除，fixture 恢复；
+- 相关定向回归 **26 pass / 0 fail**；
+- 完整 `npm test`：**3254 pass / 0 fail**；
+- lint、TypeScript、source imports、Prettier、bundle 一致性、
+  `git diff --check`、`npm pack --dry-run` 通过。
+
+**适用环境**：DSH Web、Search Everywhere、Find tool window、异步
+replaceText host API。
+
+**长期约束**：
+
+- 真实写入完成不代表可以修改当前 UI；成功、失败、busy、error 和焦点
+  都必须先判断请求是否仍属于当前 query/generation；
+- stale 请求可以完成文件写入、undo 历史和状态提示，但不得清空新查询
+  结果、写入旧错误或抢走新查询焦点；
+- 查询代际与失败/成功 settlement 只能复用共享 helper，业务入口不得
+  复制判断；
+- 任何新增 Replace 路径必须同时覆盖 stale failure 和 stale success。
+
+## 2026-11-20 — Terminal 字号再次下调且代码 token 永久禁止 bold
+
+**作用域**：Terminal 默认/重置/持久化字号、xterm 字体栈、Monaco
+IDEA Light、Find/Search 代码预览、Commit diff、Annotate。
+
+**用户要求**：
+
+- Terminal 当前字体再调小 1 号；
+- 代码着色继续对齐 IDEA Light；
+- 代码字体不得加粗，并写入工程记忆，防止后续重新引入 bold。
+
+**修复**：
+
+- `TERMINAL_DEFAULT_FONT_SIZE` 从 10 下调为 9；
+- 使用新的独立迁移键
+  `dsh-editor.terminal.fontSize.decrementToNineMigrated`；
+- 首次读取既有 persisted 字号时只减 1，迁移后显式字号保持稳定；
+- 无 persisted 值或异常值首次读取回退到 9；
+- TerminalPanel 继续只调用共享 `readTerminalFontSize`、
+  `terminalFontSize` 和 `storeFontSize`，没有组件内默认值；
+- Terminal 字体栈保持不变，仍以 `Menlo, Monaco` 开头；
+- IDEA Light foreground、italic、语义分类与共享 no-bold CSS 门禁均未改变。
+
+**回归与运行态**：
+
+- `tests/terminal-font-size-actions-follow-idea-increase-decrease-reset-semantics.test.mjs`；
+- `tests/terminal-font-change-resizes-pty-and-refocuses-pane.test.mjs`；
+- `tests/terminal-font-uses-dedicated-monospace-token.test.mjs`；
+- `tests/editor-code-coloring-idea-light-palette.test.mjs`；
+- `tests/editor-code-coloring-semantic-tokens.test.mjs`；
+- RED：默认字号仍为 10，migration key 仍指向 10；
+- GREEN：默认/Reset 为 9，旧 persisted 10 首次迁移为 9，迁移后稳定；
+- 相关定向回归 **25 pass / 0 fail**；
+- 完整 `npm test`：**3250 pass / 0 fail**；
+- lint、TypeScript、source imports、Prettier、bundle 一致性、
+  `git diff --check`、`npm pack --dry-run` 通过；
+- DSH Web：
+  - localStorage font size=`9`；
+  - new migration flag=`1`；
+  - xterm rows computed font-size=`9px`；
+  - font family=`Menlo, Monaco, ui-monospace, SFMono-Regular, Consolas, monospace`；
+  - Monaco code=`13px`；
+  - keyword=`rgb(0,0,128)`、local variable=`rgb(69,131,131)`；
+  - 可见 token 与行容器 weight 全部为 `400`，boldCount=`0`；
+- IntelliJ IDEA 进程在运行，但 Computer Use 窗口绑定返回
+  `cgWindowNotFound`，本轮没有伪造 IDE 截图，继续以 IDEA Light 色板契约和
+  DSH computed style 为验收证据。
+
+**适用环境**：macOS、DSH Web、xterm 6、Monaco 0.52.2、IDEA 2026.2
+Light。
+
+**长期约束**：
+
+- Terminal 当前默认/Reset 字号为 9；再次调整必须使用新的版本化
+  migration key，禁止复用旧 key 或每次读取递减；
+- Terminal 字号只能由共享 helper 维护，TerminalPanel 不得另写默认值；
+- Terminal 字体栈必须保持 `Menlo, Monaco` 优先，不得改成 UI/code 的
+  Trebuchet MS 链；
+- IDEA Light 代码层级只允许 foreground color 与 italic，禁止任何
+  token、行容器、后代、预览或 Annotate 重新引入 bold；
+- 新代码展示面必须复用 IDEA Light colorizer 与共享
+  `font-weight: 400 !important` 根门禁；
+- 任何代码 token 出现 `fontStyle: 'bold'`、`fontWeight: 600/700` 都必须
+  视作回归，由 `tests/editor-code-coloring-idea-light-palette.test.mjs`
+  和运行态 computed style 双重拦截。
+
+## 2026-11-20 — Find 的 popup/dock 切换不得退回 Replace 模式
+
+**作用域**：Find popup、Find dock、Replace in Files、⇧⌘F surface 切换、
+replacement 输入与焦点。
+
+**症状/证据**：
+
+- Replace in Files 中 query=`endValue`、replace=`replacedValue`；
+- Ctrl+Enter 转入 dock 后 query/replace/replace row 都正常；
+- 再用 ⇧⌘F 从 dock 返回 popup 后 query 保留；
+- 但 mode 退回 Find，replace row 消失，replacement 读取为 null；
+- replacement 状态实际仍存在于 Find state，只是被 mode 隐藏。
+
+**根因**：
+
+- `openFindInFilesFromShortcut` 在 dock→popup 分支无条件写入
+  `mode:'find'`；
+- 快捷键同时承担“把 dock 结果放回 popup”和“显式新 Find”两种语义，
+  旧实现没有区分。
+
+**修复**：
+
+- 当 `current.surface === 'dock'` 且没有 selection query 时保留
+  `current.mode`；
+- 显式新 Find、selection query 等场景仍切到 Find；
+- 不重建 Find state，不改 query/replacement 数据。
+
+**回归与运行态**：
+
+- `tests/search-find-opens-popup-transfer-same-state-dock.test.mjs`；
+- 更新 `plugin-extension-entries-normalize-into-host-compatible-file-masks`；
+- Search/Find 键盘 popup 与 Find/Replace 定向回归 **20 pass / 0 fail**；
+- DSH Web：
+  - Replace in Files 打开 replace popup；
+  - query=`endValue`、replace=`replacedValue`；
+  - dock 中两者与 replace row 保持；
+  - ⇧⌘F 返回 popup 后两者仍保持、replace row 存在；
+  - 焦点回到 popup 查询框；
+- 完整 `npm test`：**3250 pass / 0 fail**；
+- lint、TypeScript、source imports、Prettier、bundle consistency、
+  `git diff --check`、`npm pack --dry-run` 通过。
+
+**适用环境**：DSH Web、Find popup/dock、Replace in Files。
+
+**长期约束**：
+
+- surface 切换只改变承载位置，不得重置 query、replacement、mode 或 options；
+- 只有显式新搜索或 selection query 可以切换 mode；
+- replacement 输入是否渲染必须跟随真实 mode，不能靠复制新 state 修补；
+- popup/dock 切换后必须验证 query、replacement、replace row 和 focus。
+
+## 2026-11-20 — Commit restage 必须先揭示目标折叠分组再聚焦
+
+**作用域**：Commit Changes、Stage/Unstage、折叠 group/directory、
+selection 迁移、焦点恢复。
+
+**症状/证据**：
+
+- Staged 分组被折叠时，对 unversioned nav-main 执行 Add to VCS；
+- Git 状态正确进入 staged，但 `Expand Staged` 仍保持折叠；
+- nav-main 行不存在于 DOM，selection 无可见行，activeElement=BODY；
+- path filter 到 nav-main 时 Stage/Unstage 均能保持 visible/selected/focused；
+- 说明 selection key 迁移正常，缺陷仅在目标行被折叠隐藏。
+
+**根因**：
+
+- restage 更新了 primary，但不会主动展开目标 staged/unstaged band；
+- 现有 focus effect 找不到隐藏行时只能安全返回；
+- group collapse key 和祖先目录 collapse key 不应由 restage 重新实现。
+
+**修复**：
+
+- restage 迁移 selection/primary 后调度既有 `revealChangeRow(primary)`；
+- reveal helper 统一清除目标 band 与祖先目录的 collapse key；
+- `collapsedGroups` 更新后，现有 `groupByFocusRef` effect 再聚焦同一行；
+- 不复制 collapse-key 规则，不改变 toolbar/Stage All 等无 focusPath 调用。
+
+**回归与运行态**：
+
+- `tests/commit-restage-focus-follows-row-to-new-group.test.mjs`；
+- RED：折叠 Staged 后 Stage 行不可见、焦点 BODY；
+- GREEN：Commit/restage 定向回归 **11 pass / 0 fail**；
+- DSH Web：
+  - 折叠 Staged 后 Stage nav-main；
+  - 分组自动展开为 `Collapse Staged`；
+  - row staged=true、selected=true、focused=true；
+  - Unstage 后恢复 unversioned selected/focused；
+  - path filter 下同样保持 visible/focused；
+- 完整 `npm test`：**3250 pass / 0 fail**；
+- lint、TypeScript、source imports、Prettier、bundle consistency、
+  `git diff --check`、`npm pack --dry-run` 通过。
+
+**适用环境**：DSH Web、Commit Changes、折叠分组、Git stage API。
+
+**长期约束**：
+
+- restage 或任何改变行 group 的动作必须确保目标行可被聚焦；
+- 揭示折叠状态必须复用 `revealChangeRow`/`revealCollapseKeys`；
+- 选择迁移与可见性修复分离：先迁移 identity，再清理 collapse，最后聚焦；
+- path filter、目录折叠和 group 折叠必须统一走同一 focus 闭环。
+
+## 2026-11-20 — ToolbarButton 统一处理 popup 的 ContextMenu/Shift+F10
+
+**作用域**：共享 ToolbarButton、PanelToolbar 直接 action、CompactActionBar、
+Project Options、Commit overflow。
+
+**症状/证据**：
+
+- Project Options 按钮已有 `aria-haspopup=menu`，点击能打开菜单；
+- 键盘聚焦后真实 Shift+F10 不打开菜单；
+- Commit overflow 因自带 onKeyDown 正常工作；
+- 直接由 PanelToolbar 渲染的 ToolbarButton 没有统一 popup 键盘入口。
+
+**根因**：
+
+- popup 按钮的键盘激活逻辑散落在业务组件；
+- ToolbarButton 仅透传 onKeyDown，没有基于 aria-haspopup 的共享行为。
+
+**修复**：
+
+- ToolbarButton 内部先调用业务 onKeyDown；
+- defaultPrevented 时不重复处理；
+- 仅 `aria-haspopup` 为 truthy 的按钮处理 ContextMenu/Shift+F10；
+- 统一调用 `event.currentTarget.click()`，复用原有 click/menu builder；
+- 业务自定义键盘路径仍可优先消费事件，避免双重菜单。
+
+**回归与运行态**：
+
+- `tests/editor-toolbar-popup-keyboard-open.test.mjs`；
+- 更新
+  `tests/editor-toolbarbutton-forwards-menu-keyboard-popup-semantics.test.mjs`；
+- RED：Project Options Shift+F10 无菜单；
+- GREEN：Toolbar/Project/Commit 定向回归 **12 pass / 0 fail**；
+- DSH Web：
+  - Project Options Shift+F10 打开菜单，首项 Refresh；
+  - PageDown 到 Appearance；
+  - Escape 回到 Options；
+  - Commit overflow 只打开一次，Escape 回到 More actions；
+- 完整 `npm test`：**3250 pass / 0 fail**；
+- lint、TypeScript、source imports、Prettier、bundle consistency、
+  `git diff --check`、`npm pack --dry-run` 通过。
+
+**适用环境**：DSH Web、共享 ToolbarButton、PanelToolbar、CompactActionBar。
+
+**长期约束**：
+
+- 所有 `aria-haspopup` 的 ToolbarButton 必须支持 ContextMenu/Shift+F10；
+- 键盘激活必须复用原 onClick 和业务 menu builder，不得复制菜单逻辑；
+- 业务 onKeyDown 先执行且 defaultPrevented 优先；
+- popup opener 的 Escape 必须回到真实按钮，不能落 BODY。
+
+## 2026-11-20 — Commit restage 必须迁移完整多选身份与焦点
+
+**作用域**：Commit Changes 多选菜单、Stage/Unstage、selection key、
+ContextMenu opener、Changes 树焦点。
+
+**症状/证据**：
+
+- 两行 unversioned 文件批量 Add to VCS 后 Git 状态正确进入 staged；
+- 再批量 Unstage 后也正确回到 unversioned；
+- 但旧实现动作后 activeElement 落到 BODY；
+- 原行的 `unstaged:path`/`staged:path` key 随分组改变而失效；
+- 原 DOM 行被卸载，ContextMenu 不能恢复已断开 opener；
+- 新分组行实际存在、tabIndex=0 且可以手动聚焦。
+
+**根因**：
+
+- restage 只刷新 Git 状态，没有把 Changes selection/primary 迁移到新分组；
+- 菜单 cleanup 只会尝试恢复旧 opener，不知道业务 path 的新 staged 身份。
+
+**修复**：
+
+- `selectionAfterRestage` 根据 host status 的 XY：
+  - 收集未 staged 行的 `unstaged:path`；
+  - 收集 staged 行的 `staged:path`；
+  - 为点击 path 返回新 primary；
+- 只有菜单动作显式传 `focusPath` 时才迁移，toolbar/Stage All 不抢焦点；
+- restage 更新完整 selection、primary；
+- 复用 `groupByFocusRef` 的提交后聚焦 effect，并把 `git` 加入依赖；
+- 菜单 Stage/Unstage 调用传入被点击的 `change.path`。
+
+**回归与运行态**：
+
+- `tests/commit-restage-focus-follows-row-to-new-group.test.mjs`；
+- RED：旧 selection key 失效、焦点落 BODY；
+- GREEN：Commit/restage 定向回归 **17 pass / 0 fail**；
+- DSH Web：
+  - 双选 nav-main/nav-target；
+  - Add 2 Files to VCS 后两行 staged=true、selected=true；
+  - nav-target focused=true；
+  - Unstage 2 Selected Files 后两行 staged=false、selected=true；
+  - nav-target 仍 focused=true；
+- 完整 `npm test`：**3249 pass / 0 fail**；
+- lint、TypeScript、source imports、Prettier、bundle consistency、
+  `git diff --check`、`npm pack --dry-run` 通过。
+
+**适用环境**：DSH Web、Commit Changes、共享 ContextMenu、Git stage API。
+
+**长期约束**：
+
+- 任何改变 staged identity 的操作都必须同步迁移 selection/primary；
+- 不得依赖已卸载 DOM opener 恢复业务焦点；
+- 菜单业务动作应把目标 path 传给 restage，由状态提交后的 focus effect 聚焦；
+- 完整多选必须在跨分组后保留，不得退化为只选中点击行；
+- toolbar 等非菜单操作不得因复用 restage 而被意外抢焦点。
+
+## 2026-11-20 — 共享长菜单必须支持 PageUp/PageDown
+
+**作用域**：ContextMenu、Project/Commit/Changes 长菜单、Terminal 屏幕菜单、
+窄视口滚动菜单。
+
+**症状/证据**：
+
+- 500×250 视口中的 Project 菜单已有内部滚动区：
+  clientHeight `232`、scrollHeight `372`；
+- 初始 active item 为 `Harness→`；
+- 按 PageDown 后 active item 与 scrollTop 都没有变化；
+- 共享菜单之前只处理 ArrowUp/ArrowDown/Home/End。
+
+**根因**：
+
+- 分页键没有进入共享 keydown 分支；
+- `menuStep` 没有 PageUp/PageDown 的 bounded page 语义；
+- 浏览器默认滚动不会同步 active item，键盘用户无法确认当前动作。
+
+**修复**：
+
+- `menuStep` 增加 `PageUp`/`PageDown`：
+  - 默认 pageSize=8；
+  - 只遍历 enabled items；
+  - 首尾 bounded clamp，不回绕；
+- ContextMenu 的 keydown 识别两个分页键并复用 `menuStep`；
+- Project/Commit 调用方不新增第二套键盘逻辑。
+
+**回归与运行态**：
+
+- `tests/editor-menu-arrow-keys-walk-enabled-rows-wrap.test.mjs`；
+- RED：PageDown 只前进一行，菜单 handler 未捕获分页键；
+- GREEN：菜单/ContextMenu 定向回归 **13 pass / 0 fail**；
+- DSH Web：
+  - PageDown：`Harness→` → `Refresh`，scrollTop `0→11`；
+  - PageUp：`Refresh` → `Harness→`，scrollTop `11→0`；
+  - End：`Copy Path/Reference…`，scrollTop `140`；
+  - Home：`Harness→`，scrollTop `0`；
+- 完整 `npm test`：**3247 pass / 0 fail**；
+- lint、TypeScript、source imports、Prettier、bundle consistency、
+  `git diff --check`、`npm pack --dry-run` 通过。
+
+**适用环境**：DSH Web、共享 ContextMenu、Project/Commit/Terminal 长菜单。
+
+**长期约束**：
+
+- 所有可滚动共享菜单必须同时支持 Arrow/Home/End/PageUp/PageDown；
+- 分页导航只移动到 enabled item，并保持焦点项在滚动视口内；
+- 分页行为必须在共享 `menuStep`/ContextMenu 维护，业务菜单不得复制；
+- 回归必须同时验证 active item 和 scrollTop，不能只看菜单是否仍打开。
+
+## 2026-11-20 — Terminal pane 菜单必须在 xterm 之前 capture 键盘
+
+**作用域**：Terminal split panes、TerminalScreen/xterm helper textarea、
+screen context menu、Shift+F10 / ContextMenu。
+
+**症状/证据**：
+
+- TerminalPanel 左右 pane 已绑定 `openScreenMenuFromKeyboard`；
+- DSH 中右 pane `Terminal input` 获焦后，真实 `Shift+F10` 不打开菜单；
+- 同一 textarea 手工派发可冒泡的合成 keydown 后，菜单正常出现；
+- 因此不是菜单模型或焦点逻辑失效，而是原生事件未到达 React bubble
+  handler。
+
+**根因**：
+
+- xterm helper textarea 是键盘 owner，会在 React bubble 阶段前处理/拦截
+  部分功能键；
+- 面板级 keydown 使用 bubble，错过本组件专用 ContextMenu chord。
+
+**修复**：
+
+- 左右 pane 的菜单监听改为 `onKeyDownCapture`；
+- `terminalScreenMenuKeyboardRequest` 仍只接受无修饰键的 ContextMenu
+  或 Shift+F10；
+- 仅匹配时 preventDefault/stopPropagation，其他按键继续交给 xterm；
+- 菜单模型、动作绑定和焦点恢复代码未复制。
+
+**回归与运行态**：
+
+- `tests/terminal-screen-context-menu-opens-from-keyboard.test.mjs`；
+- RED：源码仍为 `onKeyDown`；
+- GREEN：左右 pane 均使用 `onKeyDownCapture`，定向回归 **8 pass / 0 fail**；
+- DSH Web：
+  - 原生 Shift+F10 打开右 pane 菜单；
+  - 25 个菜单动作；
+  - Clear Prompt 只清右 pane，左 pane 保持不变；
+  - 动作后焦点回到右 pane 的 Terminal input；
+- 完整 `npm test`：**3246 pass / 0 fail**。
+
+**长期约束**：
+
+- 键盘 owner 在 xterm/iframe/canvas 等内部控件时，业务级功能键入口应
+  评估 capture 阶段；
+- capture 只能处理本组件独占 chord，不得吞掉普通终端输入；
+- 浮层动作仍由共享菜单模型和焦点恢复负责，不得在 capture 中重复实现。
+
+## 2026-11-20 — Workspace Picker 只有标题栏可以拖动弹框
+
+**作用域**：Workspace Directory Picker、PickerSurface、共享 FloatingToolPopup
+drag surface。
+
+**症状/证据**：
+
+- `PickerSurface` 把 `onPopupDragStart` 绑在整个内容容器；
+- 路径 label、说明文本等非标题区域也会进入拖动判断；
+- 实际拖动路径 label 可移动整个弹框，只是共享控件过滤无法区分
+  “标题空白”和“业务正文”。
+
+**根因**：
+
+- 业务组件没有明确声明拖动柄，直接复用了整个 surface；
+- 共享 ignore selector 只负责过滤交互控件，不能替业务判断标题区域。
+
+**修复**：
+
+- PickerSurface 的 pointerdown 先检查目标是否位于
+  `[data-dsh-workspace-directory-drag]`；
+- 非标题区域直接返回，不调用共享拖动；
+- 共享 FloatingToolPopup 继续独占实际 move/resize/backdrop 算法。
+
+**回归与运行态**：
+
+- `tests/project-file-tree-reused-by-workspace-directory-picker.test.mjs`；
+- RED：整面 pointerdown 直接绑定拖动；
+- GREEN：标题拖动 `(74,16) → (94,21)`，路径 label 拖动后不动；
+- 完整 `npm test`：**3246 pass / 0 fail**。
+
+**长期约束**：
+
+- 业务浮窗必须明确指定拖动柄，不能把整个内容容器直接当标题栏；
+- 共享组件负责算法和交互控件过滤，业务组件负责声明可拖动区域；
+- 目录树、表单、正文等区域不得因事件冒泡意外移动窗口。
+
+## 2026-11-20 — 模态浮窗 Escape 不得依赖焦点仍在弹框内
+
+**作用域**：FloatingToolPopup、`trapFocus` 模态浮窗、Workspace Directory
+Picker、Find popup。
+
+**症状/证据**：
+
+- 在路径 label 上拖动文本后，activeElement 落到 BODY；
+- Escape 从 BODY 发出时不会冒泡经过弹框 React 根节点；
+- 旧实现只在弹框根 `onKeyDown` 处理 Escape，因此模态弹框无法关闭；
+- 由于弹框使用 `aria-modal=true`，焦点离开弹框后键盘闭环不应中断。
+
+**根因**：
+
+- 模态 Escape 只绑定在 React 浮窗根节点；
+- pointer 文本选择/浏览器焦点回落可以绕过 React 根节点。
+
+**修复**：
+
+- `FloatingToolPopup` 在 `open && trapFocus && onRequestClose` 时注册
+  document 级 bubble keydown；
+- 只处理未被消费、非 IME composing 的 Escape；
+- 子输入/菜单先 `stopPropagation` 时 document fallback 不抢事件；
+- 关闭仍复用原 returnFocusElement 焦点恢复。
+
+**回归与运行态**：
+
+- `tests/project-workspace-directory-picker-focus-escape-return.test.mjs`；
+- RED：无 document keydown fallback；
+- GREEN：activeElement=BODY 时 Escape 关闭 Workspace Picker，焦点返回
+  `Add workspace`；
+- 完整 `npm test`：**3246 pass / 0 fail**。
+
+**长期约束**：
+
+- 模态浮窗的 Escape 必须有 document 级安全兜底，不能假设焦点永远在
+  弹框 React 子树内；
+- 兜底必须尊重 `defaultPrevented` 和 IME composing；
+- 子控件若已消费 Escape，应阻止事件继续传播；
+- 关闭后必须恢复真实 opener，不能把 BODY 留在活动焦点。
+
+## 2026-11-20 — 浮窗拖动只忽略交互控件，不忽略承载容器空白区
+
+**作用域**：FloatingToolPopup drag surface、Search Everywhere 标题行、
+Find、Workspace Directory Picker、共享 tablist/tree/list 容器。
+
+**症状/证据**：
+
+- Search Everywhere 整个标题行绑定 `onPopupDragStart`；
+- 标题行实际命中的普通空白元素是 `role="tablist"`；
+- 旧 `FLOATING_POPUP_MOVE_IGNORE_SELECTOR` 同时包含
+  `[role="tab"]` 和 `[role="tablist"]`；
+- 在 tablist 空白区执行 pointer drag，popup 坐标完全不变；
+- 实际只有标题行左右 padding 约 16px 的狭小区间能拖。
+
+**根因**：
+
+- 拖动忽略规则误把“承载交互控件的容器”和“交互控件本身”当成同一类；
+- Tab 按钮需要排除，但 tablist 的普通空白仍属于可拖动标题区域。
+
+**修复**：
+
+- 从共享 `FLOATING_POPUP_MOVE_IGNORE_SELECTOR` 删除
+  `[role="tablist"]`；
+- 保留 `[role="tab"]`、button、input、tree、listbox、option、
+  menuitem、slider 和 `[data-dsh-file-tree]`；
+- 不在 Search Everywhere 或 Find 内新增第二套拖动判断。
+
+**回归与运行态**：
+
+- `tests/search-floating-popup-drag-ignores-tree-list-options.test.mjs`；
+- 旧 selector 回归先 RED，修复后 GREEN；
+- 相关共享浮窗/目录选择器回归 **13 pass / 0 fail**；
+- DSH Web：
+  - pointer 命中 `role="tablist"` 后仍可拖动；
+  - Search Everywhere 从 `(44,8)` 拖到 `(74,23)`；
+  - Escape 关闭再双 Shift 打开后坐标保持 `(74,23)`；
+  - 反向拖回并清理测试用 geometry；
+  - Find 标题空白拖动和重开恢复同样通过；
+- 完整 `npm test`：**3244 pass / 0 fail**；
+- lint、TypeScript、source imports、Prettier、bundle consistency、
+  `git diff --check`、`npm pack --dry-run` 通过。
+
+**适用环境**：DSH Web、FloatingToolPopup、Search Everywhere、Find、
+Workspace Directory Picker。
+
+**长期约束**：
+
+- 拖动忽略规则只排除真正可交互的控件；
+- 容器自身若不是交互控件，其空白区域必须继续作为拖动柄；
+- 新增可拖动浮窗时应复用共享 selector，不得在业务组件内复制一套
+  `closest(...)` 判断；
+- 拖动回归必须至少验证 pointer 命中角色、坐标变化和关闭重开后的
+  geometry 持久化。
+
+## 2026-11-20 — 共享浮窗的层级与表面样式只能由 FloatingToolPopup 独占
+
+**作用域**：Find popup、Search Everywhere、Workspace Directory Picker、
+FloatingToolPopup、`inline-styles.ts`、`ui/styles.ts` 及共享 ContextMenu。
+
+**症状/证据**：
+
+- backdrop 已同源，均为 `z-index:2499`、`rgba(0,0,0,.28)`；
+- 但 Find popup 运行时为 `z-index:4000`，Search Everywhere 为 `2501`，
+  Workspace Directory Picker 也单独写 `4000`；
+- `inline-styles.ts` 与 `ui/styles.ts` 两份 Find 业务 surface 曾重复维护
+  z-index，且 inline Find 还残留自己的 border、radius、background、
+  box-shadow；
+- 这会让“遮罩已经复用”掩盖浮窗本体仍分叉的问题，后续任何浮层都可能
+  在某个业务入口出现不同层级或边框。
+
+**根因**：
+
+- 共享组件只接管了遮罩、geometry、拖动和缩放，没有接管 z-index；
+- 业务样式同时维护表面视觉与浮层层级，两份 style 模块因此漂移。
+
+**修复**：
+
+- `FloatingToolPopup` 新增并独占：
+  - `FLOATING_TOOL_POPUP_BACKDROP_Z_INDEX = 2499`；
+  - `FLOATING_TOOL_POPUP_Z_INDEX = 2501`；
+- `FLOATING_TOOL_POPUP_SURFACE_STYLE` 统一拥有 z-index、border、radius、
+  background、shadow、overflow；
+- Find、Search Everywhere、Workspace Directory Picker 的业务 surface
+  删除全部 z-index；
+- `inline-styles.ts` 与 `ui/styles.ts` 的 Find surface 删除重复的
+  border/radius/background/box-shadow；
+- 业务组件只保留 flex 布局、文本 token 和自身业务内容。
+
+**回归与运行态**：
+
+- `tests/search-floating-popup-shared-find-search.test.mjs`；
+- `tests/editor-file-extension-history-bounded-unique-newest-first.test.mjs`；
+- `tests/search-find-results-group-once-per-file-retain-occurrence-order.test.mjs`；
+- `tests/project-file-tree-reused-by-workspace-directory-picker.test.mjs`；
+- DSH Web 重新加载后：
+  - Find、Search Everywhere、Workspace Picker 全部 `z-index=2501`；
+  - backdrop 全部 `2499`；
+  - border/radius/background/shadow/overflow 全部一致；
+  - 每个浮窗保留 8 个 resize handle；
+  - Find Filter menu 为 `2600`，`elementFromPoint` 命中菜单，未被
+    浮窗遮挡；
+- 定向共享浮窗/目录选择器回归 **11 pass / 0 fail**；
+- 完整 `npm test`：**3244 pass / 0 fail**；
+- lint、TypeScript、source imports、Prettier、bundle consistency、
+  `git diff --check`、`npm pack --dry-run` 通过。
+
+**适用环境**：DSH Web、React inline styles、Find/Search/Workspace Picker、
+共享 ContextMenu。
+
+**长期约束**：
+
+- 浮窗 z-index、border、radius、background、shadow 和 overflow 只能由
+  `FloatingToolPopup` 维护；
+- 业务 surface 不得再次声明 z-index 或复制浮窗视觉；
+- `inline-styles.ts` 与 `ui/styles.ts` 必须保持相同职责边界，回归必须
+  同时检查两份；
+- 菜单等业务浮层可以有自己的高层级，但必须位于浮窗内部并验证
+  `elementFromPoint` 命中，不能依赖猜测。
+
+## 2026-11-20 — Terminal 字号与 IDEA Light 代码字重最终契约
+
+**作用域**：Terminal 默认/重置/持久化字号、xterm 字体栈、Monaco IDEA
+Light、Find/Search code preview、Annotate、Commit diff。
+
+**症状/风险**：
+
+- Terminal 字号分散在默认值、reset 动作和 persisted 值中，容易只改
+  显示而没有同步迁移用户已有偏好；
+- Monaco 内建规则或局部组件的 `fontWeight: 600/700` 可能重新把代码
+  显示成粗体；
+- 粗体改变行宽、光标密度和 IDEA Light 的代码层级，不能用“颜色相似”
+  代替完整对齐。
+
+**当前事实与修复**：
+
+- `TERMINAL_DEFAULT_FONT_SIZE = 10`，Terminal Options 的 reset 使用
+  同一值；
+- 迁移键为 `dsh-editor.terminal.fontSize.decrementToTenMigrated`；
+  旧值首次读取只减 1，migration 完成后显式增减不再自动改写；
+- Terminal 字体栈独立为
+  `Menlo, Monaco, ui-monospace, SFMono-Regular, Consolas, monospace`；
+- `ideaLightTokenRules()` 只设置 foreground，必要时只设置 italic，
+  不设置 bold；
+- 共享 `injected-css` 对 Monaco `.view-line`、其 all descendants、
+  `.dsh-editor-code-preview-line`、`.dsh-editor-annotate-code` 统一
+  强制 `font-weight: 400 !important`。
+
+**回归与运行态**：
+
+- `tests/terminal-font-size-actions-follow-idea-increase-decrease-reset-semantics.test.mjs`；
+- `tests/editor-code-coloring-idea-light-palette.test.mjs`；
+- `tests/editor-code-coloring-semantic-tokens.test.mjs`；
+- DSH Web：
+  - persisted font size=`10`，migration=`1`；
+  - xterm rows 计算字号=`10px`；
+  - Terminal font family 以 `Menlo, Monaco` 开头；
+  - Monaco=`13px Trebuchet MS`；
+  - keyword=`rgb(0,0,128)`、local variable=`rgb(69,131,131)`、
+    string=`rgb(0,128,0)`；
+  - Monaco、code preview、Annotate 可见 boldCount=`0`。
+- 相关定向回归 **32 pass / 0 fail**；
+- 完整 `npm test`：**3243 pass / 0 fail**；
+- lint、TypeScript、source imports、Prettier、bundle consistency、
+  `git diff --check`、`npm pack --dry-run` 通过。
+
+**适用环境**：macOS、DSH Web、xterm 6、Monaco 0.52.2、IDEA 2026.2
+Light。
+
+**长期约束**：
+
+- Terminal 字号只能从共享常量/迁移入口维护，不得在组件内另写
+  默认值或重复迁移；
+- Terminal 字体栈必须保持 `Menlo, Monaco` 优先，不得跟随 UI/code
+  Trebuchet MS 链；
+- IDEA Light 代码层级只允许 foreground color 与 italic，禁止任何
+  代码 token、行容器、后代或预览局部重新引入 bold；
+- 新增代码展示面必须复用共享 no-bold 门禁和 IDEA Light colorizer，
+  不得自行复制权重或调色板。
+
+## 2026-11-20 — Project 搜索结果选择必须使用过滤后的 row universe
+
+**作用域**：Project speed search、递归 host rows、selection model、
+activeDescendant、点选/多选/Enter。
+
+**症状/证据**：
+
+- 递归搜索找到 30 个文件并显示 `30 project items found`；
+- tree 没有 `aria-activedescendant`；
+- 没有 `aria-selected=true` 行；
+- 点击结果或按 ArrowDown 也不产生选择；
+- 普通已展开树的行选择正常。
+
+**根因**：
+
+- 搜索 hit 和祖先链由 `searchEntryRows()` 合成；
+- `ProjectPanel` 把 hit 交给父级 `selectRow()`，父级却只用未过滤
+  `rows` 校验路径；
+- 合成 hit 不在未过滤 row set 中，被
+  `projectTreeSelectionAfterPointer()` 当未知路径过滤掉。
+
+**修复**：
+
+- `ProjectPanel.selectVisibleRow()` 在搜索打开时把 `visibleRows`
+  作为可选 selection universe 传给父级；
+- `EditorWorkspace.selectRow()` 接受 `selectionRows` 并用于共享
+  selection model；
+- 点选、Cmd/Ctrl 多选、Shift range、上下文菜单与 Enter 都走
+  `selectVisibleRow()`；
+- context menu payload 同步携带 `selectionRows`，批量菜单使用当前
+  可见搜索结果计算操作目标；
+- ProjectPanel 在搜索打开时保存 pre-search selection/primary；取消或
+  close 时恢复，Enter 打开 hit 时清除快照；
+- 正常树不传 override，继续使用原有 rows。
+
+**回归与运行态**：
+
+- `tests/project-speed-search-selection-uses-filtered-row-universe.test.mjs`；
+- 相关 Project 选择/搜索定向测试 **17 pass / 0 fail**；
+- 修复后 activeDescendant 与 selected row 同步到 Alpha-01；
+- ArrowDown 移到 Alpha-02；
+- 两行搜索结果上下文菜单显示 `2 selected` 和 `Delete 2 Items`；
+- 搜索前 README 选中，Esc 后恢复 README active/selected；
+- Enter 打开 hit 后保持 hit selection，不恢复旧 README；
+- Escape 焦点回 tree；
+- Enter 打开 Beta-1、展开祖先并把焦点交还 tree；
+- 临时 fixture 已清理。
+- 完整 `npm test`：**3241 pass / 0 fail**；
+- lint、TypeScript、source imports、Prettier、bundle consistency、
+  `git diff --check`、`npm pack --dry-run` 通过；
+- editor-workspace 保持 12499 行，未突破 12500 行上限。
+
+**适用环境**：DSH Web、Project speed search、递归 host search。
+
+**长期约束**：
+
+- 选择模型必须使用当前可见且可操作的 row universe；
+- 合成搜索结果不得拿未过滤树 rows 做 known-path 校验；
+- selection override 只由拥有 filtered rows 的子组件提供；
+- 普通树、搜索结果和 filtered view 必须继续复用同一 selection model。
+
+## 2026-11-20 — Search Everywhere 结果数必须区分单复数
+
+**作用域**：Search Everywhere live status、Text 搜索结果、中英文 locale。
+
+**症状/证据**：
+
+- 搜索 `RSEARCH_TOKEN_80` 只有 1 个匹配时，状态显示 `1 results`；
+- 81 个匹配时显示 `81 results` 正常。
+
+**根因**：
+
+- 状态只调用 `editor.searchResultCount` 复数模板；
+- locale 没有单项结果 key 或数值分支。
+
+**修复**：
+
+- 新增 `searchResultStatusLabel(count, t)`；
+- count 严格等于 1 时使用 `editor.searchResultCountOne`；
+- 其他非负整数使用 `editor.searchResultCount` 与归一化 count；
+- 中英文增加对应 `searchResultCountOne`。
+
+**回归与运行态**：
+
+- `tests/search-everywhere-single-result-uses-singular-status.test.mjs`；
+- 相关 Search Everywhere 定向测试 **5 pass / 0 fail**；
+- DSH：单项 `1 result`，81 项 `81 results`，均无 Loading 残留；
+- 大规模结果 Test 同时验证 activeDescendant、长行 Preview 和快速 query
+  替换不会由旧请求覆盖。
+- 完整 `npm test`：**3239 pass / 0 fail**；
+- lint、TypeScript、source imports、Prettier、bundle consistency、
+  `git diff --check`、`npm pack --dry-run` 通过。
+
+**适用环境**：DSH Web、Search Everywhere、中英文 locale。
+
+**长期约束**：
+
+- 面向用户的数量文案必须处理 0/1/N，不得只提供复数模板；
+- 单复数 helper 必须只归一化一次 count，状态组件不得再复制分支；
+- 大量结果和单项结果必须共用同一个 live status 入口。
+
+## 2026-11-20 — Annotate 源码必须复用共享 IDEA 代码着色组件
+
+**作用域**：Annotate 200 行 blame 窗口、源码行、IDEA Light token、
+语义变量/方法/字符串颜色、代码字重。
+
+**症状/证据**：
+
+- Annotate gutter、hash 和打开提交都正常，但源码列是纯文本；
+- DSH 运行态只有 `rgb(15,17,21)`，没有 keyword、变量和字符串颜色；
+- 与 Find/Search、Monaco、Combined Diff 的 IDEA 着色不一致。
+
+**根因**：
+
+- `AnnotatePreview` 直接把 `row.content` 放进 `<code>`；
+- 没有复用已经存在的 Monaco preview colorizer 和共享代码文本组件。
+
+**修复**：
+
+- Annotate 将 200 行 blame 内容组成数组，交给
+  `useCodePreviewColorizedLines(lines, target.path)`；
+- 每行使用共享 `CodePreviewCode` 渲染 HTML fragment；
+- 保留 `<code className='dsh-editor-annotate-code'>`、gutter、行高和
+  选中行语义；
+- 禁止在 Annotate 内另写 tokenizer、调色板或粗体规则。
+
+**回归与运行态**：
+
+- `tests/commit-annotate-preview-reuses-shared-idea-code-colorizer.test.mjs`；
+- 相关 Annotate/着色定向测试 **28 pass / 0 fail**；
+- DSH：
+  - keyword `rgb(0,0,128)`；
+  - 变量 `rgb(69,131,131)`；
+  - string `rgb(0,128,0)`；
+  - weight 全部 400；
+  - code 13px / 20px，annotate row 20px；
+  - gutter 仍是可点击的 commit opener。
+- 完整 `npm test`：**3237 pass / 0 fail**；
+- lint、TypeScript、source imports、Prettier、bundle consistency、
+  `git diff --check`、`npm pack --dry-run` 通过。
+
+**适用环境**：DSH Web、Annotate、Monaco 0.52.2、IDEA 2026.2 Light。
+
+**长期约束**：
+
+- 任何新的源码预览面都必须复用共享 colorizer/CodePreviewCode；
+- Annotate 不得直接输出未着色的 `row.content`；
+- colorizer 输入必须维持 host 的 200 行窗口上限，避免整文件扫描；
+- 代码字重继续由共享 400 门禁负责，不能借助 bold 补层级。
+
+## 2026-11-20 — Search Everywhere 的 Escape 必须由弹框统一兜底
+
+**作用域**：Search Everywhere dialog key handling、Preview/工具栏按钮、
+查询框、结果列表、Item Info 多层 surface。
+
+**症状/证据**：
+
+- 打开 Search Everywhere，输入 `endValue` 并启用 Preview；
+- Preview 按钮持有焦点时连续按 Escape 两次，弹框都不关闭；
+- 焦点只在查询框或结果列表时 Escape 才关闭。
+
+**根因**：
+
+- 查询框和结果列表各自处理 Escape；
+- dialog 根 handler 只在 `resultInfo !== null` 时处理 Escape，没有为
+  toolbar、history 等其余焦点所有者提供默认 dismiss。
+
+**修复**：
+
+- 新增 `searchEverywhereEscapeTarget(resultInfoOpen)`；
+- Item Info 打开时第一下 Escape 只关闭 Item Info；
+- 其余所有 dialog 内焦点都调用 `dismissSearchEverywhere()`；
+- 子输入框/菜单继续先 `stopPropagation` 处理自己的 Escape。
+
+**回归与运行态**：
+
+- `tests/search-everywhere-escape-closes-dialog-from-toolbar.test.mjs`；
+- 相关搜索/对话框定向测试 **19 pass / 0 fail**；
+- DSH：Preview 按钮持焦时 Escape 关闭弹框，随后焦点恢复原 Monaco
+  `textarea[aria-label="编辑器内容"]`；
+- 预览语义变量色 `rgb(69,131,131)`，全部代码节点
+  `font-weight: 400`。
+- 完整 `npm test`：**3235 pass / 0 fail**；
+- lint、TypeScript、source imports、Prettier、bundle consistency、
+  `git diff --check`、`npm pack --dry-run` 通过。
+
+**适用环境**：DSH Web、Search Everywhere、Preview 工具栏。
+
+**长期约束**：
+
+- 弹框根的 Escape 必须有统一兜底，不能只依赖查询框或列表；
+- Item Info 等瞬态内层只允许消费第一下 Escape；
+- 关闭后必须恢复记录的真实 opener，不得停留在 BODY。
+
+## 2026-11-20 — 代码着色只表达颜色/斜体，禁止 bold
+
+**作用域**：Monaco 编辑器、Find/Search 轻量代码预览、Commit diff、
+Annotate、IDEA Light token/theme rules。
+
+**症状/风险**：
+
+- 语法着色容易从 Monaco 内建 token 或局部的
+  `fontWeight: 600/700` 继承粗体；
+- 一旦粗体会改变 IDEA Light 的行宽、光标密度和代码视觉层级，
+  不能再用“颜色对齐了”冒充完整对齐。
+
+**根因**：
+
+- 着色和字重是两个独立关注点；
+- Monaco 未显式覆盖的 token 仍可能继承宿主主题的粗体规则；
+- 各代码预览面若分别维护字重，会再次产生多份不一致实现。
+
+**修复与长期约束**：
+
+- `ideaLightTokenRules()` 只设置 IDEA 前景色，必要时只设置
+  `fontStyle: 'italic'`；
+- 共享 `injected-css` 代码面门禁对 Monaco `.view-line` 及其后代、
+  `.dsh-editor-code-preview-line`、`.dsh-editor-annotate-code` 强制
+  `font-weight: 400 !important`；
+- 禁止在代码 token、代码预览 span、diff/annotate 源码行上新增
+  `fontWeight: 600/700` 或 `font-weight: bold`；
+- 需要表达 IDEA 层级时使用颜色或斜体，不用粗体；
+- 新增任何代码着色面必须复用上述共享门禁和回归测试。
+
+**回归与运行态**：
+
+- `tests/editor-code-coloring-idea-light-palette.test.mjs`；
+- `tests/editor-code-coloring-semantic-tokens.test.mjs`；
+- DSH 运行态：keyword `rgb(0,0,128)`、local variable
+  `rgb(69,131,131)`、string `rgb(0,128,0)`；Monaco 代码行及 token
+  全部 `font-weight: 400`。
+
+**适用环境**：DSH Web、Monaco 0.52.2、IDEA 2026.2 Light。
+
+## 2026-11-20 — Terminal 字号迁移必须一次性且带版本门
+
+**作用域**：Terminal 默认字号、localStorage 持久化、
+increase/decrease/reset 菜单动作。
+
+**症状/证据**：
+
+- Terminal 默认字号仍为 11，已持久化用户即使升级也不会变小；
+- 只修改默认常量会让 old localStorage 继续固定旧字号。
+
+**修复**：
+
+- `TERMINAL_DEFAULT_FONT_SIZE` 从 11 下调为 10；
+- 使用新的 migration key
+  `dsh-editor.terminal.fontSize.decrementToTenMigrated`；
+- 首次读取将持久化值减 1，并立即写入迁移标记；后续读取保持稳定，
+  不会每次递减；
+- reset 恢复新默认值 10，字号仍限制在 8–24。
+
+**回归与运行态**：
+
+- `tests/terminal-font-size-actions-follow-idea-increase-decrease-reset-semantics.test.mjs`；
+- 运行态 localStorage 旧值 13 一次性迁移为 12，迁移后 xterm
+  实际行字号为 12px；
+- 字体仍是 `Menlo, Monaco, ui-monospace, SFMono-Regular, Consolas, monospace`；
+- 重新读取不重复递减；Terminal Options 的增大/减小/重置语义不变。
+
+**适用环境**：DSH Web、xterm 6.0.0、Terminal dock。
+
+**长期约束**：
+
+- 字号全量迁移必须新增 migration key，禁止复用旧 key 或每次读取递减；
+- 调整默认字号时必须同时覆盖无存储、旧存储和无数字异常值；
+- Terminal 字号变化后必须重新 fit 并同步 PTY grid。
+
+## 2026-11-20 — 容器持焦 Project 树必须声明 active descendant
+
+**作用域**：FileTreeView、Project multi-selection、折叠后 primary、
+ARIA tree 容器焦点。
+
+**症状/证据**：
+
+- Project 树 ⌘多选 README.md + src/nav-main.js：
+  - 两行都 `aria-selected=true`；
+  - tree 容器拥有焦点；
+  - rows 全部 `tabIndex=-1`；
+  - 但容器没有 `aria-activedescendant`；
+- 辅助技术无法知道 primary/active 行是哪一条。
+
+**修复**：
+
+- FileTreeView 用 `React.useId()` 生成稳定 tree id；
+- 非 placeholder row 生成 `${treeId}-row-${index}`；
+- 根据 `primaryPath` 计算 active descendant；
+- tree 容器设置 `aria-activedescendant`；
+- 保留容器单 tab stop 与 `aria-multiselectable=true`。
+
+**回归与运行态**：
+
+- `tests/project-plain-project-tree-click-replaces-every-prior-selection.test.mjs`；
+- DSH：
+  - activeDescendant 指向 nav-main.js row；
+  - 两行 selected；
+  - 容器保持焦点；
+  - 折叠 src 后 activeDescendant 指向 src；
+  - selection=`src + README.md`；
+  - 隐藏 nav-main 不复活；
+  - alert 为空；
+- 完整 `npm test`：**3233 pass / 0 fail**；
+- lint、TypeScript、source imports、Prettier、bundle consistency、
+  `git diff --check`、`npm pack --dry-run` 通过。
+
+**适用环境**：DSH Web、Project tree、ARIA tree 容器焦点模式。
+
+**长期约束**：
+
+- 容器持焦的 tree 必须提供 `aria-activedescendant`；
+- row id 必须稳定且与 primaryPath 同步；
+- primary 不可见/被折叠时，active descendant 必须收敛到可见目录行；
+- 多选 selected 状态完整，但 active descendant 只能有一个。
+
+## 2026-11-20 — 多选树必须报告完整 aria-selected 集合并声明 multiselectable
+
+**作用域**：Change tree、Project shared FileTreeView、primary/secondary
+selection、roving tab stop。
+
+**症状/证据**：
+
+- Change 树 ⌘多选 README.md + src/nav-main.js；
+- 两行分别有 primary selected 和 secondary range/active 视觉；
+- 但只有 primary 行 `aria-selected=true`；
+- secondary 行 `aria-selected=false`，屏幕阅读器会误报为单选；
+- 树容器没有 `aria-multiselectable=true`。
+
+**根因**：
+
+- row 的 `aria-selected` 只绑定 primary-only `selectedForChange`；
+- 完整 selection set 的 `selectedInRange` 只用于样式和 range 操作。
+
+**修复**：
+
+- Change file row：
+  `aria-selected={selectedInRange || selectedForChange}`；
+- primary 继续是唯一 `tabIndex=0`；
+- secondary 继续 `tabIndex=-1`，保留 range/active 视觉；
+- Changes tree 与 Project FileTreeView 增加
+  `aria-multiselectable={true}`。
+
+**回归与运行态**：
+
+- `tests/commit-changes-rows-track-range-selection-separately-commit-checkboxes.test.mjs`；
+- `tests/project-plain-project-tree-click-replaces-every-prior-selection.test.mjs`；
+- DSH：
+  - tree `aria-multiselectable=true`；
+  - 两行均 `aria-selected=true`；
+  - primary nav-main.js `tabIndex=0` 并获焦；
+  - secondary README.md `tabIndex=-1`；
+  - alert 为空；
+- 完整 `npm test`：**3233 pass / 0 fail**；
+- lint、TypeScript、source imports、Prettier、bundle consistency、
+  `git diff --check`、`npm pack --dry-run` 通过。
+
+**适用环境**：DSH Web、Change/Project trees、keyboard accessibility。
+
+**长期约束**：
+
+- `aria-selected` 必须反映完整 selection set，不得只反映 primary；
+- primary/secondary 视觉可不同，但 accessibility selected 状态必须完整；
+- roving tab stop 仍只允许 primary `tabIndex=0`；
+- 所有多选树容器必须声明 `aria-multiselectable=true`。
+
+## 2026-11-20 — 冲突 marker 使用 IDEA DIFF_CONFLICT 背景
+
+**作用域**：Git conflict marker 行、DiffPreview decoration、
+IDEA Light/Dark Default scheme、build-client helper 注册。
+
+**证据**：
+
+- IDEA 2026.2 Default：
+  - Light `DIFF_CONFLICT.BACKGROUND=ffd5cc`；
+  - Dark `DIFF_CONFLICT.BACKGROUND=45302b`；
+- 修复前 ours/theirs marker 与普通文本完全同色。
+
+**修复**：
+
+- 新增 `conflict-marker-model.ts`：
+  - 只识别行首 7 个 `<` / `=` / `>`；
+  - 支持 ours/theirs 后缀；
+- DiffPreview 对 original/modified 两侧创建 whole-line
+  `dsh-editor-conflict-marker-line` decoration；
+- collection 在 reload/unmount 时清理；
+- injected-css 使用 IDEA Light/Dark conflict background；
+- build-client manifest 注册新 helper。
+
+**回归与运行态**：
+
+- `tests/editor-conflict-marker-idea-conflict-background.test.mjs`；
+- 两个临时 UU 文件：
+  - 每个冲突单行呈现；
+  - marker 行背景 `rgb(255,213,204)`；
+  - weight 400；
+  - 多选 Resolve → Accept Theirs 后两个冲突均解除；
+  - CONFLICT badge=0；
+  - primary 行保持选中和焦点；
+- 完整 `npm test`：**3232 pass / 0 fail**；
+- lint、TypeScript、source imports、Prettier、bundle consistency、
+  `git diff --check`、`npm pack --dry-run` 通过。
+
+**适用环境**：DSH Web、Monaco 0.52.2、Git conflict diff。
+
+**长期约束**：
+
+- conflict marker 视觉只加在 marker 行，不覆盖普通 diff 行语义；
+- marker 识别必须精确，不能把 Markdown/正则里的 `=======` 当作 Git
+  conflict；
+- light/dark 必须使用 IDEA 显式 scheme 值；
+- 新 helper 注册进 build-client manifest，并由 client-build gate 验证。
+
+## 2026-11-20 — 冲突文件必须在 Change 模型中只呈现一次
+
+**作用域**：Git porcelain `UU` 等冲突状态、`splitChanges()`、
+Change 树 staged/unstaged bands、Stage All 目标。
+
+**症状/证据**：
+
+- 三阶段 index 制造 `UU conflict-probe.txt`；
+- 修复前 Change 树同时显示：
+  - Staged 一条，staged=true；
+  - Unstaged 一条，staged=false；
+  - 两条都有 CONFLICT；
+- 根因是 `splitChanges()` 将 porcelain index/worktree 两侧机械拆开，
+  没有在共享 model 层识别冲突语义。
+
+**修复**：
+
+- `splitChanges()` 对
+  `DD|AU|UD|UA|DU|AA|UU` 特判：
+  - 只进入 unstaged；
+  - 复制时强制 `staged:false`；
+  - 原始 status 保留，conflict badge/actions 不受影响；
+- `stageAllTargets()` 排除冲突状态；
+- 冲突正则内联在两个自包含纯函数中，避免单测抽取依赖缺失。
+
+**回归与运行态**：
+
+- `tests/commit-typescript-diff-helpers-preserve-staged-toolbar-navigation-behavior.test.mjs`
+  覆盖 UU 单行身份和 Stage All 排除；
+- DSH fixture：
+  - 冲突只出现一次，staged=false；
+  - Show diff 正常；
+  - Resolve Conflicts → Accept Yours 后 CONFLICT=0；
+  - 文件变为普通 staged 行并保持选中；
+  - alert 为空；
+- 临时 index stages 和文件已清理；
+- 完整 `npm test`：**3228 pass / 0 fail**；
+- lint、TypeScript、source imports、Prettier、bundle consistency、
+  `git diff --check`、`npm pack --dry-run` 通过。
+
+**适用环境**：DSH Web、Git conflict、Change tree。
+
+**长期约束**：
+
+- 冲突文件是单一“未解决工作区目标”，不得同时复制到 staged/unstaged；
+- 去重只能改变 band/staged 身份，不得改写原始 porcelain status；
+- Stage All 只处理可自动 stage 的普通工作区改动，排除 conflict；
+- 冲突判断必须由共享 change model 负责，禁止在 UI 行组件重复补丁。
+
+## 2026-11-20 — Combined Diff 语法着色必须有字符预算和取消门
+
+**作用域**：Combined Diff 100 文件上限、original/modified 双侧
+`editor.colorize()`、semantic decoration、target/reload/unmount 取消。
+
+**风险/证据**：
+
+- host 允许一次 combined diff 最多 100 个文件；
+- 原实现对左右两侧逐文件无条件 colorize：
+  - 超大文件和 100 文件聚合会产生大量 HTML/text-node/semantic
+    range；
+  - effect target 切换后，异步任务仍继续处理剩余文件；
+- 没有单文件或聚合字符上限。
+
+**修复**：
+
+- `combined-diff-color-model` 新增共享预算：
+  - `COMBINED_DIFF_COLOR_MAX_FILE_CHARS = 64 KiB`；
+  - `COMBINED_DIFF_COLOR_MAX_TOTAL_CHARS = 512 KiB`；
+- `takeCombinedDiffColorBudget()` 在超限时不消费剩余预算；
+- DiffPreview 在 colorize 前消费预算，超限文件正文仍显示，只跳过着色；
+- 每个文件 colorize 前后检查 `cancelled`，target/reload/unmount 时
+  尽快停止；
+- 已创建 decoration collection 继续通过 effect cleanup 清理。
+
+**回归与运行态**：
+
+- `tests/commit-combined-diff-idea-syntax-coloring.test.mjs`：
+  - 单文件超限；
+  - 聚合剩余不足；
+  - 正好用尽仍允许；
+  - DiffPreview 预算/取消接线；
+- 小文件 combined diff 运行态保持：
+  - variable `rgb(69,131,131)`；
+  - method `rgb(145,76,7)`；
+  - heading 黑色；
+  - boldCount=0；
+- 完整 `npm test`：**3228 pass / 0 fail**；
+- lint、TypeScript、source imports、Prettier、bundle consistency、
+  `git diff --check`、`npm pack --dry-run` 通过。
+
+**适用环境**：DSH Web、Monaco 0.52.2、Combined Diff。
+
+**长期约束**：
+
+- combined diff 的语法着色必须有单文件/聚合预算，不能对任意大 aggregate
+  做无界 colorize；
+- 超预算只能跳过 decoration，不得清空或改写正文/heading；
+- 长任务在每个文件边界检查取消，不能只依赖最终 Promise 完成后的
+  cancelled 判断；
+- decoration 生命周期仍由 DiffPreview effect 唯一拥有和清理。
+
+## 2026-11-20 — Combined Diff 必须逐文件着色且构建器必须注册 helper
+
+**作用域**：Combined Diff aggregate model、Monaco inline decorations、
+IDEA lexical/semantic token、build-client module manifest。
+
+**症状/证据**：
+
+- Combined Diff 中 README/JS 正文全部黑色；
+- aggregate model 是 `combined-diff.txt` plaintext；
+- 将整文语言改为 javascript 后正文着色，但 heading 也被错误着色；
+- 首次实现装饰 helper 后运行态报：
+  `combinedDiffBodyLines is not defined`；
+- `src` 中 helper 导入正确，但 `lib/client.js` 只有调用：
+  - DSH 使用单文件 factory bundle；
+  - `scripts/build-client.mjs` 维护显式 UI helper module manifest；
+  - 新模块未注册，Babel/TypeScript 通过但 bundle 运行时缺定义。
+
+**修复**：
+
+- 新增 `components/diff/combined-diff-color-model.ts`：
+  - `combinedDiffBodyLines()` 只提取文件正文；
+  - `combinedDiffDecorationSpecs()` 使用 `editor.colorize()`；
+  - 解析 colorized HTML 的 `mtk*` token class；
+  - `combinedDiffSemanticDecorationSpecs()` 使用共享
+    `ideLightTextStyleRanges()` 补 variable/method/global 等语义色；
+- `DiffPreview` 为 original/modified 两侧创建 decoration collection：
+  - 处理 swapSides；
+  - 新加载、effect cleanup、异步取消时 dispose/clear；
+  - 不修改 aggregate model language；
+- `editor-theme-model` 新增共享 semantic decoration class/CSS rules；
+- `scripts/build-client.mjs` 注册
+  `components/diff/combined-diff-color-model.ts`。
+
+**回归与运行态**：
+
+- `tests/commit-combined-diff-idea-syntax-coloring.test.mjs`：
+  - body 排除 heading；
+  - helper 使用 shared semantic classes；
+  - DiffPreview 两侧接线/dispose；
+  - build manifest 注册；
+- DSH Combined Diff：
+  - heading 黑色；
+  - keyword `#000080`；
+  - global `#660e7a` italic；
+  - variable `#458383`；
+  - method `#914c07`；
+  - string `#008000`；
+  - boldCount=0；
+- 完整 `npm test`：**3227 pass / 0 fail**；
+- lint、TypeScript、source imports、Prettier、bundle consistency、
+  `git diff --check`、`npm pack --dry-run` 通过。
+
+**适用环境**：DSH Web、Monaco 0.52.2、Combined Diff、Ego Browser。
+
+**长期约束**：
+
+- Combined Diff 的颜色只能加在文件正文 decoration 上，不能把整个
+  aggregate plaintext model 强制切成某一种语言；
+- lexical decoration 只负责 lexer class，semantic 色彩必须继续复用
+  `ideLightTextStyleRanges()` 和共享 class；
+- decoration collection 必须按 side 创建并在 target/reload/unmount 时
+  clear；
+- 新增 JSX/TSX 依赖的 helper 模块必须同步注册 build-client UI module
+  manifest；`npm run check:client-build`/运行态加载是必需门禁。
+
+## 2026-11-20 — 轻量预览必须绑定 IDEA 主题并补齐语义前景色
+
+**作用域**：Find in Files / Search Everywhere 代码预览、
+Monaco `editor.colorize()`、IDEA semantic token 颜色、match highlight。
+
+**症状/证据**：
+
+- Find preview 搜索 `endValue`：
+  - keyword `#000080`、string `#008000` 正确；
+  - local variable `endValue` 仍为黑色；
+- 搜索 `encodeSse` 时 lexical 预览能着色，但变量/方法等 TypeScript
+  semantic 分类没有进入轻量 DOM；
+- `monaco.editor.colorize()` 只使用 lexer token，不运行真实 editor
+  model 的 document semantic provider；
+- 原实现也未显式把它绑定到共享 IDEA Light global theme。
+
+**修复**：
+
+- `useCodePreviewColorizedLines()` 在 colorize 前调用：
+  `monaco.editor.setTheme(ensureEditorTheme(monaco))`；
+- `editor-theme-model` 新增共享：
+  - `ideaLightSemanticTokenStyle()`；
+  - `ideaLightTextStyleRanges()`；
+- semantic 范围从现有 TS/JS heuristic provider 产生，颜色直接引用
+  `IDEA_LIGHT_TOKEN_COLORS`；
+- `CodePreviewCode` 在 colorized HTML 写入后应用 semantic range；
+- semantic 范围和 Find match 共用同一个文本 range 包裹 helper：
+  - semantic span 先上前景色/italic；
+  - match span 后上背景；
+  - 最终前景色不被 match 覆盖。
+
+**回归与运行态**：
+
+- `tests/editor-code-coloring-idea-light-palette.test.mjs`：
+  - colorizer 必须绑定 `ensureEditorTheme`；
+- `tests/editor-code-coloring-semantic-tokens.test.mjs`：
+  - preview variable `#458383`；
+  - preview method `#914c07`；
+- `tests/commit-codepreviewcode-reusable-tsx-preview-component.test.mjs`：
+  - component 接线 shared ranges/painter；
+- DSH Find preview：
+  - keyword `rgb(0,0,128)`；
+  - string `rgb(0,128,0)`；
+  - variable `rgb(69,131,131)`；
+  - method `rgb(145,76,7)`；
+  - imported global `rgb(102,14,122)` italic；
+  - boldCount=0，alert 为空；
+- 完整 `npm test`：**3221 pass / 0 fail**；
+- lint、TypeScript、source imports、Prettier、bundle consistency、
+  `git diff --check`、`npm pack --dry-run` 通过。
+
+**适用环境**：macOS、DSH Web、Monaco 0.52.2、Find/Search preview。
+
+**长期约束**：
+
+- 所有轻量代码预览先绑定 `ensureEditorTheme(monaco)`，不得依赖
+  Monaco 当前偶然的 global theme；
+- lexical colorizer 不能代替 semantic coloring；变量、方法、属性、
+  class/type 等必须通过共享 heuristic semantic range 补齐；
+- preview semantic foreground 与 Find match background 必须分层，
+  复用同一文本 range wrapper，禁止复制新的 HTML 字符串替换器；
+- XML/HTML/CSS/Markdown token 需要 IDEA 真实 scheme 证据后再映射，
+  不得用近似色猜测。
+
+## 2026-11-20 — Annotate 必须显示 blame 源码，代码行高必须带 px
+
+**作用域**：Git blame porcelain、AnnotatePreview、Annotate gutter、
+共享代码字号/行高 token、React inline style。
+
+**症状/证据**：
+
+- DSH 打开已提交文件 Annotate 后只有作者、日期、hash、行号，
+  代码区为空；
+- `git blame --porcelain` 每条记录末尾实际包含 `\t<source>`；
+- `parseBlamePorcelain()` 只读取 header 元数据，随后无条件跳过
+  content line；
+- `AnnotateLine` 数据模型没有 `content`，客户端无法显示源码；
+- 首版修复后 computed line-height 为 `260px`：
+  - 代码写成了数值 `lineHeight: 20`；
+  - React/CSS 把无单位数字解释为倍数，不是像素。
+
+**修复**：
+
+- blame parser 保存 tab 后内容，空行保留空字符串；
+- `AnnotateLine.content` 进入共享数据模型；
+- 每行拆成：
+  - 原生 button gutter：author/date/hash/line，点击打开 commit log；
+  - 可选择 code 文本：源码本体；
+- code 使用共享：
+  - `EDITOR_CODE_FONT`；
+  - `EDITOR_CODE_FONT_SIZE = 13`；
+  - `EDITOR_CODE_LINE_HEIGHT = 20`，显式拼接 `px`；
+  - weight 400；
+- `.dsh-editor-annotate-code` 与后代加入共享 no-bold CSS 门禁。
+
+**回归与运行态**：
+
+- `tests/commit-blame-attributes-each-line-commit-introduced.test.mjs`：
+  - porcelain content；
+  - gitBlame content；
+  - Annotate code class；
+- `tests/commit-annotatepreview-reusable-tsx-diff-component.test.mjs`：
+  - gutter button；
+  - source content；
+  - aria-label；
+- `tests/editor-inline-style-tokens-scalar-values-representative-layout-defaults.test.mjs`：
+  - annotate code 13px；
+  - lineHeight 必须为字符串 `20px`；
+- RED/GREEN 覆盖 content 丢失与数值 lineHeight；
+- DSH Web：
+  - 源码 `export const endValue = "end";` 可见；
+  - 13px / 20px / weight 400；
+  - gutter 140×20 原生 button；
+  - 点击 gutter 后 Log 选中 `8d5451a`，Annotate 状态保留；
+  - alert 为空；
+- 完整 `npm test`：**3219 pass / 0 fail**；
+- lint、TypeScript、source imports、Prettier、bundle consistency、
+  `git diff --check`、`npm pack --dry-run` 通过。
+
+**适用环境**：macOS、DSH Web、Git、React inline styles、Ego Browser。
+
+**长期约束**：
+
+- Annotate 必须同时保留 blame 元数据和真实源码；不能只做提交信息列表；
+- gutter 的 commit 跳转是按钮职责，源码文本是独立可选择内容，不在
+  行级 `onClick` 中混用；
+- React inline style 的 `lineHeight` 若来自像素 token，必须显式生成
+  `${value}px`，禁止把像素数值直接作为无单位 line-height。
+
+## 2026-11-20 — Terminal 生效字号再降 1 与代码 bold 根门禁
+
+**作用域**：DSH Terminal Options 字号、Monaco IDEA Light 代码面、
+代码预览、bold 防回归。
+
+**用户要求**：
+
+- Terminal 字体在当前显示基础上再调小 1 号；
+- 代码着色继续对齐 IDEA Light；
+- 代码字体不得加粗；
+- 写入工程记忆，后续不得重新引入 bold。
+
+**症状/证据**：
+
+- DSH 当前 `dsh-editor.terminal.fontSize=14`；
+- 左右 Terminal rows 计算字号均为 14px；
+- 字号已处于完成迁移状态，不能依赖旧迁移标记再次自动下调；
+- Monaco 当前行容器和 span 虽为 400，但共享 CSS 只点名
+  `.view-lines span`，没有覆盖 `.view-line` 容器及未来新增包装元素；
+- Compute Use 能发现 IntelliJ 进程，但绑定窗口返回
+  `cgWindowNotFound`；打开项目时 Prettier 插件抛 NPE 并关闭项目，
+  本轮无法取得新的 IDE 可视化截图。
+
+**修复**：
+
+- 通过 Terminal Options → Decrease Font Size 将当前 persisted 值
+  14 调为 13，不修改共享默认值 11；
+- 保持 Terminal 字体栈：
+  `Menlo, Monaco, ui-monospace, SFMono-Regular, Consolas, monospace`；
+- 共享 `injected-css.ts` 的代码 bold 门禁扩展为：
+  - Monaco `.view-lines`；
+  - `.view-lines .view-line`；
+  - `.view-lines .view-line *`；
+  - code preview line 及其所有后代；
+- IDEA Light foreground 色值和 comment/global variable/function 的
+  italic 均未改动。
+
+**回归与运行态**：
+
+- `tests/editor-code-coloring-idea-light-palette.test.mjs` 新增
+  `.view-line` 容器及后代无 bold 断言；
+- RED：旧 CSS 只有 span 规则，新增断言失败；
+- GREEN：定向着色与 Terminal 回归 **20 pass / 0 fail**；
+- DSH Web：
+  - Terminal stored size 14→13；
+  - 左右 rows 均为 13px/18px；
+  - 左右 pane 均发出 PTY resize；
+  - activeElement 回到 xterm helper textarea；
+  - Monaco view-line/span 全部 weight=400、boldCount=0；
+  - 代码字体 Trebuchet MS、字号 13px。
+- 完整 `npm test`：**3218 pass / 0 fail**；
+- lint、TypeScript、source imports、Prettier、bundle consistency、
+  `git diff --check` 与 `npm pack --dry-run` 通过。
+
+**适用环境**：macOS、DSH Web、Ego Browser、Monaco 0.52.2、
+IntelliJ IDEA 2026.2 Light。
+
+**长期约束**：
+
+- IDEA Light 代码层级只允许用 foreground color 和 italic 表达语义，
+  禁止任何代码 token、行容器或后代使用 bold；
+- no-bold 必须由共享 CSS 根门禁和调色板回归共同保证，禁止在单个
+  组件、token 调用方或代码预览局部重复补权重；
+- Terminal 字号是独立用户偏好：单次视觉降号应通过 Terminal Options
+  更新 persisted 值，不得误改共享默认值或字体栈。
+
+## 2026-11-20 — Terminal 字号变化必须同步 PTY 网格与焦点
+
+**作用域**：TerminalScreen fit、PTY resize、Terminal Options 字号动作、
+split pane 焦点。
+
+**症状/证据**：
+
+- Terminal split 左右 pane，字号 12px；
+- 对 `api/dsh-editor/terminal` resize 请求打桩；
+- dock 与 split 拖动能产生 resize；
+- Terminal Options → Increase Font Size 后：
+  - xterm 字号变为 13px、画面尺寸重排；
+  - resize 请求数组为空；
+  - activeElement 不再位于 terminal pane；
+- 根因：
+  - 字号 effect 只更新 `options.fontSize` 并 `fit()`；
+  - cols/rows clamp、onGrid 与 PTY resize 只存在于容器 ResizeObserver；
+  - 字号菜单只更新 state，没有恢复 terminal focus；
+  - unsplit 的 focusPane 分支提前 return，没有 focus 左 pane。
+
+**修复**：
+
+- TerminalScreen 抽出共享 `measureGrid()`：
+  - fit；
+  - clamp cols/rows；
+  - 去重；
+  - onGrid；
+  - callTerminal resize；
+- 容器 ResizeObserver 与 fontSize effect 共用该 callback；
+- TerminalPanel 抽出 `updateTerminalFontSize()`，更新字号后把焦点还给
+  当前 focused pane；
+- focusPane 在 unsplit 时也 focus 左 emulator。
+
+**回归与运行态**：
+
+- 新增 `tests/terminal-font-change-resizes-pty-and-refocuses-pane.test.mjs`；
+- RED：共享 measureGrid 与 font action focus 缺失；
+- GREEN：定向 Terminal font/resize/focus 回归 **13 pass / 0 fail**；
+- DSH Web 字号 13→14：
+  - 左右两个 pane 都发出 PTY resize；
+  - 左 pane cols=9 rows=13；
+  - 右 pane cols=22 rows=12；
+  - activeRole=`right`，activeTag=`TEXTAREA`；
+- 完整 `npm test`：**3217 pass / 0 fail**；
+- lint、TypeScript、Prettier、bundle consistency、`git diff --check` 与
+  `npm pack --dry-run` 通过。
+
+**适用环境**：macOS、DSH Web、Ego Browser、Terminal split pane。
+**长期约束：任何会改变 xterm cell grid 的操作（font size、容器 resize）
+都必须复用同一 measureGrid 路径并通知 PTY；字号菜单动作结束后焦点必须
+回到当前 terminal pane。**
+
+## 2026-11-20 — Project 折叠目录必须清理隐藏的 secondary 选择
+
+**作用域**：Project tree 多选、目录 disclosure、secondary selected
+descendants、重新展开后的选择恢复。
+
+**症状/证据**：
+
+- 先选 `src/nav-main.js`，⌘点选 `README.md`，primary 为 README；
+- 折叠 `src` 后当前可见 selected 只有 README；
+- 再展开 `src`，`nav-main.js` 又恢复 selected/extended class；
+- 根因是 disclosure 只在 primary 位于目录内时裁剪；
+  primary 在目录外时，隐藏的 secondary 选择被完整保留。
+
+**修复**：
+
+- 裁剪 helper 增加 `includeDirectory` 参数：
+  - 默认保持原行为；
+  - secondary-only 场景只删除目录后代，不凭空加入目录；
+  - 目录原本已选时仍保留目录；
+- disclosure 在目录内存在任何选中后代时都应用裁剪；
+- nextPrimary：
+  - primary 是后代 → 目录行；
+  - primary 在目录外 → 原 primary；
+- selection/primary/anchor 通过 `applyTreeSelection` 一次提交。
+
+**回归与运行态**：
+
+- 扩展 `tests/project-collapsing-selected-child-keeps-visible-primary-row.test.mjs`；
+- RED：helper 第三参数与 secondary-only 裁剪缺失；
+- GREEN：定向 Project selection/disclosure/module 回归 **17 pass / 0 fail**；
+- DSH Web：
+  - 折叠前 selected=`nav-main.js(secondary) + README.md(primary)`；
+  - 折叠中 selected=`README.md`；
+  - 再展开后仍只有 `README.md`，nav-main 不再复活；
+- 完整 `npm test`：**3215 pass / 0 fail**；
+- lint、TypeScript、Prettier、bundle consistency、`git diff --check` 与
+  `npm pack --dry-run` 通过。
+
+**适用环境**：macOS、DSH Web、Ego Browser、Project tree 多选。
+**长期约束：用户折叠目录时必须清除该目录内所有 hidden selected
+descendants，无论 primary 在内还是在外；目录外选择与外部原 primary 必须保留。**
+
+## 2026-11-20 — Project 折叠目录必须保留目录外多选项
+
+**作用域**：Project tree 多选、primary descendant、目录 disclosure、
+selection apply。
+
+**症状/证据**：
+
+- 展开 `src`；
+- 先选 `README.md`，⌘点选 `src/nav-main.js`；
+- 折叠前 selected=`[nav-main.js, README.md]`；
+- 点击 `src` disclosure 折叠后 selected 只剩 `[src]`；
+- 根因是单选项修复调用 `onSelect(row,{})`，替换整个 selection，
+  目录外 README 被误删。
+
+**修复**：
+
+- selection model 新增
+  `projectSelectionAfterDirectoryCollapse()`：
+  - 删除目标目录内部所有后代；
+  - 保留目录外选项；
+  - 幂等加入目录行；
+- ProjectPanel 增加 `onApplySelection` 注入；
+- workspace 直接注入现有 `applyTreeSelection`；
+- disclosure 折叠使用裁剪后的完整 selection，而非普通单击 replace。
+
+**回归与运行态**：
+
+- 扩展 `tests/project-collapsing-selected-child-keeps-visible-primary-row.test.mjs`；
+- RED：helper 与 apply-selection 接线缺失；
+- GREEN：定向 Project selection/disclosure/module 回归 **17 pass / 0 fail**；
+- DSH Web：
+  - 折叠前 selected=`[nav-main.js primary, README secondary]`；
+  - 折叠后 selected=`[src primary, README secondary]`；
+  - activeRole=`tree`；
+  - ArrowDown 后 primary=`README.md`，多选按方向键规则收敛；
+- 完整 `npm test`：**3215 pass / 0 fail**；
+- lint、TypeScript、Prettier、bundle consistency、`git diff --check` 与
+  `npm pack --dry-run` 通过。
+
+**适用环境**：macOS、DSH Web、Ego Browser、Project tree 多选。
+**长期约束：目录折叠裁剪只能删除该目录内部隐藏项；目录外选择必须保留，
+并通过共享 `applyTreeSelection` 一次提交完整 selection/primary/anchor。**
+
+## 2026-11-20 — 折叠包含主选子项的目录必须选中目录行
+
+**作用域**：Project tree disclosure、单选 primary row、Tree 键盘导航。
+
+**症状/证据**：
+
+- 展开 `src` 并选中 `src/nav-main.js`；
+- 点击 `src` disclosure 折叠目录后：
+  - 子行消失；
+  - `aria-selected="true"` 行为空；
+  - activeElement 仍为 tree；
+- 再按 `ArrowDown` / `ArrowUp` 都会跳到第一行 `.idea/scopes`；
+- 根因是折叠只改变 expanded，selectedPath 仍指向隐藏子项；
+  键盘导航 `currentIndex=-1`，`ArrowDown` 被 clamp 到第一行。
+
+**修复**：
+
+- 新增 `projectPrimaryHiddenByCollapse(directory, selectedPath)`：
+  - 只认可 `directory/` 前缀的真实后代；
+  - 同路径、前缀相似路径和 null 不命中；
+- ProjectPanel 的 disclosure toggle：
+  - 仅在“正在折叠且 primary 是其后代”时选中该目录行；
+  - 随后再执行原 toggle；
+  - 外部刷新导致的 hidden selection 契约保持不变。
+
+**回归与运行态**：
+
+- 新增 `tests/project-collapsing-selected-child-keeps-visible-primary-row.test.mjs`；
+- RED：helper 与 disclosure 选中逻辑缺失；
+- GREEN：定向 Project selection/disclosure 回归 **15 pass / 0 fail**；
+- DSH Web：
+  - 折叠后 `src` 成为唯一 selected row；
+  - activeElement 仍是 Project tree；
+  - `ArrowDown` 正确移动到下一可见行 `README.md`；
+- 完整 `npm test`：**3214 pass / 0 fail**；
+- lint、TypeScript、Prettier、bundle consistency、`git diff --check` 与
+  `npm pack --dry-run` 通过。
+
+**适用环境**：macOS、DSH Web、Ego Browser、Project tree。
+**长期约束：用户主动折叠会隐藏 primary 后代时，必须把 primary 移到
+可见目录行；外部刷新造成的 hidden selection 仍按既有收敛规则处理。**
+
+## 2026-11-20 — Commit Log Load More 失败必须底部重试并保留分页
+
+**作用域**：Commit Log 60 条分页、Load More 失败、Retry、footer
+alert、滚动位置。
+
+**症状/证据**：
+
+- 66 条提交的 fixture 中首次加载 60 行；
+- 将旧 commit object 临时移走后滚到底，Load More 失败；
+- 修复前错误 alert 渲染在列表顶部，用户位于 `scrollTop=3163` 时
+  Retry 不可见；
+- 旧 `onRetry={reloadVisibleLog}` 再次执行 skip=0，成功后只剩 60 行
+  且 scrollTop 归零；
+- `onScroll` 在失败后仍可能再次触发 Load More。
+
+**修复**：
+
+- `retryVisibleLog`：
+  - flat log 已有 commits 且存在 error 时，Retry 调用 `loadMoreLog()`；
+  - file history 仍重启 history；
+  - 其他情况走显式 reload；
+- 扁平 Log 的 load-more error 渲染在 footer，不再放到顶部；
+- error footer 出现时自动滚到列表底部，使 Retry 可见；
+- `onScroll` 在 `logFailure !== null` 时停止自动请求，避免失败风暴；
+- 显式 Refresh 继续使用 `reloadVisibleLog()` 从第一页刷新。
+
+**回归与运行态**：
+
+- 新增/扩展 Commit Log retry、footer、history-scope 回归；
+- RED：Retry 仍清空分页、footer error 与 onScroll 防护缺失；
+- GREEN：定向 Log/retry/footer/module 回归 **15 pass / 0 fail**；
+- DSH Web：
+  - Load More 失败后仍 60 行；
+  - Retry 在可见 footer alert 内；
+  - Retry 后 66 行，`scrollTop=3163` 保持；
+- 临时 empty commits 与缺失 object 已恢复，fixture HEAD 回到原提交；
+- 完整 `npm test`：**3212 pass / 0 fail**。
+
+**适用环境**：macOS、DSH Web、Ego Browser、Commit Log 分页。
+**长期约束：Load More 失败必须在用户当前滚动端显示 Retry；
+Retry 必须续载失败页而不是从 skip=0 覆盖已加载数据；失败状态下
+onScroll 不得自动重试。**
+
+## 2026-11-20 — Commit Log 切页不得丢弃已加载分页
+
+**作用域**：Commit tool window Change/Log 模式切换、Log 60 条分页、
+Load More、两页 scrollTop 记忆。
+
+**症状/证据**：
+
+- 临时 fixture 中有 66 条提交；
+- 首次进入 Log 加载 60 行；
+- 滚到底后追加到 66 行，`scrollTop=3064`、`scrollHeight=3590`；
+- 切到 Change 再回 Log，行数退回 60，`scrollHeight=3240`，
+  scrollTop 被 clamp 为 3038；
+- 根因是 `CommitPanel.onMode` 每次进入 Log 都调用 `loadLog()`，
+  而 `loadLog` 固定从 `skip=0` 重载并覆盖已有 `commits`。
+
+**修复**：
+
+- 只在 Log 尚未初始化时自动加载：
+  - commitCount 为 0；
+  - 非 loading；
+  - 非 exhausted；
+  - 无 error；
+- 已加载分页、空仓库结果和失败状态不被 tab 切换隐式重置；
+- 显式 Refresh、author filter、file history 仍主动加载；
+- 条件压缩为单行，`editor-workspace.tsx` 保持 12499 行，低于 12500
+  的模块可审阅上限。
+
+**回归与运行态**：
+
+- 新增 `tests/commit-log-switch-preserves-loaded-pages.test.mjs`；
+- RED：切页仍无条件 `loadLog()`；
+- GREEN：定向 Commit Log/scroll/模块拆分回归 **10 pass / 0 fail**；
+- DSH Web：
+  - 初次 60 行；
+  - Load More 后 66 行、scrollTop=3064；
+  - Change → Log 后仍 66 行、scrollTop=3064、scrollHeight=3590；
+- 临时 empty commits 已清理，fixture HEAD 恢复原文
+  `8d5451a682af89aa0e9a89cefb3dca02464a969c`；
+- 完整 `npm test`：**3211 pass / 0 fail**；
+- lint、TypeScript、Prettier、bundle consistency、`git diff --check` 与
+  `npm pack --dry-run` 通过。
+
+**适用环境**：macOS、DSH Web、Ego Browser、Commit Log 分页。
+**长期约束：切换 Commit 模式不得隐式从 skip=0 覆盖已加载 log；
+只有首次进入、显式刷新、filter/history 变化才允许重载。**
+
+## 2026-11-20 — 超窄 Find dock scope 模式组必须换行
+
+**作用域**：Find dock、`@container dsh-find-dock (max-width: 220px)`、
+In Project / File / Directory / Scope 模式组。
+
+**症状/证据**：
+
+- Ego Browser 将页面宽度临时压到 650px；
+- Find dock controls 实际宽度 **143.09px**，`clientWidth=138`；
+- 修复前 `scrollWidth=210`，横向溢出 72px；
+- scope mode group 固定宽 **200.13px**、`flex:none` 且不换行；
+- 截图中 `In Project / File / Directory / S…` 右侧被裁掉。
+
+**修复**：
+
+- scope mode group 增加稳定 class
+  `dsh-editor-find-scope-mode-group`；
+- 在 220px 容器规则中设置：
+  - `flex: 1 1 auto !important`；
+  - `min-width: 0 !important`；
+  - `flex-wrap: wrap !important`；
+- 保留按钮 DOM、顺序、roving focus 和 scope 状态逻辑。
+
+**回归与运行态**：
+
+- 扩展 `tests/search-find-narrow-dock-header-compacts.test.mjs`；
+- RED：class 与超窄换行规则缺失；
+- GREEN：定向 Find dock/scope/popup 回归 **20 pass / 0 fail**；
+- DSH Web 143.09px：
+  - controls `clientWidth=scrollWidth=138`；
+  - mode group 宽 118.09px、高 51px、`flex-wrap=wrap`；
+  - 四个按钮分两行，全部在容器内；
+  - 隐藏 mask 控件后键盘顺序无残留焦点；
+- 完整 `npm test`：**3210 pass / 0 fail**；
+- lint、TypeScript、Prettier、bundle consistency、`git diff --check` 与
+  `npm pack --dry-run` 通过。
+
+**适用环境**：macOS、DSH Web、Ego Browser、Find dock <=220px。
+**长期约束：Find dock 在 220px 以下必须让 scope mode group 在自身宽度内
+换行；不得用固定宽度按钮组造成横向裁切，也不得改变模式按钮顺序或状态。**
+
+## 2026-11-20 — 窄 Find dock 的 file mask checkbox 必须有视觉提示
+
+**作用域**：Find in Files dock、`@container dsh-find-dock`、310–360px
+工具窗宽度、File mask toggle。
+
+**症状/证据**：
+
+- DSH Web Find dock controls 实际宽度 **310.80px**；
+- 360px 规则隐藏了可见的 `File mask:` 文本，但保留 checkbox；
+- 截图只剩一个无文字方框，视觉用户无法判断其含义；
+- checkbox 仅有 aria-label，没有 title，悬浮也没有提示；
+- controls `clientWidth=scrollWidth=311`，不存在布局溢出。
+
+**修复**：
+
+- File mask checkbox 增加与 aria-label 同源的
+  `title={t('editor.searchFileMaskLabel')}`；
+- 不改变文件掩码开关、输入框、历史、焦点顺序或响应式阈值。
+
+**回归与运行态**：
+
+- 扩展 `tests/search-find-narrow-dock-header-compacts.test.mjs`；
+- RED：checkbox 缺少 title；
+- GREEN：定向 Find dock/mask/popup 回归 **16 pass / 0 fail**；
+- DSH Web 310.80px：
+  - aria-label=`File mask`；
+  - title=`File mask`；
+  - 可见 label 仍为 `display:none`；
+  - controls 仍无横向溢出；
+- 完整 `npm test`：**3210 pass / 0 fail**；
+- lint、TypeScript、Prettier、bundle consistency、`git diff --check` 与
+  `npm pack --dry-run` 通过。
+
+**适用环境**：macOS、DSH Web、Ego Browser、Find dock <=360px。
+**长期约束：响应式规则隐藏文字标签时，保留下来的 icon-only 控件必须有
+稳定 aria-label，并提供同源 title；不能留下无视觉提示的裸控件。**
+
+## 2026-11-20 — 共享 ContextMenu 必须支持连续前缀导航
+
+**作用域**：共享 `ContextMenu`、`menu-model`、Project View 及其他
+复用菜单的字符键盘导航。
+
+**症状/证据**：
+
+- DSH Web Project View 菜单初始焦点为 `Project Files`；
+- 按 `o` 后仍停在 `Project Files`；
+- 再按 `a` 后仍不移动；
+- `ContextMenu` 只处理 ArrowUp/ArrowDown/Home/End；
+- 菜单按钮已有稳定 `aria-label`，但没有字符导航消费者。
+- 首轮单字符修复后，Commit 文件菜单再暴露连续输入缺陷：
+  - `c` → `Copy Path/Reference…`；
+  - 紧接着 `o` 却跳到 `Open in Terminal`；
+  - 根因是每个字符都重新查找，没有保存 `co` 前缀。
+
+**修复**：
+
+- `menu-model.ts` 新增 `menuTypeaheadTarget()`：
+  - 接受非空连续前缀；
+  - 大小写不敏感，支持中文；
+  - 跳过 null、separator 与 disabled；
+  - 多字符前缀若当前项仍匹配则保持当前项；否则从当前项之后查找并循环；
+- `ContextMenu` 对非 composing 且无 Ctrl/Meta/Alt 的可打印按键：
+  - 700ms 内追加 prefix buffer；
+  - 超时后从当前字符重新开始；
+  - 多字符无匹配时回退到当前单字符；
+- 业务菜单不新增各自的 typeahead 代码。
+
+**回归与运行态**：
+
+- 扩展 `tests/editor-menu-arrow-keys-walk-enabled-rows-wrap.test.mjs`；
+- RED：ContextMenu 缺少 typeahead 契约；
+- GREEN：定向菜单回归 **17 pass / 0 fail**；
+- DSH Web Project View：
+  - `o` → `Open Files`；
+  - `a` → `All Changed Files`；
+  - 再按 `o` → `Open Files`，同首字母循环正确；
+- DSH Web Commit 文件菜单：
+  - `c` → `Copy Path/Reference…`；
+  - 紧接着 `o` 仍为 `Copy Path/Reference…`；
+  - 等待超过 700ms 后按 `o` → `Open in Terminal`；
+- 完整 `npm test`：**3210 pass / 0 fail**；
+- lint、TypeScript、Prettier、bundle consistency、`git diff --check` 与
+  `npm pack --dry-run` 通过。
+
+**适用环境**：macOS、DSH Web、Ego Browser、共享 ContextMenu。
+**长期约束：菜单 typeahead 只能由共享 `menuTypeaheadTarget()` 和
+ContextMenu prefix buffer 实现；必须支持连续前缀、超时重置、disabled
+跳过与循环，并保持 IME composing 与修饰键组合不拦截。**
+
+## 2026-11-20 — 目录行空父路径必须保留行数统计网格列
+
+**作用域**：Commit Changes tree、目录行、`CommitSecondaryPath`、
+`LineCounts`、200–212px 工具窗宽度。
+
+**症状/证据**：
+
+- 暂存 `src/nav-main.js` 与 `src/nav-target.js` 后，`src` 目录 subtotal 为
+  `+13 −0`；
+- `src` 的 parent path 为空，旧 `CommitSecondaryPath` 返回 `null`；
+- 行网格固定为 6 列，但 DOM 只生成 5 个子项，`LineCounts` 自动落入
+  第 5 个 `minmax(0, 1fr)` 路径列，而不是第 6 个 `max-content` 行数列；
+- DSH Web 200px 下行数被共享容器规则 `<205px` 主动隐藏，这是正确策略；
+- 工具窗约 212px、行数恢复显示时，元素位置/宽度无法作为稳定第 6 列；
+
+**修复**：
+
+- `CommitSecondaryPath` 始终渲染路径网格单元；
+- 空 path 时只清空内部文本与 `title`，不再从 DOM 删除网格列；
+- 目录行保持 `SecondaryPath → LineCounts` 的固定顺序；
+- 不给业务行单独添加 `grid-column` hack。
+
+**回归与运行态**：
+
+- 扩展 `tests/commit-narrow-secondary-path-hides-unreadable-fragments.test.mjs`；
+- RED：空 path 仍 `return null`；
+- GREEN：定向 Commit 布局回归 **20 pass / 0 fail**；
+- DSH Web：
+  - 200px 目录行 childCount=6，行数仍按既有规则隐藏；
+  - 212.14px 时 `+13−0` 位于第 6 列，宽度 30.25px；
+  - row `clientWidth=scrollWidth=212`，无新增横向溢出；
+- fixture 中临时 stage 的两个文件已 `git reset` 回原索引状态；
+- 完整 `npm test`：**3208 pass / 0 fail**；
+- lint、TypeScript、Prettier、bundle consistency、`git diff --check` 与
+  `npm pack --dry-run` 通过。
+
+**适用环境**：macOS、DSH Web、Ego Browser、Commit Changes directory rows。
+**长期约束：凡是使用固定网格列的行，可选子项也必须渲染空占位；
+不能通过省略 DOM 节点让后续统计列自动前移。目录行 LineCounts 必须保持
+第 6 列，200px 下是否隐藏由共享容器规则决定。**
+
+## 2026-11-20 — Commit 次级路径不得留下不可读碎片
+
+**作用域**：Commit Changes tree、文件/目录行的 muted parent path、
+200px 工具窗宽度、路径 tooltip。
+
+**症状/证据**：
+
+- DSH Web Commit 工具窗 200px；
+- `.idea/scopes/dsh-editor.xml` 的路径单元格只有 **9.66px**，
+  原文本宽度 65px，只显示一个无意义省略；
+- `src/nav-main.js` 的 `src/` 单元格为 **23.94px**，可以完整显示；
+- 路径直接占用可变网格列，ellipsis 只能避免撑开，不能判断剩余碎片是否可读；
+- 路径单元格 `width:100% + padding` 还造成部分行 2px 横向溢出。
+
+**修复**：
+
+- CommitPanel 新增局部共享积木 `CommitSecondaryPath`，文件行与目录行共同复用；
+- 路径单元格设为 inline-size query container，内部文本负责 ellipsis；
+- 单元格自身小于 `3ch` 时隐藏内部文本，保留路径单元格与行级完整 tooltip；
+- `commitFileDir` 使用 `box-sizing:border-box`，消除 width + padding 溢出；
+- 长文件名继续按既有 IDEA 规则保持完整，不通过压缩名称换取路径可见。
+
+**回归与运行态**：
+
+- 新增 `tests/commit-narrow-secondary-path-hides-unreadable-fragments.test.mjs`；
+- RED：共享积木与容器查询缺失；
+- GREEN：定向 Commit 布局回归 **19 pass / 0 fail**；
+- DSH Web 200px：
+  - `.idea/scopes/` 单元格 9.66px → 文本隐藏；
+  - `src/nav-target.js` 的 `src/` 17.13px → 文本隐藏；
+  - `src/nav-main.js` 的 `src/` 23.94px → 完整显示；
+  - 所有行保留完整 `title`；
+- 工具窗加宽到 323px 后所有 parent path 恢复显示；
+- `tsx-upload-smoke.txt` 行仍有 2px 横向溢出，来自既有“文件名绝不
+  ellipsize”策略，不是路径列造成，本轮不改变该语义；
+- 完整 `npm test`：**3207 pass / 0 fail**；
+- lint、TypeScript、Prettier、bundle consistency、`git diff --check` 与
+  `npm pack --dry-run` 通过。
+
+**适用环境**：macOS、DSH Web、Ego Browser、Commit 200px。
+**长期约束：Commit 次级路径必须在自身可用宽度不足 `3ch` 时隐藏；
+文件行与目录行必须复用 `CommitSecondaryPath`，不得各自实现省略条件；
+文件名保持完整，不能以压缩文件名为代价保留路径。**
+
+## 2026-11-20 — Commit 单选计数必须使用英文单数
+
+**作用域**：Commit tool window 底部选中状态、中文/英文 locale 字典、
+200px 工具窗宽度。
+
+**症状/证据**：
+
+- DSH Web Commit 工具窗宽度为 `200px`；
+- 只勾选 `README.md` 时底部显示 **`1 files selected`**；
+- 文案容器 `clientWidth=184`、`scrollWidth=184`，没有裁切；
+- 根因是 `CommitPanel` 对所有非全选数量都调用
+  `editor.partialSelected`，而字典只有复数模板
+  `{count} files selected`。
+
+**修复**：
+
+- 中英字典新增 `partialSelectedOne`：
+  - 中文：`已选择 {count} 个文件`；
+  - 英文：`{count} file selected`；
+- Commit 状态按 `selectedPaths.size === 1` 在单数与复数 key 间选择；
+- 全选仍使用 `All changes selected`，选择模型、按钮和布局不变。
+
+**回归与运行态**：
+
+- 新增 `tests/commit-selection-status-uses-singular-file-wording.test.mjs`；
+- RED：单数 key 与 Commit 条件分支断言失败；
+- GREEN：定向 Commit/i18n 回归 **7 pass / 0 fail**；
+- DSH Web：
+  - 单选 `README.md` → `1 file selected`；
+  - 再选一个文件 → `2 files selected`；
+  - 全选 → `All changes selected`；
+  - 文案均未超出 184px 可用宽度；
+- 完整 `npm test`：**3206 pass / 0 fail**；
+- lint、TypeScript、Prettier、bundle consistency、`git diff --check` 与
+  `npm pack --dry-run` 通过。
+
+**适用环境**：macOS、DSH Web、Ego Browser、Commit tool window。
+**长期约束：所有英文可见计数文案都必须显式处理 `count === 1`；
+不能只提供复数模板，不能把单数文案交给通用 plural 形式猜测。**
+
+## 2026-11-20 — 共享 ContextMenu 必须支持 Home/End 首尾导航
+
+**作用域**：共享 `ContextMenu`、`menuStep()`、Project View value menu
+及其他复用它的事件菜单。
+
+**症状/证据**：
+
+- DSH Web 打开 Project View 后，首项 `Project Files` 正常获焦；
+- 按 `End` 后 activeElement 仍是 `Project Files`；
+- 再按 `Home` 后 activeElement 仍不变；
+- `Menu.tsx` 的全局 keydown 只处理 ArrowUp/ArrowDown；
+- `menuStep()` 键盘模型也只接受 ArrowUp/ArrowDown，首尾边界没有契约覆盖。
+
+**修复**：
+
+- `menuStep()` 增加 `Home` 与 `End`：
+  - `Home` 返回首个 enabled item；
+  - `End` 返回最后一个 enabled item；
+  - null、separator 与 disabled 项继续跳过；
+- `ContextMenu` 直接复用 `menuStep()` 处理 ArrowUp/ArrowDown/Home/End，
+  不再在组件内维护另一套取模导航；
+- Project 或业务调用方不新增菜单键盘逻辑。
+
+**回归与运行态**：
+
+- 扩展 `tests/editor-menu-arrow-keys-walk-enabled-rows-wrap.test.mjs`；
+- 同步修正依赖旧取模实现字符串的菜单回归；
+- RED：Home/End 与组件复用断言失败；
+- GREEN：定向菜单/Project View 回归 **18 pass / 0 fail**；
+- DSH Web：
+  - 初始焦点 `Project Files`；
+  - `End` → `All Changed Files`；
+  - `Home` → `Project Files`；
+  - role=`menuitemcheckbox` 与 `aria-checked` 保持不变；
+- 完整 `npm test`：**3205 pass / 0 fail**；
+- lint、TypeScript、Prettier、bundle consistency、`git diff --check` 与
+  `npm pack --dry-run` 通过。
+
+**适用环境**：macOS、DSH Web、Ego Browser、共享 ContextMenu。
+**长期约束：菜单 keyboard traversal 必须由共享 `menuStep()` 统一处理；
+新增菜单不得自行实现 Arrow/Home/End 焦点算法，Home/End 必须跳到首个或
+最后一个 enabled item。**
+
+## 2026-11-20 — Project View 当前项必须暴露 checked 语义
+
+**作用域**：Project View value menu、当前 view 标记、ARIA 菜单语义。
+
+**症状/证据**：
+
+- 当前项视觉文本为 `Project Files✓`；
+- role 仍是普通 `menuitem`，`aria-checked=null`；
+- 屏幕阅读器只能读出项目视图名称，不能读出“当前已选中”；
+- ContextMenu 已支持 `active` 映射到
+  `menuitemcheckbox` + `aria-checked`，Project builder 未使用。
+
+**修复**：
+
+- Project View item 增加 `active: definition.id === projectView`；
+- 保留可见 `✓` shortcut，视觉完全不变；
+- ContextMenu 继续统一负责 role/aria-checked。
+
+**回归与运行态**：
+
+- 新增 `tests/project-view-menu-exposes-current-item-checked-state.test.mjs`；
+- 修复前 RED，修复后 GREEN；
+- DSH Web：
+  - Project Files：role=`menuitemcheckbox`、aria-checked=`true`；
+  - 其他 view：aria-checked=`false`；
+  - ArrowDown 后 Open Files 获焦，checked 语义保持；
+- 完整测试 **3205 pass / 0 fail**；
+- lint、TypeScript、Prettier、bundle consistency、`git diff --check` 与
+  `npm pack --dry-run` 通过。
+
+**适用环境**：macOS、DSH Web、Ego Browser、Project View menu。
+**长期约束：value menu 中的当前值必须使用共享 active/menuitemcheckbox
+语义；可见 checkmark 不能替代 aria-checked。**
+
+## 2026-11-20 — Project View 按钮必须支持键盘和右键菜单入口
+
+**作用域**：Project toolbar 的 Project View 下拉按钮、Shift+F10、
+ContextMenu 键、pointer contextmenu、Project View 菜单。
+
+**症状/证据**：
+
+- Project View button focus 后 `aria-expanded=false`；
+- Shift+F10 不产生任何 `role=menu`，activeElement 仍是按钮；
+- 自定义 Project View 按钮此前只有 click 入口；
+- 同工具栏共享 ToolbarButton 和 Project root title 已支持
+  Shift+F10 / ContextMenu。
+
+**修复**：
+
+- 把菜单构建抽成 `openProjectViewMenu(button)`；
+- click、Shift+F10/ContextMenu、pointer contextmenu 共用同一 builder；
+- 保留 Project View item 顺序、当前 view 标记、disabled state；
+- 保留既有菜单关闭后回到 Project tree/search 的焦点契约。
+
+**回归与运行态**：
+
+- 新增 `tests/project-view-button-opens-menu-from-keyboard-and-pointer.test.mjs`；
+- 修复前 RED，修复后 GREEN；
+- DSH Web：
+  - Shift+F10 打开 `Project View / Project Files / Open Files /
+    All Changed Files`，`aria-expanded=true`；
+  - 菜单首项 `Project Files` 获焦；
+  - right-click 打开相同菜单；
+  - Escape 后菜单关闭，焦点回到 Project tree；
+- 完整测试 **3204 pass / 0 fail**；
+- lint、TypeScript、Prettier、bundle consistency、`git diff --check` 与
+  `npm pack --dry-run` 通过。
+
+**适用环境**：macOS、DSH Web、Ego Browser、Project toolbar 200px。
+**长期约束：自定义 popup opener 必须与共享 ToolbarButton 一样支持
+click、Shift+F10、ContextMenu 和 pointer contextmenu，并统一复用同一
+menu builder。**
+
+## 2026-11-20 — Project 根路径按钮必须同时点名动作和项目
+
+**作用域**：Project toolbar 200px root title、copy project path 按钮、
+tooltip 和 accessible name。
+
+**症状/证据**：
+
+- 200px 下 root button `clientWidth=36px`、`scrollWidth=124px`，
+  完整项目名只能依赖 tooltip；
+- button 的 aria-label 固定为 `Copy project path`；
+- accessible name 覆盖 visible text 后，屏幕阅读器听不到当前项目；
+- 同工具栏的 Project View button 已把 current view 纳入名称，root
+  action 缺少同等目标上下文。
+
+**修复**：
+
+- aria-label 改为 `Copy project path: {projectName}`；
+- title 改为 `Copy project path: {root}`；
+- click 复制内容、根菜单、keyboard ContextMenu 和布局不变。
+
+**回归与运行态**：
+
+- 新增 `tests/project-root-copy-action-names-project.test.mjs`；
+- 修复前 RED，修复后 GREEN；
+- DSH Web 200px：
+  - aria-label=`Copy project path: dsh-editor-r526-fixture`；
+  - title=`Copy project path: /private/tmp/dsh-editor-r526-fixture`；
+- 完整测试 **3203 pass / 0 fail**；
+- lint、TypeScript、Prettier、bundle consistency、`git diff --check` 与
+  `npm pack --dry-run` 通过。
+
+**适用环境**：macOS、DSH Web、Ego Browser、Project 200px。
+**长期约束：Project 级 action 的 accessible name 必须同时说明动作与
+目标项目；不能因为 visible text 被 toolbar 截断而丢掉项目上下文。**
+
+## 2026-11-20 — Find in Files 浮窗标题不得被 File mask 挤成 ellipsis
+
+**作用域**：Find in Files floating popup、顶部标题、File mask、
+Find dock 共用 title 样式。
+
+**症状/证据**：
+
+- popup width `400px`；
+- title `clientWidth=70px`、`scrollWidth=74px`；
+- title 使用 ellipsis，实际显示 `Find in F...`；
+- File mask 输入仍占用 `129px`，标题只因 4px 差值先被压缩。
+
+**修复**：
+
+- 新增 `findToolPopupTitle`：`flex:0 0 auto`；
+- 仅 floating popup 在共享 `findToolTitle` 后叠加该 token；
+- dock 继续使用原来的可收缩 `findToolTitle`；
+- File mask、filter、pin、窗口动作和 geometry 不变。
+
+**回归与运行态**：
+
+- 新增 `tests/search-find-popup-title-keeps-full-idea-label.test.mjs`；
+- 修复前 RED，修复后 GREEN；
+- DSH Web 400px：
+  - title clientWidth=scrollWidth=`74px`；
+  - computed flex=`0 0 auto`、whiteSpace=nowrap；
+  - toolbar clientWidth=scrollWidth=`400px`；
+  - 完整显示 `Find in Files`；
+- 完整测试 **3202 pass / 0 fail**；
+- lint、TypeScript、Prettier、bundle consistency、`git diff --check` 与
+  `npm pack --dry-run` 通过。
+
+**适用环境**：macOS、DSH Web、Ego Browser、Find popup 400px。
+**长期约束：popup 的动作标题必须先于可收缩输入控件保留完整文案；
+dock 与 popup 应通过显式样式 token 区分，不把 popup 规则污染到 dock。**
+
+## 2026-11-20 — Commit Amend 主文案优先于 baseline subject
+
+**作用域**：Commit message 区 Amend 行、200px Commit tool window、
+baseline commit subject。
+
+**症状/证据**：
+
+- panel width `200px`，amend row `184×24`；
+- Amend label 容器 `154px`，主文案和 baseline subject 共用同一 flex
+  文本流；
+- 主文案没有 `nowrap`，实际显示两行：`Amend last` / `commit`；
+- baseline subject `clientWidth=34px`、`scrollWidth=37px`，同时被挤压。
+
+**修复**：
+
+- Amend 主文案改为独立 `styles.amendLabel` span；
+- `amendLabel` 使用 `flex:0 0 auto`、`whiteSpace:nowrap`；
+- `amendSubject` 使用 `flex:1 1 auto`，只允许辅助 subject 收缩；
+- checkbox、aria-label、history button、amend 状态逻辑不变。
+
+**回归与运行态**：
+
+- 新增 `tests/commit-amend-row-prioritizes-action-label-narrow.test.mjs`；
+- 修复前 RED，修复后 GREEN；
+- DSH Web 200px：
+  - Amend 文案 clientWidth=`95`、scrollWidth=`95`、whiteSpace=nowrap；
+  - row label 高度 `16px`，主文案单行展示；
+  - baseline subject 仍保留 `title=baseline`，作为辅助信息 ellipsis；
+- 完整测试 **3201 pass / 0 fail**；
+- lint、TypeScript、Prettier、bundle consistency、`git diff --check` 与
+  `npm pack --dry-run` 通过。
+
+**适用环境**：macOS、DSH Web、Ego Browser、Commit 200px。
+**长期约束：动作主文案不得换行或 ellipsis；辅助 commit subject 必须
+独立收缩并保留完整 tooltip，不能反过来挤压用户可执行的 Amend 动作。**
+
+## 2026-11-20 — Commit 双操作在 200px 下必须换行而不是截断
+
+**作用域**：Commit tool window 最小 200px 宽度、Commit / Commit and
+Push 操作对。
+
+**症状/证据**：
+
+- panel `clientWidth=200px`；
+- button row `184px`；
+- `Commit 5` 按钮 `clientWidth=94px`，文案完整；
+- `Commit and Push…` 按钮 `clientWidth=80px`、`scrollWidth=130px`；
+- computed `overflow:hidden`、`text-overflow:ellipsis`，实际只显示
+  `Commit...`，用户无法从界面判断该按钮会 push。
+
+**修复**：
+
+- commit button row 增加 `flexWrap:wrap`；
+- 两个按钮保持同一 outlined pair 语义；
+- primary 使用 `flex:1 1 96px`；
+- secondary 使用 `flex:1 1 150px`、`minWidth:150px`；
+- 窄宽下两个动作改为上下排列，宽宽下仍保持同一行；
+- 不改 aria-label、title、disabled/busy 和 onCommit(true/false)。
+
+**回归与运行态**：
+
+- 新增 `tests/commit-action-pair-wraps-at-narrow-tool-window.test.mjs`；
+- 修复前 RED，修复后 GREEN；
+- DSH Web 200px：
+  - 修复前 Push 按钮 clientWidth=`80`、scrollWidth=`130`；
+  - 修复后 button row 高度 `60px`，两个按钮各宽 `184px`；
+  - Push 按钮 clientWidth=scrollWidth=`182px`，完整显示；
+- 完整测试 **3200 pass / 0 fail**；
+- lint、TypeScript、Prettier、bundle consistency、`git diff --check` 与
+  `npm pack --dry-run` 通过。
+
+**适用环境**：macOS、DSH Web、Ego Browser、Commit 200px。
+**长期约束：Commit/Push 是语义不同的不可逆操作，窄宽下必须通过换行
+保留完整可见文案，不得把 Push 退化为 ellipsis 或 icon-only。**
+
+## 2026-11-20 — Terminal block selection 必须使用绝对 buffer row
+
+**作用域**：Terminal scrollback、xterm selection、Select Prompt、
+Select Last Block、Select/Expand Block Above/Below。
+
+**症状/证据**：
+
+- Terminal buffer 的 `baseY=8`、`viewportY=8`、`cursorY=11`、
+  `length=20`；
+- xterm selection 使用绝对 buffer row：`start.y=15`、`end.y=16`；
+- 选中 `block-two-a/b` 后 `Copy` enabled，但
+  `Select Block Above` 与所有 Expand 动作全部 disabled；
+- 根因是把 viewport 相对的 `cursorY=11` 直接传给 `getLine(row)`，
+  与 selection 使用的绝对 row 15/16 混用。
+
+**修复**：
+
+- `TerminalBuffer` 增加 `baseY`；
+- 新增 `terminalAbsoluteCursorRow()`：
+  - 调用方显式传入的 row 视为绝对 row；
+  - 未传入时使用 `baseY + buffer.cursorY`；
+- `terminalPromptStartRow` / `terminalPromptSelection` /
+  `terminalLastBlockSelection` 全部使用绝对 row；
+- `terminalSelectionBlockRange` 将选区 block 裁剪到当前 prompt
+  之前，避免把 prompt 文本并入命令块；
+- viewport row、selection row、prompt row、selectLines 参数统一到同一
+  xterm buffer 坐标空间。
+
+**回归与运行态**：
+
+- 新增 `tests/terminal-block-selection-uses-absolute-buffer-rows.test.mjs`；
+- 修复前 RED，修复后 GREEN；
+- DSH Web：
+  - 修复前 Select Block Above / Expand Above disabled；
+  - 修复后 Copy、Copy Block、Select Last Block、Select Prompt、
+    Select Block Above、Expand Above enabled；
+  - Select Block Below / Expand Below 保持 disabled；
+  - 执行 Select Block Above 后菜单关闭、Terminal input 获焦，
+    xterm selection 扩展到上方 block；
+- 完整测试 **3199 pass / 0 fail**；
+- lint、TypeScript、Prettier、bundle consistency、`git diff --check` 与
+  `npm pack --dry-run` 通过。
+
+**适用环境**：macOS、DSH Web、Ego Browser、xterm 6.0。
+**长期约束：xterm `cursorY` 是 viewport-relative；任何与
+selection/getLine/selectLines 混用的 row 必须先加上 `baseY` 转为绝对
+buffer row，显式传入的绝对 row 不得重复偏移。**
+
+## 2026-11-20 — Submenu 必须脱离菜单滚动层并锚定父项
+
+**作用域**：共享 ContextMenu、所有 submenu、Terminal 长菜单、
+Project/Commit 菜单中的 Copy Path/Reference 等嵌套动作。
+
+**症状/证据**：
+
+- Project 文件菜单中 `Copy Path/Reference…` 父项位于
+  `top=539px`、`bottom=563px`；
+- submenu 实际 rect 为 `top=183px`、`bottom=331px`，与父项完全错位；
+- 外层菜单 `overflowY:auto` 同时产生 `overflowX:auto`，submenu
+  实际被裁剪在菜单框内；
+- 根因是把 submenu 放在外层滚动容器内部，绝对定位既相对外层 fixed
+  menu，又被滚动层裁切；仅有横向 `submenuGeometry` 不足以解决。
+
+**修复**：
+
+- ContextMenu 主动作列表移入独立 `menuScroll`；
+- 外层 menu 保持 `overflow:visible`，滚动只发生在主列表；
+- 活动 submenu 渲染为滚动层的 sibling；
+- 新增 `submenuVerticalGeometry()`：
+  - 比较父项上下可用空间；
+  - 靠下时向上展开，靠上时向下展开；
+  - 返回 submenu 的视口高度上限；
+- submenu 使用父项 rect 计算相对外层 menu 的 left/right/top/bottom；
+- submenu 使用 `box-sizing:border-box` 与 `overflowY:auto`；
+- keyboard 子项查询改为 `[role=menu][data-submenu-id]`，ArrowRight /
+  ArrowLeft 继续进入和退出子菜单。
+
+**回归与运行态**：
+
+- 新增 `tests/editor-context-menu-submenu-anchors-parent-clamps-viewport.test.mjs`；
+- 修复前 RED，修复后 GREEN；
+- DSH Web：
+  - 修复前 submenu 不可见；
+  - 修复后 submenu top=`419`、bottom=`567`，父项 bottom=`563`；
+  - submenu `maxHeight=555px`、`overflowY=auto`；
+  - ArrowRight 聚焦 `Absolute Path`，ArrowLeft 回到父项；
+  - Terminal 长菜单内部滚动仍正常：outer bottom=`572`，
+    inner scrollHeight=`660`、clientHeight=`558`，ArrowUp `scrollTop=102`；
+- 完整测试 **3197 pass / 0 fail**；
+- lint、TypeScript、Prettier、bundle consistency、`git diff --check` 与
+  `npm pack --dry-run` 通过。
+
+**适用环境**：macOS、DSH Web、Ego Browser、共享 ContextMenu。
+**长期约束：submenu 不得位于滚动容器内部；主列表与嵌套菜单必须分层，
+submenu 由父项 rect 同时决定横向与纵向位置，并在菜单关闭/焦点返回时
+继续使用同一 item id。**
+
+## 2026-11-20 — Terminal 屏幕菜单必须支持键盘入口
+
+**作用域**：Terminal dock 左右 xterm pane、屏幕右键菜单、
+Shift+F10 / ContextMenu、xterm selection、split focus。
+
+**症状/证据**：
+
+- Terminal input 聚焦时按 `Shift+F10`，没有任何菜单；
+- activeElement 仍是 `Terminal input`；
+- 现有 Shift+F10 只接在 terminal tab 与 `»` overflow 按钮；
+- xterm pane 只有 pointer `onContextMenu`，没有键盘入口；
+- 浏览器自动化不会替应用合成屏幕菜单，Web 应用必须显式监听。
+
+**修复**：
+
+- `find-tool.ts` 新增 `terminalScreenMenuKeyboardRequest()`：
+  - 接受 ContextMenu 键；
+  - 接受无 Meta/Ctrl/Alt 的 Shift+F10；
+  - 其他修饰组合保持原生行为；
+- TerminalPanel 把菜单业务构建抽成
+  `showScreenMenu(x, y, emulator, terminal, pane, selectionPosition)`；
+- pointer 与 keyboard 都复用同一个 builder；
+- 左右 pane 使用同一 `openScreenMenuFromKeyboard` 入口；
+- keyboard 模式从 pane rect 生成菜单锚点，并传入当前 xterm
+  `getSelectionPosition()`，确保 Copy/Block actions 使用真实选择。
+
+**回归与运行态**：
+
+- 新增 `tests/terminal-screen-context-menu-opens-from-keyboard.test.mjs`；
+- 修复前 RED，修复后 GREEN；
+- DSH Web：
+  - Terminal input 派发 Shift+F10 后打开 26 项屏幕菜单；
+  - 选中 alpha/beta 后打开菜单，`Copy` enabled；
+  - Escape 关闭菜单，焦点返回 Terminal input；
+  - split 右 pane 打开 25 项菜单，Escape 后焦点仍在右侧
+    Terminal input；
+- 完整测试 **3195 pass / 0 fail**；
+- lint、TypeScript、Prettier、bundle consistency、`git diff --check` 与
+  `npm pack --dry-run` 通过。
+
+**适用环境**：macOS、DSH Web、Ego Browser、Terminal split。
+**长期约束：鼠标右键与键盘 ContextMenu/Shift+F10 必须进入同一个
+业务菜单 builder；键盘入口必须自己 preventDefault，且不得丢失当前
+xterm selection。**
+
+## 2026-11-20 — ContextMenu 必须由共享容器约束视口高度
+
+**作用域**：所有共享 `ContextMenu`、Terminal 屏幕右键菜单、
+Project/Commit 溢出菜单、搜索历史与过滤器菜单。
+
+**症状/证据**：
+
+- DSH Web 视口高度 `576px`；
+- Terminal 屏幕右键菜单有 27 个动作，实际高度 `670px`；
+- 菜单被定位到 `top=4px` 后，`bottom=674px`，后半段动作超出视口；
+- 根因是 `ContextMenu` 只在业务调用方传入 `maxHeight` 时才启用
+  `overflowY:auto`；Terminal 等调用方没有传，共享容器也没有视口兜底；
+- 首轮只用 `maxHeight=568px` 修复后仍测得 `height=578px`，原因是菜单
+  采用 content-box，4px×2 padding 和 1px×2 border 被加在上限之外。
+
+**修复**：
+
+- `menu-model.ts` 新增 `contextMenuMaxHeight()`：
+  - 无业务上限时返回 `viewportHeight - 8`；
+  - 业务上限更小时保留业务上限；
+  - 业务上限更大时仍被视口截断；
+- `ContextMenu` 初始化与窗口 resize 时复算该高度；
+- 菜单始终设置 `maxHeight` 与 `overflowY:auto`；
+- 菜单样式设置 `boxSizing:border-box`，让 border/padding 纳入上限；
+- 位置计算同时监听 resize，宽度或高度变化后重新 clamp。
+
+**回归与运行态**：
+
+- 新增 `tests/editor-context-menu-clamps-height-to-viewport-and-scrolls.test.mjs`；
+- 修复前 RED，修复后 GREEN；
+- DSH Web 实测：
+  - 菜单 `top=4`、`height=568`、`bottom=572`，视口高 `576`；
+  - `scrollHeight=668`、`clientHeight=566`、`overflowY=auto`；
+  - ArrowUp 从 Find 回绕到 `Switch Focus to Editor`，`scrollTop=102`，
+    动作 bottom=`567`，仍在视口内；
+  - Escape 后菜单关闭，焦点返回 `Terminal input`；
+- 完整测试 **3193 pass / 0 fail**；
+- lint、TypeScript、Prettier、bundle consistency、`git diff --check` 与
+  `npm pack --dry-run` 通过。
+
+**适用环境**：macOS、DSH Web、Ego Browser、共享 ContextMenu。
+**长期约束：视口 clamp 属于 ContextMenu 容器职责，业务调用方不必为了
+避免被裁剪而各自传 maxHeight；菜单必须 border-box，并保留纵向滚动与
+键盘焦点自动滚入视口。**
+
+## 2026-11-20 — Terminal overflow action 必须自己交接焦点
+
+**作用域**：Terminal dock `»` overflow menu、普通隐藏 tab、
+split 右 pane 当前 terminal、菜单 opener 回焦。
+
+**症状/证据**：
+
+- Split 右 pane select 的当前 value 与 overflow 首项相同；
+- Enter 选中该项后菜单关闭，但 activeElement 最终变成
+  `4 more terminal tab(s)` opener；
+- 左右 terminal pane 都没有焦点；
+- 业务 action 在菜单 cleanup 之前聚焦 terminal，随后 ContextMenu
+  又把焦点还给 opener。
+
+**修复**：
+
+- overflow menu 的 terminal item 统一设置 `restoreFocus:false`；
+- action 自己负责目标焦点：
+  - 普通隐藏 tab 激活后聚焦对应 tab；
+  - split 右 pane 当前 terminal 激活后聚焦右 pane emulator；
+- 不改变 terminal 切换、颜色 swatch、exited 标记或菜单关闭状态。
+
+**回归与运行态**：
+
+- 新增 `tests/terminal-overflow-item-owns-focus-after-activation.test.mjs`；
+- 修复前 RED，修复后 GREEN；
+- 定向 overflow/tablist/rename/focus 回归通过；
+- DSH Web 实测：
+  - 选中 split 右 pane 当前 terminal 后右 pane Terminal input 获焦；
+  - 选中普通隐藏 tab 后菜单关闭且目标 tab 获焦；
+- 完整测试 **3191 pass / 0 fail**；
+- lint、TypeScript、Prettier、bundle consistency、`git diff --check` 与
+  `npm pack --dry-run` 全部通过。
+
+**适用环境**：macOS、DSH Web、Ego Browser、Terminal overflow menu。
+**长期约束：会主动把焦点交给 terminal/tab/input 的菜单 action 必须设置
+`restoreFocus:false`；不能先聚焦业务目标，再让共享菜单把焦点抢回 opener。**
+
+## 2026-11-20 — Terminal tab close 按钮必须点名其终端
+
+**作用域**：Terminal dock tab close 控件、多 tab 可访问名称、
+关闭后的 overflow 重新编号。
+
+**症状/证据**：
+
+- 每个 terminal tab close button 的 aria-label 都是固定 `Close Terminal`；
+- 多个可见 tab 时，辅助技术只能看到一组同名关闭按钮；
+- 用户无法判断某个 × 会关闭哪个 terminal。
+
+**修复**：
+
+- close button 复用已有 `editor.closeTab`：
+  `Close {name}` / `关闭 {name}`；
+- `name` 使用当前 terminal title；
+- click、close host 操作、焦点 fallback 与 tab order 均不变。
+
+**回归与运行态**：
+
+- 新增 `tests/terminal-tab-close-button-names-its-terminal.test.mjs`；
+- 修复前 RED，修复后 GREEN；
+- 定向 close/tablist 回归 **8 pass / 0 fail**；
+- DSH Web：
+  - close button 名称为
+    `Close chan@iMac:/private/tmp/dsh-editor-r526-fixture`；
+  - 关闭 active terminal 后焦点进入存活 Terminal input；
+  - overflow 从 5 项重新编号为 2..5（active 已占 1），名称保持唯一。
+
+**适用环境**：macOS、DSH Web、Ego Browser、Terminal tab strip。
+**长期约束：每个可关闭 tab 的 close 控件必须把 tab/title 纳入
+accessible name，不能只重复通用 Close Terminal 文案。**
+
+## 2026-11-20 — Terminal tab Rename 必须保有输入焦点
+
+**作用域**：Terminal tab context menu、Rename inline input、overflow 与
+split pane 名称同步。
+
+**症状/证据**：
+
+- Terminal tab Shift+F10 首项 Rename，Enter 后菜单关闭；
+- rename input 刚 autoFocus 就被 ContextMenu opener 回焦覆盖并立即 blur；
+- `commitRename()` 看到 title 未变，清空 rename state；
+- 实际结果是没有可编辑输入框，rename 完全不可用；
+- rename input 也没有 accessible name。
+
+**修复**：
+
+- `terminalTabMenu` 的 rename item 设置 `restoreFocus:false`；
+- inline rename input 使用本地化 `editor.terminalRename` 作为 aria-label；
+- 其他 tab menu action 的 opener 回焦语义不变。
+
+**回归与运行态**：
+
+- 新增 `tests/terminal-tab-rename-focus-and-name.test.mjs`；
+- 修复前 RED **0 pass / 2 fail**，修复后 GREEN；
+- 定向 menu/tablist/rename 回归 **8 pass / 0 fail**；
+- DSH Web：
+  - Shift+F10 → Enter 后 input 保持聚焦；
+  - accessible name=`Rename Tab`；
+  - 输入 `renamed-terminal` 后 tab label 同步更新；
+  - 切换 active terminal 后，overflow 与 split select 均显示
+    `Terminal 1: renamed-terminal`，顺序序号稳定。
+
+**适用环境**：macOS、DSH Web、Ego Browser、Terminal tab menu。
+**长期约束：会接管焦点的 menu action 必须设置 restoreFocus=false；
+inline rename 触发后不得被菜单 opener 的回焦 cleanup 抢先关闭。**
+
+## 2026-11-20 — Terminal split pane 选项名称必须可区分
+
+**作用域**：Terminal split 右 pane terminal select、窄宽键盘切换。
+
+**症状/证据**：
+
+- Right pane terminal select 宽 `160px`；
+- 五个 options 中同时存在重复 `zsh` 和重复完整 cwd title；
+- 只有 UUID value 不同，visible/accessible text 无法区分；
+- 键盘选择时用户无法预知会切到哪个终端。
+
+**修复**：
+
+- split pane option 复用 `terminalOverflowItemLabel()`；
+- 使用完整 terminal order 的稳定序号 + title；
+- select 的 aria-label、value、onChange、右 pane focus 和 PTY 绑定不变。
+
+**回归与运行态**：
+
+- 新增 `tests/terminal-split-pane-options-have-distinct-names.test.mjs`；
+- 修复前 RED，修复后 GREEN；
+- 定向 split/overflow/focus 回归 **7 pass / 0 fail**；
+- DSH Web 实测 5 个 option 全部唯一：
+  `Terminal 2: …`、`Terminal 3: zsh` … `Terminal 6: …`；
+- select 改变 value 后右 pane 继续获得 Terminal input 焦点。
+
+**适用环境**：macOS、DSH Web、Ego Browser、Terminal split pane。
+**长期约束：overflow menu 与 split pane select 必须共享同一 terminal
+order 命名模型，不能各自直接显示可能重复的 title。**
+
+## 2026-11-20 — Terminal overflow 隐藏标签名称必须可区分
+
+**作用域**：Terminal dock 窄宽 tab strip、`»` overflow 菜单、
+multi-terminal keyboard focus。
+
+**症状/证据**：
+
+- Terminal tabs 宽 `155.75px`，`»` 包含 5 个隐藏 tab；
+- Enter 菜单中五个 accessible name 全部为 `zsh`；
+- 用户和屏幕阅读器无法区分 Enter 将切到哪个终端。
+
+**修复**：
+
+- 新增共享 `terminalOverflowItemLabel()`；
+- label 使用完整 terminal order 中的稳定序号和 title；
+- 使用本地化 `editor.terminalOverflowItem`：
+  `Terminal {index}: {title}` / `终端 {index}：{title}`；
+- id、颜色 swatch、exited 标记、切换与 focus 逻辑不变。
+
+**回归与运行态**：
+
+- 新增 `tests/terminal-overflow-hidden-tabs-have-distinct-names.test.mjs`；
+- 修复前 RED **0 pass / 2 fail**，修复后 GREEN；
+- 定向 overflow/tablist/locale 回归 **10 pass / 0 fail**；
+- DSH Web 窄宽实测 menu items：
+  `Terminal 2: zsh`、`Terminal 3: zsh` … `Terminal 6: …`；
+- Enter 后菜单关闭，焦点回到切换后的 terminal tab。
+
+**适用环境**：macOS、DSH Web、Ego Browser、Terminal dock overflow。
+**长期约束：overflow 中可能同名的 terminal tabs 必须用完整 tab order
+序号生成唯一 accessible name，不能只复制终端 title。**
+
+## 2026-11-20 — FileTreeView disclosure 不应触发行选择或抢焦点
+
+**作用域**：共享 FileTreeView、Project 200px 目录 disclosure、
+WorkspaceDirectoryPicker、多选和 tree 键盘焦点。
+
+**症状/证据**：
+
+- 多选 `app.js` + `README.md` 后点击 `src` disclosure：
+  - selection 从两项变成仅 `src`；
+  - activeElement 变成 `Expand folder` 按钮；
+  - Project tree 失去键盘焦点；
+- 根因是 disclosure 点击冒泡到行 `onMouseDown`，被业务
+  `onRowPointerDown` 当成行选择；disclosure 自身还获取了鼠标焦点。
+
+**修复**：
+
+- disclosure 增加稳定 `data-dsh-tree-disclosure` 标记；
+- FileTreeView 在该目标上跳过业务行 pointerdown；
+- disclosure mousedown preventDefault，保留 tree 键盘焦点；
+- 目录 toggle 回调不变，修复对所有 FileTreeView 调用方生效；
+- ProjectPanel 不再需要复制一份 disclosure 判断。
+
+**回归与运行态**：
+
+- 新增 `tests/project-tree-disclosure-does-not-replace-selection.test.mjs`；
+- 修复前 RED **0 pass / 2 fail**，修复后 GREEN；
+- 定向 disclosure/picker/drag 回归 **15 pass / 0 fail**；
+- DSH Web 200px：
+  - 点击 disclosure 后 activeElement 仍是 Project tree；
+  - 目录正常折叠；
+  - 可见 selection 不被 disclosure 当作行点击替换。
+
+**适用环境**：macOS、DSH Web、Ego Browser、Project 200px。
+**长期约束：FileTreeView disclosure 是树内部交互控件，不得冒泡成
+row pointerdown selection，也不得抢占 tree 的键盘焦点。**
+
+## 2026-11-20 — Project speed search 有结果时的 live announcement
+
+**作用域**：Project speed search、实时过滤结果数、TreeMessage、200px 布局。
+
+**症状/证据**：
+
+- 输入 `README` 后 tree 自动收窄并移动 selection，但没有任何 tree status；
+- 有结果时不播报匹配数，只有无结果时才有 `No matches` polite status；
+- 键盘/屏幕阅读器用户无法知道本次过滤实际产生多少项目。
+
+**修复**：
+
+- TreeMessage 新增可选 `visuallyHidden` 模式，继续复用同一 status 组件；
+- Project speed search 在非空 query、请求完成、无错误且 hits>0 时，
+  announce 单数/复数匹配数；
+- 文案使用 zh/en 两种 `treeSearchResultCount(One)`；
+- 不增加视觉行，200px 布局不变；
+- 无结果时仍只显示原有 no-matches status，避免重复播报。
+
+**回归与运行态**：
+
+- 新增 `tests/project-speed-search-announces-result-count.test.mjs`；
+- 修复前 RED **0 pass / 3 fail**，修复后 GREEN；
+- 定向 TreeMessage/locale/speed-search 回归 **13 pass / 0 fail**；
+- DSH Web 200px 输入 `README`：
+  - status text=`1 project item found`；
+  - role=`status`、aria-live=`polite`、aria-atomic=`true`；
+  - 视觉尺寸 `1×1px`，panel `clientWidth=scrollWidth=200`；
+- 输入无匹配 query 时 results status=0，仅保留原有 `No matches` polite status。
+
+**适用环境**：macOS、DSH Web、Ego Browser、Project 200px。
+**长期约束：搜索/过滤有结果时也必须用 live status 提供结果数；
+视觉隐藏播报不得挤占业务布局，且无结果路径不得产生重复 status。**
+
+## 2026-11-20 — Project 多选中的其余单目标动作
+
+**作用域**：Project 200px 多选菜单、Show History、Open in Terminal、
+Reveal in Finder、Expand/Reveal。
+
+**症状/证据**：
+
+- 多选 `app.js` + `README.md` 时，菜单标题为 `2 selected`；
+- 上述动作的 `run` 仍只使用主行 `row.path`，但 native enabled；
+- 用户无法判断点击后会操作主行还是整个 selection。
+
+**修复**：
+
+- `Show History`、`Open in Terminal`、`Reveal in Finder`、
+  `Expand/Reveal` 在 `batch.length > 1` 时 disabled；
+- 单项选择保持可用；Refresh 作为全局动作继续可用；
+- Move/Delete/Harness/Open in Split/Copy Path/Reference 继续支持批量。
+
+**回归与运行态**：
+
+- 新增
+  `tests/project-multi-row-context-disables-remaining-single-target-actions.test.mjs`；
+- 修复前 RED，修复后 GREEN；
+- DSH Web 200px 多选：
+  - selected 保持两项；
+  - Open in Terminal/Reveal in Finder/Show History disabled=true；
+  - Move/Delete/Open in Split/Refresh/Copy Reference 仍 enabled；
+- 单项菜单同类动作均重新 enabled；
+- 定向 Project selection/菜单/模块边界回归 **9 pass / 0 fail**；
+- editor-workspace 仍低于 12500 行 reviewability 门槛。
+
+**适用环境**：macOS、DSH Web、Ego Browser、Project 200px。
+**长期约束：Project 多选菜单只允许保留真正批量的动作；任何 run 仅读取
+主行 path 的动作都必须在多选时 disabled。**
+
+## 2026-11-20 — Project 键盘上下文菜单不得破坏多选
+
+**作用域**：Project 200px 文件树、Meta/Ctrl 多选、Shift+F10/ContextMenu、
+Project context menu 的单文件动作。
+
+**症状/证据**：
+
+- Meta-click `app.js` + `README.md` 后 selection 为两项；
+- 键盘 Shift+F10 调用 `onSelect(selected, {})`，会把选择收窄为主行；
+- 菜单动作闭包仍可能持有上一帧两项 batch，出现 `2 selected` /
+  `Delete 2 Items`，但树视觉只选中一项；
+- 多选中 `Compare with Clipboard / Revision` 仍 enabled，实际 run 只使用
+  `row.path`，目标语义不透明。
+
+**根因**：
+
+- 指针右键只在目标不在 selection 时才替换选择，键盘路径却无条件执行；
+- 单文件 compare action 没有按 batch size 禁用；
+- 菜单构建闭包和随后 selection state 更新存在不一致窗口。
+
+**修复**：
+
+- `openSelectedContextMenuFromKeyboard()` 仅在目标行不在 selection 时
+  `onSelect(selected, {})`；已在多选中的目标保持完整 selection；
+- Project Compare with Clipboard / Revision 在 `batch.length > 1` 时
+  disabled；
+- 两个单文件 compare action 提取为
+  `projectFileComparisonActions()`，避免 editor-workspace 越过
+  12500 行 reviewability 门禁；
+- Move/Delete/Harness/Split/Copy Reference 的批量实现不变。
+
+**回归与运行态**：
+
+- 新增
+  `tests/project-keyboard-context-menu-preserves-multi-selection.test.mjs`；
+- 新增
+  `tests/project-multi-row-context-disables-single-file-compare.test.mjs`；
+- 定向选择/菜单回归 **11 pass / 0 fail**；
+- DSH Web 200px：
+  - Shift+F10 前 selected=`app.js`, `README.md`；
+  - 菜单打开后 selected 仍为两项，title=`2 selected`；
+  - Compare Clipboard/Revision 均 disabled；
+  - panel `clientWidth=scrollWidth=200`；
+  - Escape 关闭菜单后焦点回 tree，selection 仍保留两项。
+
+**适用环境**：macOS、DSH Web、Ego Browser、Project 200px。
+**长期约束：键盘上下文菜单必须与指针右键共享“目标已在多选内则保留
+selection”的规则；只对单路径生效的菜单动作在多选中必须 disabled。**
+
+## 2026-11-20 — Commit Log 状态必须可被 live region 播报
+
+**作用域**：Commit Log loading、过滤无匹配、无提交状态、屏幕阅读器。
+
+**症状/证据**：
+
+- 输入 `ZZZ_NO_MATCH` 后界面显示 `No matches`；
+- 文本节点 `role=null`、`aria-live=null`、`aria-busy=null`；
+- 父 listbox 无 live 属性；
+- 工具窗内只有一个空的 polite live region，过滤结果变空时不会被播报。
+
+**修复**：
+
+- loading / no-matches / no-commits 三个状态分别使用
+  `role='status'`、`aria-live='polite'`、`aria-atomic='true'`；
+- loading 状态额外使用 `aria-busy=true`；
+- 错误 banner 继续使用 `role='alert'` 和现有 Retry loading guard；
+- Graph placeholder、过滤、分页和 Retry 路由不变。
+
+**回归与运行态**：
+
+- 新增 `tests/commit-log-empty-loading-states-are-live-status.test.mjs`；
+- 修复前 RED **1 pass / 1 fail**，修复后 **2 pass / 0 fail**；
+- 定向 Log/Graph/Retry 回归 **14 pass / 0 fail**；
+- DSH Web 200px 输入 `ZZZ_NO_MATCH`：
+  - 存在 `data-dsh-log-state="no-matches"`；
+  - role=`status`、aria-live=`polite`、aria-atomic=`true`；
+  - panel `clientWidth=scrollWidth=200`。
+
+**适用环境**：macOS、DSH Web、Ego Browser、Commit Log 200px。
+**长期约束：Commit Log 中会随搜索/加载变化的可见状态必须通过
+polite atomic status 或 alert 播报，不能只更新普通 div 文本。**
+
+## 2026-11-20 — Commit Log 过滤框稳定 accessible name
+
+**作用域**：Commit Log toolbar、过滤框、⌘L 聚焦、200px 工具窗和 AX。
+
+**症状/证据**：
+
+- 过滤框 `aria-label=null`、没有关联 label；
+- AX 名称只能由 title 生成：`Filter commits (⌘L)`；
+- 快捷键属于补充帮助，不应成为字段唯一名称；
+- Log listbox 本身有 `tabIndex=0`，无结果时显示 `No matches`。
+
+**修复**：
+
+- 过滤框增加已有本地化 `editor.logFilter` 作为 `aria-label`；
+- title 继续提供 `Filter commits (⌘L)` 帮助；
+- 不改过滤逻辑、⌘L、Escape、IME、Log/Graph 路由和 Retry。
+
+**回归与运行态**：
+
+- 新增 `tests/commit-log-filter-has-stable-accessible-name.test.mjs`；
+- 修复前 RED **0 pass / 1 fail**，修复后 GREEN；
+- 定向 Log/快捷键/IME 回归 **11 pass / 0 fail**；
+- DSH Web 200px AX：
+  `Filter commits`，Help 为 `Filter commits (⌘L)`；
+- 输入 `ZZZ_NO_MATCH` 后 listbox 保持 `200/200`，显示 `No matches`，
+  焦点仍在过滤框。
+
+**适用环境**：macOS、DSH Web、Ego Browser、Commit Log 200px。
+**长期约束：搜索/过滤输入必须有独立本地化 accessible name；
+title 和 placeholder 只能提供帮助，不能作为唯一名称。**
+
+## 2026-11-20 — Commit 模板 chip 的 accessible name
+
+**作用域**：Commit Message 模板前缀 chip、200px Commit 键盘遍历、
+屏幕阅读器动作识别。
+
+**症状/证据**：
+
+- 模板 chip 的 DOM 名称只有裸前缀 `feat`；
+- `aria-label=null`，动作含义只在 `title`
+  `Set the subject prefix to feat:` 中；
+- AX 结果为 `button feat, Help: Set the subject prefix to feat:`；
+- Help 不是所有辅助技术交互模式都会稳定朗读，字段名称无法说明按钮动作。
+
+**修复**：
+
+- 模板 chip 使用已有 `editor.commitTemplateHint` 生成本地化 `aria-label`；
+- 保留可见前缀和 title 作为鼠标提示；
+- 主/次 Commit 按钮继续使用 native `disabled`；
+- 模板回调、Commit disabled 条件、修改历史、Amend、IME 和快捷键不变。
+
+**回归与运行态**：
+
+- 新增 `tests/commit-template-chips-name-their-prefix-action.test.mjs`；
+- 修复前 RED **1 pass / 1 fail**，修复后 **2 pass / 0 fail**；
+- DSH Web 200px AX：模板按钮名称为
+  `Set the subject prefix to feat:` 等完整动作；
+- 空 Commit Message 实测：Commit 与 Commit and Push 均为 native disabled；
+- 定向模板/消息 accessible-name 回归 **6 pass / 0 fail**。
+
+**适用环境**：macOS、DSH Web、Ego Browser、Commit 200px 工具窗。
+**长期约束：可见文本只是前缀的 chip 必须把完整本地化动作写入
+accessible name；title/Help 不能作为唯一语义来源。**
+
+## 2026-11-20 — Commit Message textarea 必须有稳定 accessible name
+
+**作用域**：Commit 200px 工具窗、提交消息 textarea、键盘和屏幕阅读器。
+
+**症状/证据**：
+
+- 提交消息 textarea 的 `aria-label` / `aria-labelledby` 均为空；
+- 没有关联 `<label>`，只有 placeholder `Enter a commit message…`；
+- 聚焦后 DSH accessibility tree 显示的元素名是当前值
+  `test commit message`，而不是字段名称；
+- 输入内容变化会连带改变控件名称，屏幕阅读器无法稳定识别字段。
+
+**根因**：
+
+- 浏览器/DSH 对 textarea 的 accessible name 回退到当前值；
+- placeholder 是输入提示，不是可靠的字段标签；
+- CommitPanel 已存在 `editor.commitMessage` 双语 key，但没有用于 textarea。
+
+**修复**：
+
+- textarea 增加 `aria-label={t('editor.commitMessage')}`；
+- placeholder 继续使用 `editor.commitMessagePlaceholder`；
+- 不改提交、Amend、历史 ↑/↓、模板 chip、⌘/Ctrl+Enter 或 IME 行为。
+
+**回归与运行态**：
+
+- 新增
+  `tests/commit-message-textarea-has-localized-accessible-name.test.mjs`；
+- 修复前 RED **1 pass / 1 fail**，修复后 **2 pass / 0 fail**；
+- DSH Web 200px 实测 AX：
+  `text entry area Description: Commit Message, Value: test commit message`；
+- panel `clientWidth=scrollWidth=200`。
+
+**适用环境**：macOS、DSH Web、Ego Browser、Commit 200px 工具窗。
+**长期约束：Commit Message textarea 必须始终拥有本地化 accessible
+name；placeholder 和当前值都不能替代字段标签。**
+
+## 2026-11-20 — Search Everywhere 最近搜索不得关闭查询面
+
+**作用域**：Search Everywhere 空查询结果、Recent searches action、
+`keepOpen` 生命周期、查询框焦点恢复。
+
+**症状/证据**：
+
+- DSH Web 在 360px 视口点击 `R706_DIRTY_TOKEN` Recent search；
+- Search Everywhere popup 立即消失，activeElement 落到 BODY；
+- 用户看不到恢复后的 query，也无法继续编辑本次搜索；
+- README 约定点击最近搜索只恢复 query，不推断 provider，不应关闭搜索窗口。
+
+**根因**：
+
+- `historyResults` 生成的是普通 action，但没有声明 `keepOpen: true`；
+- workspace 的通用 action 分支只在 `keepOpen === true` 时保留弹框；
+- 结果行只调用 `onQuery(entry)`，没有把焦点交还查询框。
+
+**修复**：
+
+- Recent search 结果显式声明 `keepOpen: true`；
+- 恢复 query 后在下一任务把焦点还给 Search Everywhere 查询框；
+- 普通 Action 的关闭语义、provider、history 存储和 FloatingToolPopup
+  拖动/缩放职责均不变。
+
+**回归与运行态**：
+
+- 新增
+  `tests/search-everywhere-recent-search-keeps-popup-and-focus.test.mjs`；
+- 修复前 RED **0 pass / 1 fail**，修复后 GREEN；
+- DSH Web 360px 实测：
+  - 点击 Recent search 后 popup 仍存在；
+  - query 恢复为 `R706_DIRTY_TOKEN`；
+  - activeElement 为 Search Everywhere 查询框。
+
+**适用环境**：macOS、DSH Web、Ego Browser、360×720 viewport。
+**长期约束：只修改 query、筛选或视图状态的结果行必须保留 Search
+Everywhere，并把焦点交还查询框；只有真正完成导航或执行普通 Action
+的结果才允许关闭弹框。**
+
+## 2026-11-20 — Locale 注册 disposer 与 HMR 重入
+
+**作用域**：DSH Web 插件 `apply`、`ctx.locale.register()`、HMR/reapply
+生命周期、Editor host 挂载。
+
+**症状/证据**：
+
+- 浏览器持续报
+  `dsh-editor: apply failed Error: locale namespace "dsh-editor" already has locale "zh"`；
+- 页面没有 Editor host，工具窗口完全无法打开；
+- Harness 的 `LocaleRuntime.register()` 契约明确返回 idempotent disposer；
+- dsh-editor 的 effect 丢弃返回值并返回空清理函数，HMR 重入时旧字典未释放。
+
+**修复**：
+
+- `LocaleService.register` 类型声明为返回 `() => void`；
+- `ctx.effect(() => ctx.locale.register(...), 'dsh-editor: dictionaries')`
+  直接返回注册 disposer；
+- 不吞掉重复注册错误，不由业务代码猜测或清理别人的 locale 状态；
+- 字典内容、命名空间、翻译 key 和 UI 均不变。
+
+**回归与运行态**：
+
+- 新增
+  `tests/editor-locale-registration-is-owned-by-effect-lifecycle.test.mjs`；
+- 修复前 RED **0 pass / 2 fail**，修复后 GREEN **2 pass / 0 fail**；
+- 新鲜 Harness 页面中 Editor 入口正常出现；
+- 点击后 editorHosts=1、workspaces=1，Project/Commit/Terminal/Harness
+  活动条完整；
+- 触发两次 HMR 后未出现新的 locale 错误，编辑器可重新打开；
+- 完整测试 **3167 pass / 0 fail**。
+
+**适用环境**：macOS、DSH Web、Harness r526、Ego Browser。
+**长期约束：任何 `ctx.locale.register()` 都必须把返回 disposer 交给
+拥有它生命周期的 effect；禁止丢弃 disposer 或返回空清理函数。**
+
+## 2026-11-20 — Commit 详情文件行键盘主动作
+
+**作用域**：Commit Log 详情、200px 工具窗、详情文件行、Enter/Space
+打开修订版本、F4 编辑本地源文件。
+
+**症状/证据**：
+
+- 200px Commit Log 无布局溢出；
+- 详情文件行 `tabIndex=0`，但 `role=null`、`aria-label=null`；
+- 聚焦长文件行按 Enter 后，标签页和编辑区内容都不变；
+- 鼠标单击可打开修订，F4 可编辑本地文件，键盘主动作缺失。
+
+**修复**：
+
+- 详情文件行增加 `role='button'`；
+- accessible name 使用完整 path + `editor.openAtRevision`；
+- 提取局部 `showRevision`，鼠标 click 与 Enter/Space 共用；
+- F4、ContextMenu、Shift+F10、双击 EditSource 和右侧菜单不变；
+- 不修改 Commit Log 列表/详情比例或横向滚动归属。
+
+**回归与运行态**：
+
+- 新增 `tests/commit-log-detail-file-row-keyboard-activates-revision.test.mjs`；
+- 新回归先确认 RED，Commit 详情/键盘定向回归 **11 pass / 0 fail**；
+- DSH Web：
+  - 200px Log panel `clientWidth=scrollWidth=200`；
+  - file row activeRole=`button`，完整 path 可读；
+  - Enter 后新增 `Commit: commit-detail-long-file-name.ts` 标签；
+  - diff 显示 commit version `1/1`；
+  - alert 0。
+
+**适用环境**：macOS、DSH Web、Ego Lite。
+**长期约束：可 Tab 聚焦的详情文件行必须同时具备按钮语义、完整
+accessible name 和 Enter/Space 主动作；鼠标和键盘不得走两套执行路径。**
+
+## 2026-11-19 — 共享浮窗拖动豁免交互列表与树
+
+**作用域**：FloatingToolPopup 拖动面、WorkspaceDirectoryPicker、
+FileTreeView、Search Everywhere/Find 的列表、树、选项和 tab 交互。
+
+**症状/证据**：
+
+- WorkspaceDirectoryPicker 把整个 `PickerSurface` 作为拖动把手；
+- 点击 `/Users/chan/Documents` 目录行后，弹窗没有移动，但 selected
+  仍停留在 `/Users/chan`；
+- activeElement 落到 `Workspace directories`，目录行选择没有发生；
+- 共享拖动豁免只包含 `button, input, textarea, select, a,
+  [role="menuitem"]`，没有把 tree/listbox/option/tab 当交互面。
+
+**修复**：
+
+- 提取共享
+  `FLOATING_POPUP_MOVE_IGNORE_SELECTOR`；
+- 豁免 `button/menuitem/tree/treeitem/listbox/option/tab/tablist/slider`
+  以及 `data-dsh-file-tree`；
+- `startInteraction` 统一复用该 selector；
+- 不在 WorkspaceDirectoryPicker 内复制拖动过滤器，标题区仍由共享
+  FloatingToolPopup 拖动。
+
+**回归与运行态**：
+
+- 新增 `tests/search-floating-popup-drag-ignores-tree-list-options.test.mjs`；
+- 新回归先确认 RED，浮窗/目录选择器定向回归 **15 pass / 0 fail**；
+- DSH Web：
+  - 点击 `Documents` 后 selected=`/Users/chan/Documents`；
+  - 弹窗 left/top 保持不变；
+  - 标题区拖动后 left 从 8 变为 58；
+  - alert 0。
+
+**适用环境**：macOS、DSH Web、Ego Lite。
+**长期约束：共享浮窗的 move 只属于把手区域；所有交互语义表面
+`role=tree/treeitem/listbox/option/tab/tablist/slider` 和文件树必须
+从拖动候选里排除，业务组件不得再复制一份过滤逻辑。**
+
+## 2026-11-19 — Find Scope 窄视口布局
+
+**作用域**：Find Scope dialog、固定 230px Scope 列表、右表单、
+360px 窄视口与桌面宽度切换。
+
+**症状/证据**：
+
+- 360px viewport 下 dialog 宽 328px；
+- 左栏固定 230px，右栏只剩 92px；
+- 右栏 `scrollWidth=174px`，名称输入 `clientWidth=160px`，横向溢出；
+- 继续压缩右表单会让 Scope 名称、Include/Exclude 输入不可用。
+
+**修复**：
+
+- dialog 主体增加 `dsh-editor-find-scope-body`；
+- 左栏增加 `dsh-editor-find-scope-list`；
+- `@media (max-width: 520px)` 下改为纵向堆叠；
+- Scope 列表 `width: auto`、`max-height: 180px`，分隔线改为下边框；
+- 桌面宽度继续保留 230px 左栏和右侧表单，不改变业务数据与焦点。
+
+**回归与运行态**：
+
+- 新增 `tests/search-find-scope-dialog-stacks-panes-narrow-viewport.test.mjs`；
+- 新回归先确认 RED，Find Scope 窄布局/焦点定向回归
+  **9 pass / 0 fail**；
+- DSH Web：
+  - 360px：body=`column`，dialog `328/328`，列表 `328/328`，
+    右表单 `323/323`；
+  - 1000px：body=`row`，dialog=720，列表=230，右表单=489，
+    `scrollWidth=clientWidth`；
+  - alert 0。
+
+**适用环境**：macOS、DSH Web、Ego Lite。
+**长期约束：固定侧栏的 modal 必须在窄视口切换为纵向布局；
+验收以实际 `clientWidth/scrollWidth` 为准，不能只看外层 dialog。**
+
+## 2026-11-19 — Project 内部拖拽私有 MIME
+
+**作用域**：Project 文件树内部拖拽、目录移动、根目录 drop、多选移动、
+Manual Order 与任意外部 `text/plain` 拖拽的输入隔离。
+
+**症状/证据**：
+
+- Project 行 `dragstart` 只写 `text/plain`；
+- 行 drop / 树背景 drop 只检查 `types.includes('text/plain')` 后直接读取
+  路径；
+- 聊天、终端或其他网页拖入的文本只要恰好是项目路径，就可能触发文件
+  rename；
+- 输入身份无法区分“Project 自己的行”与“任意文本”。
+
+**修复**：
+
+- `project.ts` 新增
+  `PROJECT_TREE_DRAG_MIME = 'application/x-dsh-editor-project-paths'`；
+- 新增 `dataTransferIncludesProjectTreePaths` 与
+  `readProjectTreeDragPaths`；
+- Project 行仍写 `text/plain` 作为拖动预览，但内部移动只信任私有 MIME；
+- 目录行、树背景、多选移动和 Manual Order 复用同一 helper；
+- 不修改 upload、rename、FileTreeView 或 Manual Order 的职责。
+
+**回归与运行态**：
+
+- 新增 `tests/project-internal-drag-uses-private-mime-not-arbitrary-text.test.mjs`；
+- 同步更新树背景、多选移动和错误拖拽既有回归；
+- 新回归先确认 RED，Project drag/selector 定向回归
+  **29 pass / 0 fail**；
+- DSH Web：
+  - Project 内部拖拽 types =
+    `application/x-dsh-editor-project-paths` + `text/plain`；
+  - `drag-source.ts` 成功移动到 `drop-target/`；
+  - 仅 `text/plain` 的 `text-drag-source.ts` 拖拽后保持原位；
+  - 两种流程 alert 均为 0。
+
+**适用环境**：macOS、DSH Web、Ego Lite。
+**长期约束：文件系统移动只能接受 Project 自己发布的私有 drag MIME；
+`text/plain` 只是跨应用预览数据，不能作为内部移动的身份凭证。**
+
+## 2026-11-19 — Find Scope 弹窗焦点与共享边框
+
+**作用域**：Find Tool Window 的 Edit Scopes 弹窗、modal focus trap、
+共享 popup border、Escape 关闭后的 opener 焦点恢复。
+
+**症状/证据**：
+
+- `FindScopeEditor` 有 `role=dialog` 和 `aria-modal=true`，但 Tab 会逃出
+  弹窗；
+- 关闭弹窗的代码只有 `setScopeEditorOpen(false)`，activeElement 会落到
+  BODY；
+- dialog 仍使用本地 `border-l2`，没有复用统一后的 `POPUP_BORDER`。
+
+**修复**：
+
+- `FindScopeEditor` 复用共享 `trapDialogFocus`；
+- dialog 边框改为共享 `POPUP_BORDER`；
+- `FindToolWindow` 增加 `scopeEditorButtonRef`；
+- 新增稳定的 `closeScopeEditor`，关闭后 `setTimeout` 恢复 “…” opener
+  焦点；
+- 不改变 Scope 数据、导入导出、Find 查询或 floating popup geometry。
+
+**回归与运行态**：
+
+- 新增 `tests/search-find-scope-modal-focus-trap-border-opener-return.test.mjs`；
+- 新回归先确认 RED，modal/focus 定向回归 **10 pass / 0 fail**；
+- DSH Web：
+  - dialog border 为 `1px solid rgba(0,0,0,0.12)`；
+  - focusable count=12；
+  - 最后控件 Tab 后到 `Add Scope`；
+  - 第一控件 Shift+Tab 后到 `OK`；
+  - Escape 后 dialog=false，activeElement=`Edit Scopes…`。
+
+**适用环境**：macOS、DSH Web、Ego Lite。
+**长期约束：所有 `aria-modal` 搜索弹窗必须复用共享 focus trap；
+关闭弹窗必须把键盘还给 opener，不得让 activeElement 落到 BODY；弹窗
+边框只能引用共享 `POPUP_BORDER`。**
+
+## 2026-11-19 — Terminal split 拖拽换 pane 与焦点归属
+
+**作用域**：Terminal tab HTML5 drag、split pane drop、`moveToPane`、
+Terminal emulator focus、关闭 split pane、Move to Editor。
+
+**症状/证据**：
+
+- 左 pane 的活动 Terminal tab 拖到右 pane 时没有换 pane；
+- 根因之一是 `moveToPane(...,'right')` 对
+  `terminalId === activeId` 直接返回；
+- pane drop 后 `onDragEnd` 又无条件聚焦源 tab；
+- DSH Web 首次修复后 pane id 已互换，但 `activeElement=BODY`、
+  `focusedPane=null`；
+- `TerminalScreen` 的 emulator 实例不随 `terminalId` 重建，只替换 stream，
+  因此不能依赖 `ready/focusGeneration` 自动重新 reclaim focus。
+
+**修复**：
+
+- 活动左 tab 拖入右 pane 时交换 `activeId` 与 `splitId`；
+- 增加 `dragDroppedInPaneRef`，区分 pane drop 与 tab strip reorder；
+- pane drop 时禁止 `onDragEnd` 抢回源标签焦点；
+- pane drop 后以 `setTimeout(...,0)` 聚焦目标 pane 的现有 emulator；
+- 保留 tab reorder、PTY、stream、split ratio 与 Move to Editor 语义。
+
+**回归与运行态**：
+
+- 新增 `tests/terminal-tab-drag-between-split-panes-swaps-and-focuses-pane.test.mjs`；
+- 同步更新 tab drag roving-focus 既有回归；
+- 新回归先确认 RED，Terminal split/拖拽定向回归
+  **17 pass / 0 fail**；
+- DSH Web：
+  - active `ef276…` / right `bed54…` 拖拽后变为
+    active `bed54…` / right `ef276…`；
+  - focused pane=`right`，activeElement=`Terminal input`，alert 0；
+  - `⌘W` 关闭右 pane 后 paneCount=1，左 Terminal input 获得焦点；
+  - Move to Editor 后 editor terminal=1，dock 只剩其他标签，alert 0。
+
+**适用环境**：macOS、DSH Web、Ego Lite。
+**长期约束：pane drop 是“把键盘交给目标终端”，不是 tab reorder；
+drag-end 不得从目标 pane 抢回焦点。emulator 复用时，换 stream 不会自动
+触发 TerminalScreen 的 focus reclaim，必须由 pane drop 业务显式调度。**
+
+## 2026-11-19 — IDEA Light annotation 与返回类型限定名
+
+**作用域**：IDEA Light semantic token、TypeScript decorator、annotation、
+return type 限定成员、Monaco semantic legend。
+
+**症状/证据**：
+
+- DSH Web 审计样本中 `@Component`、`@Input`、`@Output` 没有显式
+  annotation token；
+- `function renderUser<T extends User>(user: T): React.ReactNode` 的
+  `ReactNode` 被通用 `.member` heuristic 标成 `ideaProperty`；
+- Computer Use 读取 IntelliJ IDEA 仍返回 `cgWindowNotFound`，本轮改用
+  IDEA 2026.2 安装包配色资源核对：
+  - `JS.GLOBAL_FUNCTION FONT_TYPE=2`；
+  - `TS.TYPE_PARAMETER FOREGROUND=20999d`；
+  - IDEA Light annotation/decorator 沿用 `808000`。
+
+**根因**：
+
+- semantic legend 只有 JSX custom tag，没有 annotation token type；
+- 通用属性表达式 `\.\s*identifier` 无法区分对象属性访问和
+  `Namespace.Type` 返回类型限定成员。
+
+**修复**：
+
+- `editor-theme-model.ts` 新增 `ideaAnnotation` semantic token type 与
+  `808000` rule；
+- heuristic provider 将 `@Name` 的 `Name` 标记为 `ideaAnnotation`；
+- return type 中 `Namespace.Type` 的限定成员以更高优先级标记为
+  `ideaClass`，普通 property heuristic 保留；
+- 没有新增局部主题、DOM 选择器或另一个 semantic provider。
+
+**回归与运行态**：
+
+- `tests/editor-code-coloring-semantic-tokens.test.mjs` 新增：
+  - decorator 名称产生 `ideaAnnotation`；
+  - 合并后 `ReactNode` 只保留 `ideaClass`；
+- `tests/editor-code-coloring-idea-light-palette.test.mjs` 新增
+  `ideaAnnotation=808000` 与无 bold 门禁；
+- 新回归先确认 RED，修复后着色定向回归 **12 pass / 0 fail**；
+- DSH Web 实测：
+  - `Component/Input/Output` = `rgb(128,128,0)` normal；
+  - `ReactNode` = black normal；
+  - `renderUser` = black italic；
+  - `UserCard` = `rgb(178,29,191)` normal；
+  - 全部 token weight = `400`，bold 数 = `0`。
+
+**适用环境**：macOS、DSH Web、Ego Lite、IntelliJ IDEA 2026.2。
+**长期约束：decorator/annotation 必须复用共享 IDEA semantic token；
+return type 限定成员不得被通用 property heuristic 覆盖；代码 token
+只能使用颜色和 italic，仍禁止任何 bold。**
+
+## 2026-11-19 — Find 与 Search Everywhere 弹框容器和遮罩统一
+
+**作用域**：FloatingToolPopup、Find/Replace popup、Search Everywhere popup、
+共享 backdrop、border token 和 outside-click 关闭。
+
+**症状/证据**：
+
+- Find 与 Search Everywhere 已共享 `FloatingToolPopup`，surface 颜色、
+  阴影、圆角、字体和 backdrop 背景一致；
+- Search Everywhere 传入 `onBackdropMouseDown`，backdrop
+  `pointerEvents=auto`；
+- Find 未传该回调，共享组件把 backdrop 设为 `pointerEvents=none`；
+  背景可见但点击会穿透到编辑器，未执行统一关闭；
+- 两个共享 `POPUP_BORDER` 常量仍引用 `--dsw-alias-border-l2`，
+  浅色模式 computed border alpha 约 `0.10`，不够显眼。
+
+**修复**：
+
+- Find popup 传入 `onBackdropMouseDown={closeFindToolWindow}`；
+- `ui/styles.ts` 和 `inline-styles.ts` 的 `POPUP_BORDER` 统一改为
+  `1px solid var(--dsw-alias-border-l3, var(--dsw-alias-border-l2))`；
+- 没有在 FindToolWindow/SearchEverywhere 内新增第二套 backdrop、drag、
+  resize 或 border；
+- 各业务弹框仍只拥有自己的关闭、焦点恢复和 search state。
+
+**回归与运行态**：
+
+- `tests/search-floating-popup-shared-find-search.test.mjs` 新增：
+  - 两个 popup 都接入共享 backdrop click；
+  - 共享 border 使用 l3 并保留 l2 fallback；
+- `tests/editor-popup-border-icon-size-shared.test.mjs` 同步覆盖
+  `ui/styles.ts` 与 `inline-styles.ts`；
+- 新回归先确认 RED，共享弹框/geometry/focus 定向回归
+  **21 pass / 0 fail**；
+- DSH Web：
+  - Find/Search backdrop 均为 `rgba(0,0,0,0.28)`；
+  - 两者 backdrop `pointerEvents=auto`；
+  - 点击 backdrop 都关闭；
+  - Find 关闭后焦点回到 `编辑器内容`；
+- 完整测试 **3149 pass / 0 fail**。
+
+**适用环境**：macOS、DSH Web、Ego Lite。
+**长期约束：弹框的 backdrop、border、drag、resize、geometry 和 focus
+trap 只能由共享 FloatingToolPopup 拥有；业务弹框通过 props 接入行为，
+不得复制另一套容器实现。**
+
+## 2026-11-19 — IDEA Light 泛型、JSX 与函数样式补齐
+
+**作用域**：IDEA Light semantic token、TypeScript generic constraint、
+JSX custom component tag、global function 字体样式。
+
+**症状/证据**：
+
+- DSH TSX 样本 `<T extends User>` 曾把 `T`、`extends`、`User` 全部
+  标成 `20999d` type parameter；
+- `<UserCard>` 开闭标签和 self-closing component 都保持黑色；
+- `renderUser` / `Panel` 曾为 black normal，与 IDEA
+  `JS.GLOBAL_FUNCTION FONT_TYPE=2` 不一致；
+- IntelliJ 资源证据：
+  - JS `colorSchemes/Default.xml`：`JS.LOCAL_VARIABLE=458383`、
+    `JS.GLOBAL_VARIABLE=660e7a`、`JS.INSTANCE_MEMBER_FUNCTION=914C07`、
+    `TS.TYPE_PARAMETER=20999d`、`JS.GLOBAL_FUNCTION FONT_TYPE=2`；
+  - `XmlIntelliJLight.xml`：`HTML_CUSTOM_TAG_NAME=B21DBF`。
+
+**修复**：
+
+- 新增 `ideaJsxComponent` semantic token type 与 `b21dbf` rule；
+- 只识别成对或 self-closing 的大写 JSX component tag，内置
+  `section/span/div` 不改色；
+- type parameter group 按顶层逗号分段，仅标记每段第一个声明标识符，
+  跳过 `const/in/out` 与 constraint 中的 `extends/User/keyof`；
+- `ideaFunction` 增加 italic，但继续禁止 bold；
+- Monaco/code preview 共享 `font-weight:400 !important` 保持不变。
+
+**回归与运行态**：
+
+- `tests/editor-code-coloring-semantic-tokens.test.mjs` 新增：
+  - generic constraint 只产生 `T`、`K` type-parameter token；
+  - JSX component 只标记 `UserCard`，不标记内置 HTML tag；
+- `tests/editor-code-coloring-idea-light-palette.test.mjs` 新增
+  `b21dbf` 和 global function italic 断言；
+- 新回归先确认 RED，定向着色回归 **10 pass / 0 fail**；
+- 完整测试 **3149 pass / 0 fail**；
+- DSH Web 实际计算样式：
+  - `T` = `rgb(32,153,157)` normal；
+  - constraint `User` = 黑色 normal；
+  - `renderUser` / `Panel` = black italic；
+  - `UserCard` = `rgb(178,29,191)` normal；
+  - built-in `section/span` = 黑色 normal；
+  - bold token 数 = 0。
+
+**适用环境**：macOS、DSH Web、Ego Lite、IntelliJ IDEA 2026.2。
+**长期约束：generic constraint 只染声明参数；JSX custom component
+使用 IDEA `HTML_CUSTOM_TAG_NAME`；global function 可用 italic，但任何
+代码 token 都不得 bold。**
+
+## 2026-11-19 — Terminal 隐显恢复与 Split 焦点归属
+
+**作用域**：Editor workspace 隐藏/重开、Terminal xterm focus、Terminal
+split pane、最后一个内容焦点恢复。
+
+**症状/证据**：
+
+- 单 pane Terminal 获得 `Terminal input` 焦点后隐藏并重开 Editor，
+  activeElement 被 Project tree 抢走，terminalOpen 仍为 true；
+- split 两个 pane 均可见时，用户点击右侧 pane 后，稍后焦点会被左侧
+  pane 重新抢回；
+- 两个 `TerminalScreen` 都仅凭 visible 状态 reclaim focus，没有活动 pane
+  概念；
+- activity tool-window focus request 也不知道关闭前键盘属于 Terminal。
+
+**修复**：
+
+- controller 在 Editor host 的 focusin 中记录最后一个非
+  `[data-dsh-editor-activity-stripe]` 内容元素；
+- 重开时优先恢复该 connected target，断开时才回退到 activity focus
+  generation；
+- controller 不识别 Terminal 业务 DOM，只恢复通用最后焦点；
+- `TerminalScreen` 增加 `reclaimFocus`；
+- `TerminalPanel` 只向 focused split pane 传 focusGeneration 和
+  reclaimFocus，非活动 pane 不得因 visible 变化抢焦点。
+
+**回归与运行态**：
+
+- 扩展 `tests/terminal-screen-reclaims-focus-whenever-becomes-visible.test.mjs`
+  覆盖 focused split pane 的 reclaim 门禁；
+- 扩展
+  `tests/editor-workspace-switch-restores-tool-window-focus.test.mjs`
+  覆盖最后内容焦点恢复；
+- 新回归先确认 RED，修复后通过；
+- 定向 Terminal / workspace focus 回归 **22 pass / 0 fail**；
+- 完整测试 **3147 pass / 0 fail**；
+- DSH Web：
+  - 单 pane 重开前后 activeElement 均为 `Terminal input`；
+  - split 保持 2 pane / 2 xterm；
+  - 点击右侧 pane 等待 700ms 后仍为 `activePaneIndex=1`；
+  - Editor 隐藏/重开后仍为 `activePaneIndex=1`，alert 0。
+
+**适用环境**：macOS、DSH Web、Ego Lite。
+**长期约束：split 多个 TerminalScreen 同时 visible 时，只有 focused pane
+拥有 focus reclaim 权限；Editor 隐显恢复应优先恢复最后内容焦点，
+不能默认抢占 Project/Commit。**
+
+## 2026-11-19 — Editor 隐藏后重开恢复工具窗焦点
+
+**作用域**：Editor workspace 显示/隐藏、已挂载 React root、Commit /
+Project 工具窗重开焦点、Changes 列表快捷键。
+
+**症状/证据**：
+
+- Commit 选中 `engineering-memory.md`，Changes 列表滚动
+  `scrollTop=349`；
+- 隐藏并重开 Editor 后，选中项、Commit 模式和列表滚动都保留；
+- 但 activeElement 停在 `Close the editor workspace` 按钮；
+- 焦点不在 `[data-dsh-editor-tool-window]` 内时，Changes 的 `⌘F`
+  不能直接聚焦 Filter，必须先重新点击面板。
+
+**根因**：
+
+- Editor host 关闭时只设置 idle 状态，不卸载 React root；
+- `ensureHost()` 在 root 已存在时直接返回，普通 prop 更新不会进入
+  仍挂载的 Editor；
+- 现有 `restoreToolWindowFocus` 只覆盖真正的 remount，没有覆盖
+  “隐藏后重新显示同一实例”的路径。
+
+**修复**：
+
+- controller 增加通用 `editorWorkspaceFocusRequest` 代次；
+- 只有重开已挂载且此前 inactive 的 host 时才递增；
+- 提取 `renderEditorMount()`，用当前 controller props 对现有 root 做一次
+  reconciliation；
+- EditorMount / EditorWorkspace 透传 `focusRequest`；
+- EditorWorkspace 复用既有 `focusToolWindowContent(activity, ...)`
+  恢复活动工具窗焦点；
+- controller 不读取 Project/Commit 的业务 DOM，业务面由 EditorWorkspace
+  自己决定。
+
+**回归与运行态**：
+
+- 扩展
+  `tests/editor-workspace-switch-restores-tool-window-focus.test.mjs`
+  覆盖同一挂载实例的 hide/reopen；
+- 新回归先确认 RED，修复后通过；
+- focus 相关定向回归 **17 pass / 0 fail**；
+- DSH Web：
+  - 重开后 Changes tree row 最终获得焦点；
+  - Changes 列表 `scrollTop` 349 保持不变；
+  - `⌘F` 直接聚焦 `Filter changes by path`；
+  - diff target、Commit 模式和选中项保持，alert 0。
+
+**适用环境**：macOS、DSH Web、Ego Lite。
+**长期约束：Editor 的 show/hide 不能假定 React remount；任何“重新显示
+同一实例”的焦点恢复都必须通过显式请求 prop 触发现有业务组件处理。**
+
+## 2026-11-19 — Project Speed Search 在 New/Rename 时退出
+
+**作用域**：Project Speed Search、inline New File/Directory、inline Rename、
+Project 树键盘归属。
+
+**症状/证据**：
+
+- DSH Web 在 Project Speed Search 中输入查询后，从 More actions 打开
+  New File，搜索框仍保持可见；
+- 取消 New 后 Project 树获得焦点，但 Speed Search 的旧查询仍残留；
+- Rename 也能与 Speed Search 同时出现；
+- 此时下一次直接键入可能把旧查询替换成单字符，造成难以解释的过滤结果；
+- IDEA 2026.2 实测：New File Popup 打开时 Speed Search 退出，取消后
+  Project 树获得键盘，搜索输入框不保留。
+
+**根因**：
+
+- Create/Rename 状态只接管了输入框焦点，没有结束 Project Speed Search；
+- Speed Search 的关闭路径只绑定在 Escape、关闭按钮和 Enter 上，未覆盖
+  inline edit 状态切换。
+
+**修复**：
+
+- `closeTreeSearch` 改为稳定 `React.useCallback`；
+- 当 `createState` 或 `renameState` 非空时，复用同一
+  `closeTreeSearch()` 清理查询、pending、error、truncated 和请求代次；
+- 保留既有 Create/Rename 输入聚焦、Escape 返回 Project 树和 blur
+  提交保护。
+
+**回归与运行态**：
+
+- 新回归 `tests/project-speed-search-closes-for-inline-edits.test.mjs`
+  先确认 RED，修复后通过；
+- 同步更新旧 Speed Search close 回归，使其验证稳定的 shared callback；
+- DSH Web 实测：
+  - New File 打开后 Speed Search 消失，New File 输入获得焦点；
+  - Rename 打开后 Speed Search 消失，Rename 输入回填并聚焦；
+  - 两者 Escape 后均回到 Project 树焦点；
+- 定向 Project Speed Search 回归 **12 pass / 0 fail**；
+- `node scripts/build-client.mjs --check` 通过。
+
+**适用环境**：macOS、DSH Web、Ego Lite、IDEA 2026.2。
+**长期约束：Project Speed Search 和 inline editor 不能同时拥有键盘；
+Create/Rename 启动时必须退出 Speed Search。**
+
 ## 2026-11-19 — 目录大小写规范化但不解析符号链接
 
 **作用域**：Host workspace-directory picker、macOS/Windows
@@ -63,6 +3849,9 @@ IDEA Light Monaco token rules。
   - 旧默认 12 下调为 11；
   - migration flag 完成后，后续显式字号选择不会被重复修改；
 - `editor-theme-model.ts` 移除全部 token 的 `fontStyle: 'bold'`；
+- 共享 `injected-css.ts` 对 Monaco view lines 和 code preview 强制
+  `font-weight: 400 !important`，防止内置主题或未显式 token 重新带入
+  bold；
 - 颜色保持不变，comment/global variable 的 italic 保留。
 
 **数据与运行态证据**：
@@ -75,6 +3864,13 @@ IDEA Light Monaco token rules。
   - export/class/ThemeSample/format/return/const 全部 font-weight=400；
   - boldSpans=0；
   - keyword 色 `rgb(0,0,128)`、method 色 `rgb(145,76,7)` 保持不变。
+- DSH Web 注入 inline `font-weight:700` 探测 span 后，computed
+  weight 仍为 400，证明共享 CSS 门禁生效。
+- 2026-11-20 复验：
+  - Terminal `.xterm-rows > div` 计算字号为 `12px`，字体族使用
+    `Menlo, Monaco, ui-monospace, SFMono-Regular, Consolas, monospace`；
+  - 打开 `src/app.js` 后 Monaco token 的唯一 weight 为 `400`，
+    bold count 为 `0`。
 
 **回归门禁**：
 
@@ -82,11 +3878,18 @@ IDEA Light Monaco token rules。
 - `tests/editor-code-coloring-idea-light-palette.test.mjs` 明确断言：
   `ideaLightTokenRules()` 中任何 token 都不得包含 bold；
 - 定向字号/着色回归 **8 pass / 0 fail**；
-- 完整测试 **3139 pass / 0 fail**。
+- 完整测试（2026-11-20 复验）**3205 pass / 0 fail**。
 
 **适用环境**：macOS、DSH Web、Ego Lite、IDEA 2026.2。
 **长期约束：代码 token 只能通过颜色和 italic 区分，禁止添加
-`fontStyle: 'bold'`；终端字体尺寸必须从共享默认值读取。**
+`fontStyle: 'bold'`；Monaco/code preview 必须保持
+`font-weight: 400 !important`；终端字体尺寸必须从共享默认值读取。**
+
+**复核门禁**：任何新增或修改的 IDEA Light token 若出现 bold，必须由
+`tests/editor-code-coloring-idea-light-palette.test.mjs` 直接失败；任何
+代码渲染面新增样式也不得覆盖共享 `font-weight: 400 !important` 门禁。
+Terminal 默认字号固定为 `11`，既有字号只允许一次性下调一号；字体族
+继续使用 `Menlo, Monaco` 优先的独立 monospace 链。
 
 ## 2026-11-19 — Project Speed Search 行图标复用共享尺寸
 

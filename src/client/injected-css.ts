@@ -7,6 +7,7 @@ import {
   EDITOR_LATIN_FONT,
   EDITOR_TERMINAL_FONT_STACK,
 } from './components/editor/editor-style-model';
+import { ideaLightSemanticDecorationRules } from './components/editor/editor-theme-model';
 interface TreeLoadingState {
   loading: boolean;
   rowCount: number;
@@ -113,6 +114,7 @@ export function installStyles(): void {
     `  --dsh-editor-font-ui: ${EDITOR_LANGUAGE_FONT_FALLBACKS.ko};`,
     `  --dsh-editor-font-code: ${EDITOR_LANGUAGE_FONT_FALLBACKS.ko};`,
     '}',
+    ...ideaLightSemanticDecorationRules(),
     /* DSH's chat attachment drag overlay blurs the whole page. While a file
            is over the Editor workspace, the Project tree owns that drop, so the
            unrelated attachment mask must not obscure the destination. */
@@ -300,9 +302,12 @@ export function installStyles(): void {
            color and italic only. This also blocks bold inherited from Monaco's
            built-in theme for token types not explicitly listed in our rules. */
     '[data-dsh-editor-workspace] .monaco-editor .view-lines,',
-    '[data-dsh-editor-workspace] .monaco-editor .view-lines span,',
+    '[data-dsh-editor-workspace] .monaco-editor .view-lines .view-line,',
+    '[data-dsh-editor-workspace] .monaco-editor .view-lines .view-line *,',
     '[data-dsh-editor-workspace] .dsh-editor-code-preview-line,',
-    '[data-dsh-editor-workspace] .dsh-editor-code-preview-line * {',
+    '[data-dsh-editor-workspace] .dsh-editor-code-preview-line *,',
+    '[data-dsh-editor-workspace] .dsh-editor-annotate-code,',
+    '[data-dsh-editor-workspace] .dsh-editor-annotate-code * {',
     '  font-weight: 400 !important;',
     '}',
     /* xterm owns its hidden helper textarea for composition and caret
@@ -421,6 +426,15 @@ export function installStyles(): void {
     /* Conflict rows keep a red wash even while hovered or selected. */
     '.dsh-editor-commit-row-conflict { background: rgba(207, 34, 46, 0.08); }',
     '.dsh-editor-commit-row-conflict:hover { background: rgba(207, 34, 46, 0.14); }',
+    /* A parent path is useful only while enough of it remains to read. Query
+           the path cell itself so short paths such as `src/` stay visible while
+           deep paths squeezed below three characters disappear instead of
+           leaving a meaningless ellipsis. The row/title still carries the full
+           path. */
+    '.dsh-editor-commit-path-suffix { container-type: inline-size; }',
+    '@container (max-width: 3ch) {',
+    '  .dsh-editor-commit-path-suffix-text { visibility: hidden; }',
+    '}',
     /* IDEA's tick boxes, drawn rather than inherited: a hairline rounded
            square at rest, a solid accent square with a white tick when checked,
            and a dash when a subtree is partly selected. The native control is
@@ -486,6 +500,7 @@ export function installStyles(): void {
     '  .dsh-editor-find-file-mask-control { display: none !important; }',
     '  .dsh-editor-find-controls[data-dsh-find-controls] > div > svg:first-child { display: none !important; }',
     '  .dsh-editor-find-dock-header-actions { flex-basis: 52px !important; width: 52px !important; min-width: 52px !important; }',
+    '  .dsh-editor-find-scope-mode-group { flex: 1 1 auto !important; min-width: 0 !important; flex-wrap: wrap !important; }',
     '}',
     /* A narrow tool window shows the change list only; the diff needs room to be useful. */
     '@container dsh-editor-side (max-width: 520px) { .dsh-editor-diff-pane { display: none !important; } }',
@@ -623,6 +638,16 @@ export function installStyles(): void {
     '  border-radius: 2px;',
     '  background: color-mix(in srgb, var(--dsw-alias-state-warning-primary, #d4a72c) 34%, transparent);',
     '}',
+    /* IDEA Default.icls DIFF_CONFLICT background. Only marker lines receive it;
+       ordinary code lines retain their diff insert/delete treatment. */
+    '.dsh-editor-conflict-marker-line {',
+    '  background: #ffd5cc !important;',
+    '}',
+    '@media (prefers-color-scheme: dark) {',
+    '  .dsh-editor-conflict-marker-line {',
+    '    background: #45302b !important;',
+    '  }',
+    '}',
     '.dsh-editor-tab:hover { background: var(--dsw-alias-interactive-bg-hover); }',
     '.dsh-editor-tab-active:hover { background: var(--dsw-alias-bg-base); }',
     '.dsh-editor-tab:focus-visible, .dsh-editor-split-tab:focus-visible { outline: 1px solid var(--dsw-alias-state-business-primary); outline-offset: -2px; }',
@@ -667,6 +692,18 @@ export function installStyles(): void {
     '}',
     '@media (max-width: 640px) {',
     '  .dsh-editor-search-everywhere-category { display: none !important; }',
+    '}',
+    '@media (max-width: 520px) {',
+    '  .dsh-editor-find-scope-body {',
+    '    flex-direction: column !important;',
+    '  }',
+    '  .dsh-editor-find-scope-list {',
+    '    width: auto !important;',
+    '    max-height: 180px;',
+    '    flex: 0 0 auto !important;',
+    '    border-right: none !important;',
+    '    border-bottom: 1px solid var(--dsw-alias-border-l3) !important;',
+    '  }',
     '}',
   ].join('\n');
   document.head.appendChild(style);

@@ -132,6 +132,10 @@ function FileTreeView<Row extends FileTreeViewRow>({
   onRowContextMenu,
   onToggleRow,
 }: FileTreeViewProps<Row>) {
+  const treeDomId = React.useId().replaceAll(':', '');
+  const rowDomId = (rowIndex: number): string => `${treeDomId}-row-${rowIndex}`;
+  const primaryRowIndex = rows.findIndex((row) => row.kind !== 'placeholder' && row.path === primaryPath);
+  const activeDescendantId = primaryRowIndex < 0 ? undefined : rowDomId(primaryRowIndex);
   return (
     <div
       className={treeClassName === undefined ? 'dsh-editor-tool-scroll' : `dsh-editor-tool-scroll ${treeClassName}`}
@@ -143,6 +147,8 @@ function FileTreeView<Row extends FileTreeViewRow>({
       onKeyDown={onTreeKeyDown}
       onContextMenu={onTreeContextMenu}
       role='tree'
+      aria-multiselectable={true}
+      aria-activedescendant={activeDescendantId}
       aria-busy={ariaBusy ? 'true' : undefined}
       aria-label={ariaLabel}
       onDragEnter={onTreeDragEnter}
@@ -205,6 +211,7 @@ function FileTreeView<Row extends FileTreeViewRow>({
               ...decoration?.style,
             }}
             title={decoration?.title ?? row.path}
+            id={rowDomId(rowIndex)}
             data-dsh-file-tree-row-index={rowIndex}
             role='treeitem'
             aria-level={position.level}
@@ -213,7 +220,15 @@ function FileTreeView<Row extends FileTreeViewRow>({
             aria-expanded={isDirectory ? open : undefined}
             aria-selected={selected}
             onClick={onRowClick === undefined ? undefined : (event) => onRowClick(state, event)}
-            onMouseDown={onRowPointerDown === undefined ? undefined : (event) => onRowPointerDown(state, event)}
+            onMouseDown={
+              onRowPointerDown === undefined
+                ? undefined
+                : (event) => {
+                    const target = event.target instanceof Element ? event.target : null;
+                    if (target?.closest('[data-dsh-tree-disclosure]') !== null) return;
+                    onRowPointerDown(state, event);
+                  }
+            }
             onDoubleClick={onRowDoubleClick === undefined ? undefined : (event) => onRowDoubleClick(state, event)}
             onContextMenu={onRowContextMenu === undefined ? undefined : (event) => onRowContextMenu(state, event)}
             draggable={decoration?.draggable}
@@ -246,8 +261,10 @@ function FileTreeView<Row extends FileTreeViewRow>({
                 }}
                 role='button'
                 tabIndex={-1}
+                data-dsh-tree-disclosure=''
                 aria-label={open ? t('editor.collapseFolder') : t('editor.expandFolder')}
                 title={open ? t('editor.collapseFolder') : t('editor.expandFolder')}
+                onMouseDown={(event) => event.preventDefault()}
                 onClick={(event) => {
                   event.stopPropagation();
                   onToggleRow?.(row);

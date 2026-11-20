@@ -23,7 +23,7 @@ test('one click selects a change without opening its diff', () => {
     row,
     /onDoubleClick=\{\(event\) => \{[\s\S]*?closest\('input, button, a, \[role="checkbox"\]'\) !== null[\s\S]*?onSelectDiff\?\.\(\{\s+path: change\.path,\s+staged: group\.id === 'staged',\s+\}\);/u,
   );
-  assert.match(panel, /aria-selected=\{selectedForChange\}/);
+  assert.match(panel, /aria-selected=\{selectedInRange \|\| selectedForChange\}/);
 });
 
 test('the selected change is visibly distinct from the opened diff', () => {

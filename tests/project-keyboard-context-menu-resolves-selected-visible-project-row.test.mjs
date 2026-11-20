@@ -31,7 +31,7 @@ test('keyboard context menu resolves the selected visible Project row', () => {
 test('Project tree owns Shift+F10 and ContextMenu on its focused container', () => {
   assert.match(
     panel,
-    /import \{ projectContextMenuRowAfterKeyboard \} from '\.\/project-selection-model';/u,
+    /import \{[^}]*projectContextMenuRowAfterKeyboard[^}]*\} from '\.\/project-selection-model';/u,
   );
   assert.match(panel, /const openSelectedContextMenuFromKeyboard = \(\) => \{/u);
   assert.match(
@@ -43,6 +43,6 @@ test('Project tree owns Shift+F10 and ContextMenu on its focused container', () 
     /event\.key === 'ContextMenu' \|\| \(event\.shiftKey === true && event\.key === 'F10'\)/u,
   );
   assert.match(panel, /openSelectedContextMenuFromKeyboard\(\);/u);
-  assert.match(panel, /onSelect\(selected, \{\}\);/u);
-  assert.match(panel, /onContextMenu\(\{\s+row: selected,\s+x,\s+y,\s+\}\);/u);
+  assert.match(panel, /selectVisibleRow\(selected, \{\}\);/u);
+  assert.match(panel, /onContextMenu\(\{\s+row: selected,\s+x,\s+y,/u);
 });

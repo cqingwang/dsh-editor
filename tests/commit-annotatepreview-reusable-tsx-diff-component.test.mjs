@@ -10,6 +10,11 @@ test('AnnotatePreview is a reusable TSX diff component', async () => {
 
   assert.match(component, /export interface AnnotatePreviewProps/u);
   assert.match(component, /className='dsh-editor-annotate-pane'/u);
+  assert.match(component, /className='dsh-editor-annotate-gutter'/u);
+  assert.match(component, /className='dsh-editor-annotate-code'/u);
+  assert.match(component, /<CodePreviewCode[\s\S]*?text=\{annotateTextLines\[index\]/u);
+  assert.match(component, /<button[\s\S]*?className='dsh-editor-annotate-gutter'/u);
+  assert.match(component, /aria-label=\{`\$\{row\.author\}/u);
   assert.match(component, /<PathLabel/u);
   assert.match(component, /<ToolbarButton/u);
   assert.match(component, /t\('editor\.annotateMode'\)/u);

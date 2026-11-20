@@ -24,6 +24,14 @@ import {
 import { callFs, callGit, ensureDiffTheme, nextDiffLoadSerial, safeLanguage } from '../../editor-core';
 import { hunkAt, lineChangeRangeMappings, readStoredText, restoreUndoStack, selectedCharChanges } from '../../terminal';
 import { startVisibilityGatedPoll } from '../../foundation';
+import {
+  combinedDiffBodyLines,
+  combinedDiffDecorationSpecs,
+  createCombinedDiffColorBudget,
+  takeCombinedDiffColorBudget,
+  type CombinedDiffColorFile,
+} from './combined-diff-color-model';
+import { conflictMarkerLineNumbers } from './conflict-marker-model';
 
 type Translate = (key: string, params?: Record<string, unknown>) => string;
 type DiffCallback = (value: unknown) => void;
@@ -193,6 +201,16 @@ function DiffPreview({
   });
   const [collapsedCombinedFiles, setCollapsedCombinedFiles] = React.useState<Set<number>>(() => new Set());
   const combinedFilesRef = React.useRef<DiffCombinedFile[]>([]);
+  const combinedColorCollectionsRef = React.useRef<Monaco.editor.IEditorDecorationsCollection[]>([]);
+  const conflictMarkerCollectionsRef = React.useRef<Monaco.editor.IEditorDecorationsCollection[]>([]);
+  const clearCombinedColorDecorations = React.useCallback(() => {
+    for (const collection of combinedColorCollectionsRef.current) collection.clear();
+    combinedColorCollectionsRef.current = [];
+  }, []);
+  const clearConflictMarkerDecorations = React.useCallback(() => {
+    for (const collection of conflictMarkerCollectionsRef.current) collection.clear();
+    conflictMarkerCollectionsRef.current = [];
+  }, []);
   const [reloadGeneration, setReloadGeneration] = React.useState(0);
   /* When the modified side has a real selection Monaco also offers a native
      "Revert Selection" gutter button. Mirror that state in the toolbar so a
@@ -1037,6 +1055,8 @@ function DiffPreview({
     const diff = diffRef.current;
     const monaco = window.monaco;
     if (target === null || diff === null || monaco?.editor === undefined) return;
+    clearCombinedColorDecorations();
+    clearConflictMarkerDecorations();
     const previousViewKey = diffViewKeyRef.current;
     if (previousViewKey !== '') captureDiffViewState(previousViewKey);
     diffViewKeyRef.current = diffViewStateKey(target, swapSidesRef.current);
@@ -1104,6 +1124,7 @@ function DiffPreview({
           });
           return;
         }
+        let loadedCombinedFiles: DiffCombinedFile[] = [];
         if (target.combined === true) {
           const files = (Array.isArray(value.files) ? value.files : [])
             .filter((file) => Number.isFinite(Number(file?.line)))
@@ -1111,6 +1132,7 @@ function DiffPreview({
               ...file,
               line: Number(file.line),
             }));
+          loadedCombinedFiles = files as DiffCombinedFile[];
           combinedFilesRef.current = files as DiffCombinedFile[];
           setCombinedFiles(files);
           setCombinedPosition(
@@ -1193,6 +1215,88 @@ function DiffPreview({
               }
             : loadedModels,
         );
+        {
+          const collections: Monaco.editor.IEditorDecorationsCollection[] = [];
+          const sides = [
+            { editor: diff.getOriginalEditor?.(), model: loadedModels.original },
+            { editor: diff.getModifiedEditor?.(), model: loadedModels.modified },
+          ];
+          for (const entry of sides) {
+            if (entry.editor === undefined || entry.model === null || entry.model === undefined) continue;
+            const markers = conflictMarkerLineNumbers(entry.model.getValue());
+            if (markers.length === 0) continue;
+            collections.push(
+              entry.editor.createDecorationsCollection(
+                markers.map((line) => ({
+                  range: new monaco.Range(line, 1, line, 1),
+                  options: {
+                    isWholeLine: true,
+                    className: 'dsh-editor-conflict-marker-line',
+                  },
+                })),
+              ),
+            );
+          }
+          conflictMarkerCollectionsRef.current = collections;
+        }
+        if (target.combined === true && loadedCombinedFiles.length > 0) {
+          void (async () => {
+            const collections: Monaco.editor.IEditorDecorationsCollection[] = [];
+            const colorBudget = createCombinedDiffColorBudget();
+            try {
+              const sides: Array<{
+                editor: Monaco.editor.ICodeEditor | undefined;
+                side: 'original' | 'modified';
+              }> = [
+                {
+                  editor: diff.getOriginalEditor?.(),
+                  side: swapSidesRef.current ? 'modified' : 'original',
+                },
+                {
+                  editor: diff.getModifiedEditor?.(),
+                  side: swapSidesRef.current ? 'original' : 'modified',
+                },
+              ];
+              for (const entry of sides) {
+                const editor = entry.editor;
+                const model = editor?.getModel?.();
+                if (editor === undefined || model === null || model === undefined) continue;
+                const lines = model.getLinesContent();
+                const decorations: Monaco.editor.IModelDeltaDecoration[] = [];
+                for (const file of loadedCombinedFiles) {
+                  if (cancelled) break;
+                  const body = combinedDiffBodyLines(lines, file as CombinedDiffColorFile, entry.side);
+                  if (body === null) continue;
+                  const bodyText = body.lines.join('\n');
+                  if (!takeCombinedDiffColorBudget(colorBudget, bodyText)) continue;
+                  const specs = await combinedDiffDecorationSpecs(monaco, file.path, bodyText);
+                  if (cancelled) break;
+                  for (const spec of specs) {
+                    decorations.push({
+                      range: new monaco.Range(
+                        spec.startLineNumber + body.firstLineNumber - 1,
+                        spec.startColumn,
+                        spec.endLineNumber + body.firstLineNumber - 1,
+                        spec.endColumn,
+                      ),
+                      options: {
+                        inlineClassName: spec.inlineClassName,
+                      },
+                    });
+                  }
+                }
+                collections.push(editor.createDecorationsCollection(decorations));
+              }
+              if (cancelled) {
+                for (const collection of collections) collection.clear();
+                return;
+              }
+              combinedColorCollectionsRef.current = collections;
+            } catch {
+              for (const collection of collections) collection.clear();
+            }
+          })();
+        }
         /* Monaco's per-hunk arrow writes through `executeEdits`; listen on the
          model so both the arrow and the selection toolbar persist. */
         if (modified.__dshRestoreListener != null) modified.__dshRestoreListener.dispose?.();
@@ -1241,8 +1345,18 @@ function DiffPreview({
     return () => {
       cancelled = true;
       diffAbort.abort();
+      clearCombinedColorDecorations();
+      clearConflictMarkerDecorations();
     };
-  }, [captureDiffViewState, persistRestored, reloadGeneration, restoreDiffViewState, target]);
+  }, [
+    captureDiffViewState,
+    clearCombinedColorDecorations,
+    clearConflictMarkerDecorations,
+    persistRestored,
+    reloadGeneration,
+    restoreDiffViewState,
+    target,
+  ]);
   React.useEffect(() => {
     const diff = diffRef.current;
     if (diff === null) return;

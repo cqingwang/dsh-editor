@@ -18,8 +18,10 @@ import {
   terminalLastBlockSelection,
   terminalMenuModel,
   terminalMoveTarget,
+  terminalOverflowItemLabel,
   terminalPromptSelection,
   terminalPromptStartRow,
+  terminalScreenMenuKeyboardRequest,
   terminalSelectionBlockRange,
   terminalTabContextFocus,
   terminalTabMenu,
@@ -467,6 +469,7 @@ function TerminalPanel({
   /* Tab drag-reorder state; IDEA lets you pull a terminal tab sideways. */
   const [dragId, setDragId] = React.useState<string | null>(null);
   const [dragOverId, setDragOverId] = React.useState<string | null>(null);
+  const dragDroppedInPaneRef = React.useRef(false);
   const newButtonRef = React.useRef(null);
   /* Emulators are owned by TerminalScreen; these mirror them for menus and shortcuts. */
   const emulatorRef = React.useRef<TerminalEmulator | null>(null);
@@ -1098,18 +1101,16 @@ function TerminalPanel({
     if (splitId === null && focusedPane === 'right') setFocusedPane('left');
   }, [splitId, splitTerminal, activeId, focusedPane]);
 
-  /** Open the screen context menu for one pane. */
-  const openScreenMenu = (
-    event: React.MouseEvent<HTMLElement>,
+  /** Open the shared Terminal screen menu at a concrete viewport anchor. */
+  const showScreenMenu = (
+    x: number,
+    y: number,
     emulator: TerminalEmulator | null | undefined,
     terminal: TerminalDescription,
     pane: 'left' | 'right' = 'left',
+    selectionPosition: TerminalSelectionPosition | null = null,
   ): void => {
     if (emulator === null || emulator === undefined) return;
-    event.preventDefault();
-    event.stopPropagation();
-    const selectionPosition = screenSelectionPositionRef.current[pane] ?? null;
-    screenSelectionPositionRef.current[pane] = null;
     const model = terminalMenuModel({
       t,
       emulator,
@@ -1145,9 +1146,38 @@ function TerminalPanel({
     if (model !== null)
       setMenu({
         ...model,
-        x: event.clientX,
-        y: event.clientY,
+        x,
+        y,
       });
+  };
+
+  /** Open the screen context menu from a pointer gesture. */
+  const openScreenMenu = (
+    event: React.MouseEvent<HTMLElement>,
+    emulator: TerminalEmulator | null | undefined,
+    terminal: TerminalDescription,
+    pane: 'left' | 'right' = 'left',
+  ): void => {
+    if (emulator === null || emulator === undefined) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const selectionPosition = screenSelectionPositionRef.current[pane] ?? emulator.getSelectionPosition?.() ?? null;
+    screenSelectionPositionRef.current[pane] = null;
+    showScreenMenu(event.clientX, event.clientY, emulator, terminal, pane, selectionPosition);
+  };
+
+  /** IDEA's keyboard route to the same pane menu as right-click. */
+  const openScreenMenuFromKeyboard = (
+    event: React.KeyboardEvent<HTMLElement>,
+    emulator: TerminalEmulator | null | undefined,
+    terminal: TerminalDescription,
+    pane: 'left' | 'right',
+  ): void => {
+    if (!terminalScreenMenuKeyboardRequest(event) || emulator === null || emulator === undefined) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const rect = event.currentTarget.getBoundingClientRect();
+    showScreenMenu(rect.left + 12, rect.top + 12, emulator, terminal, pane, emulator.getSelectionPosition?.() ?? null);
   };
 
   /* Recompute the match count whenever the query changes. */
@@ -1515,19 +1545,30 @@ function TerminalPanel({
   const moveToPane = React.useCallback(
     (terminalId: string, pane: 'left' | 'right'): void => {
       if (pane === 'right') {
-        if (terminalId === activeId) return;
+        if (terminalId === activeId) {
+          if (splitId !== null) {
+            setActiveId(splitId);
+            setSplitId(terminalId);
+            setFocusedPane('right');
+            window.setTimeout(() => splitEmulatorRef.current?.focus?.(), 0);
+          }
+          return;
+        }
         setSplitId(terminalId);
         setFocusedPane('right');
+        window.setTimeout(() => splitEmulatorRef.current?.focus?.(), 0);
         return;
       }
       /* Dropping onto the left pane while it is the split's own tab means "unsplit". */
       if (terminalId === splitId) {
         setSplitId(null);
         setFocusedPane('left');
+        window.setTimeout(() => emulatorRef.current?.focus?.(), 0);
         return;
       }
       setActiveId(terminalId);
       setFocusedPane('left');
+      window.setTimeout(() => emulatorRef.current?.focus?.(), 0);
     },
     [activeId, splitId],
   );
@@ -1540,13 +1581,13 @@ function TerminalPanel({
    * @param {'left'|'right'} pane - pane that should own the caret.
    */
   const focusPane = (pane: 'left' | 'right'): void => {
-    if (splitId === null) {
-      setFocusedPane('left');
-      return;
-    }
-    setFocusedPane(pane);
-    const emulator = pane === 'right' ? splitEmulatorRef.current : emulatorRef.current;
+    setFocusedPane(splitId === null ? 'left' : pane);
+    const emulator = pane === 'right' && splitId !== null ? splitEmulatorRef.current : emulatorRef.current;
     emulator?.focus();
+  };
+  const updateTerminalFontSize = (action: string): void => {
+    setFontSize((size) => storeFontSize(terminalFontSize(size, action)));
+    window.setTimeout(() => focusPane(focusedPaneRef.current), 0);
   };
 
   /* One split for the render: which tabs stay in the strip and which go to `»`. */
@@ -1689,7 +1730,8 @@ function TerminalPanel({
       title: t('editor.terminalOverflowTitle'),
       items: tabLayout.hidden.map((terminal) => ({
         id: `tab:${terminal.id}`,
-        label: terminal.title,
+        label: terminalOverflowItemLabel(t, terminals, terminal),
+        restoreFocus: false,
         ...(colors[terminal.id] === undefined
           ? {}
           : {
@@ -1774,6 +1816,7 @@ function TerminalPanel({
                 draggable={true}
                 onDragStart={(event) => {
                   event.currentTarget.focus?.();
+                  dragDroppedInPaneRef.current = false;
                   setDragId(terminal.id);
                   event.dataTransfer?.setData('text/plain', terminal.id);
                   event.dataTransfer.effectAllowed = 'move';
@@ -1793,7 +1836,9 @@ function TerminalPanel({
                   if (source !== '' && source !== terminal.id) void moveTab(source, terminal.id);
                 }}
                 onDragEnd={(event) => {
-                  event.currentTarget.focus?.();
+                  const paneDragFinished = dragDroppedInPaneRef.current;
+                  dragDroppedInPaneRef.current = false;
+                  if (!paneDragFinished) event.currentTarget.focus?.();
                   setDragId(null);
                   setDragOverId(null);
                 }}
@@ -1820,6 +1865,7 @@ function TerminalPanel({
                     style={styles.terminalRenameInput}
                     value={renaming.value}
                     autoFocus={true}
+                    aria-label={t('editor.terminalRename')}
                     onClick={(event) => event.stopPropagation()}
                     onChange={(event) =>
                       setRenaming((current) =>
@@ -1869,7 +1915,9 @@ function TerminalPanel({
                 <button
                   type='button'
                   style={styles.terminalTabClose}
-                  aria-label={t('editor.terminalClose')}
+                  aria-label={t('editor.closeTab', {
+                    name: terminal.title,
+                  })}
                   onClick={(event) => {
                     event.stopPropagation();
                     void closeTerminal(terminal.id);
@@ -1979,17 +2027,17 @@ function TerminalPanel({
                 {
                   id: 'increaseFont',
                   label: t('editor.terminalIncreaseFontSize'),
-                  run: () => setFontSize((size) => storeFontSize(terminalFontSize(size, 'increase'))),
+                  run: () => updateTerminalFontSize('increase'),
                 },
                 {
                   id: 'decreaseFont',
                   label: t('editor.terminalDecreaseFontSize'),
-                  run: () => setFontSize((size) => storeFontSize(terminalFontSize(size, 'decrease'))),
+                  run: () => updateTerminalFontSize('decrease'),
                 },
                 {
                   id: 'resetFont',
                   label: t('editor.terminalResetFontSize'),
-                  run: () => setFontSize((size) => storeFontSize(terminalFontSize(size, 'reset'))),
+                  run: () => updateTerminalFontSize('reset'),
                 },
                 {
                   id: 'refresh',
@@ -2082,6 +2130,7 @@ function TerminalPanel({
               ...(splitId !== null && focusedPane === 'left' ? styles.terminalPaneFocused : null),
             }}
             data-dsh-terminal-pane-role='left'
+            onKeyDownCapture={(event) => openScreenMenuFromKeyboard(event, emulatorRef.current, active, 'left')}
             onMouseDownCapture={(event) => {
               focusPane('left');
               if (event.button === 2 && emulatorRef.current !== null) {
@@ -2096,7 +2145,10 @@ function TerminalPanel({
             onDrop={(event) => {
               event.preventDefault();
               const source = event.dataTransfer?.getData('text/plain') ?? '';
-              if (source !== '') moveToPane(source, 'left');
+              if (source !== '') {
+                dragDroppedInPaneRef.current = true;
+                moveToPane(source, 'left');
+              }
             }}
             onContextMenu={(event) => openScreenMenu(event, emulatorRef.current, active, 'left')}>
             {active === null ? (
@@ -2119,7 +2171,8 @@ function TerminalPanel({
             ) : (
               <TerminalScreen
                 terminalId={activeId}
-                focusGeneration={focusGeneration}
+                focusGeneration={focusedPane === 'left' ? focusGeneration : 0}
+                reclaimFocus={focusedPane === 'left'}
                 fontSize={fontSize}
                 find={find}
                 getCwd={() => cwdRef.current}
@@ -2202,6 +2255,9 @@ function TerminalPanel({
                 ...(focusedPane === 'right' ? styles.terminalPaneFocused : null),
               }}
               data-dsh-terminal-pane-role='right'
+              onKeyDownCapture={(event) =>
+                openScreenMenuFromKeyboard(event, splitEmulatorRef.current, splitTerminal, 'right')
+              }
               onMouseDownCapture={(event) => {
                 focusPane('right');
                 if (event.button === 2 && splitEmulatorRef.current !== null) {
@@ -2215,7 +2271,10 @@ function TerminalPanel({
               onDrop={(event) => {
                 event.preventDefault();
                 const source = event.dataTransfer?.getData('text/plain') ?? '';
-                if (source !== '') moveToPane(source, 'right');
+                if (source !== '') {
+                  dragDroppedInPaneRef.current = true;
+                  moveToPane(source, 'right');
+                }
               }}
               onContextMenu={(event) => openScreenMenu(event, splitEmulatorRef.current, splitTerminal, 'right')}>
               <div style={styles.terminalPaneBar}>
@@ -2233,13 +2292,15 @@ function TerminalPanel({
                       <option
                         key={terminal.id}
                         value={terminal.id}>
-                        {terminal.title}
+                        {terminalOverflowItemLabel(t, terminals, terminal)}
                       </option>
                     ))}
                 </select>
               </div>
               <TerminalScreen
                 terminalId={splitId}
+                focusGeneration={focusedPane === 'right' ? focusGeneration : 0}
+                reclaimFocus={focusedPane === 'right'}
                 fontSize={fontSize}
                 find={find}
                 getCwd={() => splitTerminal.cwd}

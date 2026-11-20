@@ -7,6 +7,7 @@ const popup = await read('src/client/components/search/FindToolPopup.tsx');
 const searchEverywhere = await read('src/client/components/search/SearchEverywhere.tsx');
 const findTool = await read('src/client/components/search/FindToolWindow.tsx');
 const workspace = await read('src/client/editor-workspace.tsx');
+const workspaceDirectoryPicker = await read('src/client/components/project/WorkspaceDirectoryPicker.tsx');
 const commit = await read('src/client/commit.ts');
 const inlineStyles = await read('src/client/inline-styles.ts');
 const uiStyles = await read('src/client/ui/styles.ts');
@@ -15,6 +16,10 @@ test('FloatingToolPopup owns shared drag, resize and backdrop behavior', () => {
   assert.match(popup, /function FloatingToolPopup\(/u);
   assert.match(popup, /const FLOATING_TOOL_POPUP_SURFACE_STYLE: React\.CSSProperties/u);
   assert.match(popup, /border: POPUP_BORDER/u);
+  assert.match(
+    uiStyles,
+    /POPUP_BORDER =\s+'1px solid var\(--dsw-alias-border-selected, var\(--dsw-alias-border-l4, var\(--dsw-alias-border-l3\)\)\)'/u,
+  );
   assert.match(popup, /\.\.\.FLOATING_TOOL_POPUP_SURFACE_STYLE/u);
   assert.match(popup, /FIND_POPUP_RESIZE_DIRECTIONS\.map/u);
   assert.match(popup, /moveFloatingPopupGeometry/u);
@@ -31,6 +36,29 @@ test('FloatingToolPopup owns shared drag, resize and backdrop behavior', () => {
   );
 });
 
+test('FloatingToolPopup owns one stacking contract for every business surface', () => {
+  assert.match(popup, /const FLOATING_TOOL_POPUP_BACKDROP_Z_INDEX = 2499;/u);
+  assert.match(popup, /const FLOATING_TOOL_POPUP_Z_INDEX = 2501;/u);
+  assert.match(popup, /zIndex: FLOATING_TOOL_POPUP_BACKDROP_Z_INDEX,/u);
+  assert.match(
+    popup,
+    /const FLOATING_TOOL_POPUP_SURFACE_STYLE: React\.CSSProperties = \{[\s\S]*?zIndex: FLOATING_TOOL_POPUP_Z_INDEX,/u,
+  );
+  for (const source of [inlineStyles, uiStyles]) {
+    const findStyle = source.slice(source.indexOf('findToolPopup: {'), source.indexOf('findToolToolbar: {'));
+    const searchStyle = source.slice(
+      source.indexOf('searchEverywherePopup: {'),
+      source.indexOf('searchEverywhereTabs: {'),
+    );
+    assert.doesNotMatch(findStyle, /zIndex:/u);
+    assert.doesNotMatch(searchStyle, /zIndex:/u);
+  }
+  const pickerSurfaceStart = workspaceDirectoryPicker.indexOf('surfaceStyle={{');
+  const pickerSurfaceEnd = workspaceDirectoryPicker.indexOf('}}>', pickerSurfaceStart);
+  assert.ok(pickerSurfaceStart >= 0 && pickerSurfaceEnd > pickerSurfaceStart);
+  assert.doesNotMatch(workspaceDirectoryPicker.slice(pickerSurfaceStart, pickerSurfaceEnd), /zIndex:/u);
+});
+
 test('Search Everywhere uses the same floating popup and drag surface', () => {
   assert.match(searchEverywhere, /onPopupDragStart/u);
   assert.match(searchEverywhere, /data-dsh-search-drag-surface/u);
@@ -45,6 +73,8 @@ test('Search Everywhere uses the same floating popup and drag surface', () => {
 test('Find and Search Everywhere share one backdrop implementation', () => {
   assert.match(workspace, /kind='searchEverywhere'[\s\S]{0,900}?backdrop=\{true\}/u);
   assert.match(workspace, /kind='find'[\s\S]{0,900}?backdrop=\{true\}/u);
+  assert.match(workspace, /kind='searchEverywhere'[\s\S]{0,900}?onBackdropMouseDown=\{dismissSearchEverywhere\}/u);
+  assert.match(workspace, /kind='find'[\s\S]{0,900}?onBackdropMouseDown=\{closeFindToolWindow\}/u);
   assert.doesNotMatch(workspace, /styles\.paletteBackdrop/u);
   assert.doesNotMatch(searchEverywhere, /styles\.paletteBackdrop/u);
   assert.doesNotMatch(findTool, /styles\.paletteBackdrop/u);
@@ -52,16 +82,18 @@ test('Find and Search Everywhere share one backdrop implementation', () => {
 
 test('business popup content leaves border, background and shadow to the shared surface', () => {
   assert.doesNotMatch(searchEverywhere, /\.\.\.styles\.palette,/u);
-  const findSurface = uiStyles.slice(uiStyles.indexOf('findToolPopup: {'), uiStyles.indexOf('findToolToolbar: {'));
-  const searchSurface = uiStyles.slice(
-    uiStyles.indexOf('searchEverywherePopup: {'),
-    uiStyles.indexOf('searchEverywhereTabs: {'),
-  );
-  for (const style of [findSurface, searchSurface]) {
-    assert.doesNotMatch(style, /border:/u);
-    assert.doesNotMatch(style, /borderRadius:/u);
-    assert.doesNotMatch(style, /background:/u);
-    assert.doesNotMatch(style, /boxShadow:/u);
+  for (const source of [inlineStyles, uiStyles]) {
+    const findSurface = source.slice(source.indexOf('findToolPopup: {'), source.indexOf('findToolToolbar: {'));
+    const searchSurface = source.slice(
+      source.indexOf('searchEverywherePopup: {'),
+      source.indexOf('searchEverywhereTabs: {'),
+    );
+    for (const style of [findSurface, searchSurface]) {
+      assert.doesNotMatch(style, /border:/u);
+      assert.doesNotMatch(style, /borderRadius:/u);
+      assert.doesNotMatch(style, /background:/u);
+      assert.doesNotMatch(style, /boxShadow:/u);
+    }
   }
 });
 

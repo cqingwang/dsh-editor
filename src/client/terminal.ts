@@ -1419,9 +1419,11 @@ export function writeEditorTerminals(ids: string[]): void {
   }
 }
 
-export const TERMINAL_DEFAULT_FONT_SIZE = 11;
+export const TERMINAL_DEFAULT_FONT_SIZE = 9;
 const TERMINAL_FONT_SIZE_STORAGE_KEY = 'dsh-editor.terminal.fontSize';
-const TERMINAL_FONT_SIZE_MIGRATION_KEY = 'dsh-editor.terminal.fontSize.decrementMigrated';
+/* The typography request reduced the persisted terminal size by one. Keep this
+ * migration key versioned so opening a terminal never decrements it again. */
+const TERMINAL_FONT_SIZE_MIGRATION_KEY = 'dsh-editor.terminal.fontSize.decrementToNineMigrated';
 
 export function readTerminalFontSize(): number {
   try {
@@ -1429,7 +1431,9 @@ export function readTerminalFontSize(): number {
     const migrated = window.localStorage.getItem(TERMINAL_FONT_SIZE_MIGRATION_KEY) === '1';
     const parsed = Number(raw);
     const stored =
-      raw !== null && raw !== '' && Number.isFinite(parsed) ? Math.max(8, Math.min(24, Math.round(parsed))) : 12;
+      raw !== null && raw !== '' && Number.isFinite(parsed)
+        ? Math.max(8, Math.min(24, Math.round(parsed)))
+        : TERMINAL_DEFAULT_FONT_SIZE + 1;
     if (!migrated) {
       const next = Math.max(8, stored - 1);
       window.localStorage.setItem(TERMINAL_FONT_SIZE_STORAGE_KEY, String(next));

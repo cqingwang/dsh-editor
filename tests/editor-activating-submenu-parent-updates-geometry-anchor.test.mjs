@@ -12,10 +12,7 @@ test('activating a submenu parent updates its geometry anchor', () => {
 
 test('keyboard activation moves focus into the first enabled submenu item', () => {
   assert.match(menu, /if \(event\.detail === 0\) \{/);
-  assert.match(
-    menu,
-    /if \(event\.detail === 0\) \{\s+window\.setTimeout\(\(\) => \{\s+parent\s+\.querySelector\('\[role="menu"\]'\)\s+\?\.querySelector<HTMLButtonElement>\('button\[data-menu-item-id\]:not\(:disabled\)'\)\s+\?\.focus\(\);\s+\}, 0\);\s+\}/s,
-  );
+  assert.match(menu, /if \(event\.detail === 0\) \{\s+window\.setTimeout\(\(\) => childButtons\(item\.id\)\[0\]\?\.focus\(\), 0\);/s);
 });
 
 test('Escape closes one submenu level and restores parent focus', () => {

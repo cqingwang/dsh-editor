@@ -23,6 +23,8 @@ test('Changes rows track a range selection separately from commit checkboxes', (
   assert.match(panel, /selectedChanges,/);
   assert.match(panel, /const selectedInRange = selectedChanges instanceof Set && selectedChanges\.has\(changeKey\)/);
   assert.match(panel, /dsh-editor-commit-row-range/);
+  assert.match(panel, /aria-selected=\{selectedInRange \|\| selectedForChange\}/);
+  assert.match(panel, /aria-multiselectable=\{true\}/);
   assert.match(panel, /shift: event\.shiftKey/);
   assert.match(panel, /toggle: event\.metaKey \|\| event\.ctrlKey/);
   assert.match(panel, /onChange=\{\(\) => onTogglePath\(change\.path\)\}/);
@@ -72,6 +74,11 @@ test('the context menu acts on all selected rows, not just the clicked one', () 
   const rolledBack = [];
   const buildChangeMenu = loadTypeScriptCallback(workspaceSource, 'buildChangeMenu', {
     changesByPathRef,
+    changeModel: {
+      allPathsUnversioned: () => false,
+      canCompareWithHead: () => true,
+      pathsScheduledForRemoval: () => [],
+    },
     allPathsUnversioned: () => false,
     pathsScheduledForRemoval: () => [],
     isConflict: () => false,
@@ -118,30 +125,39 @@ test('the context menu acts on all selected rows, not just the clicked one', () 
 
 test('batch shortcuts act only on rows from the appropriate git band', () => {
   const body = workspace();
-  const stage = body.slice(body.indexOf('const stageShortcut = React.useCallback('), body.indexOf("window.addEventListener('keydown', stageShortcut"));
+  const stage = body.slice(
+    body.indexOf('const stageShortcut = React.useCallback('),
+    body.indexOf("window.addEventListener('keydown', stageShortcut"),
+  );
   assert.match(stage, /const picked = chosenChanges\(fallback\)/);
   assert.match(stage, /\.filter\(\(entry\) => entry\.staged === staged\)/);
   assert.match(stage, /void restageRef\.current\(\[\.\.\.new Set\(eligible\)\], staged\)/);
-  const rollbackShortcut = body.slice(body.indexOf('const rollbackWorkingShortcut = React.useCallback('), body.indexOf("window.addEventListener('keydown', rollbackWorkingShortcut"));
+  const rollbackShortcut = body.slice(
+    body.indexOf('const rollbackWorkingShortcut = React.useCallback('),
+    body.indexOf("window.addEventListener('keydown', rollbackWorkingShortcut"),
+  );
   assert.match(rollbackShortcut, /\.filter\(\(entry\) => entry\.staged !== true\)/);
   assert.match(rollbackShortcut, /void rollback\(\[\.\.\.new Set\(working\)\]\)/);
 });
 
 test('rollback keeps checkboxes and selects the nearest surviving Changes row', () => {
   const body = workspace();
-  const reconcile = body.slice(body.indexOf('const reconcileChangeSelection = React.useCallback('), body.indexOf('const closeDiff = React.useCallback('));
+  const reconcile = body.slice(
+    body.indexOf('const reconcileChangeSelection = React.useCallback('),
+    body.indexOf('const closeDiff = React.useCallback('),
+  );
   assert.match(reconcile, /const firstRemoved = keysInVisualOrder\.findIndex/);
   assert.match(reconcile, /const keptSelected = new Set\(\[\.\.\.selectedChangesRef\.current\]\.filter/);
   assert.match(reconcile, /const selectedAfterRemoval = keysInVisualOrder\.find/);
   assert.match(reconcile, /const candidate = keysInVisualOrder\[Math\.min\(firstRemoved \+ offset/);
   assert.doesNotMatch(reconcile, /setCommitSelection/);
-  const rollback = body.slice(body.indexOf('const rollback ='), body.indexOf('const buildChangeMenu = React.useCallback('));
+  const rollback = body.slice(
+    body.indexOf('const rollback ='),
+    body.indexOf('const buildChangeMenu = React.useCallback('),
+  );
   assert.match(rollback, /setCommitSelection\(\(current\) =>/);
   assert.match(rollback, /reconcileChangeSelection\(value\?\.changes \?\? \[\], pickedKeys\)/);
-  assert.match(
-    rollback,
-    /\.filter\(\(entry\) => \(stagedOnly \? entry\.staged === true : entry\.staged !== true\)\)/u,
-  );
+  assert.match(rollback, /\.filter\(\(entry\) => \(stagedOnly \? entry\.staged === true : entry\.staged !== true\)\)/u);
 });
 
 test('nearestRowAfterRemoval follows visual order, including staged and unstaged sides', () => {

@@ -57,7 +57,8 @@ test('Find and Replace in Files use the IDEA-style search popup', () => {
   assert.match(source, /function FindToolWindowView\(/);
   assert.match(source, /'data-dsh-find-tool-window': ''/);
   assert.match(source, /data-dsh-find-tool-popup/);
-  assert.match(source, /findToolPopup: \{[\s\S]*?zIndex: 4000/u);
+  assert.doesNotMatch(source, /findToolPopup: \{[\s\S]{0,200}?zIndex:/u);
+  assert.match(source, /FLOATING_TOOL_POPUP_Z_INDEX = 2501/u);
   assert.match(source, /groupFindMatches\(/);
   assert.match(source, /t\('editor\.previousOccurrence'\)/);
   assert.match(source, /t\('editor\.nextOccurrence'\)/);

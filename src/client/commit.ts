@@ -1,7 +1,8 @@
 /* commit.ts: dsh-editor Search/Find model and storage helpers. Generated into lib/client.js by scripts/build-client.mjs. */
 import type * as Monaco from 'monaco-editor';
 import { dirname } from './components/editor/editor-path-model';
-import { basename, safeLanguage } from './editor-core';
+import type { IdeaLightTextStyleRange } from './components/editor/editor-theme-model';
+import { basename, ensureEditorTheme, safeLanguage } from './editor-core';
 import { findScopePatternsMatch, fuzzyScore, wholeWordIndex } from './find-tool';
 import { editorReplaceAll } from './terminal';
 import React from 'react';
@@ -344,6 +345,10 @@ export function useCodePreviewColorizedLines(lines: string[], path: string): str
         cancelled = true;
       };
     }
+    /* Lightweight previews use Monaco's standalone colorizer, which reads the
+       globally selected theme rather than an editor instance theme. Bind that
+       global theme explicitly so previews share the same IDEA Light rules. */
+    monaco.editor.setTheme(ensureEditorTheme(monaco));
     monaco.editor
       .colorize(text, codePreviewLanguage(monaco, path), { tabSize: 2 })
       .then((html) => {
@@ -382,15 +387,14 @@ export function codePreviewMatchRanges(
   return ranges;
 }
 
-/**
- * Wrap text intersections with Find's match highlight after colorization.
- * Processing text nodes in reverse keeps earlier offsets stable.
- * @param {HTMLElement} root - colorized code element.
- * @param {Array<{start: number, end: number}>} ranges - character ranges.
- * @returns {void}
- */
-export function markCodePreviewMatches(root: HTMLElement, ranges: CodePreviewRange[]): void {
-  for (const range of ranges) {
+function paintCodePreviewRanges(
+  root: HTMLElement,
+  ranges: readonly CodePreviewRange[],
+  className: string,
+  decorate?: (span: HTMLSpanElement, range: CodePreviewRange) => void,
+): void {
+  for (const range of [...ranges].sort((left, right) => right.start - left.start)) {
+    if (range.end <= range.start) continue;
     const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
     const nodes = [];
     let offset = 0;
@@ -409,13 +413,35 @@ export function markCodePreviewMatches(root: HTMLElement, ranges: CodePreviewRan
       const localEnd = end - entry.start;
       if (localStart > 0) target = target.splitText(localStart);
       if (localEnd - localStart < target.length) target.splitText(localEnd - localStart);
-      const mark = document.createElement('span');
-      mark.className = 'dsh-editor-code-preview-match';
-      mark.setAttribute('data-dsh-find-preview-match', '1');
-      target.parentNode?.insertBefore(mark, target);
-      mark.appendChild(target);
+      const span = document.createElement('span');
+      span.className = className;
+      decorate?.(span, range);
+      target.parentNode?.insertBefore(span, target);
+      span.appendChild(target);
     }
   }
+}
+
+/** Apply IDEA Light semantic foregrounds to colorized preview text. */
+export function paintCodePreviewTextRanges(root: HTMLElement, ranges: readonly IdeaLightTextStyleRange[]): void {
+  paintCodePreviewRanges(root, ranges, 'dsh-editor-code-preview-token', (span, range) => {
+    const style = range as IdeaLightTextStyleRange;
+    span.style.color = style.foreground;
+    if (style.fontStyle !== undefined) span.style.fontStyle = style.fontStyle;
+  });
+}
+
+/**
+ * Wrap text intersections with Find's match highlight after colorization.
+ * Processing text nodes in reverse keeps earlier offsets stable.
+ * @param {HTMLElement} root - colorized code element.
+ * @param {Array<{start: number, end: number}>} ranges - character ranges.
+ * @returns {void}
+ */
+export function markCodePreviewMatches(root: HTMLElement, ranges: CodePreviewRange[]): void {
+  paintCodePreviewRanges(root, ranges, 'dsh-editor-code-preview-match', (span) => {
+    span.setAttribute('data-dsh-find-preview-match', '1');
+  });
 }
 
 /**
@@ -978,6 +1004,7 @@ export function findToolQueryTransition<T extends FindToolState>(
     error: null,
     loadedGeneration: -1,
     searchGeneration: (Number(current.searchGeneration) || 0) + 1,
+    collapsedFiles: [],
   } as T;
 }
 
@@ -1254,6 +1281,44 @@ export function releaseReplaceAttempt(guard: { current: boolean } | null | undef
 }
 
 /**
+ * Whether one asynchronous workspace replacement still owns the live query.
+ *
+ * Request ids reject superseded text searches. The literal query comparison
+ * also covers the short interval before the next search effect receives its
+ * id, so an old completion cannot clear or focus the replacement field of a
+ * query that just changed.
+ * @param requestId - text-search id captured before replacement I/O.
+ * @param requestQuery - raw Search Everywhere query captured with that id.
+ * @param currentRequestId - latest text-search id.
+ * @param currentQuery - current raw Search Everywhere query.
+ * @returns whether the replacement still belongs to the visible query.
+ */
+export function replaceAttemptIsCurrent(
+  requestId: number,
+  requestQuery: string,
+  currentRequestId: number,
+  currentQuery: unknown,
+): boolean {
+  return requestId === currentRequestId && requestQuery === currentQuery;
+}
+
+/**
+ * Whether a replacement still belongs to the current Find query generation.
+ * Query and option changes increment this generation immediately, so both
+ * failures and successes must use the same boundary before mutating rows.
+ * @param current - current Find state.
+ * @param requestGeneration - generation captured before replacement I/O.
+ * @returns whether the completed attempt still owns the visible query.
+ */
+export function replaceGenerationIsCurrent(
+  current: { searchGeneration?: unknown } | null,
+  requestGeneration: number,
+): boolean {
+  if (current === null) return false;
+  return (Number(current.searchGeneration) || 0) === (Number(requestGeneration) || 0);
+}
+
+/**
  * 解析替换输入框的 Enter 意图，避免无关修饰键触发写入。
  * Find 使用 Enter 替换一处、Alt+Shift+Enter 全部替换，并保留
  * Cmd/Ctrl+Enter 兼容；Search Everywhere 仍使用 Enter=全部替换。
@@ -1302,9 +1367,24 @@ export function replaceFailureState<T extends FindToolState>(
   message: unknown,
 ): T | null {
   if (current === null) return current;
-  const currentGeneration = Number(current.searchGeneration) || 0;
-  const currentRequest = Number(requestGeneration) || 0;
-  const isCurrent = currentGeneration === currentRequest;
+  return replaceFailureSettlement(current, replaceGenerationIsCurrent(current, requestGeneration), message);
+}
+
+/**
+ * Settle replacement busy state without leaking an old failure into a newer
+ * query. Focus is requested only when the failed attempt still owns the
+ * visible search context.
+ * @param current - current Find or Search Everywhere state.
+ * @param isCurrent - whether the failed attempt still owns the live query.
+ * @param message - replacement failure text.
+ * @returns settled state.
+ */
+export function replaceFailureSettlement<T extends FindToolState>(
+  current: T | null,
+  isCurrent: boolean,
+  message: unknown,
+): T | null {
+  if (current === null) return current;
   return {
     ...current,
     replaceBusy: false,
@@ -1313,6 +1393,64 @@ export function replaceFailureState<T extends FindToolState>(
       ? (Number(current.replaceFocusRequest) || 0) + 1
       : Number(current.replaceFocusRequest) || 0,
   } as T;
+}
+
+/**
+ * Settle a successful Search Everywhere replacement without clearing a
+ * newer query's results. The busy flag always belongs to the write itself;
+ * only visible text state remains scoped to the captured request.
+ * @param current - current Search Everywhere state.
+ * @param isCurrent - whether the completed write still owns the live query.
+ * @returns settled state.
+ */
+export function searchEverywhereReplaceSuccessState<T extends FindToolState>(
+  current: T | null,
+  isCurrent: boolean,
+): T | null {
+  if (current === null) return current;
+  return {
+    ...current,
+    ...(isCurrent
+      ? {
+          textMatches: [],
+          textRevision: (Number(current.textRevision) || 0) + 1,
+          error: null,
+        }
+      : null),
+    replaceBusy: false,
+  } as T;
+}
+
+/**
+ * Preserve a successful clean-file host transaction after a later dirty-model
+ * failure. The resulting operation has no dirty snapshots, so Undo Last
+ * Replace delegates entirely to the host's operation id.
+ * @param value - successful host replace response.
+ * @param files - paths the host reports as changed.
+ * @returns clean-only undo operation, or null when it cannot be replayed.
+ */
+export function hostOnlyReplaceOperation(
+  value: { operationId?: unknown; replacements?: unknown } | null | undefined,
+  files: unknown[] | null | undefined,
+): {
+  operationId: string;
+  clean: true;
+  dirty: never[];
+  files: string[];
+  replacements: number;
+} | null {
+  const operationId = typeof value?.operationId === 'string' ? value.operationId : '';
+  const paths = Array.isArray(files)
+    ? files.filter((path): path is string => typeof path === 'string' && path !== '')
+    : [];
+  if (operationId === '' || paths.length === 0) return null;
+  return {
+    operationId,
+    clean: true,
+    dirty: [],
+    files: paths,
+    replacements: Math.max(0, Number(value?.replacements) || 0),
+  };
 }
 
 /**

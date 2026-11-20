@@ -26,7 +26,7 @@ test('Compare with HEAD reuses the single read-only revision diff target', () =>
   assert.match(workspace, /setDiffTarget\(\{ path, revision: 'HEAD', staged: false \}\)/);
   assert.match(workspace, /id: 'compareHead'/);
   assert.match(workspace, /label: t\('editor\.compareWithHead'\)/);
-  assert.match(workspace, /disabled: paths\.length > 1 \|\| !canCompareWithHead\(pick\(change\.path\)\)/);
+  assert.match(workspace, /disabled: paths\.length > 1 \|\| !changeModel\.canCompareWithHead\(pick\(change\.path\)\)/);
   assert.match(workspace, /run: \(\) => compareWithHead\(change\.path\)/);
 });
 

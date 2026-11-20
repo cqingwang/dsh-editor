@@ -20,7 +20,10 @@ test('Change group actions are disabled when the group has no checked files', ()
 
 test('a group with no enabled action keeps focus on its overflow opener', () => {
   const menu = source;
-  assert.match(menu, /querySelector<HTMLButtonElement>\('button\[data-menu-item-id\]:not\(:disabled\)'\)/);
+  assert.match(
+    menu,
+    /querySelector<HTMLButtonElement>\(\s*'\[data-menu-scroll\] button\[data-menu-item-id\]:not\(:disabled\)'/,
+  );
   assert.match(menu, /first\?\.focus\(\)/);
   assert.match(menu, /disabled=\{item\.disabled === true\}/);
 });

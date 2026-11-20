@@ -92,6 +92,7 @@ interface TerminalBufferLine {
 }
 
 interface TerminalBuffer {
+  baseY?: number;
   cursorX?: number;
   cursorY?: number;
   length?: number;
@@ -1096,15 +1097,30 @@ export function directTerminalShortcut(
 }
 
 /**
+ * Resolve the live cursor row in absolute buffer coordinates.
+ *
+ * xterm's `cursorY` is viewport-relative, while getLine and selection ranges
+ * use rows including scrollback. An explicit caller value is already absolute.
+ */
+function terminalAbsoluteCursorRow(buffer: TerminalBuffer | null, cursorY?: number): number | null {
+  if (Number.isInteger(cursorY)) return cursorY;
+  if (!Number.isInteger(buffer?.cursorY)) return null;
+  const baseY = Number.isInteger(buffer?.baseY) ? Math.max(0, buffer.baseY) : 0;
+  return buffer.cursorY + baseY;
+}
+
+/**
  * xterm marks continuation rows with isWrapped. IDEA's Select Prompt covers
  * the whole logical prompt, not only the final wrapped visual row.
  * @param {object|null} buffer - xterm active buffer.
- * @param {number} [cursorY] - current cursor row.
+ * @param {number} [cursorY] - absolute cursor row when supplied by a caller.
  * @returns {number|null} first visual row occupied by the prompt.
  */
-export function terminalPromptStartRow(buffer: TerminalBuffer | null, cursorY = buffer?.cursorY): number | null {
-  if (buffer === null || buffer === undefined || !Number.isInteger(cursorY)) return null;
-  let row = cursorY;
+export function terminalPromptStartRow(buffer: TerminalBuffer | null, cursorY?: number): number | null {
+  if (buffer === null || buffer === undefined) return null;
+  const cursorRow = terminalAbsoluteCursorRow(buffer, cursorY);
+  if (cursorRow === null) return null;
+  let row = cursorRow;
   while (row > 0 && buffer.getLine?.(row)?.isWrapped === true) row -= 1;
   return row;
 }
@@ -1114,18 +1130,19 @@ export function terminalPromptStartRow(buffer: TerminalBuffer | null, cursorY = 
  * the caret. xterm already exposes the authoritative cursor coordinates, so
  * this intentionally avoids guessing prompt boundaries from shell text.
  * @param {object|null} buffer - xterm active buffer.
- * @param {number} [cursorY] - current cursor row.
+ * @param {number} [cursorY] - absolute cursor row when supplied by a caller.
  * @param {number} [cursorX] - current cursor column.
  * @returns {{row: number, column: number, length: number}|null} xterm range.
  */
 export function terminalPromptSelection(
   buffer: TerminalBuffer | null,
-  cursorY = buffer?.cursorY,
+  cursorY?: number,
   cursorX = buffer?.cursorX,
 ): { row: number; column: number; length: number } | null {
   if (buffer === null || buffer === undefined) return null;
-  if (!Number.isInteger(cursorY) || !Number.isInteger(cursorX) || cursorX < 0) return null;
-  return { row: cursorY, column: 0, length: cursorX };
+  const cursorRow = terminalAbsoluteCursorRow(buffer, cursorY);
+  if (cursorRow === null || !Number.isInteger(cursorX) || cursorX < 0) return null;
+  return { row: cursorRow, column: 0, length: cursorX };
 }
 
 /**
@@ -1133,14 +1150,13 @@ export function terminalPromptSelection(
  * not provide. The closest lossless xterm mapping is the contiguous non-empty
  * output range immediately above the current prompt row.
  * @param {object|null} buffer - xterm active buffer.
- * @param {number} [cursorY] - current cursor row.
+ * @param {number} [cursorY] - absolute cursor row when supplied by a caller.
  * @returns {{start: number, end: number}|null} inclusive buffer rows.
  */
-export function terminalLastBlockSelection(
-  buffer: TerminalBuffer | null,
-  cursorY = buffer?.cursorY,
-): TerminalBlockRange | null {
-  if (buffer === null || buffer === undefined || !Number.isInteger(cursorY)) return null;
+export function terminalLastBlockSelection(buffer: TerminalBuffer | null, cursorY?: number): TerminalBlockRange | null {
+  if (buffer === null || buffer === undefined) return null;
+  const cursorRow = terminalAbsoluteCursorRow(buffer, cursorY);
+  if (cursorRow === null) return null;
   const rowText = (row: number): string | null => {
     const line = buffer.getLine?.(row);
     return typeof line?.translateToString === 'function' ? line.translateToString(true) : null;
@@ -1148,7 +1164,7 @@ export function terminalLastBlockSelection(
 
   /* Skip the complete current prompt, including its wrapped visual rows;
          otherwise the first prompt row looks like a one-line output block. */
-  let promptRow = cursorY;
+  let promptRow = cursorRow;
   while (promptRow > 0 && buffer.getLine?.(promptRow)?.isWrapped === true) promptRow -= 1;
   let row = promptRow - 1;
   while (row >= 0 && rowText(row)?.trim() === '') row -= 1;
@@ -1205,10 +1221,22 @@ export function terminalSelectionBlockRange(
   const startRow = position?.start?.y;
   const endRow = position?.end?.y;
   if (!Number.isInteger(startRow) || !Number.isInteger(endRow)) return null;
+  const promptRow = terminalPromptStartRow(buffer);
+  const maxBlockRow =
+    promptRow === null
+      ? Number.isInteger(buffer?.length)
+        ? buffer.length - 1
+        : Math.max(startRow, endRow)
+      : promptRow - 1;
+  const blockAt = (row: number): TerminalBlockRange | null => {
+    const block = terminalBlockRangeAt(buffer, row);
+    if (block === null || block.start > maxBlockRow) return null;
+    return { start: block.start, end: Math.min(block.end, maxBlockRow) };
+  };
   const first = Math.min(startRow, endRow);
   const last = Math.max(startRow, endRow);
-  const firstBlock = terminalBlockRangeAt(buffer, first);
-  const lastBlock = terminalBlockRangeAt(buffer, last);
+  const firstBlock = blockAt(first);
+  const lastBlock = blockAt(last);
   if (firstBlock === null && lastBlock === null) return null;
   if (firstBlock === null) return lastBlock;
   if (lastBlock === null) return firstBlock;
@@ -1287,6 +1315,13 @@ export function terminalBlockKeyboardAction(
   if (event?.key !== 'ArrowUp' && event?.key !== 'ArrowDown') return null;
   const direction = event.key === 'ArrowUp' ? 'Above' : 'Below';
   return `${event.shiftKey === true ? 'expand' : 'select'}${direction}`;
+}
+
+/** Whether the focused terminal pane should open its screen context menu. */
+export function terminalScreenMenuKeyboardRequest(event: FindShortcutEvent | null | undefined): boolean {
+  if (event === null || event === undefined) return false;
+  if (event.metaKey === true || event.ctrlKey === true || event.altKey === true) return false;
+  return event.key === 'ContextMenu' || (event.shiftKey === true && event.key === 'F10');
 }
 
 /**
@@ -1612,6 +1647,28 @@ export function terminalTabContextFocus(
 }
 
 /**
+ * Distinguish one hidden terminal tab in the overflow menu.
+ *
+ * Shell titles are often identical (`zsh`), so include the stable position in
+ * the complete tab order rather than resetting numbering inside the hidden set.
+ * @param t - translator.
+ * @param terminals - all dock terminals in display order.
+ * @param terminal - hidden terminal being labelled.
+ * @returns localized `index. title` label.
+ */
+export function terminalOverflowItemLabel(
+  t: (key: string, params?: Record<string, unknown>) => string,
+  terminals: TerminalTabIdentity[],
+  terminal: TerminalTabIdentity,
+): string {
+  const index = terminals.findIndex((candidate) => candidate?.id === terminal.id);
+  return t('editor.terminalOverflowItem', {
+    index: index < 0 ? 1 : index + 1,
+    title: terminal.title || t('editor.terminalTitleLocal'),
+  });
+}
+
+/**
  * Context menu for one terminal tab, matching IDEA's tab actions.
  * @param {object} t - translator.
  * @param {object} terminal - terminal description.
@@ -1624,7 +1681,13 @@ export function terminalTabMenu(
   actions: TerminalTabMenuActions,
 ): Array<TerminalMenuAction | null> {
   return [
-    { id: 'rename', label: t('editor.terminalRename'), shortcut: '⇧F6', run: actions.rename },
+    {
+      id: 'rename',
+      label: t('editor.terminalRename'),
+      shortcut: '⇧F6',
+      restoreFocus: false,
+      run: actions.rename,
+    },
     { id: 'color', label: t('editor.terminalColor'), run: actions.cycleColor },
     {
       id: 'duplicate',

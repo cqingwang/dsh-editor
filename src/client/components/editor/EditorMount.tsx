@@ -8,6 +8,7 @@ export interface EditorMountProps {
     t: Translate;
     workspaceId: string;
     restoreToolWindowFocus?: boolean;
+    focusRequest?: number;
     initialHarnessCollapsed: boolean;
     onToggleHarness?: (() => boolean | void) | null;
     onCloseEditor?: (() => void) | null;
@@ -16,6 +17,7 @@ export interface EditorMountProps {
   t: Translate;
   workspaceId: string;
   restoreToolWindowFocus?: boolean;
+  focusRequest?: number;
   initialHarnessCollapsed: boolean;
   onToggleHarness?: (() => boolean | void) | null;
   onCloseEditor?: (() => void) | null;
@@ -27,6 +29,7 @@ function EditorMount({
   t,
   workspaceId,
   restoreToolWindowFocus = false,
+  focusRequest = 0,
   initialHarnessCollapsed,
   onToggleHarness,
   onCloseEditor,
@@ -40,6 +43,7 @@ function EditorMount({
         t={t}
         workspaceId={workspaceId}
         restoreToolWindowFocus={restoreToolWindowFocus}
+        focusRequest={focusRequest}
         initialHarnessCollapsed={initialHarnessCollapsed}
         onToggleHarness={onToggleHarness}
         onCloseEditor={onCloseEditor}

@@ -10,6 +10,8 @@ test('CodePreviewCode is a reusable TSX preview component', async () => {
 
   assert.match(preview, /export interface CodePreviewCodeProps/u);
   assert.match(preview, /className='dsh-editor-code-preview-code'/u);
+  assert.match(preview, /paintCodePreviewTextRanges/u);
+  assert.match(preview, /ideLightTextStyleRanges/u);
   assert.match(preview, /codePreviewMatchRanges\(segments\)/u);
   assert.match(preview, /markCodePreviewMatches\(node, ranges\)/u);
   assert.doesNotMatch(preview, /React\.createElement/u);

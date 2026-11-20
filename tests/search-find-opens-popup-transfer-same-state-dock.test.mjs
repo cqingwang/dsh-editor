@@ -5,12 +5,15 @@ import { loadTypeScriptCallback } from './ts-source.mjs';
 
 const terminalSource = await readFile(new URL('../src/client/terminal.ts', import.meta.url), 'utf8');
 const workspaceSource = await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8');
+const commitSource = await readFile(new URL('../src/client/commit.ts', import.meta.url), 'utf8');
 const source =
   workspaceSource +
   '\n' +
   (await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8')) +
   '\n' +
-  terminalSource;
+  terminalSource +
+  '\n' +
+  commitSource;
 const findToolDockSource = await readFile(
   new URL('../src/client/components/search/FindToolDock.tsx', import.meta.url),
   'utf8',
@@ -63,6 +66,24 @@ test('The dock reuses FindToolWindow without popup-only outside-click closing', 
   assert.match(source, /floating=\{findTool\.surface !== 'dock'\}/);
 });
 
+test('surface remount preserves the active result while real grouping changes still reset it', () => {
+  assert.match(findTool, /const resultGroupingIdentity = `\$\{scopeMode\}:\$\{scopePreset\}:\$\{findGroupBy\}`/);
+  assert.match(findTool, /const previousResultGroupingRef = React\.useRef<string \| null>\(null\)/);
+  assert.match(
+    findTool,
+    /const previousIdentity = previousResultGroupingRef\.current;\s+previousResultGroupingRef\.current = resultGroupingIdentity;\s+if \(previousIdentity === null \|\| previousIdentity === resultGroupingIdentity\) return;\s+onCollapsedFilesChange\?\.\(\[\]\);\s+if \(state\.index !== 0\) onMove\(0, 0\)/u,
+  );
+});
+
+test('surface remount preserves collapsed Find file groups', () => {
+  assert.match(source, /collapsedFiles\?: string\[\]/u);
+  assert.match(source, /handoffHandledRevision\?: number/u);
+  assert.match(source, /collapsedFiles: \[\],/u);
+  assert.match(source, /onCollapsedFilesChange=\{\(collapsedFiles\) =>/u);
+  assert.match(source, /onHandoffHandled=\{\(handoffHandledRevision\) =>/u);
+  assert.match(findTool, /Array\.isArray\(state\.collapsedFiles\)/u);
+});
+
 test('Opening Find from the shortcut returns an existing docked result to the popup', () => {
   const shortcut = source.slice(
     source.indexOf('const openFindInFilesFromShortcut ='),
@@ -70,6 +91,7 @@ test('Opening Find from the shortcut returns an existing docked result to the po
   );
   assert.match(shortcut, /surface === 'dock'/);
   assert.match(shortcut, /current\.surface === 'dock' \? 'popup'/);
+  assert.match(shortcut, /mode: current\.surface === 'dock' && hasSelectionQuery === false \? current\.mode : 'find'/u);
 });
 
 test('Explicit Find tool-window actions open the dock instead of the popup', () => {

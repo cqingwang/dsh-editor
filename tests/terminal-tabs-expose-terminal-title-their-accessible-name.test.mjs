@@ -14,10 +14,10 @@ test('terminal tabs expose the terminal title as their accessible name', () => {
 test('dragging a terminal tab keeps roving keyboard focus on that tab', () => {
   assert.match(
     panel,
-    /onDragStart=\{\(event\) => \{\s+event\.currentTarget\.focus\?\.\(\);\s+setDragId\(terminal\.id\);/s,
+    /onDragStart=\{\(event\) => \{\s+event\.currentTarget\.focus\?\.\(\);\s+dragDroppedInPaneRef\.current = false;\s+setDragId\(terminal\.id\);/s,
   );
   assert.match(
     panel,
-    /onDragEnd=\{\(event\) => \{\s+event\.currentTarget\.focus\?\.\(\);/s,
+    /onDragEnd=\{\(event\) => \{\s+const paneDragFinished = dragDroppedInPaneRef\.current;\s+dragDroppedInPaneRef\.current = false;\s+if \(!paneDragFinished\) event\.currentTarget\.focus\?\.\(\);/s,
   );
 });

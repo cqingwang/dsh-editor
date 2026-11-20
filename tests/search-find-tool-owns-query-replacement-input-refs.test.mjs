@@ -34,7 +34,7 @@ test('Find result menu falls back to the query when its row unmounts', () => {
 });
 
 test('handoff still restores the active descendant without taking focus early', () => {
-  assert.match(find, /handoffReadyRevisionRef/);
+  assert.match(find, /handoffHandledRevision/);
   assert.match(find, /findToolHandoffTarget\(scopedFileResults, scopedMatches, state\.index, findGroupBy\)/);
   assert.match(find, /\[data-dsh-find-active="1"\]/);
   assert.match(find, /scrollIntoView/);

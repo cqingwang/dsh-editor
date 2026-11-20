@@ -6,7 +6,7 @@ const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf
 
 test('all Monaco editing surfaces share the global 13px code font', () => {
   assert.match(source, /const EDITOR_CODE_FONT_SIZE = 13;/u);
-  assert.equal((source.match(/fontSize: EDITOR_CODE_FONT_SIZE/gu) ?? []).length, 3);
+  assert.equal((source.match(/fontSize: EDITOR_CODE_FONT_SIZE/gu) ?? []).length, 5);
   for (const marker of ['editor-core.ts', 'diff.ts']) {
     const start = source.indexOf(`/* ─────────────────────── ${marker} ─────────────────────── */`);
     const end = source.indexOf('/* ─────────────────────── ', start + 1);

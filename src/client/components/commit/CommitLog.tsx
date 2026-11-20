@@ -254,6 +254,11 @@ function CommitLogView({
   );
   const listedCommitCount = graphMode ? graphEntries.length : commits.length;
   const listedVisibleCount = graphMode ? graphRows.length : visible.length;
+  React.useEffect(() => {
+    if (hidden || graphMode || logFailure === null || listedCommitCount === 0) return;
+    const node = listRef.current;
+    if (node !== null) node.scrollTop = Math.max(0, node.scrollHeight - node.clientHeight);
+  }, [graphMode, hidden, listedCommitCount, logFailure]);
   const visibleOrder = React.useMemo(() => visible.map((entry) => entry.hash), [visible]);
   const graphOrder = React.useMemo(() => graphRows.map((entry) => entry.hash), [graphRows]);
   const selectCommitRow = (order: string[], hash: string, event: React.MouseEvent<HTMLElement> | null): void => {
@@ -416,6 +421,7 @@ function CommitLogView({
           aria-label={t('editor.tabLog')}
           onScroll={(event) => {
             const node = event.currentTarget;
+            if (logFailure !== null) return;
             if (node.scrollHeight - node.scrollTop - node.clientHeight > 48) return;
             onLoadMore?.();
           }}

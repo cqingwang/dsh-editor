@@ -21,6 +21,7 @@ export const IDEA_LIGHT_TOKEN_COLORS = {
   typeParameter: '20999d',
   parameter: '000000',
   annotation: '808000',
+  jsxComponent: 'b21dbf',
   regexp: 'ff0000',
   escape: '000080',
 } as const;
@@ -39,7 +40,58 @@ export const IDEA_LIGHT_SEMANTIC_TOKEN_TYPES = [
   'ideaVariable',
   'ideaGlobalVariable',
   'ideaConstant',
+  'ideaJsxComponent',
+  'ideaAnnotation',
 ] as const;
+
+export const IDEA_LIGHT_SEMANTIC_TOKEN_CLASS = {
+  ideaClass: 'dsh-idea-token-class',
+  ideaInterface: 'dsh-idea-token-interface',
+  ideaEnum: 'dsh-idea-token-enum',
+  ideaTypeAlias: 'dsh-idea-token-type-alias',
+  ideaModule: 'dsh-idea-token-module',
+  ideaTypeParameter: 'dsh-idea-token-type-parameter',
+  ideaParameter: 'dsh-idea-token-parameter',
+  ideaFunction: 'dsh-idea-token-function',
+  ideaMethod: 'dsh-idea-token-method',
+  ideaProperty: 'dsh-idea-token-property',
+  ideaVariable: 'dsh-idea-token-variable',
+  ideaGlobalVariable: 'dsh-idea-token-global-variable',
+  ideaConstant: 'dsh-idea-token-constant',
+  ideaJsxComponent: 'dsh-idea-token-jsx-component',
+  ideaAnnotation: 'dsh-idea-token-annotation',
+} as const;
+
+/** CSS rules shared by Monaco decorations and lightweight preview semantic spans. */
+export function ideaLightSemanticDecorationRules(): string[] {
+  const colors = IDEA_LIGHT_TOKEN_COLORS;
+  return Object.entries({
+    [IDEA_LIGHT_SEMANTIC_TOKEN_CLASS.ideaClass]: { color: colors.class },
+    [IDEA_LIGHT_SEMANTIC_TOKEN_CLASS.ideaInterface]: { color: colors.interface },
+    [IDEA_LIGHT_SEMANTIC_TOKEN_CLASS.ideaEnum]: { color: colors.enum },
+    [IDEA_LIGHT_SEMANTIC_TOKEN_CLASS.ideaTypeAlias]: { color: colors.typeAlias },
+    [IDEA_LIGHT_SEMANTIC_TOKEN_CLASS.ideaModule]: { color: colors.class },
+    [IDEA_LIGHT_SEMANTIC_TOKEN_CLASS.ideaTypeParameter]: { color: colors.typeParameter },
+    [IDEA_LIGHT_SEMANTIC_TOKEN_CLASS.ideaParameter]: { color: colors.parameter },
+    [IDEA_LIGHT_SEMANTIC_TOKEN_CLASS.ideaFunction]: {
+      color: colors.function,
+      fontStyle: 'italic',
+    },
+    [IDEA_LIGHT_SEMANTIC_TOKEN_CLASS.ideaMethod]: { color: colors.method },
+    [IDEA_LIGHT_SEMANTIC_TOKEN_CLASS.ideaProperty]: { color: colors.property },
+    [IDEA_LIGHT_SEMANTIC_TOKEN_CLASS.ideaVariable]: { color: colors.localVariable },
+    [IDEA_LIGHT_SEMANTIC_TOKEN_CLASS.ideaGlobalVariable]: {
+      color: colors.globalVariable,
+      fontStyle: 'italic',
+    },
+    [IDEA_LIGHT_SEMANTIC_TOKEN_CLASS.ideaConstant]: { color: colors.constant },
+    [IDEA_LIGHT_SEMANTIC_TOKEN_CLASS.ideaJsxComponent]: { color: colors.jsxComponent },
+    [IDEA_LIGHT_SEMANTIC_TOKEN_CLASS.ideaAnnotation]: { color: colors.annotation },
+  }).map(
+    ([className, style]) =>
+      `.monaco-editor .${className} { color: #${style.color} !important; font-style: ${style.fontStyle ?? 'normal'}; }`,
+  );
+}
 
 export const IDEA_LIGHT_SEMANTIC_TOKEN_LEGEND = {
   tokenTypes: [...IDEA_LIGHT_SEMANTIC_TOKEN_TYPES],
@@ -80,12 +132,14 @@ export function ideaLightTokenRules(): Monaco.editor.ITokenThemeRule[] {
     { token: 'ideaModule', foreground: colors.class },
     { token: 'ideaTypeParameter', foreground: colors.typeParameter },
     { token: 'ideaParameter', foreground: colors.parameter },
-    { token: 'ideaFunction', foreground: colors.function },
+    { token: 'ideaFunction', foreground: colors.function, fontStyle: 'italic' },
     { token: 'ideaMethod', foreground: colors.method },
     { token: 'ideaProperty', foreground: colors.property },
     { token: 'ideaVariable', foreground: colors.localVariable },
     { token: 'ideaGlobalVariable', foreground: colors.globalVariable, fontStyle: 'italic' },
     { token: 'ideaConstant', foreground: colors.constant },
+    { token: 'ideaJsxComponent', foreground: colors.jsxComponent },
+    { token: 'ideaAnnotation', foreground: colors.annotation },
   ];
 }
 
@@ -327,6 +381,81 @@ function addParameterGroup(
   }
 }
 
+function addTypeParameterGroup(
+  target: IdeaLightSemanticToken[],
+  masked: string,
+  lineStarts: number[],
+  groupOffset: number,
+  group: string,
+): void {
+  let segmentStart = 0;
+  let depth = 0;
+  const segments: Array<{ offset: number; text: string }> = [];
+  for (let index = 0; index <= group.length; index += 1) {
+    const character = group[index] ?? ',';
+    if (character === '(' || character === '[' || character === '{' || character === '<') depth += 1;
+    else if (character === ')' || character === ']' || character === '}' || character === '>')
+      depth = Math.max(0, depth - 1);
+    if (character !== ',' || depth > 0) continue;
+    segments.push({ offset: segmentStart, text: group.slice(segmentStart, index) });
+    segmentStart = index + 1;
+  }
+  for (const segment of segments) {
+    const lead = segment.text.search(/\S/u);
+    if (lead < 0) continue;
+    const identifiers = [...segment.text.matchAll(IDENTIFIER)];
+    const declaration = identifiers.find((identifier) => {
+      const value = identifier[0];
+      return value !== 'const' && value !== 'in' && value !== 'out' && !RESERVED_WORDS.has(value);
+    });
+    if (declaration === undefined) continue;
+    const value = declaration[0];
+    const offset = groupOffset + segment.offset + (declaration.index ?? 0);
+    const token = semanticTokenAt(masked, lineStarts, offset, value.length, 'ideaTypeParameter', 92);
+    if (token !== null) target.push(token);
+  }
+}
+
+function addJsxComponentTags(target: IdeaLightSemanticToken[], masked: string, lineStarts: number[]): void {
+  for (const match of masked.matchAll(/<([A-Z][\w$]*)(?:\s[^<>]*)?>[\s\S]*?<\/\1\s*>/gu)) {
+    const name = match[1] ?? '';
+    const opening = semanticTokenAt(masked, lineStarts, (match.index ?? 0) + 1, name.length, 'ideaJsxComponent', 88);
+    if (opening !== null) target.push(opening);
+    const closingOffset = (match.index ?? 0) + match[0].lastIndexOf(`</${name}`) + 2;
+    const closing = semanticTokenAt(masked, lineStarts, closingOffset, name.length, 'ideaJsxComponent', 88);
+    if (closing !== null) target.push(closing);
+  }
+  for (const match of masked.matchAll(/<([A-Z][\w$]*)(?:\s[^<>]*)?\/>/gu)) {
+    const name = match[1] ?? '';
+    const token = semanticTokenAt(masked, lineStarts, (match.index ?? 0) + 1, name.length, 'ideaJsxComponent', 88);
+    if (token !== null) target.push(token);
+  }
+}
+
+function addDecoratorNames(target: IdeaLightSemanticToken[], masked: string, lineStarts: number[]): void {
+  for (const match of masked.matchAll(/@\s*([A-Za-z_$][\w$]*)/gu)) {
+    const value = match[1] ?? '';
+    if (value === '') continue;
+    const offset = (match.index ?? 0) + match[0].lastIndexOf(value);
+    const token = semanticTokenAt(masked, lineStarts, offset, value.length, 'ideaAnnotation', 96);
+    if (token !== null) target.push(token);
+  }
+}
+
+function addReturnTypeQualifiedMembers(target: IdeaLightSemanticToken[], masked: string, lineStarts: number[]): void {
+  for (const match of masked.matchAll(/\)\s*:\s*([^=;{]+?)(?=\s*(?:=>|\{|;|$))/gu)) {
+    const group = match[1] ?? '';
+    const groupOffset = (match.index ?? 0) + match[0].indexOf(group);
+    for (const member of group.matchAll(/\.\s*([A-Za-z_$][\w$]*)/gu)) {
+      const value = member[1] ?? '';
+      if (value === '') continue;
+      const offset = groupOffset + (member.index ?? 0) + member[0].lastIndexOf(value);
+      const token = semanticTokenAt(masked, lineStarts, offset, value.length, 'ideaClass', 75);
+      if (token !== null) target.push(token);
+    }
+  }
+}
+
 /**
  * Lightweight semantic hints for constructs TypeScript's public classification
  * API does not expose: imports, locals, method calls, properties and returns.
@@ -354,19 +483,11 @@ export function collectIdeaLightHeuristicSemanticTokens(text: string): IdeaLight
   for (const match of masked.matchAll(/\b(?:class|interface|type|function)\s+[A-Za-z_$][\w$]*\s*<([^<>]+)>/gu)) {
     const group = match[1] ?? '';
     const offset = (match.index ?? 0) + match[0].indexOf(group);
-    for (const identifier of group.matchAll(IDENTIFIER)) {
-      const value = identifier[0];
-      const token = semanticTokenAt(
-        masked,
-        lineStarts,
-        offset + (identifier.index ?? 0),
-        value.length,
-        'ideaTypeParameter',
-        92,
-      );
-      if (token !== null) tokens.push(token);
-    }
+    addTypeParameterGroup(tokens, masked, lineStarts, offset, group);
   }
+  addJsxComponentTags(tokens, masked, lineStarts);
+  addDecoratorNames(tokens, masked, lineStarts);
+  addReturnTypeQualifiedMembers(tokens, masked, lineStarts);
 
   for (const match of masked.matchAll(/\bfunction(?:\s+[A-Za-z_$][\w$]*)?\s*\(([^()]*)\)/gu)) {
     const group = match[1] ?? '';
@@ -500,6 +621,74 @@ export function mergeIdeaLightSemanticTokens(tokens: readonly IdeaLightSemanticT
     accepted.push(token);
   }
   return accepted;
+}
+
+export interface IdeaLightTextStyleRange {
+  start: number;
+  end: number;
+  tokenType: string;
+  foreground: string;
+  fontStyle?: 'italic';
+}
+
+/** Resolve one semantic token type to its shared Monaco decoration class. */
+export function ideaLightSemanticTokenClass(tokenType: string): string | null {
+  return IDEA_LIGHT_SEMANTIC_TOKEN_CLASS[tokenType as keyof typeof IDEA_LIGHT_SEMANTIC_TOKEN_CLASS] ?? null;
+}
+
+/** Resolve one semantic token type to the IDEA Light foreground and italic flag. */
+export function ideaLightSemanticTokenStyle(
+  tokenType: string,
+): Pick<IdeaLightTextStyleRange, 'foreground' | 'fontStyle'> | null {
+  const colors = IDEA_LIGHT_TOKEN_COLORS;
+  switch (tokenType) {
+    case 'ideaClass':
+    case 'ideaInterface':
+    case 'ideaEnum':
+    case 'ideaTypeAlias':
+    case 'ideaModule':
+    case 'ideaParameter':
+      return { foreground: `#${colors.class}` };
+    case 'ideaTypeParameter':
+      return { foreground: `#${colors.typeParameter}` };
+    case 'ideaFunction':
+      return { foreground: `#${colors.function}`, fontStyle: 'italic' };
+    case 'ideaMethod':
+      return { foreground: `#${colors.method}` };
+    case 'ideaProperty':
+      return { foreground: `#${colors.property}` };
+    case 'ideaVariable':
+      return { foreground: `#${colors.localVariable}` };
+    case 'ideaGlobalVariable':
+      return { foreground: `#${colors.globalVariable}`, fontStyle: 'italic' };
+    case 'ideaConstant':
+      return { foreground: `#${colors.constant}` };
+    case 'ideaJsxComponent':
+      return { foreground: `#${colors.jsxComponent}` };
+    case 'ideaAnnotation':
+      return { foreground: `#${colors.annotation}` };
+    default:
+      return null;
+  }
+}
+
+/** Convert heuristic semantic tokens into absolute character ranges for preview HTML. */
+export function ideLightTextStyleRanges(text: string): IdeaLightTextStyleRange[] {
+  const source = typeof text === 'string' ? text : '';
+  const starts = lineStartOffsets(source);
+  return mergeIdeaLightSemanticTokens(collectIdeaLightHeuristicSemanticTokens(source))
+    .map((token) => {
+      const style = ideaLightSemanticTokenStyle(String(token.tokenType));
+      if (style === null) return null;
+      const start = (starts[token.line] ?? 0) + token.startCharacter;
+      return {
+        start,
+        end: start + token.length,
+        tokenType: String(token.tokenType),
+        ...style,
+      };
+    })
+    .filter((range): range is IdeaLightTextStyleRange => range !== null);
 }
 
 /** Encode semantic tokens in Monaco's sorted, delta-based wire format. */

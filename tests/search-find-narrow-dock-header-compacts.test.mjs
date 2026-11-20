@@ -17,6 +17,11 @@ test('narrow Find dock compacts duplicate title, mask and header actions', () =>
   assert.match(component, /className='dsh-editor-find-file-mask-control'/u);
   assert.match(component, /className='dsh-editor-find-file-mask-label'/u);
   assert.match(component, /className='dsh-editor-find-file-mask-input'/u);
+  assert.match(component, /className='dsh-editor-find-scope-mode-group'/u);
+  assert.match(
+    component,
+    /type='checkbox'\s+checked=\{fileMaskEnabled\}\s+aria-label=\{t\('editor\.searchFileMaskLabel'\)\}\s+title=\{t\('editor\.searchFileMaskLabel'\)\}/u,
+  );
   assert.match(component, /className=\{floating \? undefined : 'dsh-editor-find-dock-header-actions'\}/u);
   assert.match(actionBar, /className\?: string;/u);
   assert.match(actionBar, /className=\{className \?\? undefined\}/u);
@@ -49,5 +54,9 @@ test('the compact rules are container-scoped to the narrow dock', () => {
   assert.match(
     injectedCss,
     /\.dsh-editor-find-dock-header-actions \{ flex-basis: 52px !important; width: 52px !important; min-width: 52px !important; \}/u,
+  );
+  assert.match(
+    injectedCss,
+    /\.dsh-editor-find-scope-mode-group \{[\s\S]*?flex: 1 1 auto !important;[\s\S]*?min-width: 0 !important;[\s\S]*?flex-wrap: wrap !important;/u,
   );
 });

@@ -93,6 +93,13 @@ export function splitChanges(changes: DiffChange[]): DiffChangeBands {
       unversioned.push(change);
       continue;
     }
+    /* IDEA presents a conflicted path once as an unresolved working change.
+       Porcelain reports UU with both index and worktree sides, but duplicating
+       it under Staged and Unstaged makes the user resolve the same row twice. */
+    if (/^(DD|AU|UD|UA|DU|AA|UU)$/u.test(change.status)) {
+      unstaged.push({ ...change, staged: false });
+      continue;
+    }
     if (index !== ' ' && index !== '?') staged.push(change);
     if (worktree !== ' ') unstaged.push(change);
   }
@@ -111,7 +118,9 @@ export function splitChanges(changes: DiffChange[]): DiffChangeBands {
  */
 export function stageAllTargets(changes: DiffChange[], trackedOnly = false): string[] {
   const bands = splitChanges(Array.isArray(changes) ? changes : []);
-  const rows = trackedOnly === true ? bands.unstaged : [...bands.unstaged, ...bands.unversioned];
+  const rows = (trackedOnly === true ? bands.unstaged : [...bands.unstaged, ...bands.unversioned]).filter(
+    (change) => !/^(DD|AU|UD|UA|DU|AA|UU)$/u.test(change.status),
+  );
   return [...new Set(rows.map((change) => change.path).filter((path) => typeof path === 'string' && path !== ''))];
 }
 

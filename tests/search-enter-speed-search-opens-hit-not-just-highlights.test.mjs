@@ -14,7 +14,7 @@ test('Enter in speed search opens the hit, not just highlights it', () => {
   assert.notEqual(start, -1);
   const block = source.slice(start, start + 2500);
   assert.match(block, /const hit = hits\.find\(\(row\) => row\.path === selectedPath\) \?\? hits\[0\]/);
-  assert.match(block, /onSelect\(hit, \{\}\);/);
+  assert.match(block, /selectVisibleRow\(hit, \{\}\);/);
   assert.match(block, /setSearchOpen\(false\);/);
   assert.match(block, /revealInTree\(\{\s+\.\.\.hit,\s+open: expanded\.has\(hit\.path\),\s+\}\)/);
   assert.match(block, /action === 'open'\)\s*\{\s*onOpen\(hit\.path\);/u);

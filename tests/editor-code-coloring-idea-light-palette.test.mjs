@@ -10,6 +10,7 @@ const injectedCss = await readFile(new URL('src/client/injected-css.ts', root), 
 const helpers = loadTypeScriptModule(modelSource, [
   'IDEA_LIGHT_THEME_ID',
   'IDEA_LIGHT_TOKEN_COLORS',
+  'ideaLightSemanticDecorationRules',
   'ideaLightTokenRules',
 ]);
 
@@ -27,6 +28,7 @@ test('IDEA Light palette keeps the observed semantic colors', () => {
       property: helpers.IDEA_LIGHT_TOKEN_COLORS.property,
       typeParameter: helpers.IDEA_LIGHT_TOKEN_COLORS.typeParameter,
       annotation: helpers.IDEA_LIGHT_TOKEN_COLORS.annotation,
+      jsxComponent: helpers.IDEA_LIGHT_TOKEN_COLORS.jsxComponent,
     },
     {
       keyword: '000080',
@@ -39,6 +41,7 @@ test('IDEA Light palette keeps the observed semantic colors', () => {
       property: '660e7a',
       typeParameter: '20999d',
       annotation: '808000',
+      jsxComponent: 'b21dbf',
     },
   );
 });
@@ -63,6 +66,16 @@ test('the grammar rules carry the IDEA font styles with the palette', () => {
   assert.equal(byToken.get('ideaMethod').foreground, '914c07');
   assert.equal(byToken.get('ideaParameter').foreground, '000000');
   assert.equal(byToken.get('ideaClass').fontStyle, undefined);
+  assert.equal(byToken.get('ideaJsxComponent').foreground, 'b21dbf');
+  assert.deepEqual(byToken.get('ideaAnnotation'), {
+    token: 'ideaAnnotation',
+    foreground: '808000',
+  });
+  assert.deepEqual(byToken.get('ideaFunction'), {
+    token: 'ideaFunction',
+    foreground: '000000',
+    fontStyle: 'italic',
+  });
 });
 
 test('IDEA Light code coloring never uses bold text', () => {
@@ -73,8 +86,35 @@ test('IDEA Light code coloring never uses bold text', () => {
 test('shared code surfaces force normal weight even for unlisted Monaco tokens', () => {
   assert.match(
     injectedCss,
-    /\[data-dsh-editor-workspace\] \.monaco-editor \.view-lines span,[\s\S]*?\[data-dsh-editor-workspace\] \.dsh-editor-code-preview-line[\s\S]*?font-weight: 400 !important;/u,
+    /\[data-dsh-editor-workspace\] \.monaco-editor \.view-lines \.view-line \*,[\s\S]*?\[data-dsh-editor-workspace\] \.dsh-editor-code-preview-line[\s\S]*?font-weight: 400 !important;/u,
   );
+});
+
+test('shared code surfaces force normal weight on Monaco line containers and every descendant', () => {
+  assert.match(
+    injectedCss,
+    /\[data-dsh-editor-workspace\] \.monaco-editor \.view-lines \.view-line,[\s\S]*?\[data-dsh-editor-workspace\] \.monaco-editor \.view-lines \.view-line \*,[\s\S]*?font-weight: 400 !important;/u,
+  );
+});
+
+test('annotate source rows force normal code weight through the shared surface gate', () => {
+  assert.match(
+    injectedCss,
+    /\[data-dsh-editor-workspace\] \.dsh-editor-annotate-code,[\s\S]*?\[data-dsh-editor-workspace\] \.dsh-editor-annotate-code \* \{[\s\S]*?font-weight: 400 !important;/u,
+  );
+});
+
+test('lightweight preview colorizer explicitly uses the shared editor theme', async () => {
+  const commitDomain = await readFile(new URL('src/client/commit.ts', root), 'utf8');
+  assert.match(commitDomain, /ensureEditorTheme/u);
+  assert.match(commitDomain, /monaco\.editor\.setTheme\(ensureEditorTheme\(monaco\)\)/u);
+});
+
+test('semantic decoration classes are installed by the shared stylesheet', () => {
+  const rules = helpers.ideaLightSemanticDecorationRules().join('\n');
+  assert.match(rules, /\.dsh-idea-token-variable \{[\s\S]*?color: #458383 !important;/u);
+  assert.match(rules, /\.dsh-idea-token-method \{[\s\S]*?color: #914c07 !important;/u);
+  assert.match(injectedCss, /\.\.\.ideaLightSemanticDecorationRules\(\)/u);
 });
 
 test('editor surfaces consume the shared IDEA Light theme instead of raw vs', async () => {

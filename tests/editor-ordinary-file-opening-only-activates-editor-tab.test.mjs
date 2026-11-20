@@ -32,5 +32,5 @@ test('Project tree selection still changes only through explicit tree or reveal 
     'const revealPath = React.useCallback(',
   );
   assert.match(revealInProjectTree, /\bsetSelectedPath\(path\)/u);
-  assert.match(projectPanel, /onRowPointerDown=\{\(state, event\) => \{[\s\S]*?onSelect\(row, event\)/u);
+  assert.match(projectPanel, /onRowPointerDown=\{\(state, event\) => \{[\s\S]*?selectVisibleRow\(row, event\)/u);
 });

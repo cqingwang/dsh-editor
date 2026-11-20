@@ -26,10 +26,25 @@ test('the terminal screen reclaims focus whenever it becomes visible', () => {
   assert.match(screen, /node\.offsetParent !== null/);
   assert.match(
     screen,
-    /if \(!ready\) return;[\s\S]*?emulatorRef\.current\?\.focus\(\);[\s\S]*?\}, \[ready, visible, focusGeneration\]\);/,
+    /reclaimFocus = true/,
+  );
+  assert.match(
+    screen,
+    /if \(!ready \|\| reclaimFocus !== true\) return;[\s\S]*?emulatorRef\.current\?\.focus\(\);[\s\S]*?\}, \[ready, reclaimFocus, visible, focusGeneration\]\);/,
   );
   assert.match(screen, /ref=\{setHostNode\}/);
   assert.match(screen, /focusGeneration = 0/);
+});
+
+test('only the focused split pane reclaims visibility focus', () => {
+  assert.match(
+    source,
+    /<TerminalScreen\s+terminalId=\{activeId\}[\s\S]*?focusGeneration=\{focusedPane === 'left' \? focusGeneration : 0\}[\s\S]*?reclaimFocus=\{focusedPane === 'left'\}/u,
+  );
+  assert.match(
+    source,
+    /<TerminalScreen\s+terminalId=\{splitId\}[\s\S]*?focusGeneration=\{focusedPane === 'right' \? focusGeneration : 0\}[\s\S]*?reclaimFocus=\{focusedPane === 'right'\}/u,
+  );
 });
 
 test('Alt+F12 records the originating surface and restores it on close', () => {

@@ -36,7 +36,9 @@ function bufferWith(rows, cursorX = 0) {
 }
 
 test('wrapped prompt selection walks back through xterm continuation rows', () => {
-  const fn = new Function(`${extractFunction('terminalPromptStartRow')}; return terminalPromptStartRow;`)();
+  const fn = new Function(
+    `${extractFunction('terminalAbsoluteCursorRow')}; ${extractFunction('terminalPromptStartRow')}; return terminalPromptStartRow;`,
+  )();
   const buffer = bufferWith([
     'old output',
     { text: '(base) prompt', wrapped: false },
@@ -51,7 +53,7 @@ test('wrapped prompt selection walks back through xterm continuation rows', () =
 
 test('Terminal menu exposes IDEA Copy Block through the last block helper', () => {
   const factory = new Function(
-    `${extractFunction('terminalLastBlockSelection')}; ${extractFunction('terminalMenuModel')}; return terminalMenuModel;`,
+    `${extractFunction('terminalAbsoluteCursorRow')}; ${extractFunction('terminalLastBlockSelection')}; ${extractFunction('terminalMenuModel')}; return terminalMenuModel;`,
   )();
   const calls = [];
   const buffer = bufferWith(['', 'BLOCK', '']);

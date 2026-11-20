@@ -32,14 +32,18 @@ function bufferWith(lines) {
 }
 
 test('Select Prompt selects the current cursor row up to caret', () => {
-  const fn = new Function(`${extractFunction('terminalPromptSelection')}; return terminalPromptSelection;`)();
+  const fn = new Function(
+    `${extractFunction('terminalAbsoluteCursorRow')}; ${extractFunction('terminalPromptSelection')}; return terminalPromptSelection;`,
+  )();
   const buffer = bufferWith(['output', 'user@host$ echo hello']);
   assert.deepEqual(fn(buffer, buffer.cursorY, 12), { row: 1, column: 0, length: 12 });
   assert.deepEqual(fn(buffer, 99, 50), { row: 99, column: 0, length: 50 });
 });
 
 test('Select Last Block finds the nearest contiguous non-empty output block', () => {
-  const fn = new Function(`${extractFunction('terminalLastBlockSelection')}; return terminalLastBlockSelection;`)();
+  const fn = new Function(
+    `${extractFunction('terminalAbsoluteCursorRow')}; ${extractFunction('terminalLastBlockSelection')}; return terminalLastBlockSelection;`,
+  )();
   const buffer = bufferWith(['old', '', 'block one', 'block two', '', 'user@host$ ']);
   assert.deepEqual(fn(buffer, buffer.cursorY), { start: 2, end: 3 });
   assert.equal(fn(bufferWith(['one', 'two'], 1), 0), null);
@@ -47,7 +51,7 @@ test('Select Last Block finds the nearest contiguous non-empty output block', ()
 
 test('Terminal menu wires block and prompt selection through xterm APIs', () => {
   const factory = new Function(
-    `${extractFunction('terminalPromptStartRow')}; ${extractFunction('terminalPromptSelection')}; ${extractFunction('terminalLastBlockSelection')}; ${extractFunction('terminalMenuModel')}; return terminalMenuModel;`,
+    `${extractFunction('terminalAbsoluteCursorRow')}; ${extractFunction('terminalPromptStartRow')}; ${extractFunction('terminalPromptSelection')}; ${extractFunction('terminalLastBlockSelection')}; ${extractFunction('terminalMenuModel')}; return terminalMenuModel;`,
   )();
   const calls = [];
   const buffer = bufferWith(['output', 'block', '', 'user@host$ ']);

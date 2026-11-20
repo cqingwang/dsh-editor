@@ -22,7 +22,8 @@ test('the file name and its parent path keep stable, separate grid cells', () =>
   const panel = commitPanel();
   assert.match(panel, /styles\.commitNodeName/);
   assert.match(panel, /styles\.commitFileName/);
-  assert.match(panel, /styles\.commitFileDir/);
+  assert.match(panel, /<CommitSecondaryPath/);
+  assert.match(source, /function CommitSecondaryPath[\s\S]*?styles\.commitFileDir/);
   assert.match(source, /commitNodeName: \{[\s\S]*?minWidth: 0/);
   assert.match(source, /commitFileName: \{[\s\S]*?minWidth: 'max-content'/);
   assert.match(source, /commitFileDir: \{[\s\S]*?textOverflow: 'ellipsis'/);

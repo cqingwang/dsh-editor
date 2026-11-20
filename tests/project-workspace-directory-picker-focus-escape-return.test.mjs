@@ -20,6 +20,15 @@ test('the shared floating popup owns opt-in dialog focus trapping and escape', (
   assert.match(popup, /target\?\.isConnected/u);
 });
 
+test('modal Escape still closes when focus falls outside the popup surface', () => {
+  assert.match(popup, /document\.addEventListener\('keydown', handleDocumentEscape\)/u);
+  assert.match(popup, /document\.removeEventListener\('keydown', handleDocumentEscape\)/u);
+  assert.match(
+    popup,
+    /const handleDocumentEscape = \(event: KeyboardEvent\): void => \{[\s\S]*?event\.defaultPrevented[\s\S]*?event\.isComposing[\s\S]*?event\.key !== 'Escape'[\s\S]*?onRequestClose\(\);/u,
+  );
+});
+
 test('the directory picker opts into the shared modal behavior', () => {
   assert.match(picker, /returnFocusElement\?: HTMLElement \| null/u);
   assert.match(picker, /trapFocus=\{true\}/u);

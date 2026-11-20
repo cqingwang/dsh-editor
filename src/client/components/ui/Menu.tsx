@@ -1,6 +1,12 @@
 import React from 'react';
 import { styles } from '../../ui/styles';
-import { submenuGeometry } from './menu-model';
+import {
+  contextMenuMaxHeight,
+  menuStep,
+  menuTypeaheadTarget,
+  submenuGeometry,
+  submenuVerticalGeometry,
+} from './menu-model';
 
 export interface MenuAction {
   id: string;
@@ -42,16 +48,35 @@ export function ContextMenu({ menu, onClose }: ContextMenuProps) {
     left: menu.x,
     top: menu.y,
   });
+  const [menuHeight, setMenuHeight] = React.useState(() => contextMenuMaxHeight(window.innerHeight, menu.maxHeight));
   /* IDEA nests destructive variants under one entry; only one child may open. */
   const [submenu, setSubmenu] = React.useState<string | null>(null);
   /* The hovered parent item's box decides which side the child opens on. */
   const [itemRect, setItemRect] = React.useState<DOMRect | null>(null);
   const returnFocusRef = React.useRef<HTMLElement | null>(null);
   const skipReturnFocusRef = React.useRef(false);
+  const typeaheadPrefixRef = React.useRef({ query: '', expiresAt: 0 });
+  const itemButton = (id: string): HTMLButtonElement | null =>
+    [...(ref.current?.querySelectorAll<HTMLButtonElement>('button[data-menu-item-id]') ?? [])].find(
+      (button) => button.getAttribute('data-menu-item-id') === id,
+    ) ?? null;
+  const topButtons = (): HTMLButtonElement[] => [
+    ...(ref.current?.querySelectorAll<HTMLButtonElement>(
+      '[data-menu-scroll] > button[data-menu-item-id]:not(:disabled)',
+    ) ?? []),
+  ];
+  const childButtons = (id: string): HTMLButtonElement[] => {
+    const childMenu = [...(ref.current?.querySelectorAll<HTMLElement>('[role="menu"][data-submenu-id]') ?? [])].find(
+      (node) => node.getAttribute('data-submenu-id') === id,
+    );
+    return [...(childMenu?.querySelectorAll<HTMLButtonElement>('button[data-menu-item-id]:not(:disabled)') ?? [])];
+  };
 
   React.useEffect(() => {
     returnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const first = ref.current?.querySelector<HTMLButtonElement>('button[data-menu-item-id]:not(:disabled)');
+    const first = ref.current?.querySelector<HTMLButtonElement>(
+      '[data-menu-scroll] button[data-menu-item-id]:not(:disabled)',
+    );
     first?.focus();
     return () => {
       if (skipReturnFocusRef.current) return;
@@ -62,16 +87,30 @@ export function ContextMenu({ menu, onClose }: ContextMenuProps) {
   }, []);
 
   React.useLayoutEffect(() => {
+    const clampHeight = () => {
+      setMenuHeight(contextMenuMaxHeight(window.innerHeight, menu.maxHeight));
+    };
+    clampHeight();
+    window.addEventListener('resize', clampHeight);
+    return () => window.removeEventListener('resize', clampHeight);
+  }, [menu.maxHeight]);
+
+  React.useLayoutEffect(() => {
     const node = ref.current;
     if (node === null) return;
-    const rect = node.getBoundingClientRect();
-    const left = Math.min(menu.x, window.innerWidth - rect.width - 8);
-    const top = Math.min(menu.y, window.innerHeight - rect.height - 8);
-    setPosition({
-      left: Math.max(4, left),
-      top: Math.max(4, top),
-    });
-  }, [menu]);
+    const placeMenu = () => {
+      const rect = node.getBoundingClientRect();
+      const left = Math.min(menu.x, window.innerWidth - rect.width - 8);
+      const top = Math.min(menu.y, window.innerHeight - rect.height - 8);
+      setPosition({
+        left: Math.max(4, left),
+        top: Math.max(4, top),
+      });
+    };
+    placeMenu();
+    window.addEventListener('resize', placeMenu);
+    return () => window.removeEventListener('resize', placeMenu);
+  }, [menu, menuHeight]);
 
   React.useEffect(() => {
     const escapeFocus = menu.escapeFocus;
@@ -79,22 +118,8 @@ export function ContextMenu({ menu, onClose }: ContextMenuProps) {
       if (ref.current?.contains(event.target as Node)) return;
       onClose();
     };
-    const itemButton = (id: string): HTMLButtonElement | null =>
-      [...(ref.current?.querySelectorAll<HTMLButtonElement>('button[data-menu-item-id]') ?? [])].find(
-        (button) => button.getAttribute('data-menu-item-id') === id,
-      ) ?? null;
-    const topButtons = (): HTMLButtonElement[] => [
-      ...(ref.current?.querySelectorAll<HTMLButtonElement>(':scope > button[data-menu-item-id]:not(:disabled)') ?? []),
-    ];
-    const childButtons = (id: string): HTMLButtonElement[] => {
-      const parent = itemButton(id);
-      return [
-        ...(parent
-          ?.querySelector('[role="menu"]')
-          ?.querySelectorAll<HTMLButtonElement>('button[data-menu-item-id]:not(:disabled)') ?? []),
-      ];
-    };
     const openSubmenu = (item: MenuAction) => {
+      typeaheadPrefixRef.current = { query: '', expiresAt: 0 };
       const parent = itemButton(item.id);
       if (parent !== null) setItemRect(parent.getBoundingClientRect());
       setSubmenu(item.id);
@@ -102,14 +127,46 @@ export function ContextMenu({ menu, onClose }: ContextMenuProps) {
       window.setTimeout(() => childButtons(item.id)[0]?.focus(), 0);
     };
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      if (
+        event.key === 'ArrowDown' ||
+        event.key === 'ArrowUp' ||
+        event.key === 'Home' ||
+        event.key === 'End' ||
+        event.key === 'PageDown' ||
+        event.key === 'PageUp'
+      ) {
+        typeaheadPrefixRef.current = { query: '', expiresAt: 0 };
         event.preventDefault();
         event.stopPropagation();
         const buttons = submenu === null ? topButtons() : childButtons(submenu);
         const index = buttons.indexOf(document.activeElement as HTMLButtonElement);
         if (buttons.length === 0) return;
-        const delta = event.key === 'ArrowUp' ? -1 : 1;
-        buttons[(index + delta + buttons.length) % buttons.length]?.focus();
+        buttons[menuStep(buttons, index, event.key)]?.focus();
+        return;
+      }
+      if (event.key.length === 1 && !event.isComposing && !event.metaKey && !event.ctrlKey && !event.altKey) {
+        const buttons = submenu === null ? topButtons() : childButtons(submenu);
+        const index = buttons.indexOf(document.activeElement as HTMLButtonElement);
+        const labels = buttons.map((button) => ({
+          label: button.getAttribute('aria-label') ?? button.textContent ?? '',
+        }));
+        const now = Date.now();
+        const previous = typeaheadPrefixRef.current;
+        const query = now <= previous.expiresAt ? `${previous.query}${event.key}` : event.key;
+        let target = menuTypeaheadTarget(labels, index, query);
+        let nextQuery = query;
+        if (target < 0 && query.length > 1) {
+          target = menuTypeaheadTarget(labels, index, event.key);
+          nextQuery = event.key;
+        }
+        typeaheadPrefixRef.current = {
+          query: target < 0 ? event.key : nextQuery,
+          expiresAt: now + 700,
+        };
+        if (target < 0) return;
+        event.preventDefault();
+        event.stopPropagation();
+        buttons[target]?.focus();
         return;
       }
       const activeButton =
@@ -156,6 +213,11 @@ export function ContextMenu({ menu, onClose }: ContextMenuProps) {
     };
   }, [menu.escapeFocus, menu.items, onClose, submenu]);
 
+  const activeSubmenu =
+    submenu === null
+      ? null
+      : ((menu.items.find((entry) => entry !== null && entry.id === submenu) as MenuAction | undefined) ?? null);
+
   return (
     <div
       ref={ref}
@@ -164,181 +226,206 @@ export function ContextMenu({ menu, onClose }: ContextMenuProps) {
         ...styles.menu,
         left: position.left,
         top: position.top,
-        ...(Number.isFinite(menu.maxHeight)
-          ? {
-              maxHeight: Math.max(80, Math.round(menu.maxHeight ?? 0)),
-              overflowY: 'auto',
-            }
-          : null),
+        maxHeight: menuHeight,
       }}
       role='menu'
       onContextMenu={(event) => event.preventDefault()}>
-      {/* An optional disabled header says how many rows an action affects. */}
-      {menu.title ? (
-        <div
-          style={styles.menuTitle}
-          role='presentation'>
-          {menu.title}
-        </div>
-      ) : null}
-      {menu.items.map((item, index) =>
-        item === null ? (
+      {/* Scroll only the primary rows. A nested scroll container would clip the
+          submenu, so the active child menu is rendered as a sibling below. */}
+      <div
+        data-menu-scroll=''
+        style={styles.menuScroll}
+        role='presentation'>
+        {/* An optional disabled header says how many rows an action affects. */}
+        {menu.title ? (
           <div
-            key={`sep-${index}`}
-            style={styles.menuSeparator}
-            role='separator'
-          />
-        ) : item.kind === 'section' ? (
-          <div
-            key={item.id}
-            style={styles.menuSectionLabel}
+            style={styles.menuTitle}
             role='presentation'>
-            {item.label}
+            {menu.title}
           </div>
-        ) : (
-          <button
-            key={item.id}
-            type='button'
-            role={typeof item.active === 'boolean' ? 'menuitemcheckbox' : 'menuitem'}
-            data-menu-item-id={item.id}
-            aria-label={item.label}
-            aria-checked={typeof item.active === 'boolean' ? item.active : undefined}
-            aria-haspopup={Array.isArray(item.items) && item.items.length > 0 ? 'menu' : undefined}
-            aria-expanded={Array.isArray(item.items) && item.items.length > 0 ? submenu === item.id : undefined}
-            aria-keyshortcuts={item.ariaKeyShortcuts}
-            className={item.danger ? 'dsh-editor-menu-item dsh-editor-menu-danger' : 'dsh-editor-menu-item'}
-            style={{
-              ...styles.menuItem,
-              ...(item.danger ? styles.menuItemDanger : null),
-              ...(item.disabled ? styles.menuItemDisabled : null),
-            }}
-            disabled={item.disabled === true}
-            onMouseEnter={(event) => {
-              const childHadFocus =
-                document.activeElement instanceof Element &&
-                document.activeElement.closest('[role="menu"]') !== ref.current;
-              if (childHadFocus) event.currentTarget.focus();
-              setItemRect(event.currentTarget.getBoundingClientRect());
-              setSubmenu(Array.isArray(item.items) && item.items.length > 0 ? item.id : null);
-            }}
-            onClick={(event) => {
-              const parent = event.currentTarget;
-              if (Array.isArray(item.items) && item.items.length > 0) {
-                setItemRect(parent.getBoundingClientRect());
-                setSubmenu(item.id);
-                /* Keyboard activation reports detail=0 and must land on the first child. */
-                if (event.detail === 0) {
-                  window.setTimeout(() => {
-                    parent
-                      .querySelector('[role="menu"]')
-                      ?.querySelector<HTMLButtonElement>('button[data-menu-item-id]:not(:disabled)')
-                      ?.focus();
-                  }, 0);
+        ) : null}
+        {menu.items.map((item, index) =>
+          item === null ? (
+            <div
+              key={`sep-${index}`}
+              style={styles.menuSeparator}
+              role='separator'
+            />
+          ) : item.kind === 'section' ? (
+            <div
+              key={item.id}
+              style={styles.menuSectionLabel}
+              role='presentation'>
+              {item.label}
+            </div>
+          ) : (
+            <button
+              key={item.id}
+              type='button'
+              role={typeof item.active === 'boolean' ? 'menuitemcheckbox' : 'menuitem'}
+              data-menu-item-id={item.id}
+              aria-label={item.label}
+              aria-checked={typeof item.active === 'boolean' ? item.active : undefined}
+              aria-haspopup={Array.isArray(item.items) && item.items.length > 0 ? 'menu' : undefined}
+              aria-expanded={Array.isArray(item.items) && item.items.length > 0 ? submenu === item.id : undefined}
+              aria-keyshortcuts={item.ariaKeyShortcuts}
+              className={item.danger ? 'dsh-editor-menu-item dsh-editor-menu-danger' : 'dsh-editor-menu-item'}
+              style={{
+                ...styles.menuItem,
+                ...(item.danger ? styles.menuItemDanger : null),
+                ...(item.disabled ? styles.menuItemDisabled : null),
+              }}
+              disabled={item.disabled === true}
+              onMouseEnter={(event) => {
+                const childHadFocus =
+                  document.activeElement instanceof Element &&
+                  document.activeElement.closest('[role="menu"]') !== ref.current;
+                if (childHadFocus) event.currentTarget.focus();
+                setItemRect(event.currentTarget.getBoundingClientRect());
+                setSubmenu(Array.isArray(item.items) && item.items.length > 0 ? item.id : null);
+              }}
+              onClick={(event) => {
+                const parent = event.currentTarget;
+                if (Array.isArray(item.items) && item.items.length > 0) {
+                  setItemRect(parent.getBoundingClientRect());
+                  setSubmenu(item.id);
+                  /* Keyboard activation reports detail=0 and must land on the first child. */
+                  if (event.detail === 0) {
+                    window.setTimeout(() => childButtons(item.id)[0]?.focus(), 0);
+                  }
+                  return;
                 }
-                return;
-              }
-              if (item.keepOpen !== true && item.restoreFocus === false) skipReturnFocusRef.current = true;
-              if (item.keepOpen !== true) onClose();
-              item.run?.();
-            }}>
-            {/* A menu without swatches must not gain an empty colour gutter. */}
-            {item.swatch === undefined || item.swatch === null ? null : (
-              <span
-                style={{
-                  ...styles.menuSwatch,
-                  background: item.swatch,
-                }}
-              />
-            )}
-            <span style={styles.menuLabel}>{item.label}</span>
-            {item.shortcut === undefined || item.shortcut === '' ? null : (
-              <span
-                className='dsh-editor-menu-shortcut'
-                style={styles.menuShortcut}>
-                {item.shortcut}
-              </span>
-            )}
-            {Array.isArray(item.items) && item.items.length > 0 ? (
-              <span
-                className='dsh-editor-menu-shortcut'
-                style={styles.menuShortcut}>
-                ›
-              </span>
-            ) : null}
-            {Array.isArray(item.items) && item.items.length > 0 && submenu === item.id ? (
+                if (item.keepOpen !== true && item.restoreFocus === false) skipReturnFocusRef.current = true;
+                if (item.keepOpen !== true) onClose();
+                item.run?.();
+              }}>
+              {/* A menu without swatches must not gain an empty colour gutter. */}
+              {item.swatch === undefined || item.swatch === null ? null : (
+                <span
+                  style={{
+                    ...styles.menuSwatch,
+                    background: item.swatch,
+                  }}
+                />
+              )}
+              <span style={styles.menuLabel}>{item.label}</span>
+              {item.shortcut === undefined || item.shortcut === '' ? null : (
+                <span
+                  className='dsh-editor-menu-shortcut'
+                  style={styles.menuShortcut}>
+                  {item.shortcut}
+                </span>
+              )}
+              {Array.isArray(item.items) && item.items.length > 0 ? (
+                <span
+                  className='dsh-editor-menu-shortcut'
+                  style={styles.menuShortcut}>
+                  ›
+                </span>
+              ) : null}
+            </button>
+          ),
+        )}
+      </div>
+      {activeSubmenu === null ? null : (
+        <div
+          data-submenu-id={submenu}
+          style={(() => {
+            const placement = submenuGeometry({
+              parentLeft: itemRect?.left ?? 0,
+              parentRight: itemRect?.right ?? 0,
+              viewportWidth: window.innerWidth,
+              preferredWidth: 260,
+            });
+            const verticalPlacement = submenuVerticalGeometry({
+              parentTop: itemRect?.top,
+              parentBottom: itemRect?.bottom,
+              viewportHeight: window.innerHeight,
+            });
+            const root = ref.current;
+            const rootRect = root?.getBoundingClientRect();
+            const originLeft = (rootRect?.left ?? 0) + (root?.clientLeft ?? 0);
+            const originTop = (rootRect?.top ?? 0) + (root?.clientTop ?? 0);
+            return {
+              ...styles.submenu,
+              ...(placement.side === 'left'
+                ? {
+                    left: 'auto',
+                    right: root && itemRect ? root.clientWidth - (itemRect.left - originLeft) : 0,
+                  }
+                : {
+                    left: itemRect ? itemRect.right - originLeft : 0,
+                    right: 'auto',
+                  }),
+              ...(verticalPlacement.side === 'up'
+                ? {
+                    top: 'auto',
+                    bottom: root && itemRect ? root.clientHeight - (itemRect.bottom - originTop) - 4 : 0,
+                  }
+                : {
+                    top: itemRect ? itemRect.top - originTop - 4 : 0,
+                    bottom: 'auto',
+                  }),
+              maxWidth: `${Math.round(placement.maxWidth)}px`,
+              maxHeight: verticalPlacement.maxHeight,
+              overflowY: 'auto',
+              boxSizing: 'border-box',
+            };
+          })()}
+          role='menu'>
+          {activeSubmenu.items?.map((child, childIndex) =>
+            child === null ? (
               <div
-                style={(() => {
-                  const placement = submenuGeometry({
-                    parentLeft: itemRect?.left ?? 0,
-                    parentRight: itemRect?.right ?? 0,
-                    viewportWidth: window.innerWidth,
-                    preferredWidth: 260,
-                  });
-                  return {
-                    ...styles.submenu,
-                    ...(placement.side === 'left' ? styles.submenuLeft : null),
-                    maxWidth: `${Math.round(placement.maxWidth)}px`,
-                  };
-                })()}
-                role='menu'>
-                {item.items.map((child, childIndex) =>
-                  child === null ? (
-                    <div
-                      key={`submenu-sep-${childIndex}`}
-                      style={styles.menuSeparator}
-                      role='separator'
-                    />
-                  ) : child.kind === 'section' ? (
-                    <div
-                      key={child.id}
-                      style={styles.menuSectionLabel}
-                      role='presentation'>
-                      {child.label}
-                    </div>
-                  ) : (
-                    <button
-                      key={child.id}
-                      type='button'
-                      role={typeof child.active === 'boolean' ? 'menuitemcheckbox' : 'menuitem'}
-                      data-menu-item-id={child.id}
-                      aria-label={child.label}
-                      aria-checked={typeof child.active === 'boolean' ? child.active : undefined}
-                      aria-haspopup={Array.isArray(child.items) && child.items.length > 0 ? 'menu' : undefined}
-                      aria-expanded={
-                        Array.isArray(child.items) && child.items.length > 0 ? submenu === child.id : undefined
-                      }
-                      aria-keyshortcuts={child.ariaKeyShortcuts}
-                      className={child.danger ? 'dsh-editor-menu-item dsh-editor-menu-danger' : 'dsh-editor-menu-item'}
-                      style={{
-                        ...styles.menuItem,
-                        ...(child.danger ? styles.menuItemDanger : null),
-                        ...(child.disabled ? styles.menuItemDisabled : null),
-                      }}
-                      disabled={child.disabled === true}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        if (child.disabled === true) return;
-                        if (child.keepOpen !== true && child.restoreFocus === false) {
-                          skipReturnFocusRef.current = true;
-                        }
-                        if (child.keepOpen !== true) onClose();
-                        child.run?.();
-                      }}>
-                      <span style={styles.menuLabel}>{child.label}</span>
-                      {child.shortcut === undefined || child.shortcut === '' ? null : (
-                        <span
-                          className='dsh-editor-menu-shortcut'
-                          style={styles.menuShortcut}>
-                          {child.shortcut}
-                        </span>
-                      )}
-                    </button>
-                  ),
-                )}
+                key={`submenu-sep-${childIndex}`}
+                style={styles.menuSeparator}
+                role='separator'
+              />
+            ) : child.kind === 'section' ? (
+              <div
+                key={child.id}
+                style={styles.menuSectionLabel}
+                role='presentation'>
+                {child.label}
               </div>
-            ) : null}
-          </button>
-        ),
+            ) : (
+              <button
+                key={child.id}
+                type='button'
+                role={typeof child.active === 'boolean' ? 'menuitemcheckbox' : 'menuitem'}
+                data-menu-item-id={child.id}
+                aria-label={child.label}
+                aria-checked={typeof child.active === 'boolean' ? child.active : undefined}
+                aria-haspopup={Array.isArray(child.items) && child.items.length > 0 ? 'menu' : undefined}
+                aria-expanded={Array.isArray(child.items) && child.items.length > 0 ? submenu === child.id : undefined}
+                aria-keyshortcuts={child.ariaKeyShortcuts}
+                className={child.danger ? 'dsh-editor-menu-item dsh-editor-menu-danger' : 'dsh-editor-menu-item'}
+                style={{
+                  ...styles.menuItem,
+                  ...(child.danger ? styles.menuItemDanger : null),
+                  ...(child.disabled ? styles.menuItemDisabled : null),
+                }}
+                disabled={child.disabled === true}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  if (child.disabled === true) return;
+                  if (child.keepOpen !== true && child.restoreFocus === false) {
+                    skipReturnFocusRef.current = true;
+                  }
+                  if (child.keepOpen !== true) onClose();
+                  child.run?.();
+                }}>
+                <span style={styles.menuLabel}>{child.label}</span>
+                {child.shortcut === undefined || child.shortcut === '' ? null : (
+                  <span
+                    className='dsh-editor-menu-shortcut'
+                    style={styles.menuShortcut}>
+                    {child.shortcut}
+                  </span>
+                )}
+              </button>
+            ),
+          )}
+        </div>
       )}
     </div>
   );

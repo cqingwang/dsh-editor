@@ -29,5 +29,9 @@ test('CommitPanel refresh and retry receive the scope-aware reload function', as
 
   assert.match(workspace, /const reloadVisibleLog = React\.useCallback\(\(\): void => \{[\s\S]*?historyPath !== null[\s\S]*?showFileHistory\(historyPath\)[\s\S]*?loadLog\(\)/u);
   assert.match(workspace, /onLoadLog=\{reloadVisibleLog\}/u);
-  assert.match(workspace, /onRetry=\{reloadVisibleLog\}/u);
+  assert.match(workspace, /onRetry=\{retryVisibleLog\}/u);
+  assert.match(
+    workspace,
+    /const retryVisibleLog = \(\): void =>\s+commits\.length > 0 && logError !== null && historyPath === null \? void loadMoreLog\(\) : reloadVisibleLog\(\);/u,
+  );
 });

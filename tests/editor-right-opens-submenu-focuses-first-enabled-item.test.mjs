@@ -35,7 +35,7 @@ test('Left closes only the child menu and returns to its parent row', () => {
 test('Up/Down stay inside the open submenu instead of walking the parent menu', () => {
   const menu = contextMenu();
   assert.match(menu, /const buttons = submenu === null \? topButtons\(\) : childButtons\(submenu\)/);
-  assert.match(menu, /buttons\[\(index \+ delta \+ buttons\.length\) % buttons\.length\]\?\.focus\(\)/);
+  assert.match(menu, /buttons\[menuStep\(buttons, index, event\.key\)\]\?\.focus\(\)/);
 });
 
 test('every menu row carries its stable id for keyboard submenu navigation', () => {

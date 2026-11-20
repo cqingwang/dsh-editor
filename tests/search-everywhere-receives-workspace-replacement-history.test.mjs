@@ -56,7 +56,7 @@ test('Search Everywhere exposes one non-duplicated live result status', () => {
   assert.match(dialog, /aria-atomic='true'/);
   assert.match(dialog, /role='status'/);
   assert.match(dialog, /styles\.screenReaderOnly/);
-  assert.match(dialog, /t\('editor\.searchResultCount', \{\s+count: results\.length,\s+\}\)/u);
+  assert.match(dialog, /searchResultStatusLabel\(results\.length, t\)/u);
   assert.match(
     dialog,
     /textLoading && effectiveTab !== 'actions' \? \(\s*<div style=\{styles\.searchEverywhereMessage\}>\{t\('editor\.loading'\)\}<\/div>\s*\) : null/u,

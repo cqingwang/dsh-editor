@@ -131,7 +131,7 @@ test('the file name is rendered as its own unclipped span, with a full-path tool
   assert.match(body, /<span style=\{styles\.commitFileName\}>\{row\.name\}<\/span>/u);
   /* A pathologically long name in a 180px tool window can exceed the pane;
      IDEA scrolls there too, so the tooltip has to spell the path out. */
-  assert.match(body, /dirName|commitFileDir/);
+  assert.match(body, /<CommitSecondaryPath/);
   assert.match(body, /title=\{change\.path\}/);
 });
 

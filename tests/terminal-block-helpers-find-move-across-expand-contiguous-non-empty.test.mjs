@@ -38,6 +38,7 @@ test('terminal block helpers find, move across, and expand contiguous non-empty 
 test('Terminal menu wires block above/below and expansion through selectLines', () => {
   const factory = new Function(
     [
+      transpileTypeScriptFunction(source, 'terminalAbsoluteCursorRow'),
       transpileTypeScriptFunction(source, 'terminalPromptStartRow'),
       transpileTypeScriptFunction(source, 'terminalBlockRangeAt'),
       transpileTypeScriptFunction(source, 'terminalSelectionBlockRange'),
@@ -91,6 +92,9 @@ test('right-click preserves the current xterm selection for block actions', () =
     /screenSelectionPositionRef = React\.useRef<\{[\s\S]*?left: TerminalSelectionPosition \| null;[\s\S]*?right: TerminalSelectionPosition \| null;[\s\S]*?\}>\(\{\s+left: null,\s+right: null,\s+\}\)/,
   );
   assert.match(source, /event\.button === 2[\s\S]*?getSelectionPosition\?\.\(\)/);
-  assert.match(source, /const selectionPosition = screenSelectionPositionRef\.current\[pane\] \?\? null/);
+  assert.match(
+    source,
+    /const selectionPosition =\s+screenSelectionPositionRef\.current\[pane\] \?\? emulator\.getSelectionPosition\?\.\(\) \?\? null/,
+  );
   assert.match(source, /selectionPosition,\s+onSelectAll:/);
 });

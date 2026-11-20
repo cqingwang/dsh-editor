@@ -26,8 +26,46 @@ test('Workspace-scoped Editor remounts restore focus inside the active tool wind
   assert.match(workspace, /suppressEditorAutofocusRef\.current !== true[\s\S]*?editor\.focus\(\)/u);
   assert.match(
     workspace,
-    /restoreToolWindowFocus !== true \|\| restoredToolWindowFocusRef\.current\) return;[\s\S]*?restoredToolWindowFocusRef\.current = true;[\s\S]*?focusToolWindowContent\(activity, \{ reassertFrames: 8, focusActivityFallback: true \}\)/u,
+    /const restoreRequested = restoreToolWindowFocus === true && restoredToolWindowFocusRef\.current !== -1;[\s\S]*?const focusRequested = focusRequest !== restoredToolWindowFocusRef\.current;[\s\S]*?focusToolWindowContent\(activity, \{ reassertFrames: 8, focusActivityFallback: true \}\)/u,
   );
   assert.match(workspace, /data-dsh-activity-id="\$\{next\}"/u);
   assert.match(workspace, /releaseFrames >= 90[\s\S]*?suppressEditorAutofocusRef\.current = false;/u);
+});
+
+test('reopening the mounted Editor restores focus inside the active tool window', () => {
+  assert.match(controller, /let editorWorkspaceFocusRequest = 0;/u);
+  assert.match(
+    controller,
+    /const reopeningMountedHost = host !== null && active === false;[\s\S]*?const restorationTarget = reopeningMountedHost \? lastEditorWorkspaceFocusTarget : null;[\s\S]*?if \(reopeningMountedHost && \(restorationTarget === null \|\| restorationTarget\.isConnected !== true\)\) \{[\s\S]*?editorWorkspaceFocusRequest \+= 1;[\s\S]*?\}/u,
+  );
+  assert.match(controller, /focusRequest: editorWorkspaceFocusRequest,/u);
+  assert.match(controller, /function renderEditorMount\(\): void \{[\s\S]*?root\?\.render\(/u);
+  assert.match(controller, /setActive\(true\);[\s\S]*?if \(reopeningMountedHost\) renderEditorMount\(\);/u);
+  assert.match(mount, /focusRequest\?: number;/u);
+  assert.match(mount, /focusRequest=\{focusRequest\}/u);
+  assert.match(workspace, /focusRequest\?: number;/u);
+  assert.match(
+    workspace,
+    /const restoredToolWindowFocusRef = React\.useRef\(focusRequest\);/u,
+  );
+  assert.match(
+    workspace,
+    /const focusRequested = focusRequest !== restoredToolWindowFocusRef\.current;[\s\S]*?restoredToolWindowFocusRef\.current = restoreRequested === true \? -1 : focusRequest;[\s\S]*?focusToolWindowContent\(activity, \{ reassertFrames: 8, focusActivityFallback: true \}\);/u,
+  );
+});
+
+test('reopening the mounted Editor restores the last focused workspace surface', () => {
+  assert.match(controller, /let lastEditorWorkspaceFocusTarget: HTMLElement \| null = null;/u);
+  assert.match(
+    controller,
+    /host\.addEventListener\('focusin', \(event\) => \{[\s\S]*?target\.closest\('\[data-dsh-editor-activity-stripe\]'\)[\s\S]*?lastEditorWorkspaceFocusTarget = target;/u,
+  );
+  assert.match(
+    controller,
+    /const restorationTarget = reopeningMountedHost \? lastEditorWorkspaceFocusTarget : null;[\s\S]*?if \(reopeningMountedHost && \(restorationTarget === null \|\| restorationTarget\.isConnected !== true\)\) \{[\s\S]*?editorWorkspaceFocusRequest \+= 1;/u,
+  );
+  assert.match(
+    controller,
+    /if \(restorationTarget !== null && restorationTarget\.isConnected === true\) \{[\s\S]*?focusSurfaceWhenReady\(\(\) => \(restorationTarget\.isConnected === true \? restorationTarget : null\),[\s\S]*?\} else if \(reopeningMountedHost\) renderEditorMount\(\);/u,
+  );
 });

@@ -37,6 +37,7 @@ export interface TerminalScreenProps {
   onCwd?: (cwd: string) => void;
   getCwd: () => string;
   focusGeneration?: number;
+  reclaimFocus?: boolean;
 }
 
 interface TerminalScreenHandlers {
@@ -68,6 +69,7 @@ function TerminalScreen({
   onCwd,
   getCwd,
   focusGeneration = 0,
+  reclaimFocus = true,
 }: TerminalScreenProps) {
   const hostRef = React.useRef<HTMLDivElement | null>(null);
   const emulatorRef = React.useRef<TerminalEmulator | null>(null);
@@ -93,6 +95,35 @@ function TerminalScreen({
     onTitle,
     onCwd,
   };
+  const measureGrid = React.useCallback((): void => {
+    const node = hostRef.current;
+    const emulator = emulatorRef.current;
+    const fit = fitRef.current;
+    if (!ready || node === null || emulator === null || fit === null) return;
+    /* FitAddon needs a laid-out element; skip the frame where it has none. */
+    if (node.clientWidth === 0 || node.clientHeight === 0) return;
+    fit.fit();
+    const cols = Math.max(2, Math.min(500, emulator.cols));
+    const rows = Math.max(1, Math.min(200, emulator.rows));
+    /* A measuring screen has no PTY yet: it still REPORTS the size, which is
+       how a fresh shell is spawned at the real width instead of a guess. */
+    if (cols === sizeRef.current.cols && rows === sizeRef.current.rows) return;
+    sizeRef.current = {
+      cols,
+      rows,
+    };
+    handlersRef.current.onGrid?.({
+      cols,
+      rows,
+    });
+    if (terminalId !== null)
+      void callTerminal({
+        op: 'resize',
+        id: terminalId,
+        cols,
+        rows,
+      }).catch(() => {});
+  }, [ready, terminalId]);
   const setHostNode = React.useCallback((node: HTMLDivElement | null) => {
     hostRef.current?.__dshTerminalVisibilityObserver?.disconnect?.();
     hostRef.current = node;
@@ -217,55 +248,27 @@ function TerminalScreen({
   /* Keep the PTY grid in step with the pane's real size. */
   React.useEffect(() => {
     const node = hostRef.current;
-    const emulator = emulatorRef.current;
-    if (!ready || node === null || emulator === null) return;
-    const measure = () => {
-      const fit = fitRef.current;
-      if (fit === null) return;
-      /* FitAddon needs a laid-out element; skip the frame where it has none. */
-      if (node.clientWidth === 0 || node.clientHeight === 0) return;
-      fit.fit();
-      const cols = Math.max(2, Math.min(500, emulator.cols));
-      const rows = Math.max(1, Math.min(200, emulator.rows));
-      /* A measuring screen has no PTY yet: it still REPORTS the size, which is
-         how a fresh shell is spawned at the real width instead of a guess. */
-      if (cols === sizeRef.current.cols && rows === sizeRef.current.rows) return;
-      sizeRef.current = {
-        cols,
-        rows,
-      };
-      handlersRef.current.onGrid?.({
-        cols,
-        rows,
-      });
-      if (terminalId !== null)
-        void callTerminal({
-          op: 'resize',
-          id: terminalId,
-          cols,
-          rows,
-        }).catch(() => {});
-    };
-    measure();
-    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure);
+    if (!ready || node === null) return;
+    measureGrid();
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measureGrid);
     observer?.observe(node);
     return () => observer?.disconnect();
-  }, [ready, terminalId]);
+  }, [measureGrid, ready]);
 
-  /* Font size is a preference; xterm re-renders without touching the PTY. */
+  /* Font size changes the xterm cell grid, so fit and report the new PTY size. */
   React.useEffect(() => {
     const emulator = emulatorRef.current;
     if (!ready || emulator === null) return;
     emulator.options.fontSize = fontSize;
-    fitRef.current?.fit();
-  }, [fontSize, ready]);
+    measureGrid();
+  }, [fontSize, measureGrid, ready]);
 
   /* IDEA focuses the terminal when it is raised with Alt+F12, and restores
      focus when the dock comes back after another tool window or a diff. */
   React.useEffect(() => {
-    if (!ready) return;
+    if (!ready || reclaimFocus !== true) return;
     emulatorRef.current?.focus();
-  }, [ready, visible, focusGeneration]);
+  }, [ready, reclaimFocus, visible, focusGeneration]);
 
   /* Follow the app's color scheme without restarting the shell. */
   React.useEffect(() => {

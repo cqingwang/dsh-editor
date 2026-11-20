@@ -146,5 +146,6 @@ test('Find menus are clamped inside the dialog hit-testing surface', () => {
     /x: findToolMenuLeft\(rect\.left, surfaceRect\?\.left \?\? 0, surfaceRect\?\.right \?\? window\.innerWidth\)/u,
   );
   assert.match(source, /maxHeight: findToolMenuMaxHeight\(/u);
-  assert.match(menuSource, /Number\.isFinite\(menu\.maxHeight\)[\s\S]*?overflowY: 'auto'/u);
+  assert.match(menuSource, /maxHeight: menuHeight/u);
+  assert.match(menuSource, /overflowY: 'auto'/u);
 });

@@ -7,16 +7,24 @@ import { PanelToolbar } from '../ui/PanelToolbar';
 import { ToolbarButton } from '../ui/ToolbarButton';
 import { TreeMessage } from '../ui/TreeMessage';
 import { FileTreeView, type FileTreeViewRowDecoration, type FileTreeViewRowState } from './FileTreeView';
-import { projectContextMenuRowAfterKeyboard } from './project-selection-model';
+import {
+  projectContextMenuRowAfterKeyboard,
+  projectPrimaryHiddenByCollapse,
+  projectSelectionAfterDirectoryCollapse,
+  type ProjectTreeSelectionModifiers,
+} from './project-selection-model';
 import { copySearchResultText } from '../../commit';
 import { basename, callFs, splitRootLabel } from '../../editor-core';
 import { bindShiftWheelScroll, shouldShowTreeLoading } from '../../injected-css';
 import {
   captureDroppedWorkspaceHandles,
   dataTransferIncludesFiles,
+  dataTransferIncludesProjectTreePaths,
   formatUploadBytes,
+  PROJECT_TREE_DRAG_MIME,
   projectExternalDropDirectory,
   projectToolbarDropDirectory,
+  readProjectTreeDragPaths,
   uploadProgressPercent,
 } from '../../project';
 import {
@@ -38,7 +46,7 @@ import {
 import type { ProjectDropHandles } from '../../project';
 
 type Translate = (key: string, params?: Record<string, unknown>) => string;
-type ProjectRow = Record<string, unknown> & {
+export type ProjectRow = Record<string, unknown> & {
   path: string;
   name?: string;
   kind?: string;
@@ -69,6 +77,12 @@ interface RenameState {
   path: string;
   value: string;
 }
+export interface ProjectTreeContextMenuPayload {
+  row: ProjectRow;
+  x: number;
+  y: number;
+  selectionRows?: ProjectRow[];
+}
 export interface ProjectPanelProps {
   t: Translate;
   root: string;
@@ -95,7 +109,8 @@ export interface ProjectPanelProps {
   onOpenEditSource: ProjectCallback;
   onOpenPreview: (path: string) => void;
   onRevealPath: ProjectCallback;
-  onSelect: ProjectCallback;
+  onSelect: (row: ProjectRow, event: ProjectTreeSelectionModifiers, selectionRows?: ProjectRow[]) => void;
+  onApplySelection?: (selection: Set<string>, primary: string, anchor?: string) => void;
   onOpenCreateMenu: (event?: React.MouseEvent<HTMLElement>) => void;
   onOpenOptions: (event?: React.MouseEvent<HTMLElement>) => void;
   optionsOpen: boolean;
@@ -113,7 +128,7 @@ export interface ProjectPanelProps {
   rowRefs: React.RefObject<Map<string, HTMLElement>>;
   treeRef: React.RefObject<HTMLDivElement | null>;
   onTreeKeyDown: React.KeyboardEventHandler<HTMLDivElement>;
-  onContextMenu: (payload: { row: ProjectRow; x: number; y: number }) => void;
+  onContextMenu: (payload: ProjectTreeContextMenuPayload) => void;
   onRootContextMenu: (payload: { x: number; y: number }) => void;
   rootContextMenuOpen: boolean;
   onDrop: (sources: string[], destination: string) => void;
@@ -168,6 +183,7 @@ function ProjectPanel({
   onOpenPreview,
   onRevealPath,
   onSelect,
+  onApplySelection,
   onOpenCreateMenu,
   onOpenOptions,
   optionsOpen,
@@ -258,6 +274,7 @@ function ProjectPanel({
   const searchRef = React.useRef(null);
   const directSpeedSearchRef = React.useRef('');
   const searchRequestRef = React.useRef(0);
+  const searchReturnSelectionRef = React.useRef<{ selection: Set<string>; primary: string | null } | null>(null);
   const closeProjectViewMenu = React.useCallback(() => {
     setViewMenu(null);
     window.setTimeout(() => {
@@ -268,6 +285,10 @@ function ProjectPanel({
       treeRef.current?.focus();
     }, 0);
   }, [searchOpen, treeRef]);
+  React.useEffect(() => {
+    if (!searchOpen || searchReturnSelectionRef.current !== null) return;
+    searchReturnSelectionRef.current = { selection: new Set(selection), primary: selectedPath };
+  }, [searchOpen, selection, selectedPath]);
   React.useEffect(() => bindShiftWheelScroll(treeRef.current), []);
   /* ⌘/Ctrl+F inside the tool window filters the tree in place, like IDEA. */
   React.useEffect(() => {
@@ -370,6 +391,13 @@ function ProjectPanel({
     };
   }, [filteredView, foldersFirst, search, showExcludedFiles, showHidden, sortMode]);
   const hits = React.useMemo(() => speedSearchHitRows(visibleRows, search), [search, visibleRows]);
+  const selectVisibleRow = React.useCallback(
+    (row: ProjectRow, event: ProjectTreeSelectionModifiers): void => {
+      const selectionRows = search.trim() === '' ? undefined : visibleRows;
+      onSelect(row, event, selectionRows);
+    },
+    [onSelect, search, visibleRows],
+  );
   const projectNamePartsByPath = React.useMemo(() => {
     const partsByPath = new Map<string, ReturnType<typeof highlightParts>>();
     if (search.trim() === '') return partsByPath;
@@ -382,7 +410,7 @@ function ProjectPanel({
   const selectSearchHit = React.useCallback(
     (row: ProjectRow) => {
       if (row === null || row === undefined) return;
-      onSelect(row, {});
+      selectVisibleRow(row, {});
       window.setTimeout(
         () =>
           rowRefs.current?.get(row.path)?.scrollIntoView?.({
@@ -391,7 +419,7 @@ function ProjectPanel({
         0,
       );
     },
-    [onSelect, rowRefs],
+    [rowRefs, selectVisibleRow],
   );
   /* IDEA's speed search moves the current row as soon as the query narrows
      to a hit; Enter then opens that row rather than some other first match. */
@@ -408,12 +436,25 @@ function ProjectPanel({
     setSearchError(null);
     setSearchTruncated(false);
   }, []);
-  const closeTreeSearch = () => {
+  const closeTreeSearch = React.useCallback(() => {
+    const previous = searchReturnSelectionRef.current;
+    searchReturnSelectionRef.current = null;
     directSpeedSearchRef.current = '';
     clearTreeSearchState();
     setSearchOpen(false);
+    if (previous !== null && previous.primary !== null && onApplySelection !== undefined) {
+      onApplySelection(previous.selection, previous.primary, previous.primary);
+    }
     window.setTimeout(() => treeRef.current?.focus(), 0);
-  };
+  }, [clearTreeSearchState, onApplySelection, treeRef]);
+  React.useEffect(() => {
+    if (!searchOpen || (createState === null && renameState === null)) return undefined;
+    /* IDEA closes speed search when inline New/Rename takes over. Keeping the
+       filter visible while the tree no longer owns the keyboard leaves a stale
+       query that can unexpectedly replace itself on the next direct keystroke. */
+    closeTreeSearch();
+    return undefined;
+  }, [closeTreeSearch, createState, renameState, searchOpen]);
   const openSelectedContextMenuFromKeyboard = () => {
     const selected = projectContextMenuRowAfterKeyboard(visibleRows, selectedPath);
     const treeRect = treeRef.current?.getBoundingClientRect?.();
@@ -425,11 +466,12 @@ function ProjectPanel({
       onRootContextMenu({ x, y });
       return;
     }
-    onSelect(selected, {});
+    if (!selection.has(selected.path)) selectVisibleRow(selected, {});
     onContextMenu({
       row: selected,
       x,
       y,
+      selectionRows: search.trim() === '' ? undefined : visibleRows,
     });
   };
   const gitChanges = React.useMemo(
@@ -504,6 +546,22 @@ function ProjectPanel({
   const viewDefinitions = React.useMemo(() => projectViewDefinitions(t), [t]);
   const currentViewLabel =
     viewDefinitions.find((definition) => definition.id === projectView)?.label ?? t('editor.projectViewProjectFiles');
+  const openProjectViewMenu = (button: HTMLElement): void => {
+    const rect = button.getBoundingClientRect();
+    setViewMenu({
+      x: Math.max(4, rect.left - 4),
+      y: rect.bottom + 4,
+      title: t('editor.projectViewMenu'),
+      items: viewDefinitions.map((definition) => ({
+        id: `project-view:${definition.id}`,
+        label: definition.label,
+        active: definition.id === projectView,
+        shortcut: definition.id === projectView ? '✓' : '',
+        disabled: definition.available !== true,
+        run: () => onProjectViewChange(definition.id),
+      })),
+    });
+  };
   const positionForProjectRow = (row: ProjectRow) =>
     projectRowPresentationByPath.get(row.path)?.projectRowPosition ?? {
       level: (row.depth ?? 0) + 1,
@@ -538,7 +596,9 @@ function ProjectPanel({
           selection.has(row.path) && selection.size > 1
             ? rows.filter((entry) => selection.has(entry.path) && entry.path !== '').map((entry) => entry.path)
             : [row.path];
-        event.dataTransfer?.setData('text/plain', payload.join('\n'));
+        const text = payload.join('\n');
+        event.dataTransfer?.setData(PROJECT_TREE_DRAG_MIME, text);
+        event.dataTransfer?.setData('text/plain', text);
         event.dataTransfer.effectAllowed = 'move';
       },
       onDragEnd: () => {
@@ -556,7 +616,7 @@ function ProjectPanel({
           setExternalDropPath(targetDirectory);
           return;
         }
-        if (!event.dataTransfer?.types?.includes('text/plain')) return;
+        if (!dataTransferIncludesProjectTreePaths(event.dataTransfer)) return;
         if (sortMode === 'manual') {
           event.preventDefault();
           event.stopPropagation();
@@ -591,7 +651,7 @@ function ProjectPanel({
         if (sortMode === 'manual') {
           event.preventDefault();
           event.stopPropagation();
-          const sources = (event.dataTransfer?.getData('text/plain') ?? '').split('\n').filter((entry) => entry !== '');
+          const sources = readProjectTreeDragPaths(event.dataTransfer);
           const edge = manualDrop?.path === row.path ? manualDrop.edge : 'before';
           setManualDrop(null);
           if (sources.length > 0) onManualReorder(sources, row.path, edge);
@@ -599,7 +659,7 @@ function ProjectPanel({
         }
         if (!state.isDirectory) return;
         event.preventDefault();
-        const sources = (event.dataTransfer?.getData('text/plain') ?? '').split('\n').filter((entry) => entry !== '');
+        const sources = readProjectTreeDragPaths(event.dataTransfer);
         if (sources.length === 0 || sources.includes(row.path)) return;
         onDrop(sources, row.path);
       },
@@ -783,6 +843,15 @@ function ProjectPanel({
           {`${t('editor.treeSearchFailed')}: ${searchError}`}
         </TreeMessage>
       ) : null}
+      {searchOpen && search.trim() !== '' && searchError === null && searchPending !== true && hits.length > 0 ? (
+        <TreeMessage
+          state='search-results'
+          visuallyHidden={true}>
+          {t(hits.length === 1 ? 'editor.treeSearchResultCountOne' : 'editor.treeSearchResultCount', {
+            count: hits.length,
+          })}
+        </TreeMessage>
+      ) : null}
       {treeSearchMiss({
         error: searchError,
         query: search,
@@ -825,8 +894,8 @@ function ProjectPanel({
                     }
                   : null),
               }}
-              title={root}
-              aria-label={t('editor.copyProjectPath')}
+              title={`${t('editor.copyProjectPath')}: ${root}`}
+              aria-label={`${t('editor.copyProjectPath')}: ${projectName}`}
               data-dsh-project-root-context-active={rootContextMenuOpen ? 'true' : undefined}
               onClick={() => copySearchResultText(root, onNotify, t)}
               onContextMenu={(event) => {
@@ -858,20 +927,17 @@ function ProjectPanel({
               aria-label={`${t('editor.projectViewMenu')}: ${currentViewLabel}`}
               aria-haspopup='menu'
               aria-expanded={viewMenu !== null}
-              onClick={(event) => {
-                const rect = event.currentTarget.getBoundingClientRect();
-                setViewMenu({
-                  x: Math.max(4, rect.left - 4),
-                  y: rect.bottom + 4,
-                  title: t('editor.projectViewMenu'),
-                  items: viewDefinitions.map((definition) => ({
-                    id: `project-view:${definition.id}`,
-                    label: definition.label,
-                    shortcut: definition.id === projectView ? '✓' : '',
-                    disabled: definition.available !== true,
-                    run: () => onProjectViewChange(definition.id),
-                  })),
-                });
+              onClick={(event) => openProjectViewMenu(event.currentTarget)}
+              onKeyDown={(event) => {
+                if (event.key !== 'ContextMenu' && !(event.shiftKey === true && event.key === 'F10')) return;
+                event.preventDefault();
+                event.stopPropagation();
+                openProjectViewMenu(event.currentTarget);
+              }}
+              onContextMenu={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                openProjectViewMenu(event.currentTarget);
               }}>
               <Icon
                 name='chevronDown'
@@ -1060,8 +1126,9 @@ function ProjectPanel({
                 event.preventDefault();
                 const hit = hits.find((row) => row.path === selectedPath) ?? hits[0];
                 if (hit === undefined) return;
-                onSelect(hit, {});
+                selectVisibleRow(hit, {});
                 /* Close the box so the opened file (or folder) owns the keyboard. */
+                searchReturnSelectionRef.current = null;
                 directSpeedSearchRef.current = '';
                 clearTreeSearchState();
                 setSearchOpen(false);
@@ -1216,7 +1283,8 @@ function ProjectPanel({
         }}
         onTreeDragOver={(event) => {
           const externalFiles = dataTransferIncludesFiles(event.dataTransfer);
-          if (!externalFiles && !event.dataTransfer?.types?.includes('text/plain')) return;
+          const projectPaths = dataTransferIncludesProjectTreePaths(event.dataTransfer);
+          if (!externalFiles && !projectPaths) return;
           event.preventDefault();
           event.dataTransfer.dropEffect = externalFiles ? 'copy' : 'move';
           if (externalFiles) {
@@ -1231,8 +1299,7 @@ function ProjectPanel({
         }}
         onTreeDrop={(event) => {
           const externalFiles = dataTransferIncludesFiles(event.dataTransfer);
-          const raw = externalFiles ? '' : (event.dataTransfer?.getData('text/plain') ?? '');
-          const sources = raw.split('\n').filter((entry) => entry !== '');
+          const sources = externalFiles ? [] : readProjectTreeDragPaths(event.dataTransfer);
           const overRow =
             event.target instanceof Element ? event.target.closest('.dsh-editor-tree-row') !== null : false;
           setRootDropActive(false);
@@ -1250,7 +1317,7 @@ function ProjectPanel({
           if (event.button !== 0) return;
           if (event.target instanceof Element && event.target.closest('input') !== null) return;
           treeRef.current?.focus();
-          onSelect(row, event);
+          selectVisibleRow(row, event);
         }}
         onRowClick={(state, event) => {
           const { row, isDirectory } = state;
@@ -1270,14 +1337,27 @@ function ProjectPanel({
           const { row } = state;
           event.preventDefault();
           event.stopPropagation();
-          if (!selection.has(row.path)) onSelect(row, {});
+          if (!selection.has(row.path)) selectVisibleRow(row, {});
           onContextMenu({
             row,
             x: event.clientX,
             y: event.clientY,
+            selectionRows: search.trim() === '' ? undefined : visibleRows,
           });
         }}
-        onToggleRow={(row) => onToggle(row.path)}
+        onToggleRow={(row) => {
+          if (expanded.has(row.path)) {
+            const primaryHidden = projectPrimaryHiddenByCollapse(row.path, selectedPath);
+            const hiddenSelected = [...selection].some((path) => projectPrimaryHiddenByCollapse(row.path, path));
+            if (primaryHidden || hiddenSelected) {
+              const nextSelection = projectSelectionAfterDirectoryCollapse(selection, row.path, primaryHidden);
+              const nextPrimary = primaryHidden || selectedPath === null ? row.path : selectedPath;
+              if (onApplySelection !== undefined) onApplySelection(nextSelection, nextPrimary, nextPrimary);
+              else if (primaryHidden) selectVisibleRow(row, {});
+            }
+          }
+          onToggle(row.path);
+        }}
       />
     </React.Fragment>
   );

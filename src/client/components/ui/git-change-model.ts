@@ -54,3 +54,46 @@ export function pathsScheduledForRemoval(
   }
   return paths;
 }
+
+/** Move the visible selection to the rows a restage operation produced. */
+export function selectionAfterRestage(
+  changes: GitChange[] | null | undefined,
+  paths: string[],
+  focusPath?: string,
+): { selection: Set<string>; primary: GitChangeSelection | null } {
+  const requested = new Set(
+    (Array.isArray(paths) ? paths : []).filter((path) => typeof path === 'string' && path !== ''),
+  );
+  const selection = new Set<string>();
+  let primary: GitChangeSelection | null = null;
+  for (const change of Array.isArray(changes) ? changes : []) {
+    const path = typeof change.path === 'string' ? change.path : '';
+    const status = typeof change.status === 'string' ? change.status : '';
+    if (path === '' || status.length < 2 || !requested.has(path)) continue;
+    const staged = status[0] !== ' ' && status[0] !== '?';
+    const unstaged = status[1] !== ' ';
+    if (staged) selection.add(`staged:${path}`);
+    if (unstaged) selection.add(`unstaged:${path}`);
+    if (primary === null) primary = { path, staged };
+    if (path === focusPath) primary = { path, staged };
+  }
+  return { selection, primary };
+}
+
+/** Keep commit checkboxes only for paths that still exist after a host update. */
+export function remainingCommitPaths(current: Iterable<string>, changes: GitChange[] | null | undefined): Set<string> {
+  const existing = new Set(
+    (Array.isArray(changes) ? changes : [])
+      .map((change) => change.path)
+      .filter((path): path is string => typeof path === 'string' && path !== ''),
+  );
+  return new Set([...current].filter((path) => existing.has(path)));
+}
+
+export const changeModel = {
+  allPathsUnversioned,
+  canCompareWithHead,
+  pathsScheduledForRemoval,
+  movedRows: selectionAfterRestage,
+  remainingCommitPaths,
+};

@@ -156,6 +156,32 @@ export function dataTransferIncludesFiles(dataTransfer: DataTransfer | null | un
   }
 }
 
+/** Private payload type for a Project row drag; arbitrary text must never move files. */
+export const PROJECT_TREE_DRAG_MIME = 'application/x-dsh-editor-project-paths';
+
+/** Detect a Project-owned tree drag from its private MIME type. */
+export function dataTransferIncludesProjectTreePaths(dataTransfer: DataTransfer | null | undefined): boolean {
+  try {
+    return Array.from(dataTransfer?.types ?? []).some((type) => String(type).toLowerCase() === PROJECT_TREE_DRAG_MIME);
+  } catch {
+    return false;
+  }
+}
+
+/** Read only the Project-owned path payload, never arbitrary text/plain content. */
+export function readProjectTreeDragPaths(dataTransfer: DataTransfer | null | undefined): string[] {
+  try {
+    const includesProjectPaths = Array.from(dataTransfer?.types ?? []).some(
+      (type) => String(type).toLowerCase() === PROJECT_TREE_DRAG_MIME,
+    );
+    if (!includesProjectPaths) return [];
+    const raw = dataTransfer?.getData(PROJECT_TREE_DRAG_MIME) ?? '';
+    return raw.split('\n').filter((path) => path !== '');
+  } catch {
+    return [];
+  }
+}
+
 /** Resolve an OS drop on any tree row to its containing project directory. */
 export function projectExternalDropDirectory(row: ProjectTreeRow): string {
   const path = typeof row?.path === 'string' ? row.path : '';

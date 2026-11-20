@@ -1,8 +1,9 @@
 import React from 'react';
-import { styles } from '../../ui/styles';
+import { POPUP_BORDER, styles } from '../../ui/styles';
 import { EDITOR_CODE_FONT, EDITOR_TEXT_STYLE } from '../editor/editor-style-model';
-import { Icon } from '../ui/Icon';
+import { Icon, POPUP_ICON_SIZE } from '../ui/Icon';
 import { ToolbarButton } from '../ui/ToolbarButton';
+import { trapDialogFocus } from '../ui/focus-trap';
 import {
   inspectIdeaScopeXml,
   normalizeCustomFindScopes,
@@ -363,13 +364,14 @@ function FindScopeEditor({ t, scopes, initialId, onSave, onClose }: FindScopeEdi
           flexDirection: 'column',
           background: 'var(--dsw-alias-bg-l1)',
           color: 'var(--dsw-alias-label-primary)',
-          border: '1px solid var(--dsw-alias-border-l2)',
+          border: POPUP_BORDER,
           borderRadius: 6,
           boxShadow: '0 18px 50px rgba(0,0,0,0.28)',
           overflow: 'hidden',
         }}
         onKeyDown={(event) => {
           if (event.nativeEvent.isComposing === true) return;
+          if (trapDialogFocus(event, event.currentTarget, { focusWhenOutside: true })) return;
           if (event.key === 'Escape') {
             event.preventDefault();
             onClose();
@@ -378,8 +380,11 @@ function FindScopeEditor({ t, scopes, initialId, onSave, onClose }: FindScopeEdi
         <div style={{ padding: '10px 12px', borderBottom: '1px solid var(--dsw-alias-border-l2)', fontWeight: 600 }}>
           {t('editor.findScopesTitle')}
         </div>
-        <div style={{ display: 'flex', minHeight: 0, flex: '1 1 auto' }}>
+        <div
+          className='dsh-editor-find-scope-body'
+          style={{ display: 'flex', minHeight: 0, flex: '1 1 auto' }}>
           <div
+            className='dsh-editor-find-scope-list'
             style={{
               width: 230,
               flex: '0 0 auto',
@@ -463,7 +468,7 @@ function FindScopeEditor({ t, scopes, initialId, onSave, onClose }: FindScopeEdi
                   onClick={() => setSelectedId(scope.id)}>
                   <Icon
                     name='folder'
-                    size={13}
+                    size={POPUP_ICON_SIZE}
                   />
                   <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {scope.name}

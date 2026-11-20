@@ -16,7 +16,7 @@ test('project tree supports meta and shift extended selection', () => {
   assert.match(selectionModel, /request\?\.metaKey === true \|\| request\?\.ctrlKey === true/);
   assert.match(selectionModel, /new Set\(paths\.slice\(start, end \+ 1\)\)/);
   assert.match(client, /const selectRow = React\.useCallback/);
-  assert.match(client, /onRowPointerDown=\{\(state, event\) => \{[\s\S]*?onSelect\(row, event\);/);
+  assert.match(client, /onRowPointerDown=\{\(state, event\) => \{[\s\S]*?selectVisibleRow\(row, event\);/);
   assert.match(client, /treeRowSelectedSoft/);
   assert.match(client, /onSelect=\{selectRow\}/);
 });

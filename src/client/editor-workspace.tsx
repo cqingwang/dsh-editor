@@ -19,10 +19,12 @@ import type { EditorFindHistoryMenu, EditorFindState } from './components/editor
 import type { EditorGotoLineState } from './components/editor/EditorGotoLinePopup';
 import type { EditorExternalChange, EditorSaveConflict } from './components/editor/EditorConflictBars';
 import {
+  projectFileComparisonActions,
   projectRowMenuCapabilities,
   projectTreeSelectionAfterPointer,
+  type ProjectTreeSelectionModifiers,
 } from './components/project/project-selection-model';
-import { allPathsUnversioned, canCompareWithHead, pathsScheduledForRemoval } from './components/ui/git-change-model';
+import { changeModel } from './components/ui/git-change-model';
 import { ContextMenu, type ContextMenuModel } from './components/ui/Menu';
 import {
   navigationHistoryRecord,
@@ -57,6 +59,7 @@ import {
   findToolRequestIsCurrent,
   findUsagesSearchTarget,
   hasFindToolContentQuery,
+  hostOnlyReplaceOperation,
   normalizeRecentSearchEntry,
   normalizeSearchOptions,
   parseIdeaScopeXml,
@@ -79,7 +82,11 @@ import {
   rememberWorkspaceFindUsagesQuery,
   rememberWorkspaceReplacement,
   rememberWorkspaceSearchQuery,
+  replaceAttemptIsCurrent,
+  replaceFailureSettlement,
   replaceFailureState,
+  replaceGenerationIsCurrent,
+  searchEverywhereReplaceSuccessState,
   searchEverywhereTabTransition,
   serializeIdeaScopeXml,
   writeCommandHistory,
@@ -122,7 +129,7 @@ import { EditorWorkspaceMainColumn } from './components/editor/EditorWorkspaceMa
 import { EditorWorkspaceShell } from './components/editor/EditorWorkspaceShell';
 import { EditorWorkspaceSurface } from './components/editor/EditorWorkspaceSurface';
 import { MarkdownPreviewPane } from './components/editor/MarkdownPreviewPane';
-import { ProjectPanel } from './components/project/ProjectPanel';
+import { ProjectPanel, type ProjectTreeContextMenuPayload } from './components/project/ProjectPanel';
 import { FindToolDock } from './components/search/FindToolDock';
 import { FloatingToolPopup } from './components/search/FindToolPopup';
 import { FindToolWindow } from './components/search/FindToolWindow';
@@ -267,21 +274,17 @@ import {
 } from './terminal';
 import type * as Monaco from 'monaco-editor';
 import React from 'react';
-
 type EditorWorkspaceTranslate = (key: string, params?: Record<string, unknown>) => string;
-
 interface WorkspaceEntry {
   path: string;
   kind?: string;
   [key: string]: unknown;
 }
-
 interface WorkspaceListResponse {
   root: string;
   home: string;
   entries: WorkspaceEntry[];
 }
-
 interface WorkspaceGitStatus {
   root: string;
   branch: string;
@@ -303,7 +306,6 @@ interface WorkspaceGitStatus {
   appliedFiles?: unknown[];
   [key: string]: unknown;
 }
-
 interface WorkspaceLogCommit {
   hash: string;
   parents: string[];
@@ -313,11 +315,9 @@ interface WorkspaceLogCommit {
   date: string;
   [key: string]: unknown;
 }
-
 interface WorkspaceLogResponse {
   commits: WorkspaceLogCommit[];
 }
-
 interface WorkspaceGraphResponse {
   entries?: NonNullable<CommitGraphPayload['entries']>;
   branches?: string[];
@@ -328,7 +328,6 @@ interface WorkspaceGraphResponse {
   branch?: unknown;
   at?: unknown;
 }
-
 interface ChangeRowMenuPayload {
   change: DiffChange;
   staged?: boolean;
@@ -336,7 +335,6 @@ interface ChangeRowMenuPayload {
   x: number;
   y: number;
 }
-
 interface ChangeDirectoryMenuPayload {
   directory: string;
   changes: DiffChange[];
@@ -344,7 +342,6 @@ interface ChangeDirectoryMenuPayload {
   x: number;
   y: number;
 }
-
 interface CommitFileMenuPayload {
   path: string;
   hash: string;
@@ -358,7 +355,6 @@ interface SelectedPatch {
   patch: string;
   files?: unknown[];
 }
-
 interface OpenWorkspaceFile {
   path: string;
   content: string;
@@ -368,21 +364,19 @@ interface OpenWorkspaceFile {
   size?: number;
   mediaType?: string;
 }
-
 interface EditorWorkspaceProps {
   t: EditorWorkspaceTranslate;
   workspaceId?: string;
   restoreToolWindowFocus?: boolean;
+  focusRequest?: number;
   initialHarnessCollapsed?: boolean;
   onToggleHarness?: () => void;
   onCloseEditor?: () => void;
   onInsertHarnessReference?: (request: Record<string, unknown>) => Promise<boolean> | boolean;
 }
-
 interface EditorFocusRef {
   current: { focus?: () => void } | null;
 }
-
 type FindToolState = NonNullable<React.ComponentProps<typeof FindToolWindow>['state']> & {
   surface?: 'popup' | 'dock';
   handoffRevision?: number;
@@ -449,20 +443,16 @@ type CommitMode = 'changes' | 'log';
 type ChangeGroup = 'staged' | 'unstaged' | 'unversioned';
 type EditorGroup = 'left' | 'right';
 type ProjectView = ReturnType<typeof normalizeProjectView>;
-
 interface SelectionAnchor {
   key: string;
 }
-
 interface EditorTabDragState {
   group: EditorGroup;
   path: string;
 }
-
 interface EditorTabDropState extends EditorTabDragState {
   after: boolean;
 }
-
 interface QuickOpenState {
   query: string;
   index: number;
@@ -470,12 +460,10 @@ interface QuickOpenState {
   loading?: boolean;
   error?: string | null;
 }
-
 interface FocusedEditorState {
   path: string;
   editor: Monaco.editor.IStandaloneCodeEditor | null;
 }
-
 interface ReplaceHistoryEntry {
   operationId: string | null;
   clean: boolean;
@@ -485,20 +473,16 @@ interface ReplaceHistoryEntry {
     afterContent: string;
   }>;
 }
-
 interface CommitScrollOffsets {
   changes: number | null;
   log: number | null;
 }
-
 type WorkspaceMenuModel = ContextMenuModel & { owner?: string };
-
 interface HarnessReferenceEntry {
   path: string;
   isDirectory?: boolean;
   [key: string]: unknown;
 }
-
 interface HarnessReferenceLocation {
   path: string;
   line: number;
@@ -506,7 +490,6 @@ interface HarnessReferenceLocation {
   endLine: number | null;
   endColumn: number | null;
 }
-
 function completeSearchMatches(
   matches: ReadonlyArray<{ path?: string; line?: number; column?: number }>,
 ): FindToolMatch[] {
@@ -517,7 +500,6 @@ function completeSearchMatches(
   }
   return completed;
 }
-
 function completeFindFiles(value: unknown): FindToolFile[] {
   if (!Array.isArray(value)) return [];
   return value.flatMap((item): FindToolFile[] => {
@@ -527,7 +509,6 @@ function completeFindFiles(value: unknown): FindToolFile[] {
     return [{ ...record, path: record.path }];
   });
 }
-
 function completeFindMatches(value: unknown): FindToolMatch[] {
   if (!Array.isArray(value)) return [];
   const candidates: Array<{ path?: string; line?: number; column?: number }> = [];
@@ -542,7 +523,6 @@ function completeFindMatches(value: unknown): FindToolMatch[] {
   }
   return completeSearchMatches(candidates);
 }
-
 /**
  * Focus Monaco only after the file surface has mounted.
  *
@@ -573,7 +553,6 @@ function focusEditorOnNextFrame(
   };
   requestFrame(attempt);
 }
-
 /**
  * Recover a stable keyboard surface when the preferred opener/editor is gone.
  *
@@ -599,6 +578,7 @@ function EditorWorkspace({
   t,
   workspaceId = '',
   restoreToolWindowFocus = false,
+  focusRequest = 0,
   initialHarnessCollapsed = false,
   onToggleHarness,
   onCloseEditor,
@@ -1297,7 +1277,7 @@ function EditorWorkspace({
     row.focus?.();
     row.scrollIntoView?.({ block: 'nearest' });
     groupByFocusRef.current = null;
-  }, [collapsedGroups, groupBy]);
+  }, [collapsedGroups, git, groupBy]);
   /* The change-list filter; deliberately NOT persisted — a filter left over
          from yesterday makes the list look like files went missing. */ const [pathQuery, setPathQuery] =
     React.useState('');
@@ -1782,16 +1762,15 @@ function EditorWorkspace({
   }, [applyTreeSelection, expanded, filteredView, projectRows, root, selectedPath, selection, treeLoading]);
   /**
    * Apply one click on a tree row, honouring IDEA's ⌘/Shift modifiers.
-   *
    * A plain click replaces the selection; ⌘/Ctrl toggles one row; Shift takes
    * the whole visible range between the anchor and the clicked row, exactly
    * like the Project tool window's DnD and batch delete.
    * @param {object} row - flattened tree row.
    * @param {{metaKey?: boolean, ctrlKey?: boolean, shiftKey?: boolean}} event - click modifiers.
    */ const selectRow = React.useCallback(
-    (row: ProjectRow, event: { metaKey?: boolean; ctrlKey?: boolean; shiftKey?: boolean }) => {
+    (row: ProjectRow, event: ProjectTreeSelectionModifiers, selectionRows?: ProjectRow[]) => {
       const next = projectTreeSelectionAfterPointer({
-        rows,
+        rows: selectionRows ?? rows,
         selection: selectionRef.current,
         primary: selectionPrimaryRef.current,
         anchor: selectionAnchor.current,
@@ -2323,12 +2302,11 @@ function EditorWorkspace({
     void loadLog();
   }, [loadLog]);
   const reloadVisibleLog = React.useCallback((): void => {
-    if (historyPath !== null) {
-      void showFileHistory(historyPath);
-      return;
-    }
+    if (historyPath !== null) return void showFileHistory(historyPath);
     void loadLog();
   }, [historyPath, loadLog, showFileHistory]);
+  const retryVisibleLog = (): void =>
+    commits.length > 0 && logError !== null && historyPath === null ? void loadMoreLog() : reloadVisibleLog();
   /* Load the workspace root and its git status. */ const loadRoot = React.useCallback(
     async (foldersFirstOverride?: boolean) => {
       /* A silent refresh once there is something on screen: flipping the flag on
@@ -4621,7 +4599,7 @@ function EditorWorkspace({
             : {
                 ...current,
                 query: hasSelectionQuery ? selectedQuery : current.query,
-                mode: 'find',
+                mode: current.surface === 'dock' && hasSelectionQuery === false ? current.mode : 'find',
                 files: hasSelectionQuery ? [] : current.files,
                 matches: hasSelectionQuery ? [] : current.matches,
                 truncated: hasSelectionQuery ? false : current.truncated,
@@ -6400,6 +6378,13 @@ function EditorWorkspace({
       setEditorError(error instanceof Error ? error.message : String(error));
     }
   }, []);
+  const refreshHostReplaceChanges = React.useCallback(
+    async (paths: string[]) => {
+      for (const path of paths) if (openFilesRef.current.some((file) => file.path === path)) await reloadFile(path);
+      await loadGit();
+    },
+    [loadGit, reloadFile],
+  );
   /**
    * IDEA's Replace in Files apply step.
    *
@@ -6408,7 +6393,8 @@ function EditorWorkspace({
    * the host's protected disk-write path and transactional rollback.
    * @returns {Promise<void>} resolves after the write attempt and refresh.
    */ const replaceInFiles = React.useCallback(async () => {
-    const query = searchEverywhere?.query.trim() ?? '';
+    const request = { id: searchTextRequestRef.current, query: searchEverywhere?.query ?? '' };
+    const query = request.query.trim();
     const replacement = typeof searchEverywhere?.replace === 'string' ? searchEverywhere.replace : '';
     const matches = Array.isArray(searchEverywhere?.textMatches) ? searchEverywhere.textMatches : [];
     if (query === '' || matches.length === 0) return;
@@ -6427,21 +6413,18 @@ function EditorWorkspace({
     );
     if (replacementPlan.errorPath !== null) {
       setSearchEverywhere((current) =>
-        current === null
-          ? current
-          : {
-              ...current,
-              error: t('editor.searchReplaceDirty', {
-                files: replacementPlan.errorPath,
-              }),
-            },
+        replaceFailureSettlement(
+          current,
+          true,
+          t('editor.searchReplaceDirty', {
+            files: replacementPlan.errorPath,
+          }),
+        ),
       );
       return;
     }
     if (replacementPlan.errorMessage !== null) {
-      setSearchEverywhere((current) =>
-        current === null ? current : { ...current, error: replacementPlan.errorMessage },
-      );
+      setSearchEverywhere((current) => replaceFailureSettlement(current, true, replacementPlan.errorMessage));
       return;
     }
     const { cleanTargets, dirtyPlans } = replacementPlan;
@@ -6468,6 +6451,8 @@ function EditorWorkspace({
       afterContent: plan.text,
       beforeContent: plan.model.getValue(),
     }));
+    let hostChanged: string[] = [];
+    let hostResult: { operationId?: unknown; replacements?: unknown } | null = null;
     setSearchEverywhere((current) => (current === null ? current : { ...current, replaceBusy: true, error: null }));
     try {
       const value =
@@ -6484,6 +6469,8 @@ function EditorWorkspace({
               preserveCase: searchEverywhere.preserveCase === true,
               fileMask: normalizeFileExtensionFilter(searchEverywhere.fileMask),
             });
+      hostChanged = Array.isArray(value?.files) ? value.files : [];
+      hostResult = value;
       const dirtyCommit = commitFindToolDirtyPlans(dirtyPlans);
       const dirtyReplacements = dirtyCommit.count;
       const dirtyChanged = dirtyCommit.paths;
@@ -6500,14 +6487,8 @@ function EditorWorkspace({
           ),
         );
       }
-      const hostChanged = Array.isArray(value?.files) ? value.files : [];
+      await refreshHostReplaceChanges(hostChanged);
       const changed = [...new Set([...hostChanged, ...dirtyChanged])];
-      const openChanged = new Set(openFilesRef.current.map((file) => file.path));
-      const dirtyChangedSet = new Set(dirtyChanged);
-      for (const path of hostChanged) {
-        if (openChanged.has(path) && !dirtyChangedSet.has(path)) await reloadFile(path);
-      }
-      await loadGit();
       rememberCurrentSearchQuery(query);
       rememberCurrentReplacement(replacement);
       const replacedCount = Number(value?.replacements ?? 0) + dirtyReplacements;
@@ -6523,26 +6504,29 @@ function EditorWorkspace({
       setFindReplaceUndoStack((current) => boundedReplaceHistory(current, operation));
       flashStatus(t('editor.searchReplaceDone', searchReplaceCountParams(t, replacedCount, changed.length)));
       setSearchEverywhere((current) =>
-        current === null
-          ? current
-          : {
-              ...current,
-              textMatches: [],
-              textRevision: (current.textRevision ?? 0) + 1,
-              replaceBusy: false,
-              error: null,
-            },
+        searchEverywhereReplaceSuccessState(
+          current,
+          replaceAttemptIsCurrent(request.id, request.query, searchTextRequestRef.current, current?.query),
+        ),
       );
     } catch (failure) {
+      const failureMessage = failure instanceof Error ? failure.message : String(failure);
+      const message =
+        hostChanged.length > 0
+          ? t('editor.searchReplacePartialFailure', {
+              message: failureMessage,
+            })
+          : failureMessage;
       setSearchEverywhere((current) =>
-        current === null
-          ? current
-          : {
-              ...current,
-              replaceBusy: false,
-              error: failure instanceof Error ? failure.message : String(failure),
-            },
+        replaceFailureSettlement(
+          current,
+          replaceAttemptIsCurrent(request.id, request.query, searchTextRequestRef.current, current?.query),
+          message,
+        ),
       );
+      const hostUndo = hostOnlyReplaceOperation(hostResult, hostChanged);
+      if (hostUndo !== null) setFindReplaceUndoStack((current) => boundedReplaceHistory(current, hostUndo));
+      if (hostChanged.length > 0) void refreshHostReplaceChanges(hostChanged).catch(() => {});
     } finally {
       releaseReplaceAttempt(replaceWriteBusyRef);
     }
@@ -6619,6 +6603,8 @@ function EditorWorkspace({
         );
         return;
       }
+      let hostChanged: string[] = [];
+      let hostResult: { operationId?: unknown; replacements?: unknown } | null = null;
       setFindTool((current) =>
         current === null
           ? current
@@ -6652,6 +6638,8 @@ function EditorWorkspace({
                 scopeIncludePatterns: findToolScopeIncludePatterns,
                 scopeExcludePatterns: findToolScopeExcludePatterns,
               });
+        hostChanged = Array.isArray(value?.files) ? value.files : [];
+        hostResult = value;
         const dirtyCommit = commitFindToolDirtyPlans(dirtyPlans);
         const dirtyReplacements = dirtyCommit.count;
         const dirtyChanged = dirtyCommit.paths;
@@ -6668,14 +6656,8 @@ function EditorWorkspace({
             ),
           );
         }
-        const hostChanged = Array.isArray(value?.files) ? value.files : [];
+        await refreshHostReplaceChanges(hostChanged);
         const changed = [...new Set([...hostChanged, ...dirtyChanged])];
-        const openChanged = new Set(openFilesRef.current.map((file) => file.path));
-        const dirtyChangedSet = new Set(dirtyChanged);
-        for (const path of hostChanged) {
-          if (openChanged.has(path) && !dirtyChangedSet.has(path)) await reloadFile(path);
-        }
-        await loadGit();
         rememberCurrentFindQuery(query);
         rememberCurrentReplacement(findTool.replace);
         const replacedCount = Number(value?.replacements ?? 0) + dirtyReplacements;
@@ -6693,20 +6675,31 @@ function EditorWorkspace({
         setFindTool((current) =>
           current === null
             ? current
-            : {
-                ...current,
-                matches: [],
-                files: [],
-                replaceBusy: false,
-                error: null,
-                searchGeneration: (current.searchGeneration ?? 0) + 1,
-                loadedGeneration: -1,
-              },
+            : !replaceGenerationIsCurrent(current, requestGeneration)
+              ? { ...current, replaceBusy: false }
+              : {
+                  ...current,
+                  matches: [],
+                  files: [],
+                  replaceBusy: false,
+                  error: null,
+                  searchGeneration: (current.searchGeneration ?? 0) + 1,
+                  loadedGeneration: -1,
+                },
         );
       } catch (failure) {
-        const message = failure instanceof Error ? failure.message : String(failure);
+        const failureMessage = failure instanceof Error ? failure.message : String(failure);
+        const message =
+          hostChanged.length > 0
+            ? t('editor.searchReplacePartialFailure', {
+                message: failureMessage,
+              })
+            : failureMessage;
         flashStatus(message);
         setFindTool((current) => replaceFailureState(current, requestGeneration, message));
+        const hostUndo = hostOnlyReplaceOperation(hostResult, hostChanged);
+        if (hostUndo !== null) setFindReplaceUndoStack((current) => boundedReplaceHistory(current, hostUndo));
+        if (hostChanged.length > 0) void refreshHostReplaceChanges(hostChanged).catch(() => {});
       } finally {
         releaseReplaceAttempt(replaceWriteBusyRef);
       }
@@ -6878,17 +6871,19 @@ function EditorWorkspace({
         setFindTool((current) =>
           current === null
             ? current
-            : {
-                ...current,
-                replaceBusy: false,
-                error: null,
-                index: Math.max(0, Number(activeIndex) || 0),
-                replaceFocusRequest: (current.replaceFocusRequest ?? 0) + 1,
-                replaceAdvanceRowKey: rowKey,
-                replaceAdvanceRevision: (current.replaceAdvanceRevision ?? 0) + 1,
-                searchGeneration: (current.searchGeneration ?? 0) + 1,
-                loadedGeneration: -1,
-              },
+            : !replaceGenerationIsCurrent(current, requestGeneration)
+              ? { ...current, replaceBusy: false }
+              : {
+                  ...current,
+                  replaceBusy: false,
+                  error: null,
+                  index: Math.max(0, Number(activeIndex) || 0),
+                  replaceFocusRequest: (current.replaceFocusRequest ?? 0) + 1,
+                  replaceAdvanceRowKey: rowKey,
+                  replaceAdvanceRevision: (current.replaceAdvanceRevision ?? 0) + 1,
+                  searchGeneration: (current.searchGeneration ?? 0) + 1,
+                  loadedGeneration: -1,
+                },
         );
       } catch (failure) {
         const message = failure instanceof Error ? failure.message : String(failure);
@@ -8240,7 +8235,7 @@ function EditorWorkspace({
     setTerminalOpen(true);
     setTerminalGeneration((generation) => generation + 1);
   }, []);
-  const restage = React.useCallback(async (paths: string[], staged: boolean) => {
+  const restage = React.useCallback(async (paths: string[], staged: boolean, focusPath?: string) => {
     if (paths.length === 0) return false;
     setCommitBusy(true);
     setCommitError(null);
@@ -8251,12 +8246,15 @@ function EditorWorkspace({
         staged,
       });
       setGit(value);
-      setCommitSelection((current) => {
-        const next = new Set(
-          [...current].filter((path) => (value?.changes ?? []).some((change) => change.path === path)),
-        );
-        return next;
-      });
+      const moved = focusPath === undefined ? null : changeModel.movedRows(value?.changes ?? [], paths, focusPath);
+      setCommitSelection((current) => changeModel.remainingCommitPaths(current, value?.changes));
+      if (moved !== null) {
+        setSelectedChanges(moved.selection);
+        selectedChangesRef.current = moved.selection;
+        setSelectedChange(moved.primary as DiffTarget | null);
+        groupByFocusRef.current = moved.primary as DiffTarget | null;
+        window.setTimeout(() => revealChangeRow(moved.primary as DiffTarget | null), 0);
+      }
       setDiffTarget(null);
       return true;
     } catch (failure) {
@@ -8269,10 +8267,7 @@ function EditorWorkspace({
   /* The ⌘⇧A/⌥⌘A handler is registered once, so it reaches the stager by ref. */ restageRef.current = restage;
   /**
    * Stage every working-side change, with an optional tracked-only scope.
-   *
-   * IDEA's Stage All is a deliberate "include all" action. Keep those paths
-   * ticked for the next commit instead of staging them while leaving the
-   * commit box empty, which would make the command appear to do nothing.
+   * IDEA's Stage All keeps those paths ticked; staging with an empty commit box would look inert.
    * @param {boolean} [trackedOnly=false] - skip untracked files.
    * @returns {Promise<void>} resolves after the index and selection settle.
    */ const stageEveryChange = React.useCallback(
@@ -8409,7 +8404,7 @@ function EditorWorkspace({
     [closeMoveTo, projectName, rememberPaletteOrigin, selection],
   );
   /* IDEA's project-tree context menu: new/rename/delete/reveal/copy path. */ const buildTreeMenu = React.useCallback(
-    ({ row, x, y }: { row: ProjectRow; x: number; y: number }): WorkspaceMenuModel => {
+    ({ row, x, y, selectionRows }: ProjectTreeContextMenuPayload): WorkspaceMenuModel => {
       const { isDirectory, isRoot, showDirectoryActions, showFileActions, showReveal } = projectRowMenuCapabilities(
         row,
         filteredView,
@@ -8421,10 +8416,10 @@ function EditorWorkspace({
       /* A right-click inside a multi-row selection acts on all selected rows. */ const selectedRows = selection.has(
         row.path,
       )
-        ? rows.filter((entry) => selection.has(entry.path) && entry.path !== '')
+        ? (selectionRows ?? rows).filter((entry) => selection.has(entry.path) && entry.path !== '')
         : [];
       const batch = selectedRows.length > 1 ? selectedRows : [];
-      const splitCandidates = projectRightSplitPaths(rows, selection, row.path);
+      const splitCandidates = projectRightSplitPaths(selectionRows ?? rows, selection, row.path);
       const harnessEntries =
         batch.length > 1
           ? batch.map((entry) => ({
@@ -8496,6 +8491,7 @@ function EditorWorkspace({
                 {
                   id: 'reveal',
                   label: isDirectory ? t('editor.expandFolder') : t('editor.revealInProject'),
+                  disabled: batch.length > 1,
                   run: () => {
                     if (isDirectory) {
                       setExpanded((current) => new Set([...current, row.path]));
@@ -8509,6 +8505,7 @@ function EditorWorkspace({
           {
             id: 'openTerminal',
             label: t('editor.openInTerminal'),
+            disabled: batch.length > 1,
             run: () => void openInTerminal(isDirectory ? row.path : dirname(row.path)),
           },
           {
@@ -8521,27 +8518,23 @@ function EditorWorkspace({
           {
             id: 'revealFinder',
             label: t('editor.revealInFinder'),
+            disabled: batch.length > 1,
             run: () => void revealInFinder(row.path),
           },
           {
             id: 'history',
             label: t('editor.showHistory'),
-            disabled: isRoot,
+            disabled: isRoot || batch.length > 1,
             run: () => void showFileHistory(row.path),
           },
           ...(showFileActions
-            ? [
-                {
-                  id: 'compareClipboard',
-                  label: t('editor.compareWithClipboard'),
-                  run: (): void => void compareWithClipboard(row.path),
-                },
-                {
-                  id: 'compareRevision',
-                  label: t('editor.compareWithRevision'),
-                  run: (): void => void compareWithRevision(row.path),
-                },
-              ]
+            ? projectFileComparisonActions({
+                batchSize: batch.length,
+                path: row.path,
+                compareWithClipboard,
+                compareWithRevision,
+                t,
+              })
             : []),
           ...(showDirectoryActions
             ? [
@@ -9391,8 +9384,8 @@ function EditorWorkspace({
       const paths = [...new Set(selected.map((entry) => entry.path))];
       const allStaged = selected.every((entry) => entry.staged === true);
       const allWorking = selected.every((entry) => entry.staged === false);
-      const allUnversioned = allPathsUnversioned(selected, changesByPathRef.current);
-      const removablePaths = pathsScheduledForRemoval(selected, changesByPathRef.current);
+      const allUnversioned = changeModel.allPathsUnversioned(selected, changesByPathRef.current);
+      const removablePaths = changeModel.pathsScheduledForRemoval(selected, changesByPathRef.current);
       const removalOnly = allWorking && removablePaths.length > 0 && removablePaths.length === selected.length;
       const batchLabel = (single: string, multiple: string): string =>
         paths.length > 1 ? t(multiple, { count: paths.length }) : t(single);
@@ -9505,7 +9498,7 @@ function EditorWorkspace({
               : allStaged
                 ? 'Alt+Meta+A Control+Alt+A'
                 : 'Meta+Shift+A Control+Shift+A',
-            run: (): void => void restage(removalOnly ? removablePaths : paths, allStaged),
+            run: (): void => void restage(removalOnly ? removablePaths : paths, allStaged, change.path),
           },
           ...(removablePaths.length > 0 && !removalOnly
             ? [
@@ -9565,7 +9558,7 @@ function EditorWorkspace({
           {
             id: 'compareHead',
             label: t('editor.compareWithHead'),
-            disabled: paths.length > 1 || !canCompareWithHead(pick(change.path)),
+            disabled: paths.length > 1 || !changeModel.canCompareWithHead(pick(change.path)),
             run: () => compareWithHead(change.path),
           },
           {
@@ -9838,10 +9831,12 @@ function EditorWorkspace({
     },
     [commitMode],
   );
-  const restoredToolWindowFocusRef = React.useRef(false);
+  const restoredToolWindowFocusRef = React.useRef(focusRequest);
   React.useEffect(() => {
-    if (restoreToolWindowFocus !== true || restoredToolWindowFocusRef.current) return;
-    restoredToolWindowFocusRef.current = true;
+    const restoreRequested = restoreToolWindowFocus === true && restoredToolWindowFocusRef.current !== -1;
+    const focusRequested = focusRequest !== restoredToolWindowFocusRef.current;
+    if (restoreRequested !== true && focusRequested !== true) return;
+    restoredToolWindowFocusRef.current = restoreRequested === true ? -1 : focusRequest;
     document
       .querySelector('[data-dsh-editor-workspace]')
       ?.setAttribute('data-dsh-tool-window-focus-restore', 'attempted');
@@ -9856,7 +9851,7 @@ function EditorWorkspace({
       window.requestAnimationFrame(releaseAutofocus);
     };
     window.requestAnimationFrame(releaseAutofocus);
-  }, [activity, focusToolWindowContent, restoreToolWindowFocus]);
+  }, [activity, focusRequest, focusToolWindowContent, restoreToolWindowFocus]);
   React.useEffect(
     () => () => {
       cancelFocusRequestRef.current?.();
@@ -11355,6 +11350,10 @@ function EditorWorkspace({
         onRedoLastReplace={() => void redoFindReplace()}
         onOpenSettings={openFindToolSettings}
         onOpenInFindWindow={openFindToolInDock}
+        onCollapsedFilesChange={(collapsedFiles) => setFindTool((current) => current && { ...current, collapsedFiles })}
+        onHandoffHandled={(handoffHandledRevision) =>
+          setFindTool((current) => current && { ...current, handoffHandledRevision })
+        }
         onClose={closeFindToolWindow}
         minimized={findToolDockMinimized}
         onMinimize={toggleFindToolDockMinimized}
@@ -11710,6 +11709,7 @@ function EditorWorkspace({
                 onOpenPreview={(path) => void openFile(path, { preview: true })}
                 onRevealPath={revealInProjectTree}
                 onSelect={selectRow}
+                onApplySelection={applyTreeSelection}
                 onOpenCreateMenu={(event) => {
                   /* PanelToolbar's overflow menu invokes an action without a
                            DOM event. Fall back to the tree's box so keyboard Enter
@@ -12006,7 +12006,8 @@ function EditorWorkspace({
                 onRestoreScroll={rememberCommitScroll}
                 onMode={(next) => {
                   switchCommitMode(next);
-                  if (next === 'log') void loadLog();
+                  if (next === 'log' && commits.length === 0 && !logExhausted && !logLoading && !logError)
+                    void loadLog();
                 }}
                 commits={commits}
                 logLoading={logLoading}
@@ -12039,7 +12040,7 @@ function EditorWorkspace({
                 logFailure={logError}
                 onFileMenu={(payload) => setMenu(buildCommitFileMenu(payload as unknown as CommitFileMenuPayload))}
                 onFindInFiles={openFindInFilesFromShortcut}
-                onRetry={reloadVisibleLog}
+                onRetry={retryVisibleLog}
                 onGraphRef={(ref) => {
                   const scope = refScopeOf(ref, graph);
                   if (scope.branch === '' && scope.at === '') return;
@@ -12364,6 +12365,7 @@ function EditorWorkspace({
             geometry={findToolPopupGeometry}
             surfaceStyle={styles.findToolPopup}
             backdrop={true}
+            onBackdropMouseDown={closeFindToolWindow}
             onGeometryChange={setFindToolPopupGeometry}
             onGeometryCommit={(geometry) => writeFindPopupGeometry(geometry)}
             children={findToolWindowElement}

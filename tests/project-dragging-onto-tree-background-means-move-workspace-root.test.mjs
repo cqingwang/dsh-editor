@@ -28,9 +28,9 @@ test('dragging onto the tree background means "move to the workspace root"', () 
 test('the background drop ignores a drag that did not come from the tree', () => {
   const start = source.indexOf('onTreeDrop={(event) => {');
   const block = source.slice(start, start + 2600);
-  /* Only our own rows set `text/plain` with newline-separated paths; a text drag
-     from the terminal or the chat must not move files. */
-  assert.match(block, /getData\('text\/plain'\)/);
+  /* Only our own rows publish the private Project MIME; a text drag from the
+     terminal or the chat must not move files. */
+  assert.match(block, /readProjectTreeDragPaths\(event\.dataTransfer\)/);
   assert.match(block, /sources\.length === 0/);
 });
 

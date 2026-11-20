@@ -146,7 +146,7 @@ test('The floating wrapper uses persisted geometry and exposes move/resize handl
   assert.match(findToolPopupSource, /data-dsh-floating-popup-resize=\{direction\}/u);
   assert.match(source, /const FIND_POPUP_RESIZE_DIRECTIONS = \['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'\]/u);
   assert.match(findToolPopupSource, /onPointerDown=\{\(event\) => startInteraction\(event, direction\)\}/u);
-  assert.match(findToolPopupSource, /closest\('button, input, textarea, select, a, \[role="menuitem"\]'\)/u);
+  assert.match(findToolPopupSource, /target\.closest\(FLOATING_POPUP_MOVE_IGNORE_SELECTOR\)/u);
 });
 
 test('Legacy default geometry migrates while custom Find popup sizes survive', () => {

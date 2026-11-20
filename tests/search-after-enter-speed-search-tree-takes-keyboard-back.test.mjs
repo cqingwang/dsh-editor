@@ -12,7 +12,7 @@ test('after Enter in speed search the tree takes the keyboard back', () => {
      the arrow keys again. Leaving focus in the (now closed) input strands it. */
   const start = source.indexOf('const hit = hits.find');
   assert.notEqual(start, -1);
-  const block = source.slice(start, start + 1300);
+  const block = source.slice(start, start + 2000);
   assert.match(block, /treeRef\.current\?\.focus\(\)/);
   /* Focus must come AFTER the search box closes, or it lands on a detached node. */
   const focusAt = block.indexOf('treeRef.current?.focus()');

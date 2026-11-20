@@ -24,6 +24,7 @@ test('TypeScript Diff helpers preserve staged, toolbar and navigation behavior',
     { path: 'working.ts', status: ' M' },
     { path: 'both.ts', status: 'MM' },
     { path: 'new.ts', status: '??' },
+    { path: 'conflict.ts', status: 'UU', staged: true },
   ];
   const bands = helpers.splitChanges(changes);
   assert.deepEqual(
@@ -32,8 +33,9 @@ test('TypeScript Diff helpers preserve staged, toolbar and navigation behavior',
   );
   assert.deepEqual(
     bands.unstaged.map((change) => change.path),
-    ['working.ts', 'both.ts'],
+    ['working.ts', 'both.ts', 'conflict.ts'],
   );
+  assert.equal(bands.unstaged.find((change) => change.path === 'conflict.ts')?.staged, false);
   assert.deepEqual(
     bands.unversioned.map((change) => change.path),
     ['new.ts'],

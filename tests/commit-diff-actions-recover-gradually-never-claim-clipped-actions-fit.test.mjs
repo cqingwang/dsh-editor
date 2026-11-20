@@ -64,6 +64,6 @@ test('ContextMenu renders null entries inside submenus as separators', () => {
   const menu = source;
   assert.match(
     menu,
-    /item\.items\.map\(\(child, childIndex\) =>\s+child === null \? \(\s+<div\s+key=\{`submenu-sep-\$\{childIndex\}`\}\s+style=\{styles\.menuSeparator\}\s+role='separator'\s+\/>/s,
+    /activeSubmenu\.items\?\.map\(\(child, childIndex\) =>\s+child === null \? \(\s+<div\s+key=\{`submenu-sep-\$\{childIndex\}`\}\s+style=\{styles\.menuSeparator\}\s+role='separator'\s+\/>/s,
   );
 });

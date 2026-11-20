@@ -83,13 +83,21 @@ test('command control actions are disabled after the shell exits', () => {
 });
 
 test('screen context menu passes the clicked pane emulator and terminal', () => {
+  const builder = source.slice(
+    source.indexOf('const showScreenMenu = ('),
+    source.indexOf('/** Open the screen context menu from a pointer gesture. */'),
+  );
   const open = source.slice(
     source.indexOf('const openScreenMenu = ('),
-    source.indexOf('/* Recompute the match count whenever the query changes. */'),
+    source.indexOf("/** IDEA's keyboard route to the same pane menu as right-click. */"),
   );
-  assert.match(open, /const model = terminalMenuModel\(\{/);
-  assert.match(open, /active: terminal/);
-  assert.match(open, /onSelectAll: \(\) => emulator\.selectAll\(\)/);
-  assert.match(open, /onFind: \(\) => openTerminalFind\(emulator, pane\)/);
+  assert.match(builder, /const model = terminalMenuModel\(\{/);
+  assert.match(builder, /active: terminal/);
+  assert.match(builder, /onSelectAll: \(\) => emulator\.selectAll\(\)/);
+  assert.match(builder, /onFind: \(\) => openTerminalFind\(emulator, pane\)/);
+  assert.match(
+    open,
+    /showScreenMenu\(event\.clientX, event\.clientY, emulator, terminal, pane, selectionPosition\)/,
+  );
   assert.match(source, /onContextMenu: \(event\) => openScreenMenu\(event, splitEmulatorRef\.current, splitTerminal, 'right'\)/);
 });

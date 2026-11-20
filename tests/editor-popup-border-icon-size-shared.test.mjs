@@ -11,6 +11,7 @@ const toolbar = await read('src/client/components/ui/ToolbarButton.tsx');
 const compact = await read('src/client/components/ui/CompactActionBar.tsx');
 const searchEverywhere = await read('src/client/components/search/SearchEverywhere.tsx');
 const findTool = await read('src/client/components/search/FindToolWindow.tsx');
+const findScope = await read('src/client/components/search/FindScopeEditor.tsx');
 const showUsages = await read('src/client/components/search/ShowUsagesPopup.tsx');
 const moveTo = await read('src/client/components/commit/MoveToPicker.tsx');
 const buildScript = await read('scripts/build-client.mjs');
@@ -18,7 +19,10 @@ const floatingPopup = await read('src/client/components/search/FindToolPopup.tsx
 
 test('all popup surfaces reuse one visible border token', () => {
   for (const source of [uiStyles, inlineStyles]) {
-    assert.match(source, /const POPUP_BORDER = '1px solid var\(--dsw-alias-border-l2\)'/u);
+    assert.match(
+      source,
+      /const POPUP_BORDER =\s*'1px solid var\(--dsw-alias-border-selected, var\(--dsw-alias-border-l4, var\(--dsw-alias-border-l3\)\)\)'/u,
+    );
     assert.match(source, /palette: \{[\s\S]*?border: POPUP_BORDER/u);
     assert.match(source, /namePrompt: \{[\s\S]*?border: POPUP_BORDER/u);
     assert.match(source, /menu: \{[\s\S]*?border: POPUP_BORDER/u);
@@ -44,7 +48,8 @@ test('popup icons use the shared 16px size through reusable controls', () => {
   assert.match(toolbar, /size=\{iconSize\}/u);
   assert.match(compact, /iconSize\?: number/u);
   assert.match(compact, /iconSize=\{iconSize\}/u);
-  for (const source of [searchEverywhere, findTool, showUsages, moveTo]) {
+  for (const source of [searchEverywhere, findTool, findScope, showUsages, moveTo]) {
     assert.match(source, /POPUP_ICON_SIZE/u);
   }
+  assert.doesNotMatch(findScope, /<Icon\s+name='folder'\s+size=\{13\}\s*\/>/u);
 });

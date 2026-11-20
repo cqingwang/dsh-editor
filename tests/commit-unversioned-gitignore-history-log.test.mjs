@@ -45,7 +45,8 @@ test('commit log can be filtered and its files open in the editor', () => {
   assert.match(client, /const \[filter, setFilter\] = React\.useState\(''\)/);
   assert.match(client, /editor\.logFilterPlaceholder/);
   /* Click shows that commit's diff (IDEA); double-click opens the working copy. */
-  assert.match(client, /onClick=\{\(\) =>\s+onShowCommitDiff\?\.\(\{\s+hash: detail\.hash,\s+path: file\.path,\s+\}\)\s+\}/s);
+  assert.match(client, /const showRevision = \(\): void =>\s+onShowCommitDiff\?\.\(\{\s+hash: detail\.hash,\s+path: file\.path,\s+\}\);/su);
+  assert.match(client, /onClick=\{showRevision\}/u);
   assert.match(client, /onDoubleClick=\{\(\) => \{\s+if \(localExists\) onEditSource\?\.\(file\.path\);\s+\}\}/s);
   assert.match(client, /onOpenFile: \(path\) => void openFile\(path\)/);
   assert.match(client, /onOpenFile,/);

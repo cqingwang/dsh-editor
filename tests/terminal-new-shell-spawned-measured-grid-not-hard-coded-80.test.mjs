@@ -62,13 +62,13 @@ test('the measurement is shared, awaited, and falls back safely', () => {
 test('a screen without a PTY still reports its grid', () => {
   /* The measuring screen has no id, but skipping the report would leave the
      dock spawning at the fallback for ever. */
-  /* The dock has several `measure` closures; this is TerminalScreen's, found by
-     the grid-report line it owns. */
+  /* This is TerminalScreen's shared grid measurement, found by the report line
+     it owns. Font-size changes reuse the same callback. */
   const reportAt = screenSource.indexOf('handlersRef.current.onGrid?.(');
   assert.notEqual(reportAt, -1);
   const measure = screenSource.slice(
-    screenSource.lastIndexOf('const measure = () => {', reportAt),
-    screenSource.indexOf('observer?.observe(node);', reportAt),
+    screenSource.lastIndexOf('const measureGrid = React.useCallback', reportAt),
+    screenSource.indexOf('}, [ready, terminalId]);', reportAt),
   );
   assert.match(measure, /if \(cols === sizeRef\.current\.cols && rows === sizeRef\.current\.rows\) return;/);
   assert.match(measure, /handlersRef\.current\.onGrid\?\.\(\{[\s\S]*?cols,[\s\S]*?rows,/);

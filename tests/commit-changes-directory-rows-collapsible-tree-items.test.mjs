@@ -19,6 +19,6 @@ test('Changes file rows retain selected state as tree items', () => {
   assert.notEqual(start, -1, 'file row should exist');
   const row = commit.slice(start, commit.indexOf("React.createElement('span', { style: styles.commitChevron })", start));
   assert.match(row, /role: 'treeitem'/);
-  assert.match(row, /'aria-selected': selectedForChange/);
+  assert.match(row, /'aria-selected': selectedInRange \|\| selectedForChange/);
   assert.match(row, /tabIndex: selectedForChange \? 0 : -1/);
 });

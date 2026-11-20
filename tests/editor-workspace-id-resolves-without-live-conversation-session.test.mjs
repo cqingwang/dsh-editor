@@ -53,7 +53,7 @@ test('Project, Commit and the watcher carry the entry workspace id', () => {
   assert.match(client, /api\/dsh-editor\/watch\?sessionId=.*?workspaceId=/s);
   assert.match(
     client,
-    /function EditorWorkspace\(\{\s+t,\s+workspaceId = '',\s+restoreToolWindowFocus = false,\s+initialHarnessCollapsed = false,\s+onToggleHarness,\s+onCloseEditor,\s+onInsertHarnessReference,\s+\}: EditorWorkspaceProps\)/,
+    /function EditorWorkspace\(\{\s+t,\s+workspaceId = '',\s+restoreToolWindowFocus = false,\s+focusRequest = 0,\s+initialHarnessCollapsed = false,\s+onToggleHarness,\s+onCloseEditor,\s+onInsertHarnessReference,\s+\}: EditorWorkspaceProps\)/,
   );
   assert.match(client, /data-dsh-workspace-id=\{workspaceId \|\| undefined\}/);
   assert.match(host, /function workspaceRootForRequest\(/);

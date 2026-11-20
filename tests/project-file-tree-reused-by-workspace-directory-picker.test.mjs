@@ -38,3 +38,17 @@ test('the directory picker reuses the shared floating surface instead of a local
   assert.doesNotMatch(picker, /data-dsh-floating-popup-resize/u);
   assert.doesNotMatch(picker, /pointermove/u);
 });
+
+test('only the workspace directory title bar owns popup dragging', async () => {
+  const picker = await read('src/client/components/project/WorkspaceDirectoryPicker.tsx');
+  const surfaceStart = picker.indexOf('function PickerSurface(');
+  const surfaceEnd = picker.indexOf('function failureText(', surfaceStart);
+  assert.ok(surfaceStart >= 0 && surfaceEnd > surfaceStart);
+  const surface = picker.slice(surfaceStart, surfaceEnd);
+  assert.match(
+    surface,
+    /const handlePointerDown = \(event: React\.PointerEvent<HTMLElement>\): void => \{[\s\S]*?event\.target instanceof Element[\s\S]*?closest\('\[data-dsh-workspace-directory-drag\]'\)[\s\S]*?onPopupDragStart\?\.\(event\);/u,
+  );
+  assert.match(surface, /onPointerDown=\{handlePointerDown\}/u);
+  assert.match(picker, /data-dsh-workspace-directory-drag=''/u);
+});

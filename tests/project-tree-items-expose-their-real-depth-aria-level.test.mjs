@@ -27,6 +27,6 @@ test('Changes groups and entries expose stable tree levels', () => {
   assert.match(commit, /'data-dsh-change-directory': row\.path,\s+'aria-level': row\.depth \+ 2,/);
   assert.match(
     commit,
-    /role: 'treeitem',\s+'aria-level': row\.depth \+ 2,\s+'aria-posinset': rowIndex \+ 1,\s+'aria-setsize': rows\.length,\s+'aria-selected': selectedForChange/,
+    /role: 'treeitem',\s+'aria-level': row\.depth \+ 2,\s+'aria-posinset': rowIndex \+ 1,\s+'aria-setsize': rows\.length,\s+'aria-selected': selectedInRange \|\| selectedForChange/,
   );
 });

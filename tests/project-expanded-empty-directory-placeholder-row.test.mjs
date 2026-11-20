@@ -103,12 +103,11 @@ test('the placeholder row is not selectable and cannot be dragged', () => {
 
 test('dragging a row inside a multi-row selection moves the whole selection', () => {
   assert.match(source, /const payload =\s+selection\.has\(row\.path\) && selection\.size > 1/);
-  assert.match(source, /event\.dataTransfer\?\.setData\('text\/plain', payload\.join\('\\n'\)\);/);
+  assert.match(source, /const text = payload\.join\('\\n'\);/);
+  assert.match(source, /event\.dataTransfer\?\.setData\(PROJECT_TREE_DRAG_MIME, text\);/);
+  assert.match(source, /event\.dataTransfer\?\.setData\('text\/plain', text\);/);
   /* The drop side splits one-path-per-line and moves each entry. */
-  assert.match(
-    source,
-    /const sources = \(event\.dataTransfer\?\.getData\('text\/plain'\) \?\? ''\)\s*\.split\('\\n'\)/,
-  );
+  assert.match(source, /const sources = readProjectTreeDragPaths\(event\.dataTransfer\);/);
   /* Round 51 replaced the inline filter/loop with one all-or-nothing plan. */
   assert.match(source, /const plan = planMoves\(sources, targetDirectory, existing\);/);
 });

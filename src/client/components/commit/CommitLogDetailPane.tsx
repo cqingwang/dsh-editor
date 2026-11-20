@@ -83,23 +83,37 @@ function CommitLogDetailPane({
               {detail.files.map((file) => {
                 const localExists = localFileAvailability.get(file.path) !== false;
                 const localDirExists = localFileAvailability.get(dirname(file.path)) !== false;
+                const showRevision = (): void =>
+                  onShowCommitDiff?.({
+                    hash: detail.hash,
+                    path: file.path,
+                  });
                 return (
                   <div
                     key={`${file.status}:${file.path}`}
                     style={styles.logFileRow}
                     className='dsh-editor-commit-row'
                     tabIndex={0}
+                    role='button'
+                    aria-label={`${file.path} — ${t('editor.openAtRevision')}`}
                     title={`${file.path} — ${t('editor.openAtRevision')}`}
-                    onClick={() =>
-                      onShowCommitDiff?.({
-                        hash: detail.hash,
-                        path: file.path,
-                      })
-                    }
+                    onClick={showRevision}
                     onDoubleClick={() => {
                       if (localExists) onEditSource?.(file.path);
                     }}
                     onKeyDown={(event) => {
+                      if (
+                        !event.metaKey &&
+                        !event.ctrlKey &&
+                        !event.altKey &&
+                        !event.shiftKey &&
+                        (event.key === 'Enter' || event.key === ' ')
+                      ) {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        showRevision();
+                        return;
+                      }
                       if (event.key === 'F4' && !event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey) {
                         if (!localExists) return;
                         event.preventDefault();

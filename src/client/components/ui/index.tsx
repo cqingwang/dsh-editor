@@ -35,6 +35,7 @@ export {
   allPathsUnversioned,
   badgeFor,
   canCompareWithHead,
+  changeModel,
   pathsScheduledForRemoval,
   type GitChange,
   type GitChangeSelection,

@@ -7,6 +7,10 @@ export interface MenuStepItem {
   disabled?: boolean;
 }
 
+export interface MenuTypeaheadItem extends MenuStepItem {
+  label?: string;
+}
+
 export interface SubmenuGeometry {
   parentLeft?: number;
   parentRight?: number;
@@ -25,6 +29,32 @@ export interface SubmenuSideGeometry {
   submenuWidth?: number;
 }
 
+export interface SubmenuVerticalPlacementGeometry {
+  parentTop?: number;
+  parentBottom?: number;
+  viewportHeight?: number;
+}
+
+export interface SubmenuVerticalPlacement {
+  side: 'up' | 'down';
+  maxHeight: number;
+}
+
+/**
+ * Cap a context menu to the current viewport.
+ *
+ * Business callers may request a smaller menu, but no caller owns the viewport
+ * boundary. Keep the same 8px edge margin used by menu positioning.
+ */
+export function contextMenuMaxHeight(viewportHeight?: number, requestedMaxHeight?: number): number {
+  const viewport = Number(viewportHeight);
+  const available = Number.isFinite(viewport) && viewport > 0 ? Math.max(1, Math.floor(viewport - 8)) : 480;
+  const requested = Number(requestedMaxHeight);
+  if (!Number.isFinite(requested)) return available;
+  const requestedFloor = Math.min(80, available);
+  return Math.min(available, Math.max(requestedFloor, Math.round(requested)));
+}
+
 export function submenuKeyAction(key: string, state?: MenuKeyState | null): string | null {
   const hasChildren = state?.hasChildren === true;
   const open = state?.open === true;
@@ -37,11 +67,14 @@ export function submenuKeyAction(key: string, state?: MenuKeyState | null): stri
   return null;
 }
 
+export type MenuStepKey = 'ArrowDown' | 'ArrowUp' | 'Home' | 'End' | 'PageDown' | 'PageUp';
+
 /** Move focus through an open menu's enabled rows, wrapping at the ends. */
 export function menuStep(
   items: Array<MenuStepItem | null | undefined>,
   activeIndex: number,
-  key: 'ArrowDown' | 'ArrowUp',
+  key: MenuStepKey,
+  pageSize = 8,
 ): number {
   const focusable: number[] = [];
   for (let index = 0; index < items.length; index += 1) {
@@ -50,10 +83,46 @@ export function menuStep(
     focusable.push(index);
   }
   if (focusable.length === 0) return -1;
+  if (key === 'Home') return focusable[0];
+  if (key === 'End') return focusable[focusable.length - 1];
   const current = focusable.indexOf(Number(activeIndex));
-  if (current < 0) return key === 'ArrowUp' ? focusable[focusable.length - 1] : focusable[0];
+  if (current < 0) return key === 'ArrowUp' || key === 'PageUp' ? focusable[focusable.length - 1] : focusable[0];
+  if (key === 'PageUp' || key === 'PageDown') {
+    const page = Math.max(1, Math.floor(Number(pageSize) || 8));
+    const offset = key === 'PageUp' ? -page : page;
+    return focusable[Math.max(0, Math.min(focusable.length - 1, current + offset))];
+  }
   const delta = key === 'ArrowUp' ? -1 : 1;
   return focusable[(current + delta + focusable.length) % focusable.length];
+}
+
+/** Find the next enabled menu item whose label starts with the typed prefix. */
+export function menuTypeaheadTarget(
+  items: Array<MenuTypeaheadItem | null | undefined>,
+  activeIndex: number,
+  query: string,
+): number {
+  if (typeof query !== 'string' || query === '' || query.trim() === '') return -1;
+  const prefix = query.toLocaleLowerCase();
+  const current = Number(activeIndex);
+  const active = Number.isInteger(current) && current >= 0 ? items[current] : undefined;
+  if (
+    query.length > 1 &&
+    active !== null &&
+    active !== undefined &&
+    active.disabled !== true &&
+    (active.label ?? '').toLocaleLowerCase().startsWith(prefix)
+  ) {
+    return current;
+  }
+  const candidates: number[] = [];
+  for (let index = 0; index < items.length; index += 1) {
+    const item = items[index];
+    if (item === null || item === undefined || item.disabled === true) continue;
+    if ((item.label ?? '').toLocaleLowerCase().startsWith(prefix)) candidates.push(index);
+  }
+  if (candidates.length === 0) return -1;
+  return candidates.find((index) => index > current) ?? candidates[0];
 }
 
 /** Decide where a submenu opens and how wide it may get. */
@@ -73,6 +142,23 @@ export function submenuGeometry(geometry?: SubmenuGeometry | null): SubmenuPlace
   return {
     side,
     maxWidth: Math.max(140, Math.min(preferred, Math.max(room, 140))),
+  };
+}
+
+/** Decide whether a submenu opens above or below its parent row. */
+export function submenuVerticalGeometry(geometry?: SubmenuVerticalPlacementGeometry | null): SubmenuVerticalPlacement {
+  const fallback: SubmenuVerticalPlacement = { side: 'down', maxHeight: 480 };
+  if (geometry === null || geometry === undefined) return fallback;
+  const top = Number(geometry.parentTop);
+  const bottom = Number(geometry.parentBottom);
+  const viewport = Number(geometry.viewportHeight);
+  if (![top, bottom, viewport].every((value) => Number.isFinite(value)) || viewport <= 0) return fallback;
+  const roomAbove = Math.max(1, Math.floor(bottom - 8));
+  const roomBelow = Math.max(1, Math.floor(viewport - top - 8));
+  const side = roomAbove > roomBelow ? 'up' : 'down';
+  return {
+    side,
+    maxHeight: side === 'up' ? roomAbove : roomBelow,
   };
 }
 

@@ -29,6 +29,14 @@ function ToolbarButton({
   style = null,
   iconSize = 16,
 }: ToolbarButtonProps) {
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>): void => {
+    onKeyDown?.(event);
+    if (event.defaultPrevented || ariaHasPopup === undefined || ariaHasPopup === false) return;
+    if (event.key !== 'ContextMenu' && !(event.shiftKey === true && event.key === 'F10')) return;
+    event.preventDefault();
+    event.stopPropagation();
+    event.currentTarget.click();
+  };
   return (
     <button
       type='button'
@@ -49,7 +57,7 @@ function ToolbarButton({
       aria-keyshortcuts={ariaKeyShortcuts}
       disabled={disabled}
       onClick={onClick}
-      onKeyDown={onKeyDown}
+      onKeyDown={handleKeyDown}
       onContextMenu={onContextMenu}>
       <Icon
         name={icon}
