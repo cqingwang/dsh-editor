@@ -8,14 +8,14 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const source = readFileSync(join(root, 'lib/client.js'), 'utf8');
 
 test('switching branches refreshes the log the branch just changed', () => {
-  const start = source.indexOf('const checkoutBranch = React.useCallback(');
+  const start = source.indexOf('const checkoutBranch =');
   assert.notEqual(start, -1);
   const block = source.slice(start, source.indexOf('const createBranch', start));
   /* A checkout rewrites the commit list; a stale Log tab shows another branch's
      history, which is exactly the wrong thing to act on. */
   assert.match(block, /await loadLog\(\)/);
   assert.match(block, /setHistoryPath\(null\)/);
-  assert.match(block, /\[loadLog, reloadFile, refreshTree, t\]/);
+  assert.match(block, /\[loadLog, reloadFile, refreshTree, reportGitFailure, t\]/);
 });
 
 test('creating a branch refreshes the log too', () => {

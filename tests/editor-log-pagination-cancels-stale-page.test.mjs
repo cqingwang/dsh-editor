@@ -35,6 +35,7 @@ test('an aborted Load More page cannot append commits from the previous author',
     },
     setLogExhausted: () => {},
     setLogError: () => {},
+    reportGitFailure: (_failure, setError) => setError(null),
   });
 
   const loading = loadMoreLog();

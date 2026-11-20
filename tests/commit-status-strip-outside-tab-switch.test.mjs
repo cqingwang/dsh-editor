@@ -38,7 +38,7 @@ test('the changes tab no longer duplicates the status strip', () => {
 test('a failed cherry-pick surfaces git\'s own reason in the log tab', () => {
   const client = source;
   /* The host prefixes the failure, so the panel only has to render it. */
-  assert.match(client, /setCommitError\(failure instanceof Error \? failure\.message : String\(failure\)\)/);
+  assert.match(client, /const runHistoryAction = React\.useCallback\([\s\S]*?reportGitFailure\(failure\)/);
   const host = readFileSync(join(root, 'lib/index.js'), 'utf8');
   assert.match(host, /cherry-pick stopped: /);
   assert.match(host, /revert stopped: /);

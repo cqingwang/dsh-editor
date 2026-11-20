@@ -1,5 +1,197 @@
 # dsh-editor 工程记忆
 
+## 2026-11-20 — Log/Graph/History 请求必须按仓库可用性分流错误
+
+**作用域**：`loadLog`、`loadMoreLog`、`loadGraph`、`showFileHistory`、
+Revision Picker 的 Log 请求。
+
+**症状/证据**：
+
+- 普通 Log 请求失败时，`catch` 直接把异常写入 `logError`；
+- Revision Picker 把 Log 请求异常写入 `editorError`；
+- `.git` 在请求执行期间消失时，raw fatal 会出现在 Log failure/Retry 或编辑器
+  全局错误中，而不是进入 not-managed；
+- abort-first 已存在，但仓库消失仍没有走共享 reporter。
+
+**根因**：
+
+- Log 相关 loader 各自写入专用错误槽，没有复用 Commit 的仓库可用性分类；
+- 普通 Git 失败与“仓库已不存在”共用同一 `catch` 文本路径。
+
+**修复**：
+
+- 使用 reporter 的可选错误 sink：
+  - `loadLog` / `loadMoreLog` / `loadGraph` / `showFileHistory`：
+    `reportGitFailure(failure, setLogError)`；
+  - Revision Picker：`reportGitFailure(failure, setEditorError)`；
+- 保持 abort 检查先于 reporter；
+- 普通错误仍进入 Log/Editor Retry 路径；仓库消失统一清空 Git-owned view；
+- `editor-workspace.tsx` 保持 **12492 wc-lines / 12493 split-lines**。
+
+**RED/GREEN 与回归**：
+
+- RED：新增回归首先因 5 条 Log 请求路径仍直接写 raw error 失败；
+- GREEN：新增与 Graph/History/Pagination/Revision Picker 定向回归通过；
+- 完整 `npm test`：**3284 pass / 0 fail**；
+- ESLint、TypeScript、source imports、Prettier、bundle consistency、
+  `git diff --check`、`npm pack --dry-run` 通过。
+
+**运行态证据**：
+
+- 隔离 `DSH_HOME` / `editor-test` Web profile；
+- 切换 Commit 到 Log 时注入 `op:'log'` 的
+  `fatal: not a git repository ...`；
+- 结果：
+  - 无 raw fatal；
+  - not-managed 出现；
+  - Log failure 与 Retry 未出现；
+- Computer Use 对照 IDEA Git Log：搜索、Author/Branch/Date/Paths 过滤、
+  Graph Options 和 Log action toolbar 的职责划分明确，DSH 维持现有紧凑面板。
+
+**长期约束**：
+
+- Log 专用错误不得绕过共享仓库可用性 reporter；
+- abort/cancel 必须优先于错误分类，取消请求不得写错误；
+- 仓库消失时清空 Log/Graph/History，而不是留下 Retry 或 raw fatal；
+- Revision Picker 等派生请求也必须复用同一边界。
+
+## 2026-11-20 — Commit 文件与历史动作必须使用同一仓库失败边界
+
+**作用域**：Push、Stage/Unstage、冲突解决、Checkout、Reset、
+Cherry-pick/Revert、Annotate、Show/Compare、Patch、Rollback、
+Add to .gitignore、Commit 自身。
+
+**症状/证据**：
+
+- 上一轮只收口了 Commit Options 的低频动作；
+- 文件和历史动作仍直接 `setCommitError(failure.message)`；
+- Push 仍无条件把任何异常写入专用 `pushError`；
+- `.git` 在这些动作执行期间消失时，会重新出现 raw fatal，覆盖
+  not-managed 中性状态；
+- Commit 回调使用 `catch (error)`，也绕过了统一仓库边界。
+
+**根因**：
+
+- Git 动作按功能分散维护错误槽，没有统一的仓库可用性分流；
+- Push 的专用 Retry 语义被错误地扩展到“仓库已消失”这一非 Push 错误；
+- 不同 catch 变量和写入位置使 grep/测试难以证明全局收口。
+
+**修复**：
+
+- `useGitActionFailureReporter` 增加可选错误 sink：
+  - 普通失败写入调用方指定错误槽；
+  - 仓库消失统一写 `isRepo:false`、清空 selection、`commitError` 和调用方
+    错误槽；
+- Push 调用 `reportGitFailure(failure, setPushError)`，保留专用 Retry Push；
+- 其余文件/历史动作统一使用默认 `setCommitError`；
+- `editor-workspace.tsx` 保持 **12497 wc-lines / 12498 split-lines**；
+- 测试禁止再次出现直接
+  `setCommitError(failure instanceof Error ...)` /
+  `setPushError(failure instanceof Error ...)`。
+
+**RED/GREEN 与回归**：
+
+- RED：新增测试首先因 reporter 缺少 `setError` 且 editor 仍直接写 raw error 失败；
+- GREEN：定向回归通过；
+- 完整 `npm test`：**3282 pass / 0 fail**；
+- ESLint、TypeScript、source imports、Prettier、bundle consistency、
+  `git diff --check`、`npm pack --dry-run` 通过。
+
+**运行态证据**：
+
+- 使用隔离 `DSH_HOME`、`editor-test` Web profile 和当前 `link:` 插件；
+- Stage 失败注入：
+  - 无 raw fatal；
+  - not-managed 出现；
+  - Changes 清空，Commit / Commit and Push disabled；
+- 假 Commit 成功 + Push 失败注入：
+  - 正常显示 Retry Push；
+  - Retry Push 再注入仓库消失后，push failure 与 Retry Push 均清空；
+  - not-managed 出现，无 raw fatal；
+- Computer Use 对照 IDEA：IDEA 有独立 Push… 入口；DSH 保持
+  Commit / Commit and Push + 失败后 Retry Push 的紧凑模型。
+
+**长期约束**：
+
+- 所有 Commit Git 动作必须使用共享 reporter，不得恢复直接 raw error 写入；
+- Push 的普通失败保留专用错误槽，仓库消失仍是全局中性状态；
+- 新状态边界不得为了通过行数门禁而放宽阈值，应压缩冗余说明或抽模块；
+- 运行态注入必须恢复原生 `fetch`，正式 Git 写操作不得被故障测试污染。
+
+## 2026-11-20 — Git 异步动作期间仓库消失必须进入中性状态
+
+**作用域**：Commit Options 的 Fetch、Update Project、Apply Patch、Stash、
+Shelve、Stash/Shelve list，以及 `git status` 刷新与 Commit 状态边界。
+
+**症状/证据**：
+
+- Commit 窗口打开后，若 `.git` 在 Fetch 等异步动作执行期间消失，旧实现把
+  `fatal: not a git repository ...` 直接写入 `commitError`；
+- 页面因此同时出现 raw fatal 和“不受 Git 管理”的中性状态，命令失败看起来
+  像普通 Git 业务错误；
+- Stash/Shelve 的 list 请求也走同一错误通道，菜单打开期间仍可能泄漏 fatal。
+
+**根因**：
+
+- 仓库可用性只在 `gitStatus` 和 Log loader 中识别；
+- 其他 Git 动作的 `catch` 各自直接 `setCommitError(message)`；
+- 异步动作没有共享“仓库已消失”的状态转换，导致旧错误状态覆盖中性空状态。
+
+**修复**：
+
+- 新增
+  `src/client/components/commit/use-git-action-failure-reporter.ts`；
+- 统一识别 `isGitRepositoryMissingMessage`：
+  - 仓库消失：写入 `isRepo:false` 空状态，清空 selection 与 commit error；
+  - 其他错误：保留原 `commitError` 文案；
+- Fetch、Update Project、Apply Patch、Stash、Shelve、Stash list、Shelve list
+  以及 `loadGit` 共用该 reporter；
+- 保持各动作 `finally` 的 busy 释放语义不变；
+- 为守住 `editor-workspace.tsx` 的 12500 split-line 可维护性门禁，收口逻辑
+  落在独立模块而不是继续内联；
+- 首次重建后运行态出现
+  `Editor failed to load: useGitActionFailureReporter is not defined`：
+  构建脚本的显式组件清单没有自动收集新模块，随后补入 Babel 转换与 bundle
+  输出，并新增 bundle 包含性回归。
+
+**RED/GREEN 与回归**：
+
+- RED：`tests/commit-git-actions-recover-repository-disappearance.test.mjs`
+  首先因缺少 reporter 和统一 catch 失败；
+- GREEN：新增测试与 Fetch/Update/Apply Patch/Stash/Shelve 定向回归通过；
+- 更新
+  `tests/commit-non-git-workspace-shows-localized-not-managed-state.test.mjs`
+  验证 editor 路由到独立 reporter；
+- 完整 `npm test`：**3281 pass / 0 fail**；
+- ESLint、TypeScript、source imports、Prettier、bundle consistency、
+  `git diff --check`、`npm pack --dry-run` 通过；
+- `editor-workspace.tsx`：**12499 wc-lines / 12500 split-lines**。
+
+**运行态证据**：
+
+- Ego Browser 打开真实 DSH Web `dsh-editor` workspace；
+- 页面级故障注入让 Fetch 请求返回
+  `fatal: not a git repository (or any of the parent directories): .git`；
+- 结果：
+  - 页面无 raw fatal；
+  - 显示 `This workspace is not managed by Git`；
+  - Changes 显示 `No uncommitted changes`；
+  - Commit / Commit and Push disabled；
+- 注入仅限当前页面运行时，随后恢复原生 `fetch`；
+- 重建后的 DSH Web 不再出现 `useGitActionFailureReporter is not defined`，
+  editor 正常加载；
+- Computer Use 对照 IDEA Commit：Options/Hide、Refresh/Rollback/Show Diff/
+  Shelve/View Options、Amend/Commit/Commit and Push 的层级与归属一致。
+
+**长期约束**：
+
+- Git 动作失败不得绕过仓库可用性分类直接写 raw error；
+- `isRepo:false` 是唯一仓库缺失事实，进入后必须清空 Git-owned view；
+- 状态刷新和业务动作共用同一失败 reporter，避免两套行为漂移；
+- 新增组件模块必须加入 `scripts/build-client.mjs` 的显式转换与输出清单，
+  不能只依赖 TypeScript import 检查；
+- 修复新增逻辑若触及可维护性门禁，应抽独立单一职责模块，而不是放宽阈值。
+
 ## 2026-11-20 — 仓库消失时清除 Git 状态，恢复后重新可加载
 
 **作用域**：Commit 键盘提交、`loadGit` 后状态边界、Commit Log/Diff/Amend、

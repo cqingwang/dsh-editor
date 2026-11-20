@@ -74,6 +74,9 @@ test('the graph clears the previous failure on success', async () => {
     setLogLoading: () => {},
     setGraph: () => {},
     setLogError: (value) => errors.push(value),
+    reportGitFailure: (failure, setError) => {
+      setError(failure instanceof Error ? failure.message : String(failure));
+    },
   });
   await loadGraph('', '');
   assert.deepEqual(errors, [null]);

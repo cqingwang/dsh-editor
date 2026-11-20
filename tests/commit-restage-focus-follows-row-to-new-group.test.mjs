@@ -25,7 +25,7 @@ test('restage selection follows every path into its new staged or unstaged group
 test('restage focus migration is applied only when a business action requests it', () => {
   assert.match(
     workspace,
-    /const restage = React\.useCallback\(async \(paths: string\[\], staged: boolean, focusPath\?: string\)/u,
+    /const restage = React\.useCallback\(\s+async \(paths: string\[\], staged: boolean, focusPath\?: string\)/u,
   );
   assert.match(workspace, /changeModel\.movedRows\(value\?\.changes \?\? \[\], paths, focusPath\)/u);
   assert.match(workspace, /changeModel\.remainingCommitPaths\(current, value\?\.changes\)/u);

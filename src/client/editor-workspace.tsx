@@ -103,6 +103,7 @@ import { CommitPanel } from './components/commit/CommitPanel';
 import { MoveToPicker } from './components/commit/MoveToPicker';
 import { NamePrompt } from './components/commit/NamePrompt';
 import { RevisionPicker } from './components/commit/RevisionPicker';
+import { useGitActionFailureReporter } from './components/commit/use-git-action-failure-reporter';
 import { projectOptionsMenuItems } from './components/project/project-options-menu';
 import { changesViewOptionsMenu, commitOptionsMenu } from './components/commit/commit-options-menu';
 import { shelveMenu, stashMenu, type ShelfEntry } from './components/commit/stash-shelve-menu';
@@ -1816,6 +1817,7 @@ function EditorWorkspace({
     observer.observe(node);
     return () => observer.disconnect();
   }, [splitTabs.length === 0]);
+  const reportGitFailure = useGitActionFailureReporter({ setGit, setCommitSelection, setCommitError });
   const loadGit = React.useCallback(async () => {
     try {
       const value = await callGit<WorkspaceGitStatus>({ op: 'status' });
@@ -1873,9 +1875,7 @@ function EditorWorkspace({
     } catch (failure) {
       const message = failure instanceof Error ? failure.message : String(failure);
       if (isGitRepositoryMissingMessage(message)) {
-        setGit({ root: '', isRepo: false, branch: '', prefix: '', changes: [] });
-        setCommitSelection(new Set());
-        setCommitError(null);
+        reportGitFailure(failure);
         return null;
       }
       setGit({ root: '', branch: '', prefix: '', changes: [] });
@@ -1883,7 +1883,7 @@ function EditorWorkspace({
       setCommitError(message);
       return null;
     }
-  }, []);
+  }, [reportGitFailure]);
   /**
    * Common commit prefixes, IDEA's commit-message templates in miniature.
    *
@@ -1986,13 +1986,11 @@ function EditorWorkspace({
       if (controller.signal.aborted) return;
       setCommits([]);
       /* An empty list alone reads as "this repo has no commits"; the reason
-             git gave is the only thing that explains why the log went blank. */ setLogError(
-        failure instanceof Error ? failure.message : String(failure),
-      );
+             git gave is the only thing that explains why the log went blank. */ reportGitFailure(failure, setLogError);
     } finally {
       finishLogRequest(controller);
     }
-  }, [beginLogRequest, cancelLogMoreRequest, finishLogRequest, git?.isRepo]);
+  }, [beginLogRequest, cancelLogMoreRequest, finishLogRequest, git?.isRepo, reportGitFailure]);
   /**
    * Append the next page when the list is scrolled to the bottom.
    *
@@ -2027,16 +2025,14 @@ function EditorWorkspace({
       setLogError(null);
     } catch (failure) {
       if (controller.signal.aborted) return;
-      /* a failed page leaves the list as it was, but must say why */ setLogError(
-        failure instanceof Error ? failure.message : String(failure),
-      );
+      /* a failed page leaves the list as it was, but must say why */ reportGitFailure(failure, setLogError);
     } finally {
       if (logMoreRequestRef.current === controller) {
         logMoreRequestRef.current = null;
         loadingMoreRef.current = false;
       }
     }
-  }, [commits.length, git?.isRepo, logExhausted]);
+  }, [commits.length, git?.isRepo, logExhausted, reportGitFailure]);
   /**
    * Load the bounded commit graph for the Log tab's "Graph" toggle.
    *
@@ -2090,8 +2086,7 @@ function EditorWorkspace({
         setLogError(null);
       } catch (failure) {
         if (controller.signal.aborted) return;
-        const message = failure instanceof Error ? failure.message : String(failure);
-        setLogError(message);
+        reportGitFailure(failure, setLogError);
         setGraph((current) => {
           const requestedBranch = branchValue !== '' ? branchValue : null;
           const requestedAt = atValue !== '' ? atValue : null;
@@ -2111,7 +2106,7 @@ function EditorWorkspace({
         finishLogRequest(controller);
       }
     },
-    [beginLogRequest, finishLogRequest, git?.isRepo],
+    [beginLogRequest, finishLogRequest, git?.isRepo, reportGitFailure],
   );
   /* A repository can disappear while the tool window is already open. Clear
      every Git-owned view at the state boundary so stale notices, commit rows,
@@ -2147,14 +2142,17 @@ function EditorWorkspace({
    * the user had just picked.
    * @param {string} hash - full commit hash.
    * @returns {Promise<void>} resolves once the detail is set.
-   */ const showCommit = React.useCallback(async (hash: string) => {
-    setSelectedCommit(hash);
-    try {
-      setLogDetail(await callGit({ op: 'show', hash }));
-    } catch (failure) {
-      setCommitError(failure instanceof Error ? failure.message : String(failure));
-    }
-  }, []);
+   */ const showCommit = React.useCallback(
+    async (hash: string) => {
+      setSelectedCommit(hash);
+      try {
+        setLogDetail(await callGit({ op: 'show', hash }));
+      } catch (failure) {
+        reportGitFailure(failure);
+      }
+    },
+    [reportGitFailure],
+  );
   /**
    * Open one file's version inside one commit as a diff in the editor area.
    *
@@ -2250,13 +2248,13 @@ function EditorWorkspace({
       } catch (failure) {
         if (failure?.name === 'AbortError' || failure?.name === 'CanceledError') return;
         if (revisionPickerRequestRef.current !== requestId) return;
-        setEditorError(failure instanceof Error ? failure.message : String(failure));
+        reportGitFailure(failure, setEditorError);
         closeRevisionPicker();
       } finally {
         if (revisionPickerAbortRef.current === searchAbort) revisionPickerAbortRef.current = null;
       }
     },
-    [closeRevisionPicker, rememberPaletteOrigin],
+    [closeRevisionPicker, rememberPaletteOrigin, reportGitFailure],
   );
   const showCommitDiff = React.useCallback((target: { hash: string; path: string }) => {
     if (typeof target?.hash !== 'string' || typeof target?.path !== 'string') return;
@@ -2321,13 +2319,13 @@ function EditorWorkspace({
         setLogError(null);
       } catch (failure) {
         if (controller.signal.aborted) return;
-        setLogError(failure instanceof Error ? failure.message : String(failure));
+        reportGitFailure(failure, setLogError);
         setCommits([]);
       } finally {
         finishLogRequest(controller);
       }
     },
-    [beginLogRequest, finishLogRequest, git?.isRepo],
+    [beginLogRequest, finishLogRequest, git?.isRepo, reportGitFailure],
   );
   /**
    * Apply the log's author filter, debounced so typing does not spawn a git per key.
@@ -3068,11 +3066,11 @@ function EditorWorkspace({
       setAnnotateLines(Array.isArray(value?.lines) ? value.lines : []);
       setAnnotateTruncated(value?.truncated === true);
     } catch (failure) {
-      setCommitError(failure instanceof Error ? failure.message : String(failure));
+      reportGitFailure(failure);
     } finally {
       setAnnotateLoading(false);
     }
-  }, [annotateTarget]);
+  }, [annotateTarget, reportGitFailure]);
   /**
    * Jump from an Annotate line to the commit that introduced it.
    *
@@ -7457,41 +7455,36 @@ function EditorWorkspace({
       setEditorError(error instanceof Error ? error.message : String(error));
     }
   }, [loadGit, refreshTree]);
-  /**
-   * Check out one local branch and bring the editor back in sync.
-   *
-   * IDEA asks before switching when the working tree has changes, because a
-   * checkout can carry them into the other branch or refuse outright.
-   * @param {string} name - local branch name.
-   */ const checkoutBranch = React.useCallback(
-    async (name: string) => {
-      const dirty = (openFilesRef.current ?? []).some((file) => file.dirty === true);
-      if (dirty && !window.confirm(t('editor.checkoutDirty'))) return;
-      setCommitBusy(true);
-      try {
-        const value = await callGit<WorkspaceGitStatus>({
-          op: 'checkout',
-          branch: name,
-        });
-        setGit(value);
-        setCommitSelection(new Set((value?.changes ?? []).map((change) => change.path)));
-        setDiffTarget(null);
-        setExternalChanges({});
-        await refreshTree();
-        /* A checkout rewrites the history the Log tab is showing; leaving the old
+  /** Check out a local branch; IDEA asks first because dirty files can carry. */ const checkoutBranch =
+    React.useCallback(
+      async (name: string) => {
+        const dirty = (openFilesRef.current ?? []).some((file) => file.dirty === true);
+        if (dirty && !window.confirm(t('editor.checkoutDirty'))) return;
+        setCommitBusy(true);
+        try {
+          const value = await callGit<WorkspaceGitStatus>({
+            op: 'checkout',
+            branch: name,
+          });
+          setGit(value);
+          setCommitSelection(new Set((value?.changes ?? []).map((change) => change.path)));
+          setDiffTarget(null);
+          setExternalChanges({});
+          await refreshTree();
+          /* A checkout rewrites the history the Log tab is showing; leaving the old
              rows there means acting on another branch's commits. */ setHistoryPath(null);
-        await loadLog();
-        setCommitNotice(t('editor.checkoutDone', { name }));
-        /* A checkout can rewrite every file under the open tabs: re-read them all. */ for (const file of openFilesRef.current)
-          await reloadFile(file.path);
-      } catch (failure) {
-        setCommitError(failure instanceof Error ? failure.message : String(failure));
-      } finally {
-        setCommitBusy(false);
-      }
-    },
-    [loadLog, reloadFile, refreshTree, t],
-  );
+          await loadLog();
+          setCommitNotice(t('editor.checkoutDone', { name }));
+          /* A checkout can rewrite every file under the open tabs: re-read them all. */ for (const file of openFilesRef.current)
+            await reloadFile(file.path);
+        } catch (failure) {
+          reportGitFailure(failure);
+        } finally {
+          setCommitBusy(false);
+        }
+      },
+      [loadLog, reloadFile, refreshTree, reportGitFailure, t],
+    );
   /* Open IDEA's branch popup from a fresh local branch list. */ const openBranchMenu = React.useCallback(
     async (position: { x: number; y: number }) => {
       const requestId = ++branchMenuRequestRef.current;
@@ -7549,12 +7542,12 @@ function EditorWorkspace({
         });
       } catch (failure) {
         if (branchMenuRequestRef.current !== requestId) return;
-        setCommitError(failure instanceof Error ? failure.message : String(failure));
+        reportGitFailure(failure);
       } finally {
         if (branchMenuRequestRef.current === requestId) setCommitBusy(false);
       }
     },
-    [checkoutBranch, openNamePrompt, t],
+    [checkoutBranch, openNamePrompt, reportGitFailure, t],
   );
   /**
    * Create the branch named in the prompt, then refresh everything a switch touches.
@@ -7637,12 +7630,12 @@ function EditorWorkspace({
         );
         await refreshTree();
       } catch (failure) {
-        setCommitError(failure instanceof Error ? failure.message : String(failure));
+        reportGitFailure(failure);
       } finally {
         setCommitBusy(false);
       }
     },
-    [refreshTree, t],
+    [refreshTree, reportGitFailure, t],
   );
   /**
    * Run a shelf operation and refresh the same views as a stash operation.
@@ -7675,12 +7668,12 @@ function EditorWorkspace({
         );
         await refreshTree();
       } catch (failure) {
-        setCommitError(failure instanceof Error ? failure.message : String(failure));
+        reportGitFailure(failure);
       } finally {
         setCommitBusy(false);
       }
     },
-    [refreshTree, t],
+    [refreshTree, reportGitFailure, t],
   );
   /* Open IDEA's stash menu from the current stack. */ const openStashMenu = React.useCallback(
     async (position: { x: number; y: number }) => {
@@ -7708,12 +7701,12 @@ function EditorWorkspace({
         );
       } catch (failure) {
         if (commitMenuRequestRef.current !== requestId) return;
-        setCommitError(failure instanceof Error ? failure.message : String(failure));
+        reportGitFailure(failure);
       } finally {
         if (commitMenuRequestRef.current === requestId) setCommitBusy(false);
       }
     },
-    [git, runStash, t],
+    [git, reportGitFailure, runStash, t],
   );
   /* Open IDEA's selected-path Shelve menu from the current shelves. */ const openShelveMenu = React.useCallback(
     async (position: { x: number; y: number }) => {
@@ -7742,12 +7735,12 @@ function EditorWorkspace({
         );
       } catch (failure) {
         if (commitMenuRequestRef.current !== requestId) return;
-        setCommitError(failure instanceof Error ? failure.message : String(failure));
+        reportGitFailure(failure);
       } finally {
         if (commitMenuRequestRef.current === requestId) setCommitBusy(false);
       }
     },
-    [commitSelection, runShelve, t],
+    [commitSelection, reportGitFailure, runShelve, t],
   );
   /* Batch delete for the Project tool window's multi-row selection. */ /**
    * Open tabs below one path that still hold unsaved edits.
@@ -8253,35 +8246,38 @@ function EditorWorkspace({
     setTerminalOpen(true);
     setTerminalGeneration((generation) => generation + 1);
   }, []);
-  const restage = React.useCallback(async (paths: string[], staged: boolean, focusPath?: string) => {
-    if (paths.length === 0) return false;
-    setCommitBusy(true);
-    setCommitError(null);
-    try {
-      const value = await callGit<WorkspaceGitStatus>({
-        op: 'stage',
-        paths,
-        staged,
-      });
-      setGit(value);
-      const moved = focusPath === undefined ? null : changeModel.movedRows(value?.changes ?? [], paths, focusPath);
-      setCommitSelection((current) => changeModel.remainingCommitPaths(current, value?.changes));
-      if (moved !== null) {
-        setSelectedChanges(moved.selection);
-        selectedChangesRef.current = moved.selection;
-        setSelectedChange(moved.primary as DiffTarget | null);
-        groupByFocusRef.current = moved.primary as DiffTarget | null;
-        window.setTimeout(() => revealChangeRow(moved.primary as DiffTarget | null), 0);
+  const restage = React.useCallback(
+    async (paths: string[], staged: boolean, focusPath?: string) => {
+      if (paths.length === 0) return false;
+      setCommitBusy(true);
+      setCommitError(null);
+      try {
+        const value = await callGit<WorkspaceGitStatus>({
+          op: 'stage',
+          paths,
+          staged,
+        });
+        setGit(value);
+        const moved = focusPath === undefined ? null : changeModel.movedRows(value?.changes ?? [], paths, focusPath);
+        setCommitSelection((current) => changeModel.remainingCommitPaths(current, value?.changes));
+        if (moved !== null) {
+          setSelectedChanges(moved.selection);
+          selectedChangesRef.current = moved.selection;
+          setSelectedChange(moved.primary as DiffTarget | null);
+          groupByFocusRef.current = moved.primary as DiffTarget | null;
+          window.setTimeout(() => revealChangeRow(moved.primary as DiffTarget | null), 0);
+        }
+        setDiffTarget(null);
+        return true;
+      } catch (failure) {
+        reportGitFailure(failure);
+        return false;
+      } finally {
+        setCommitBusy(false);
       }
-      setDiffTarget(null);
-      return true;
-    } catch (failure) {
-      setCommitError(failure instanceof Error ? failure.message : String(failure));
-      return false;
-    } finally {
-      setCommitBusy(false);
-    }
-  }, []);
+    },
+    [reportGitFailure],
+  );
   /* The ⌘⇧A/⌥⌘A handler is registered once, so it reaches the stager by ref. */ restageRef.current = restage;
   /**
    * Stage every working-side change, with an optional tracked-only scope.
@@ -8786,12 +8782,12 @@ function EditorWorkspace({
             }, 0);
           }
         } catch (failure) {
-          setCommitError(failure instanceof Error ? failure.message : String(failure));
+          reportGitFailure(failure);
         } finally {
           setCommitBusy(false);
         }
       },
-      [refreshTree],
+      [refreshTree, reportGitFailure],
     );
   /* IDEA's change-list menu: show diff, stage/unstage, roll back the working-tree edits. */ /**
    * Apply one history rewrite action and bring the panel back in sync.
@@ -8801,39 +8797,33 @@ function EditorWorkspace({
    * of being reported as a generic success.
    * @param {'cherryPick'|'revert'} operation - git action to run.
    * @param {string} hash - commit to act on.
-   *//**
-   * Check out one commit (IDEA's "Checkout Revision").
-   *
-   * Detached HEAD is destructive-looking but reversible, so it asks once and then
-   * refreshes both the tree and the graph — the working tree contents change.
-   * @param {string} hash - commit to check out.
-   * @returns {Promise<void>} resolves when the refresh finishes.
-   */ const checkoutRevision = React.useCallback(
-    async (hash: string) => {
-      if (typeof hash !== 'string' || hash === '') return;
-      if (!window.confirm(t('editor.checkoutRevisionConfirm', { hash: hash.slice(0, 7) }))) return;
-      setCommitBusy(true);
-      setCommitError(null);
-      setCommitNotice(null);
-      try {
-        const value = await callGit<WorkspaceGitStatus>({
-          op: 'checkoutRevision',
-          hash,
-        });
-        setGit(value);
-        setCommitSelection(new Set());
-        setDiffTarget(null);
-        setCommitNotice(t('editor.checkoutRevisionDone', { hash: hash.slice(0, 7) }));
-        await refreshTree();
-        await loadLog();
-      } catch (failure) {
-        setCommitError(failure instanceof Error ? failure.message : String(failure));
-      } finally {
-        setCommitBusy(false);
-      }
-    },
-    [loadLog, refreshTree, t],
-  );
+   */ /** Check out a commit after one confirmation; refresh both tree and graph. */ const checkoutRevision =
+    React.useCallback(
+      async (hash: string) => {
+        if (typeof hash !== 'string' || hash === '') return;
+        if (!window.confirm(t('editor.checkoutRevisionConfirm', { hash: hash.slice(0, 7) }))) return;
+        setCommitBusy(true);
+        setCommitError(null);
+        setCommitNotice(null);
+        try {
+          const value = await callGit<WorkspaceGitStatus>({
+            op: 'checkoutRevision',
+            hash,
+          });
+          setGit(value);
+          setCommitSelection(new Set());
+          setDiffTarget(null);
+          setCommitNotice(t('editor.checkoutRevisionDone', { hash: hash.slice(0, 7) }));
+          await refreshTree();
+          await loadLog();
+        } catch (failure) {
+          reportGitFailure(failure);
+        } finally {
+          setCommitBusy(false);
+        }
+      },
+      [loadLog, refreshTree, reportGitFailure, t],
+    );
   /**
    * Reset the active branch to one log row using Git's soft/mixed/hard modes.
    * Hard reset is destructive: the confirmation names the commit and the
@@ -8874,12 +8864,12 @@ function EditorWorkspace({
           for (const file of openFilesRef.current) await reloadFile(file.path);
         }
       } catch (failure) {
-        setCommitError(failure instanceof Error ? failure.message : String(failure));
+        reportGitFailure(failure);
       } finally {
         setCommitBusy(false);
       }
     },
-    [loadLog, reloadFile, refreshTree, t],
+    [loadLog, reloadFile, refreshTree, reportGitFailure, t],
   );
   const runHistoryAction = React.useCallback(
     async (operation: 'cherryPick' | 'revert', hash: string) => {
@@ -8906,12 +8896,12 @@ function EditorWorkspace({
         await refreshTree();
         await loadLog();
       } catch (failure) {
-        setCommitError(failure instanceof Error ? failure.message : String(failure));
+        reportGitFailure(failure);
       } finally {
         setCommitBusy(false);
       }
     },
-    [loadLog, refreshTree, t],
+    [loadLog, refreshTree, reportGitFailure, t],
   );
   /* IDEA's Log row context menu: diff, history, cherry-pick and revert. */ /**
    * Open the history of the first file touched by the RIGHT-CLICKED commit.
@@ -8933,10 +8923,10 @@ function EditorWorkspace({
         }
         void showFileHistory(first.path);
       } catch (failure) {
-        setCommitError(failure instanceof Error ? failure.message : String(failure));
+        reportGitFailure(failure);
       }
     },
-    [showFileHistory, t],
+    [reportGitFailure, showFileHistory, t],
   );
   const compareCommitRevisions = React.useCallback(
     async (selectionHashes: string[]) => {
@@ -8988,10 +8978,10 @@ function EditorWorkspace({
         });
         setDiffActive(true);
       } catch (failure) {
-        setCommitError(failure instanceof Error ? failure.message : String(failure));
+        reportGitFailure(failure);
       }
     },
-    [commits, graph?.entries, t],
+    [commits, graph?.entries, reportGitFailure, t],
   );
   const compareCommitWithLocal = React.useCallback(
     async (hash: string) => {
@@ -9012,10 +9002,10 @@ function EditorWorkspace({
         });
         setDiffActive(true);
       } catch (failure) {
-        setCommitError(failure instanceof Error ? failure.message : String(failure));
+        reportGitFailure(failure);
       }
     },
-    [t],
+    [reportGitFailure, t],
   );
   const createCommitPatch = React.useCallback(
     async (hash: string) => {
@@ -9031,36 +9021,39 @@ function EditorWorkspace({
         downloadPatchBlob(value.patch, commitPatchDownloadName(resolvedHash, value.subject));
         setCommitNotice(t('editor.commitPatchCreated', { hash: resolvedHash.slice(0, 7) }));
       } catch (failure) {
-        setCommitError(failure instanceof Error ? failure.message : String(failure));
+        reportGitFailure(failure);
       }
     },
-    [t],
+    [reportGitFailure, t],
   );
-  const openRepositoryVersion = React.useCallback(async ({ hash, path }: { hash: string; path: string }) => {
-    if (typeof hash !== 'string' || hash === '' || typeof path !== 'string' || path === '') return;
-    setCommitError(null);
-    setCommitNotice(null);
-    try {
-      const value = await callGit<{
-        hash?: string;
-        content?: string;
-        binary?: boolean;
-      }>({ op: 'repositoryVersion', hash, path });
-      setAnnotateTarget(null);
-      setDiffTarget({
-        path,
-        repositoryVersion: {
-          hash: typeof value.hash === 'string' ? value.hash : '',
-          content: typeof value.content === 'string' ? value.content : '',
-          binary: value.binary === true,
-        },
-        staged: false,
-      });
-      setDiffActive(true);
-    } catch (failure) {
-      setCommitError(failure instanceof Error ? failure.message : String(failure));
-    }
-  }, []);
+  const openRepositoryVersion = React.useCallback(
+    async ({ hash, path }: { hash: string; path: string }) => {
+      if (typeof hash !== 'string' || hash === '' || typeof path !== 'string' || path === '') return;
+      setCommitError(null);
+      setCommitNotice(null);
+      try {
+        const value = await callGit<{
+          hash?: string;
+          content?: string;
+          binary?: boolean;
+        }>({ op: 'repositoryVersion', hash, path });
+        setAnnotateTarget(null);
+        setDiffTarget({
+          path,
+          repositoryVersion: {
+            hash: typeof value.hash === 'string' ? value.hash : '',
+            content: typeof value.content === 'string' ? value.content : '',
+            binary: value.binary === true,
+          },
+          staged: false,
+        });
+        setDiffActive(true);
+      } catch (failure) {
+        reportGitFailure(failure);
+      }
+    },
+    [reportGitFailure],
+  );
   /**
    * Context menu for a file row in a commit's detail pane.
    *
@@ -9211,12 +9204,12 @@ function EditorWorkspace({
             await openFile(activePathRef.current);
           }
         } catch (failure) {
-          setCommitError(failure instanceof Error ? failure.message : String(failure));
+          reportGitFailure(failure);
         } finally {
           setCommitBusy(false);
         }
       },
-      [chosenChanges, openFile, reconcileChangeSelection, refreshTree, t],
+      [chosenChanges, openFile, reconcileChangeSelection, refreshTree, reportGitFailure, t],
     );
   /* IDEA's "Add to .gitignore", shared by the unversioned group header and
          individual unversioned file rows. Declared before buildChangeMenu so its
@@ -9234,12 +9227,12 @@ function EditorWorkspace({
         await loadGit();
         await refreshTree();
       } catch (failure) {
-        setCommitError(failure instanceof Error ? failure.message : String(failure));
+        reportGitFailure(failure);
       } finally {
         setCommitBusy(false);
       }
     },
-    [loadGit, refreshTree, t],
+    [loadGit, refreshTree, reportGitFailure, t],
   );
   /**
    * Copy IDEA's selected-changes patch without mutating the index.
@@ -9269,10 +9262,10 @@ function EditorWorkspace({
         }
         setCommitNotice(t('editor.patchCopied', { count: value.files?.length ?? 0 }));
       } catch (failure) {
-        setCommitError(failure instanceof Error ? failure.message : String(failure));
+        reportGitFailure(failure);
       }
     },
-    [requestSelectedPatch, t],
+    [reportGitFailure, requestSelectedPatch, t],
   );
   const createSelectedPatch = React.useCallback(
     async (targets: DiffTarget[]) => {
@@ -9285,10 +9278,10 @@ function EditorWorkspace({
         downloadPatchBlob(value.patch, patchDownloadName());
         setCommitNotice(t('editor.patchCreated', { count: value.files?.length ?? 0 }));
       } catch (failure) {
-        setCommitError(failure instanceof Error ? failure.message : String(failure));
+        reportGitFailure(failure);
       }
     },
-    [requestSelectedPatch, t],
+    [reportGitFailure, requestSelectedPatch, t],
   );
   /**
    * Apply one unified diff through the host's atomic Git preflight.
@@ -9334,13 +9327,13 @@ function EditorWorkspace({
         );
         return true;
       } catch (failure) {
-        setCommitError(failure instanceof Error ? failure.message : String(failure));
+        reportGitFailure(failure);
         return false;
       } finally {
         setCommitBusy(false);
       }
     },
-    [commitBusy, refreshTree, reloadFile, saveAll, t],
+    [commitBusy, refreshTree, reloadFile, reportGitFailure, saveAll, t],
   );
   const applyPatchFile = React.useCallback(() => {
     const input = document.createElement('input');
@@ -10603,11 +10596,11 @@ function EditorWorkspace({
       );
       setCommitError(null);
     } catch (failure) {
-      setPushError(failure instanceof Error ? failure.message : String(failure));
+      reportGitFailure(failure, setPushError);
     } finally {
       setPushBusy(false);
     }
-  }, [t]);
+  }, [reportGitFailure, t]);
   /**
    * Fetch every remote without touching the working tree (IDEA's Fetch).
    *
@@ -10625,11 +10618,11 @@ function EditorWorkspace({
       setCommitNotice(t('editor.fetchDone', { count: (value?.remotes ?? []).length }));
       setPushError(null);
     } catch (failure) {
-      setCommitError(failure instanceof Error ? failure.message : String(failure));
+      reportGitFailure(failure);
     } finally {
       setFetchBusy(false);
     }
-  }, [t]);
+  }, [reportGitFailure, t]);
   /**
    * IDEA's Update Project: fast-forward onto the upstream and re-read tabs.
    *
@@ -10658,11 +10651,11 @@ function EditorWorkspace({
       await loadLog();
       setCommitNotice(t('editor.updateDone', { branch: value?.branch ?? '' }));
     } catch (failure) {
-      setCommitError(failure instanceof Error ? failure.message : String(failure));
+      reportGitFailure(failure);
     } finally {
       setUpdateBusy(false);
     }
-  }, [loadLog, reloadFile, refreshTree, t]);
+  }, [loadLog, reloadFile, refreshTree, reportGitFailure, t]);
   /**
    * IDEA's Commit tool-window options.
    *
@@ -10781,13 +10774,13 @@ function EditorWorkspace({
           setHighlightedCommit(head);
           setCommitMode('log');
         }
-      } catch (error) {
-        setCommitError(error instanceof Error ? error.message : String(error));
+      } catch (failure) {
+        reportGitFailure(failure);
       } finally {
         setCommitBusy(false);
       }
     },
-    [amend, commitMessage, commitSelection, git, loadLog, root, t],
+    [amend, commitMessage, commitSelection, git, loadLog, reportGitFailure, root, t],
   );
   const tabs = openFiles.map((file) => {
     const fileTabActive = diffActive === false && file.path === activePath;

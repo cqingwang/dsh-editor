@@ -450,6 +450,30 @@ const indentedCommitOptionsMenu = commitOptionsMenuBody
   .join('\n');
 const commitOptionsMenuModule = `\n    /* ─────────────────────── components/commit/commit-options-menu.ts ─────────────────────── */\n${indentedCommitOptionsMenu}\n`;
 
+const gitActionFailureReporterResult = await transformAsync(
+  readFileSync(join(partsDir, 'components', 'commit', 'use-git-action-failure-reporter.ts'), 'utf8'),
+  {
+    filename: 'use-git-action-failure-reporter.ts',
+    plugins: [['@babel/plugin-transform-typescript', { isTSX: false, allExtensions: true }]],
+    generatorOpts: {
+      retainLines: true,
+      jsescOption: { quotes: 'single', minimal: true },
+    },
+    configFile: false,
+    babelrc: false,
+  },
+);
+const gitActionFailureReporterBody = stripModuleSyntax(gitActionFailureReporterResult.code ?? '').trimEnd();
+if (gitActionFailureReporterBody === '') {
+  console.error('build-client: Babel produced an empty Git action failure reporter module');
+  process.exit(1);
+}
+const indentedGitActionFailureReporter = gitActionFailureReporterBody
+  .split('\n')
+  .map((line) => (line === '' ? '' : `    ${line}`))
+  .join('\n');
+const gitActionFailureReporterModule = `\n    /* ─────────────────────── components/commit/use-git-action-failure-reporter.ts ─────────────────────── */\n${indentedGitActionFailureReporter}\n`;
+
 const stashShelveMenuResult = await transformAsync(
   readFileSync(join(partsDir, 'components', 'commit', 'stash-shelve-menu.ts'), 'utf8'),
   {
@@ -2634,7 +2658,7 @@ const footer = `
 });
 `;
 
-const output = `${header}${editorTabModelModule}${editorStyleModelModule}${editorThemeModelModule}${body}${workspaceDirectoryModelModule}${fileTreeViewModule}${projectPanelModule}${projectOptionsMenuModule}${commitPanelModule}${commitOptionsMenuModule}${stashShelveMenuModule}${commitLogMenuModule}${commitFileMenuModule}${commitLogGraphControllerModule}${commitLogFlatControllerModule}${commitLogListCommandModelModule}${commitLogScopeAnnouncementModule}${commitLogShortcutModelModule}${commitLogSelectionModelModule}${commitLogViewModelModule}${commitLogViewPreferencesModule}${namePromptModule}${commitSearchModelModule}${revisionPickerModule}${moveToPickerModule}${codePreviewCodeModule}${editorStatusFactsModule}${markdownModeSwitchModule}${imagePreviewPaneModule}${markdownPreviewPaneModule}${workspaceFileModelModule}${workspaceImagePreviewModule}${editorPathModelModule}${editorDocumentModelModule}${markdownScrollModelModule}${editorNavigationModelModule}${editorFileTemplateModelModule}${editorLanguageModelModule}${annotatePreviewModule}${repositoryVersionPreviewModule}${combinedDiffColorModelModule}${conflictMarkerModelModule}${diffPreviewModule}${projectSelectionModelModule}${terminalScreenModule}${editorTerminalTabModule}${editorTerminalAreaModule}${editorTerminalDockModule}${persistentTerminalDockOpenModule}${terminalPanelModule}${searchFileResultItemModule}${searchEverywhereModule}${showUsagesPopupModule}${quickOpenModule}${findScopeEditorModule}${findToolWindowModule}${searchReplaceConfirmationModule}${commitGraphStateModelModule}${commitGraphFoldBarModule}${commitGraphRowModule}${commitGraphModule}${commitLogModule}${commitLogDetailPaneModule}${commitLogToolbarModule}${commitLogFlatRowModule}${commitLogListStateModule}${measuringScreenModule}${editorErrorBoundaryModule}${editorMountModule}${editorGotoLinePopupModule}${editorFindBarModule}${editorStatusBarModule}${editorFileTabModule}${editorTabStripModule}${editorDiffTabModule}${editorConflictBarsModule}${editorSplitHeaderModule}${editorSplitPaneModule}${editorMainPaneModule}${editorSplitDividerModule}${editorDiffAreaModule}${editorAnnotateAreaModule}${findToolDockModule}${findToolPopupModule}${workspaceDirectoryPickerModule}${editorFileSurfaceModule}${editorWorkspaceShellModule}${editorWorkspaceBodyModule}${editorToolWindowPanelModule}${editorToolWindowResizerModule}${editorWorkspaceMainColumnModule}${editorWorkspaceSurfaceModule}${editorErrorBannerModule}${uiPrelude}${footer}`;
+const output = `${header}${editorTabModelModule}${editorStyleModelModule}${editorThemeModelModule}${body}${workspaceDirectoryModelModule}${fileTreeViewModule}${projectPanelModule}${projectOptionsMenuModule}${commitPanelModule}${commitOptionsMenuModule}${gitActionFailureReporterModule}${stashShelveMenuModule}${commitLogMenuModule}${commitFileMenuModule}${commitLogGraphControllerModule}${commitLogFlatControllerModule}${commitLogListCommandModelModule}${commitLogScopeAnnouncementModule}${commitLogShortcutModelModule}${commitLogSelectionModelModule}${commitLogViewModelModule}${commitLogViewPreferencesModule}${namePromptModule}${commitSearchModelModule}${revisionPickerModule}${moveToPickerModule}${codePreviewCodeModule}${editorStatusFactsModule}${markdownModeSwitchModule}${imagePreviewPaneModule}${markdownPreviewPaneModule}${workspaceFileModelModule}${workspaceImagePreviewModule}${editorPathModelModule}${editorDocumentModelModule}${markdownScrollModelModule}${editorNavigationModelModule}${editorFileTemplateModelModule}${editorLanguageModelModule}${annotatePreviewModule}${repositoryVersionPreviewModule}${combinedDiffColorModelModule}${conflictMarkerModelModule}${diffPreviewModule}${projectSelectionModelModule}${terminalScreenModule}${editorTerminalTabModule}${editorTerminalAreaModule}${editorTerminalDockModule}${persistentTerminalDockOpenModule}${terminalPanelModule}${searchFileResultItemModule}${searchEverywhereModule}${showUsagesPopupModule}${quickOpenModule}${findScopeEditorModule}${findToolWindowModule}${searchReplaceConfirmationModule}${commitGraphStateModelModule}${commitGraphFoldBarModule}${commitGraphRowModule}${commitGraphModule}${commitLogModule}${commitLogDetailPaneModule}${commitLogToolbarModule}${commitLogFlatRowModule}${commitLogListStateModule}${measuringScreenModule}${editorErrorBoundaryModule}${editorMountModule}${editorGotoLinePopupModule}${editorFindBarModule}${editorStatusBarModule}${editorFileTabModule}${editorTabStripModule}${editorDiffTabModule}${editorConflictBarsModule}${editorSplitHeaderModule}${editorSplitPaneModule}${editorMainPaneModule}${editorSplitDividerModule}${editorDiffAreaModule}${editorAnnotateAreaModule}${findToolDockModule}${findToolPopupModule}${workspaceDirectoryPickerModule}${editorFileSurfaceModule}${editorWorkspaceShellModule}${editorWorkspaceBodyModule}${editorToolWindowPanelModule}${editorToolWindowResizerModule}${editorWorkspaceMainColumnModule}${editorWorkspaceSurfaceModule}${editorErrorBannerModule}${uiPrelude}${footer}`;
 const check = process.argv.includes('--check');
 
 if (check) {

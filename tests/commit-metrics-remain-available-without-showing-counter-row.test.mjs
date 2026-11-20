@@ -23,7 +23,7 @@ test('a commit refreshes the log so the new row appears without a manual reload'
   const commitAt = client.indexOf('const commit = React.useCallback(');
   const refreshAt = client.indexOf('await loadLog();', commitAt);
   assert.ok(refreshAt > commitAt, 'commit must await loadLog');
-  assert.match(client, /\[amend, commitMessage, commitSelection, git, loadLog, root, t\]/);
+  assert.match(client, /\[amend, commitMessage, commitSelection, git, loadLog, reportGitFailure, root, t\]/);
 });
 
 test('a change-tree directory carries its leaves and stages them in one action', () => {

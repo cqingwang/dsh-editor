@@ -23,7 +23,7 @@ test('a committed message can be put back with one click', () => {
 test('push has its own busy flag so committing stays possible', () => {
   assert.match(workspace, /const \[pushBusy, setPushBusy\] =\s+React\.useState\(false\);/u);
   const pushAt = workspace.indexOf('const pushNow = React.useCallback(');
-  const pushEnd = workspace.indexOf('}, [t]);', pushAt);
+  const pushEnd = workspace.indexOf('}, [reportGitFailure, t]);', pushAt);
   const body = workspace.slice(pushAt, pushEnd);
   /* The standalone push must not touch the commit busy flag. */
   assert.equal(body.includes('setCommitBusy'), false);

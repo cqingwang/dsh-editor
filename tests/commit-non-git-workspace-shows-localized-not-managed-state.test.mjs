@@ -10,6 +10,10 @@ const logToolbar = await readFile(new URL('src/client/components/commit/CommitLo
 const locales = await readFile(new URL('src/client/locales.ts', root), 'utf8');
 const workspace = await readFile(new URL('src/client/editor-workspace.tsx', root), 'utf8');
 const commit = await readFile(new URL('src/client/commit.ts', root), 'utf8');
+const reporter = await readFile(
+  new URL('src/client/components/commit/use-git-action-failure-reporter.ts', root),
+  'utf8',
+);
 const isGitRepositoryMissingMessage = loadTypeScriptFunction(commit, 'isGitRepositoryMissingMessage');
 
 test('Commit treats a non-git workspace as a normal state', () => {
@@ -26,7 +30,8 @@ test('Commit treats a non-git workspace as a normal state', () => {
     true,
   );
   assert.equal(isGitRepositoryMissingMessage('fatal: ambiguous argument HEAD'), false);
-  assert.match(workspace, /if \(isGitRepositoryMissingMessage\(message\)\)[\s\S]*?isRepo: false[\s\S]*?setCommitError\(null\)/u);
+  assert.match(workspace, /if \(isGitRepositoryMissingMessage\(message\)\)[\s\S]*?reportGitFailure\(failure\)/u);
+  assert.match(reporter, /isGitRepositoryMissingMessage\(message\)[\s\S]*?isRepo: false[\s\S]*?setCommitError\(null\)/u);
 });
 
 test('Git-only Commit actions are inert without a repository', () => {

@@ -21,6 +21,9 @@ function loadGraphWithFailure(initialGraph) {
         graph = typeof update === 'function' ? update(graph) : update;
       },
       setLogError: () => {},
+      reportGitFailure: (failure, setError) => {
+        setError(failure instanceof Error ? failure.message : String(failure));
+      },
     });
     return { loadGraph, current: () => graph };
   });

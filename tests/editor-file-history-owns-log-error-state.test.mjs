@@ -24,6 +24,10 @@ function historyCallbacks(callGit) {
     setLogDetail: () => {},
     setLogError: () => {},
     setCommitError: () => {},
+    reportGitFailure: (failure, setError) => {
+      const message = failure instanceof Error ? failure.message : String(failure);
+      setError(/not a git repository/iu.test(message) ? null : message);
+    },
   };
 }
 
