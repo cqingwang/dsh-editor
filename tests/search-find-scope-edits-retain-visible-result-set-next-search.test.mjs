@@ -40,7 +40,7 @@ test('A new Find search generation preserves results instead of blanking them', 
 test('Loading is reported in the header and only fills an otherwise empty list', () => {
   assert.match(
     findTool,
-    /state\.loading === true\s+\? t\('editor\.loading'\)\s+: fileFilterMode\s+\? t\('editor\.searchResultCount'[\s\S]{0,180}findToolResultSummary\(t, resultMatches, resultFiles\)/u,
+    /state\.loading === true\s+\? t\('editor\.loading'\)\s+: fileFilterMode\s+\? t\(state\.truncated === true \? 'editor\.searchResultCountTruncated' : 'editor\.searchResultCount'[\s\S]{0,180}findToolResultSummary\(t, resultMatches, resultFiles, state\.truncated === true\)/u,
   );
   assert.match(findTool, /state\.loading === true && occurrences\.length === 0/u);
 });

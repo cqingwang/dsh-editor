@@ -40,14 +40,18 @@ test('Find in Files popup keeps the query row to query, history and search filte
   const searchRowEnd = findTool.indexOf('{replaceExpanded ? (', searchRowStart);
   assert.ok(searchRowStart >= 0 && searchRowEnd > searchRowStart);
   const searchRow = findTool.slice(searchRowStart, searchRowEnd);
-  assert.match(searchRow, /findClearSearch/);
-  assert.match(searchRow, /floating === false[\s\S]*?findToolShowReplace/);
-  assert.match(searchRow, /data-dsh-find-search-new-line/);
+  assert.match(searchRow, /\{queryControl\}/);
+  assert.match(searchRow, /\{clearSearchControl\}/);
+  assert.match(searchRow, /\{searchHistoryControl\}/);
+  assert.match(searchRow, /\{searchNewLineControl\}/);
+  assert.match(searchRow, /\{searchFilterControls\}/);
+  assert.match(findTool, /const clearSearchControl =[\s\S]*?findClearSearch/);
+  assert.match(findTool, /const searchNewLineControl =[\s\S]*?data-dsh-find-search-new-line/);
 });
 
 test('Find in Files popup headers keep only filter and pin actions', () => {
   assert.match(findTool, /const popupHeaderActions = toolbarActions\.filter/);
-  assert.match(findTool, /actions=\{floating \? popupHeaderActions : toolbarActions\}/u);
+  assert.match(findTool, /actions=\{popupHeaderActions\}/u);
 });
 
 test('Find occurrence preview style is not overwritten by the preview pane style', () => {

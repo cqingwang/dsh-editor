@@ -10,14 +10,12 @@ const opener = source.slice(
 
 test('opening Find explicitly restores focus to its content query', () => {
   assert.match(opener, /window\.setTimeout\(\(\) => \{/);
-  assert.match(opener, /\[data-dsh-find-tool-window\] input\[role="combobox"\]/);
-  assert.match(opener, /\.focus\?\.\(\)/);
+  assert.match(opener, /const target = findToolFocusSelector\(surface, focusTarget\)/);
+  assert.match(opener, /document\.querySelector<HTMLElement>\(target\)\?\.focus\?\.\(\)/);
 });
 
 test('keyboard-open Find runs after the tool window state update', () => {
-  assert.ok(
-    opener.indexOf('setFindTool({') < opener.indexOf('[data-dsh-find-tool-window] input[role="combobox"]'),
-  );
+  assert.ok(opener.indexOf('else setFindTool(nextFindTool)') < opener.indexOf('const target ='));
 });
 
 test('the focus restore does not create another search or reset request state', () => {

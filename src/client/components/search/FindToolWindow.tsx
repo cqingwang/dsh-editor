@@ -2,6 +2,7 @@ import React from 'react';
 import { styles } from '../../ui/styles';
 import { CodePreviewCode } from '../commit/CodePreviewCode';
 import { MoveToPicker } from '../commit/MoveToPicker';
+import { EditorSplitDivider } from '../editor/EditorSplitDivider';
 import { dirname } from '../editor/editor-path-model';
 import { CompactActionBar } from '../ui/CompactActionBar';
 import { Icon, POPUP_ICON_SIZE } from '../ui/Icon';
@@ -11,12 +12,14 @@ import { trapDialogFocus } from '../ui/focus-trap';
 import type { ToolbarActionLike } from '../ui/toolbar-model';
 import { FindScopeEditor } from './FindScopeEditor';
 import { SearchFileResultItem } from './SearchFileResultItem';
+import type { FindToolSession } from './use-find-tool-sessions';
 import {
   centerPreviewLineInContainer,
   findSearchScopePresetAvailable,
   findFocusShouldReleaseOutsideSurface,
   findShouldRestoreFocusAfterResultsChange,
   findToolDisplayGroups,
+  findToolCompactCount,
   findToolGroupBoundaryTarget,
   findToolGroupId,
   findToolGroupTarget,
@@ -52,10 +55,20 @@ import {
   findToolReplaceHistoryActionPinned,
   findToolReplaceAdvanceIndex,
   findToolResultsAreCurrent,
+  FIND_TOOL_PREVIEW_DEFAULT_PERCENT,
+  clampFindPreviewPercent,
 } from '../../find-tool';
-import { editorFindResult, highlightParts, normalizeTextSearchContextFilter, readStoredText } from '../../terminal';
+import {
+  editorFindResult,
+  highlightParts,
+  normalizeTextSearchContextFilter,
+  readStoredNumber,
+  readStoredText,
+  writeStoredNumber,
+} from '../../terminal';
 
 type Translate = (key: string, params?: Record<string, unknown>) => string;
+const FIND_PREVIEW_PERCENT_STORAGE_KEY = 'dsh-editor.find.previewPercent';
 
 interface FindToolWindowState {
   query: string;
@@ -135,6 +148,10 @@ interface FindScopeValue {
 export interface FindToolWindowProps {
   t: Translate;
   state: FindToolWindowState;
+  tabs?: FindToolSession<FindToolWindowState>[];
+  activeTabId?: string | null;
+  onSelectFindToolTab?: (id: string) => void;
+  onCloseFindToolTab?: (id: string) => void;
   queryHistory?: string[];
   replaceHistory?: string[];
   onQuery: (value: string) => void;
@@ -187,6 +204,10 @@ export interface FindToolWindowProps {
 function FindToolWindowView({
   t,
   state,
+  tabs = [],
+  activeTabId = null,
+  onSelectFindToolTab,
+  onCloseFindToolTab,
   queryHistory,
   replaceHistory,
   onQuery,
@@ -274,10 +295,15 @@ function FindToolWindowView({
   const [focusedGroupPath, setFocusedGroupPath] = React.useState(null);
   const [previewOpen, setPreviewOpen] = React.useState(true);
   const [previewSoftWrap, setPreviewSoftWrap] = React.useState(true);
+  const [dockPreviewPercent, setDockPreviewPercent] = React.useState(() =>
+    clampFindPreviewPercent(readStoredNumber(FIND_PREVIEW_PERCENT_STORAGE_KEY, FIND_TOOL_PREVIEW_DEFAULT_PERCENT)),
+  );
+  const [dockPreviewDragging, setDockPreviewDragging] = React.useState(false);
   const [fileMaskEnabled, setFileMaskEnabled] = React.useState(() => String(state.fileMask ?? '').trim() !== '');
   const [fileMaskDraft, setFileMaskDraft] = React.useState(() => state.fileMask ?? '');
   const [fileMaskHistory, setFileMaskHistory] = React.useState(readFileMaskHistory);
   const [fileMaskMenu, setFileMaskMenu] = React.useState(null);
+  const [dockFileMaskOpen, setDockFileMaskOpen] = React.useState(false);
   const [directoryPicker, setDirectoryPicker] = React.useState<DirectoryPickerState | null>(null);
   const [findGroupBy, setFindGroupBy] = React.useState(() =>
     normalizeFindGroupBy(readStoredText('dsh-editor.find.groupBy', 'file')),
@@ -612,10 +638,10 @@ function FindToolWindowView({
           : occurrences.length === 0
             ? t('editor.findToolNoMatches')
             : fileFilterMode
-              ? t('editor.searchResultCount', {
+              ? t(state.truncated === true ? 'editor.searchResultCountTruncated' : 'editor.searchResultCount', {
                   count: occurrences.length,
                 })
-              : findToolResultSummary(t, resultMatches, resultFiles);
+              : findToolResultSummary(t, resultMatches, resultFiles, state.truncated === true);
   const activeFindSearchOptionIds = searchEverywhereActiveOptionIds({
     caseSensitive: state.caseSensitive === true,
     wholeWords: state.wholeWords === true,
@@ -1126,6 +1152,12 @@ function FindToolWindowView({
     if (!replaceExpanded || replaceFocusRequest === 0) return;
     window.setTimeout(() => replaceInputRef.current?.focus?.(), 0);
   }, [replaceFocusRequest, replaceExpanded]);
+  React.useEffect(() => {
+    if (floating || activeTabId === null) return;
+    const tab = rootRef.current?.querySelector<HTMLElement>(`[data-dsh-find-session-tab="${activeTabId}"]`) ?? null;
+    tab?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+    tab?.focus?.({ preventScroll: true });
+  }, [activeTabId, floating]);
   const openFindResultMenuAt = (x: number, y: number, result: FindToolOccurrenceRow | null): void => {
     if (result?.kind !== 'file' && result?.kind !== 'text') return;
     setResultMenu({
@@ -1302,6 +1334,25 @@ function FindToolWindowView({
               onClick: rerunFindSearch,
               group: 'navigate',
               pinned: true,
+            },
+            {
+              id: 'replaceMode',
+              icon: 'replace',
+              label: replaceExpanded ? t('editor.findToolHideReplace') : t('editor.findToolShowReplace'),
+              active: replaceExpanded,
+              onClick: () => {
+                if (replaceExpanded) setReplaceExpanded(false);
+                else focusReplaceInput();
+              },
+              group: 'replace',
+            },
+            {
+              id: 'newLine',
+              icon: 'wrap',
+              label: t('editor.findNewLine'),
+              active: searchNewLine,
+              onClick: () => setSearchNewLine((value) => !value),
+              group: 'search',
             },
           ]),
       {
@@ -1653,6 +1704,218 @@ function FindToolWindowView({
     event.stopPropagation();
     onClose();
   };
+  const resultCountText =
+    state.loading === true
+      ? t('editor.loading')
+      : fileFilterMode
+        ? t(state.truncated === true ? 'editor.searchResultCountTruncated' : 'editor.searchResultCount', {
+            count: occurrences.length,
+          })
+        : findToolResultSummary(t, resultMatches, resultFiles, state.truncated === true);
+  const resultCount = findToolCompactCount(
+    fileFilterMode ? occurrences.length : resultMatches,
+    resultFiles,
+    fileFilterMode,
+    state.truncated === true,
+  );
+  const compactResultCount = (
+    <span
+      data-dsh-find-count-compact=''
+      style={styles.findToolCompactCount}>
+      <span style={styles.findToolCompactCountGroup}>
+        {resultCount.truncated ? '≥' : ''}
+        {resultCount.count}
+        <Icon
+          name='matchCount'
+          size={13}
+        />
+      </span>
+      {resultCount.fileCount === null ? null : (
+        <>
+          <span style={styles.findToolCompactCountSeparator}>/</span>
+          <span style={styles.findToolCompactCountGroup}>
+            {resultCount.fileCount}
+            <Icon
+              name='fileStack'
+              size={13}
+            />
+          </span>
+        </>
+      )}
+    </span>
+  );
+  const queryControl = (
+    <QueryField
+      ref={queryInputRef}
+      style={{
+        ...styles.findToolInput,
+        ...(searchNewLine ? styles.findToolMultilineInput : null),
+      }}
+      autoFocus={true}
+      value={state.query}
+      placeholder={t(fileFilterMode ? 'editor.findFileFilterPlaceholder' : 'editor.findToolSearchPlaceholder')}
+      aria-label={t(fileFilterMode ? 'editor.findFileFilterPlaceholder' : 'editor.findToolSearchPlaceholder')}
+      role='combobox'
+      aria-autocomplete='list'
+      aria-expanded={occurrences.length > 0}
+      aria-controls={FIND_TOOL_LISTBOX_ID}
+      aria-activedescendant={active === null ? undefined : findToolOptionId(active.rowKey)}
+      onChange={(event) => onQuery(event.target.value)}
+      onKeyDown={(event) => {
+        if (event.nativeEvent.isComposing === true) return;
+        if (searchNewLine && event.key === 'Enter' && event.metaKey !== true && event.ctrlKey !== true) return;
+        if (
+          floating &&
+          event.key === 'Enter' &&
+          (event.metaKey === true || event.ctrlKey === true) &&
+          event.altKey !== true &&
+          event.shiftKey !== true &&
+          resultRowCount > 0
+        ) {
+          event.preventDefault();
+          event.stopPropagation();
+          requestOpenInFindWindow();
+          return;
+        }
+        if (
+          (event.key === 'ContextMenu' || (event.shiftKey === true && event.key === 'F10')) &&
+          active !== null &&
+          (active.kind === 'file' || active.kind === 'text')
+        ) {
+          event.preventDefault();
+          event.stopPropagation();
+          const rect = occurrenceRefs.current.get(active.rowKey)?.getBoundingClientRect?.();
+          openFindResultMenuAt(rect?.left ?? 20, rect?.bottom ?? 20, active);
+        } else if (event.altKey === true && event.key === 'ArrowDown') {
+          openHistoryMenu(event, 'query');
+          return;
+        } else handleListKeyDown(event);
+      }}></QueryField>
+  );
+  const searchFilterControls = (
+    <span
+      style={styles.findToolFilterGroup}
+      role='group'
+      aria-label={t('editor.searchFilter')}>
+      <ToolbarButton
+        style={styles.findToolFilterButton}
+        icon='matchCase'
+        label={t('editor.searchMatchCase')}
+        active={state.caseSensitive === true}
+        onClick={onToggleCaseSensitive}
+      />
+      <ToolbarButton
+        style={styles.findToolFilterButton}
+        icon='wholeWords'
+        label={t('editor.searchWholeWords')}
+        active={state.wholeWords === true}
+        disabled={state.regex === true}
+        onClick={onToggleWholeWords}
+      />
+      <ToolbarButton
+        style={styles.findToolFilterButton}
+        icon='regex'
+        label={t('editor.searchRegex')}
+        active={fileFilterMode !== true && state.regex === true}
+        disabled={fileFilterMode}
+        onClick={onToggleRegex}
+      />
+    </span>
+  );
+  const fileMaskControl = (
+    <label
+      className='dsh-editor-find-file-mask-control'
+      data-dsh-find-file-mask=''
+      style={styles.findToolFileMaskControl}>
+      <input
+        type='checkbox'
+        checked={fileMaskEnabled}
+        aria-label={t('editor.searchFileMaskLabel')}
+        title={t('editor.searchFileMaskLabel')}
+        onChange={(event) => {
+          const enabled = event.target.checked;
+          setFileMaskEnabled(enabled);
+          onFileMaskChange(enabled ? fileMaskDraft : '');
+          window.setTimeout(() => {
+            (enabled ? fileMaskInputRef : queryInputRef).current?.focus?.();
+          }, 0);
+        }}
+      />
+      <span className='dsh-editor-find-file-mask-label'>{`${t('editor.searchFileMaskLabel')}:`}</span>
+      <input
+        ref={fileMaskInputRef}
+        className='dsh-editor-find-file-mask-input'
+        style={styles.findToolFileMaskInput}
+        value={fileMaskDraft}
+        disabled={fileMaskEnabled !== true}
+        placeholder='.ts, .md'
+        aria-label={t('editor.searchFileMask')}
+        onChange={(event) => {
+          const value = event.target.value;
+          setFileMaskDraft(value);
+          if (fileMaskEnabled) onFileMaskChange(value);
+        }}
+        onBlur={() => {
+          if (fileMaskDraft.trim() !== '') setFileMaskHistory(writeFileMaskHistory(fileMaskDraft));
+        }}
+        onKeyDown={(event) => {
+          if (event.nativeEvent.isComposing === true) return;
+          if (event.key !== 'Enter') return;
+          event.preventDefault();
+          acceptFileMask(fileMaskDraft);
+        }}
+      />
+      <ToolbarButton
+        icon='chevronDown'
+        label={t('editor.findFileMaskHistory')}
+        onClick={openFileMaskMenu}
+        ariaHasPopup='menu'
+        ariaExpanded={fileMaskMenu !== null}
+      />
+    </label>
+  );
+  const searchHistoryControl = (
+    <ToolbarButton
+      icon={floating ? 'chevronDown' : 'history'}
+      label={t('editor.findSearchHistory')}
+      ariaHasPopup='menu'
+      ariaExpanded={historyMenu?.title === t('editor.findSearchHistory')}
+      onClick={(event) => openHistoryMenu(event, 'query')}
+    />
+  );
+  const clearSearchControl =
+    query === '' ? null : (
+      <ToolbarButton
+        icon='close'
+        label={t('editor.findClearSearch')}
+        style={styles.findToolClearSearch}
+        onClick={() => {
+          onQuery('');
+          window.setTimeout(() => queryInputRef.current?.focus?.(), 0);
+        }}
+      />
+    );
+  const searchNewLineControl = (
+    <label style={styles.findToolNewLine}>
+      <input
+        type='checkbox'
+        data-dsh-find-search-new-line=''
+        aria-label={t('editor.findNewLine')}
+        checked={searchNewLine}
+        onChange={(event) => setSearchNewLine(event.target.checked)}
+      />
+      <span>{t('editor.findNewLine')}</span>
+    </label>
+  );
+  const tabItems =
+    tabs.length > 0
+      ? tabs
+      : [
+          {
+            id: activeTabId ?? 'active',
+            state,
+          },
+        ];
   return (
     <div
       style={
@@ -1681,271 +1944,187 @@ function FindToolWindowView({
         style={floating ? styles.findToolPopupControls : styles.findToolDockControls}
         className='dsh-editor-find-controls'
         data-dsh-find-controls={floating ? undefined : ''}>
-        <div
-          style={
-            floating
-              ? {
-                  ...styles.findToolToolbar,
-                  ...styles.findToolPopupToolbar,
-                  cursor: 'move',
-                  userSelect: 'none',
-                  touchAction: 'none',
-                }
-              : styles.findToolToolbar
-          }
-          data-dsh-find-popup-drag={floating ? '' : undefined}
-          onPointerDown={
-            floating
-              ? (event) => {
-                  const target = event.target instanceof Element ? event.target : null;
-                  if (
-                    target !== null &&
-                    target.closest('button, input, textarea, select, a, [role="menuitem"]') !== null
-                  )
-                    return;
-                  onPopupDragStart?.(event);
-                }
-              : undefined
-          }>
-          {floating ? null : (
-            <Icon
-              name='findWindow'
-              size={POPUP_ICON_SIZE}
-            />
-          )}
-          <span
-            className='dsh-editor-find-tool-title'
+        {floating ? (
+          <div
             style={{
-              ...styles.findToolTitle,
-              ...(floating ? styles.findToolPopupTitle : null),
+              ...styles.findToolToolbar,
+              ...styles.findToolPopupToolbar,
+              cursor: 'move',
+              userSelect: 'none',
+              touchAction: 'none',
             }}
-            title={query}>
-            {surfaceTitle}
-          </span>
-          {floating && !hasFindToolContentQuery(query) ? null : (
+            data-dsh-find-popup-drag=''
+            onPointerDown={(event) => {
+              const target = event.target instanceof Element ? event.target : null;
+              if (target !== null && target.closest('button, input, textarea, select, a, [role="menuitem"]') !== null)
+                return;
+              onPopupDragStart?.(event);
+            }}>
             <span
-              className='dsh-editor-find-tool-count'
-              style={styles.findToolCount}>
-              {state.loading === true
-                ? t('editor.loading')
-                : fileFilterMode
-                  ? t('editor.searchResultCount', {
-                      count: occurrences.length,
-                    })
-                  : findToolResultSummary(t, resultMatches, resultFiles)}
+              className='dsh-editor-find-tool-title'
+              style={{
+                ...styles.findToolTitle,
+                ...styles.findToolPopupTitle,
+              }}
+              title={query}>
+              {surfaceTitle}
             </span>
-          )}
-          <span
-            className='dsh-editor-find-tool-spacer'
-            style={styles.findToolSpacer}
-          />
-          <label
-            className='dsh-editor-find-file-mask-control'
-            style={styles.findToolFileMaskControl}>
-            <input
-              type='checkbox'
-              checked={fileMaskEnabled}
-              aria-label={t('editor.searchFileMaskLabel')}
-              title={t('editor.searchFileMaskLabel')}
-              onChange={(event) => {
-                const enabled = event.target.checked;
-                setFileMaskEnabled(enabled);
-                onFileMaskChange(enabled ? fileMaskDraft : '');
-                window.setTimeout(() => {
-                  (enabled ? fileMaskInputRef : queryInputRef).current?.focus?.();
-                }, 0);
-              }}
+            {!hasFindToolContentQuery(query) ? null : (
+              <span
+                className='dsh-editor-find-tool-count'
+                title={resultCountText}
+                aria-label={resultCountText}
+                style={styles.findToolCount}>
+                {compactResultCount}
+              </span>
+            )}
+            <span
+              className='dsh-editor-find-tool-spacer'
+              style={styles.findToolSpacer}
             />
-            <span className='dsh-editor-find-file-mask-label'>{`${t('editor.searchFileMaskLabel')}:`}</span>
-            <input
-              ref={fileMaskInputRef}
-              className='dsh-editor-find-file-mask-input'
-              style={styles.findToolFileMaskInput}
-              value={fileMaskDraft}
-              disabled={fileMaskEnabled !== true}
-              placeholder='.ts, .md'
-              aria-label={t('editor.searchFileMask')}
-              onChange={(event) => {
-                const value = event.target.value;
-                setFileMaskDraft(value);
-                if (fileMaskEnabled) onFileMaskChange(value);
-              }}
-              onBlur={() => {
-                if (fileMaskDraft.trim() !== '') setFileMaskHistory(writeFileMaskHistory(fileMaskDraft));
-              }}
-              onKeyDown={(event) => {
-                if (event.nativeEvent.isComposing === true) return;
-                if (event.key !== 'Enter') return;
-                event.preventDefault();
-                acceptFileMask(fileMaskDraft);
-              }}
-            />
-            <ToolbarButton
-              icon='chevronDown'
-              label={t('editor.findFileMaskHistory')}
-              onClick={openFileMaskMenu}
-              ariaHasPopup='menu'
-              ariaExpanded={fileMaskMenu !== null}
-            />
-          </label>
-          <span
-            style={floating ? undefined : styles.findToolDockWindowActions}
-            data-dsh-find-window-actions={floating ? undefined : ''}>
+            {fileMaskControl}
             <CompactActionBar
-              actions={floating ? popupHeaderActions : toolbarActions}
+              actions={popupHeaderActions}
               t={t}
               ariaLabel={t('editor.findInFilesAction')}
-              className={floating ? undefined : 'dsh-editor-find-dock-header-actions'}
-              style={{
-                ...styles.findToolHeaderActions,
-                ...(floating ? null : styles.findToolDockHeaderActions),
-              }}
+              style={styles.findToolHeaderActions}
             />
-            {floating ? null : (
+          </div>
+        ) : (
+          <div
+            style={styles.findToolDockHeader}
+            data-dsh-find-dock-header=''>
+            <div style={styles.findToolDockScroll}>
+              <div
+                style={styles.findToolDockTabList}
+                data-dsh-find-tab-list-wrapper=''>
+                <div
+                  role='tablist'
+                  aria-label={t('editor.findInFilesTitle')}
+                  style={styles.findToolDockTabScroll}>
+                  {tabItems.map((tab) => {
+                    const tabQuery = typeof tab.state.query === 'string' ? tab.state.query.trim() : '';
+                    const label = tabQuery === '' ? t('editor.findToolDockEmptyTitle') : tabQuery;
+                    const selected = tab.id === activeTabId;
+                    return (
+                      <span
+                        key={tab.id}
+                        style={{
+                          ...styles.findToolDockTab,
+                          ...(selected ? styles.findToolDockTabActive : null),
+                        }}>
+                        <button
+                          type='button'
+                          role='tab'
+                          aria-selected={selected}
+                          tabIndex={selected ? 0 : -1}
+                          title={tabQuery}
+                          data-dsh-find-session-tab={tab.id}
+                          style={styles.findToolDockTabLabel}
+                          onClick={() => onSelectFindToolTab?.(tab.id)}>
+                          {label}
+                        </button>
+                        <button
+                          type='button'
+                          aria-label={t('editor.findToolCloseTab', { query: label })}
+                          title={t('editor.findToolCloseTab', { query: label })}
+                          data-dsh-find-session-close={tab.id}
+                          style={styles.findToolDockTabClose}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            onCloseFindToolTab?.(tab.id);
+                          }}>
+                          ×
+                        </button>
+                      </span>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+            <span
+              style={styles.findToolDockFixedTools}
+              data-dsh-find-window-actions={floating ? undefined : ''}>
+              {!hasFindToolContentQuery(query) ? null : (
+                <span
+                  className='dsh-editor-find-tool-count'
+                  title={resultCountText}
+                  aria-label={resultCountText}
+                  style={styles.findToolCount}>
+                  {compactResultCount}
+                </span>
+              )}
+              {searchFilterControls}
+              <span style={{ position: 'relative' }}>
+                <ToolbarButton
+                  icon='file'
+                  label={
+                    fileMaskDraft.trim() === ''
+                      ? t('editor.searchFileMask')
+                      : `${t('editor.searchFileMask')}: ${fileMaskDraft}`
+                  }
+                  active={fileMaskEnabled === true || fileMaskDraft.trim() !== ''}
+                  ariaHasPopup='dialog'
+                  ariaExpanded={dockFileMaskOpen}
+                  onClick={() => {
+                    setDockFileMaskOpen((open) => !open);
+                    window.setTimeout(() => fileMaskInputRef.current?.focus?.(), 0);
+                  }}
+                />
+                {dockFileMaskOpen ? (
+                  <div
+                    style={styles.findToolDockFileMaskPopover}
+                    data-dsh-find-dock-file-mask-popover=''>
+                    {fileMaskControl}
+                  </div>
+                ) : null}
+              </span>
+              <CompactActionBar
+                actions={toolbarActions}
+                t={t}
+                ariaLabel={t('editor.findInFilesAction')}
+                className='dsh-editor-find-dock-header-actions'
+                style={{
+                  ...styles.findToolHeaderActions,
+                  flex: '0 0 28px',
+                  width: 28,
+                  minWidth: 28,
+                }}
+              />
               <span
-                style={styles.findToolWindowControls}
+                style={{
+                  ...styles.findToolWindowControls,
+                  marginLeft: 0,
+                  paddingLeft: 0,
+                  borderLeft: 'none',
+                }}
                 data-dsh-find-window-controls=''>
                 <ToolbarButton
                   icon={minimized ? 'expand' : 'hide'}
                   label={t(minimized ? 'editor.findToolRestore' : 'editor.findToolMinimize')}
                   onClick={onMinimize}
                 />
-                <ToolbarButton
-                  icon='close'
-                  label={t('editor.findToolClose')}
-                  onClick={onClose}
-                />
               </span>
-            )}
-          </span>
-        </div>
-        <div
-          style={
-            floating
-              ? {
-                  ...styles.findToolSearchRow,
-                  ...styles.findToolPopupSearchRow,
-                }
-              : styles.findToolSearchRow
-          }>
-          <Icon
-            name='search'
-            size={POPUP_ICON_SIZE}
-          />
-          <QueryField
-            ref={queryInputRef}
+            </span>
+          </div>
+        )}
+        {floating ? (
+          <div
             style={{
-              ...styles.findToolInput,
-              ...(searchNewLine ? styles.findToolMultilineInput : null),
-            }}
-            autoFocus={true}
-            value={state.query}
-            placeholder={t(fileFilterMode ? 'editor.findFileFilterPlaceholder' : 'editor.findToolSearchPlaceholder')}
-            aria-label={t(fileFilterMode ? 'editor.findFileFilterPlaceholder' : 'editor.findToolSearchPlaceholder')}
-            role='combobox'
-            aria-autocomplete='list'
-            aria-expanded={occurrences.length > 0}
-            aria-controls={FIND_TOOL_LISTBOX_ID}
-            aria-activedescendant={active === null ? undefined : findToolOptionId(active.rowKey)}
-            onChange={(event) => onQuery(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.nativeEvent.isComposing === true) return;
-              if (searchNewLine && event.key === 'Enter' && event.metaKey !== true && event.ctrlKey !== true) return;
-              if (
-                floating &&
-                event.key === 'Enter' &&
-                (event.metaKey === true || event.ctrlKey === true) &&
-                event.altKey !== true &&
-                event.shiftKey !== true &&
-                resultRowCount > 0
-              ) {
-                event.preventDefault();
-                event.stopPropagation();
-                requestOpenInFindWindow();
-                return;
-              }
-              if (
-                (event.key === 'ContextMenu' || (event.shiftKey === true && event.key === 'F10')) &&
-                active !== null &&
-                (active.kind === 'file' || active.kind === 'text')
-              ) {
-                event.preventDefault();
-                event.stopPropagation();
-                const rect = occurrenceRefs.current.get(active.rowKey)?.getBoundingClientRect?.();
-                openFindResultMenuAt(rect?.left ?? 20, rect?.bottom ?? 20, active);
-              } else if (event.altKey === true && event.key === 'ArrowDown') {
-                openHistoryMenu(event, 'query');
-                return;
-              } else handleListKeyDown(event);
-            }}></QueryField>
-          {query === '' ? null : (
-            <ToolbarButton
-              icon='close'
-              label={t('editor.findClearSearch')}
-              style={styles.findToolClearSearch}
-              onClick={() => {
-                onQuery('');
-                window.setTimeout(() => queryInputRef.current?.focus?.(), 0);
-              }}
+              ...styles.findToolSearchRow,
+              ...styles.findToolPopupSearchRow,
+            }}>
+            <Icon
+              name='search'
+              size={POPUP_ICON_SIZE}
             />
-          )}
-          <ToolbarButton
-            icon={floating ? 'chevronDown' : 'history'}
-            label={t('editor.findSearchHistory')}
-            ariaHasPopup='menu'
-            ariaExpanded={historyMenu?.title === t('editor.findSearchHistory')}
-            onClick={(event) => openHistoryMenu(event, 'query')}
-          />
-          {floating === false ? (
-            <ToolbarButton
-              icon='replace'
-              label={replaceExpanded ? t('editor.findToolHideReplace') : t('editor.findToolShowReplace')}
-              active={replaceExpanded}
-              onClick={() => {
-                if (replaceExpanded) {
-                  setReplaceExpanded(false);
-                  return;
-                }
-                focusReplaceInput();
-              }}
-            />
-          ) : null}
-          <label style={styles.findToolNewLine}>
-            <input
-              type='checkbox'
-              data-dsh-find-search-new-line=''
-              aria-label={t('editor.findNewLine')}
-              checked={searchNewLine}
-              onChange={(event) => setSearchNewLine(event.target.checked)}
-            />
-            <span>{t('editor.findNewLine')}</span>
-          </label>
-          <span
-            style={styles.findToolFilterGroup}
-            role='group'
-            aria-label={t('editor.searchFilter')}>
-            <ToolbarButton
-              icon='matchCase'
-              label={t('editor.searchMatchCase')}
-              active={state.caseSensitive === true}
-              onClick={onToggleCaseSensitive}
-            />
-            <ToolbarButton
-              icon='wholeWords'
-              label={t('editor.searchWholeWords')}
-              active={state.wholeWords === true}
-              disabled={state.regex === true}
-              onClick={onToggleWholeWords}
-            />
-            <ToolbarButton
-              icon='regex'
-              label={t('editor.searchRegex')}
-              active={fileFilterMode !== true && state.regex === true}
-              disabled={fileFilterMode}
-              onClick={onToggleRegex}
-            />
-          </span>
-        </div>
+            {queryControl}
+            {clearSearchControl}
+            {searchHistoryControl}
+            {searchNewLineControl}
+            {searchFilterControls}
+          </div>
+        ) : null}
         {replaceExpanded && !fileFilterMode ? (
           <div style={styles.findToolReplaceRow}>
             <Icon
@@ -2014,148 +2193,152 @@ function FindToolWindowView({
             />
           </div>
         ) : null}
-        <div
-          style={
-            floating
-              ? {
-                  ...styles.findToolScopeRow,
-                  ...styles.findToolPopupScopeRow,
-                }
-              : styles.findToolScopeRow
-          }
-          data-dsh-find-scope=''>
+        {floating ? (
           <div
-            className='dsh-editor-find-scope-mode-group'
-            role='group'
-            aria-label={t('editor.findScopeModeGroup')}
-            style={styles.findToolScopeModeGroup}>
-            {scopeModeOptions.map((scope) => (
-              <button
-                key={scope.id}
-                ref={(node) => {
-                  if (node === null) scopeModeButtonRefs.current.delete(scope.id);
-                  else scopeModeButtonRefs.current.set(scope.id, node);
-                }}
-                type='button'
-                disabled={scope.disabled}
-                tabIndex={scopeMode === scope.id ? 0 : -1}
-                data-dsh-find-scope-mode={scope.id}
-                aria-pressed={scopeMode === scope.id}
-                style={{
-                  ...styles.findToolScopeButton,
-                  ...(scopeMode === scope.id ? styles.findToolScopeButtonActive : null),
-                }}
-                onClick={() => {
-                  selectFindScopeMode(scope.id);
-                  window.setTimeout(() => queryInputRef.current?.focus?.(), 0);
-                }}
-                onKeyDown={(event) => handleFindScopeModeKeyDown(event, scope.id)}>
-                {scope.label}
-              </button>
-            ))}
-          </div>
-          {scopeMode === 'directory' ? (
-            <React.Fragment>
-              <input
-                style={styles.findToolScopeDirectoryInput}
-                value={scopeDirectoryDraft}
-                placeholder={t('editor.findScopeDirectoryPlaceholder')}
-                aria-label={t('editor.findScopeDirectory')}
-                onChange={(event) => {
-                  const value = event.target.value;
-                  setScopeDirectoryDraft(value);
-                  emitFindScopeChange('directory', effectiveScopePreset, value);
-                }}
-                onKeyDown={(event) => {
-                  if (event.shiftKey === true && event.key === 'Enter') {
-                    event.preventDefault();
-                    openFindDirectoryPicker();
+            style={
+              floating
+                ? {
+                    ...styles.findToolScopeRow,
+                    ...styles.findToolPopupScopeRow,
                   }
-                }}
-              />
-              <button
-                type='button'
-                style={styles.findToolScopeMore}
-                title={`${t('editor.findSelectDirectory')} (⇧⏎)`}
-                aria-label={t('editor.findSelectDirectory')}
-                aria-keyshortcuts='Shift+Enter'
-                onClick={openFindDirectoryPicker}>
-                …
-              </button>
-              <button
-                type='button'
-                style={{
-                  ...styles.findToolScopeMore,
-                  ...(scopeRecursive === true ? styles.findToolScopeButtonActive : null),
-                }}
-                title={t('editor.findScopeSearchRecursively')}
-                aria-label={t('editor.findScopeSearchRecursively')}
-                aria-pressed={scopeRecursive === true}
-                onClick={toggleFindDirectoryRecursive}>
-                <Icon
-                  name='project'
-                  size={POPUP_ICON_SIZE}
-                />
-              </button>
-            </React.Fragment>
-          ) : scopeMode === 'scope' ? (
-            <>
-              <select
-                style={styles.findToolScopeSelect}
-                value={effectiveScopePreset}
-                aria-label={t('editor.findScopeScope')}
-                onChange={(event) => selectFindScopePreset(event.target.value)}>
-                <option value='projectFiles'>{t('editor.findScopeProjectFiles')}</option>
-                <option
-                  value='gitNonIgnoredFiles'
-                  disabled={gitAvailable !== true}>
-                  {t('editor.findScopeGitNonIgnoredFiles')}
-                </option>
-                <option
-                  value='gitTrackedFiles'
-                  disabled={gitAvailable !== true}>
-                  {t('editor.findScopeGitTrackedFiles')}
-                </option>
-                <option
-                  value='recentlyViewedFiles'
-                  disabled={recentFilePaths.length === 0}>
-                  {t('editor.findScopeRecentlyViewedFiles')}
-                </option>
-                <option
-                  value='openFiles'
-                  disabled={openFilePaths.length === 0}>
-                  {t('editor.findScopeOpenFiles')}
-                </option>
-                <option
-                  value='currentFile'
-                  disabled={activeFilePath === null}>
-                  {t('editor.findScopeCurrentFile')}
-                </option>
-                <option
-                  value='changedFiles'
-                  disabled={changedFilePaths.length === 0}>
-                  {t('editor.findScopeChangedFiles')}
-                </option>
-                {(Array.isArray(customScopes) ? customScopes : []).map((scope) => (
-                  <option
+                : styles.findToolScopeRow
+            }
+            data-dsh-find-scope=''>
+            {floating ? (
+              <div
+                className='dsh-editor-find-scope-mode-group'
+                role='group'
+                aria-label={t('editor.findScopeModeGroup')}
+                style={styles.findToolScopeModeGroup}>
+                {scopeModeOptions.map((scope) => (
+                  <button
                     key={scope.id}
-                    value={`custom:${scope.id}`}>
-                    {scope.name}
-                  </option>
+                    ref={(node) => {
+                      if (node === null) scopeModeButtonRefs.current.delete(scope.id);
+                      else scopeModeButtonRefs.current.set(scope.id, node);
+                    }}
+                    type='button'
+                    disabled={scope.disabled}
+                    tabIndex={scopeMode === scope.id ? 0 : -1}
+                    data-dsh-find-scope-mode={scope.id}
+                    aria-pressed={scopeMode === scope.id}
+                    style={{
+                      ...styles.findToolScopeButton,
+                      ...(scopeMode === scope.id ? styles.findToolScopeButtonActive : null),
+                    }}
+                    onClick={() => {
+                      selectFindScopeMode(scope.id);
+                      window.setTimeout(() => queryInputRef.current?.focus?.(), 0);
+                    }}
+                    onKeyDown={(event) => handleFindScopeModeKeyDown(event, scope.id)}>
+                    {scope.label}
+                  </button>
                 ))}
-              </select>
-              <button
-                type='button'
-                ref={scopeEditorButtonRef}
-                style={styles.findToolScopeMore}
-                title={t('editor.findEditScopes')}
-                aria-label={t('editor.findEditScopes')}
-                onClick={() => setScopeEditorOpen(true)}>
-                …
-              </button>
-            </>
-          ) : null}
-        </div>
+              </div>
+            ) : null}
+            {scopeMode === 'directory' ? (
+              <React.Fragment>
+                <input
+                  style={styles.findToolScopeDirectoryInput}
+                  value={scopeDirectoryDraft}
+                  placeholder={t('editor.findScopeDirectoryPlaceholder')}
+                  aria-label={t('editor.findScopeDirectory')}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    setScopeDirectoryDraft(value);
+                    emitFindScopeChange('directory', effectiveScopePreset, value);
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.shiftKey === true && event.key === 'Enter') {
+                      event.preventDefault();
+                      openFindDirectoryPicker();
+                    }
+                  }}
+                />
+                <button
+                  type='button'
+                  style={styles.findToolScopeMore}
+                  title={`${t('editor.findSelectDirectory')} (⇧⏎)`}
+                  aria-label={t('editor.findSelectDirectory')}
+                  aria-keyshortcuts='Shift+Enter'
+                  onClick={openFindDirectoryPicker}>
+                  …
+                </button>
+                <button
+                  type='button'
+                  style={{
+                    ...styles.findToolScopeMore,
+                    ...(scopeRecursive === true ? styles.findToolScopeButtonActive : null),
+                  }}
+                  title={t('editor.findScopeSearchRecursively')}
+                  aria-label={t('editor.findScopeSearchRecursively')}
+                  aria-pressed={scopeRecursive === true}
+                  onClick={toggleFindDirectoryRecursive}>
+                  <Icon
+                    name='project'
+                    size={POPUP_ICON_SIZE}
+                  />
+                </button>
+              </React.Fragment>
+            ) : scopeMode === 'scope' ? (
+              <>
+                <select
+                  style={styles.findToolScopeSelect}
+                  value={effectiveScopePreset}
+                  aria-label={t('editor.findScopeScope')}
+                  onChange={(event) => selectFindScopePreset(event.target.value)}>
+                  <option value='projectFiles'>{t('editor.findScopeProjectFiles')}</option>
+                  <option
+                    value='gitNonIgnoredFiles'
+                    disabled={gitAvailable !== true}>
+                    {t('editor.findScopeGitNonIgnoredFiles')}
+                  </option>
+                  <option
+                    value='gitTrackedFiles'
+                    disabled={gitAvailable !== true}>
+                    {t('editor.findScopeGitTrackedFiles')}
+                  </option>
+                  <option
+                    value='recentlyViewedFiles'
+                    disabled={recentFilePaths.length === 0}>
+                    {t('editor.findScopeRecentlyViewedFiles')}
+                  </option>
+                  <option
+                    value='openFiles'
+                    disabled={openFilePaths.length === 0}>
+                    {t('editor.findScopeOpenFiles')}
+                  </option>
+                  <option
+                    value='currentFile'
+                    disabled={activeFilePath === null}>
+                    {t('editor.findScopeCurrentFile')}
+                  </option>
+                  <option
+                    value='changedFiles'
+                    disabled={changedFilePaths.length === 0}>
+                    {t('editor.findScopeChangedFiles')}
+                  </option>
+                  {(Array.isArray(customScopes) ? customScopes : []).map((scope) => (
+                    <option
+                      key={scope.id}
+                      value={`custom:${scope.id}`}>
+                      {scope.name}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type='button'
+                  ref={scopeEditorButtonRef}
+                  style={styles.findToolScopeMore}
+                  title={t('editor.findEditScopes')}
+                  aria-label={t('editor.findEditScopes')}
+                  onClick={() => setScopeEditorOpen(true)}>
+                  …
+                </button>
+              </>
+            ) : null}
+          </div>
+        ) : null}
         {state.error !== null ? (
           <div
             style={styles.searchEverywhereError}
@@ -2177,7 +2360,14 @@ function FindToolWindowView({
         style={floating ? styles.findToolResultsStack : styles.findToolDockSplit}
         data-dsh-find-results-layout={floating ? 'stack' : 'split'}>
         <div
-          style={floating ? styles.findToolResultsStack : styles.findToolDockResultsPane}
+          style={
+            floating
+              ? styles.findToolResultsStack
+              : {
+                  ...styles.findToolDockResultsPane,
+                  flex: previewOpen ? `${100 - dockPreviewPercent} 1 0` : '1 1 auto',
+                }
+          }
           data-dsh-find-results-pane=''>
           <div
             ref={listRef}
@@ -2469,6 +2659,19 @@ function FindToolWindowView({
             ) : null}
           </div>
         </div>
+        {floating || !previewOpen ? null : (
+          <EditorSplitDivider
+            percent={100 - dockPreviewPercent}
+            dragging={dockPreviewDragging}
+            title={t('editor.findPreviewSplitter')}
+            clampPercent={(value) => clampFindPreviewPercent(value)}
+            onChange={(next) => setDockPreviewPercent(100 - next)}
+            onDraggingChange={setDockPreviewDragging}
+            onCommit={(final) =>
+              writeStoredNumber(FIND_PREVIEW_PERCENT_STORAGE_KEY, Math.round(100 - clampFindPreviewPercent(final)))
+            }
+          />
+        )}
         {previewOpen && (floating ? active !== null && hasFindToolContentQuery(query) : true) ? (
           <div
             style={
@@ -2477,6 +2680,8 @@ function FindToolWindowView({
                 : {
                     ...styles.findToolPreviewPane,
                     ...styles.findToolDockPreviewPane,
+                    flex: `${dockPreviewPercent} 1 0`,
+                    borderLeft: 'none',
                   }
             }
             data-dsh-find-preview=''
@@ -2535,7 +2740,7 @@ function FindToolWindowView({
                           }}>
                           <span
                             className='dsh-editor-code-preview-gutter'
-                            style={styles.searchEverywherePreviewNumber}>
+                            style={styles.codePreviewGutter}>
                             {String(previewWindow.start + index)}
                           </span>
                           <CodePreviewCode

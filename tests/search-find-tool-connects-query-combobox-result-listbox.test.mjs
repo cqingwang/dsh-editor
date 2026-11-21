@@ -58,6 +58,6 @@ test('Find exposes one non-duplicated live result status', () => {
   assert.match(panel, /aria-live='polite'/);
   assert.match(panel, /aria-atomic='true'/);
   assert.match(panel, /style=\{styles\.screenReaderOnly\}/);
-  assert.match(panel, /findToolResultSummary\(t, resultMatches, resultFiles\)/);
+  assert.match(panel, /findToolResultSummary\(t, resultMatches, resultFiles, state\.truncated === true\)/);
   assert.match(panel, /!hasFindToolContentQuery\(query\)[\s\S]*?styles\.findToolPopupMessage[\s\S]*?t\('editor\.findToolEmptyQuery'\)/);
 });

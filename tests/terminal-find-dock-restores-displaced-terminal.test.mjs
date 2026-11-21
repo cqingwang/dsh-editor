@@ -50,8 +50,17 @@ test('closing displaced Find dock restores Terminal instead of focusing the edit
   let findState = { surface: 'dock' };
   const closeFindToolWindow = loadTypeScriptCallback(workspaceSource, 'closeFindToolWindow', {
     findToolReturnFocusRef: { current: null },
+    closeFindPopupSession: () => false,
     setFindTool: (value) => {
       findState = value;
+    },
+    findToolSessionsRef: {
+      current: {
+        active: findState,
+        activeId: 'find-1',
+        sessions: [{ id: 'find-1', state: findState }],
+        close: () => {},
+      },
     },
     findDockState: {
       setMinimized: () => {},

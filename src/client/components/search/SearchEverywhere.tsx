@@ -1674,7 +1674,7 @@ function SearchEverywhere({
                       }}>
                       <span
                         className='dsh-editor-code-preview-gutter'
-                        style={styles.searchEverywherePreviewNumber}>
+                        style={styles.codePreviewGutter}>
                         {String(previewWindow.start + index)}
                       </span>
                       <CodePreviewCode

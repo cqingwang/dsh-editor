@@ -1,5 +1,171 @@
 # dsh-editor 工程记忆
 
+## 2026-11-21 — Find 结果 dock 必须支持多 tab、紧凑工具栏和持久分屏
+
+**作用域**：Find in Files dock header、搜索会话生命周期、结果计数、
+结果/预览分屏、Search Everywhere/Find preview gutter。
+
+**症状 / 原始证据**：
+
+- dock 始终只有一个 tab，新搜索会覆盖当前结果；
+- dock 同时显示 query 输入和 scope 下拉，但搜索范围早已在前置弹窗确定；
+- “5 处匹配，4 个文件”占用过宽，窄 dock 内计数、tab、筛选互相挤压；
+- 结果计数中的两个图标挤在 12px 宽容器内；
+- 左右结果/预览 pane 固定 46%，关闭再搜索后比例不保留；
+- preview gutter 为 13px 继承字号，而 Monaco line number 是 10px，
+  因而看起来更粗、更大；
+- dock tab bar 上下 padding 过大，并且背景与内容区缺少边界。
+
+**根因**：
+
+- `findTool` 只有一个状态，没有会话集合；
+- dock 重复承担了 popup 才需要的 query/scope 配置；
+- 计数文本没有面向窄 dock 的图标化，也没有独立不可压缩的数值/图标组；
+- 预览分屏没有 drag owner 和 storage key；
+- preview gutter 与 Monaco gutter 各自维护排版，没有共享 token。
+
+**修复**：
+
+- 新增 `useFindToolSessions()`；座椅 dock 会话是独立 tab；
+- dock 内新搜索 `open()` 新会话；popup取消只关闭临时会话并返回旧 dock；
+- 移除 dock query/scope；保留 tab、计数、Aa、W、.*、文件掩码、More、缩小；
+- tab 宽度限制为 70px、标题省略并保留 tooltip；tab bar 高度 28px，
+  背景改为 `--dsw-alias-interactive-bg-hover-solid`；
+- 新增 `matchCount` / `fileStack` 图标；计数片段 `flex: 0 0 auto`；
+- 复用 `EditorSplitDivider`，持久化
+  `dsh-editor.find.previewPercent`，默认预览 46%，范围 20–80%；
+- 抽出共享 `codePreviewGutter`，与 Monaco 行号统一为 10px / 500。
+
+**RED/GREEN**：
+
+- RED：会话、图标计数、分屏持久化、gutter 对齐测试先失败；
+- GREEN：相关定向回归通过；完整测试见最终验证行；
+- GREEN：lint、TypeScript、client build、pack、`git diff --check` 通过。
+
+```bash
+node --test tests/search-find-dock-session-tabs-compact-header.test.mjs
+node --test tests/search-find-compact-icon-count.test.mjs
+node --test tests/search-find-preview-split-ratio-persists.test.mjs
+node --test tests/search-code-preview-gutter-matches-editor-line-numbers.test.mjs
+npm test
+```
+
+**运行态证据**：
+
+- 连续三次搜索得到 3 个 tab；tab 可切换，popup 取消后返回原 dock tab；
+- 计数显示 `10 [matchCount] / 5 [fileStack]`，tooltip 保留完整文案；
+- 拖动分屏后存储 `previewPercent=38`，刷新后恢复约 62/38；
+- preview gutter 与 editor line number 均为 `10px / 500`；
+- dock tab bar 实测高度 29px（含 1px 边框/布局误差）。
+
+**长期约束**：
+
+- dock 是结果查看器，不再复制 query/scope 编辑入口；
+- 每个新搜索结果必须追加为独立 tab，不得覆盖会话；
+- 预览分屏比例必须可拖动、可恢复并保持在 20–80%；
+- 远离 Monaco gutter 的预览行号必须复用共享 token，不能自行放大或加粗；
+- tab bar 固定工具区必须优先保留窄 dock 的最小可用空间。
+
+## 2026-11-21 — Find 大结果必须在首屏声明截断后的“至少”计数
+
+**作用域**：Find popup/dock header、aria-live 结果状态、文本/文件结果计数。
+
+**症状 / 原始证据**：
+
+- 250 行 fixture 命中 250 次，host 返回 200 个 option；
+- header 与 live status 都显示精确的“200 处匹配，1 个文件”；
+- 截断说明仍然渲染在列表末尾，实测位置 `y≈5370`；
+- 当前 viewport 高度 554、列表可视高度 164，首屏用户无法看到截断说明；
+- 根因是 `findToolResultSummary()` 只接收 matches/files，
+  不知道结果集已截断。
+
+**修复**：
+
+- `findToolResultSummary(t, matches, files, truncated)` 增加截断语义；
+- 截断时返回“至少 N 处匹配 / 至少 N 个结果”；
+- Find header 和 aria-live status 同时使用真实计数；
+- 文件结果 scope 也切换为 `searchResultCountTruncated`；
+- 列表底部原有详细说明继续保留。
+
+**RED/GREEN**：
+
+- RED：helper 截断摘要与 UI 接线回归 **0 pass / 2 fail**；
+- GREEN：截断/Find/响应式工具栏定向回归 **13 pass / 0 fail**；
+- GREEN：完整 `npm test` **3632 pass / 0 fail**；
+- GREEN：ESLint、136 个 source imports、TypeScript、
+  client build consistency、`npm pack --dry-run` 150 files、
+  `git diff --check` 通过。
+
+```bash
+node --test tests/search-find-truncated-count-surfaces-before-scrolling.test.mjs
+npm test
+```
+
+**运行态证据**：
+
+- 列表渲染 200 个 option，scrollHeight 5238；
+- 首屏 header 为 `至少 200 处匹配，1 个文件（已截断）`；
+- aria-live status 使用同一文案；
+- End 后第 200 条结果可见，listScrollTop≈5039；
+- 临时 fixture 和 Ego TaskSpace 已清理。
+
+**长期约束**：
+
+- 截断结果不能用一个精确总数伪装完整结果；
+- 可访问的 live status 与可见 header 必须使用同一个计数模型；
+- 底部截断说明仍保留，但首屏必须有足够的提前告知。
+
+## 2026-11-21 — Replace All 后可用 Undo/Redo 必须进入 Find 直接工具栏
+
+**作用域**：Find dock 响应式工具栏、Replace All 历史、搜索焦点。
+
+**症状 / 原始证据**：
+
+- Replace All 成功后 `canUndoLastReplace=true`；
+- Undo 实际可用，但 dock 的直接工具栏只有 Rerun、Settings 和 More；
+- 此时 Previous/Next 因零匹配而禁用，Undo 仍藏在 More 菜单；
+- Undo 成功后 Redo 同样只出现在 More 菜单；
+- 根因是 Undo/Redo 仅在 `floating=true` 时 pinned，
+  dock 没有表达“可用时提升优先级”。
+
+**修复**：
+
+- `find-tool.ts` 新增
+  `findToolReplaceHistoryActionPinned(floating, available)`；
+- Undo/Redo 在 floating 或当前可执行时 pinned；
+- Replace All 后 Undo 取代低优先级 Settings 进入直接工具栏；
+- Undo 后 Redo 获得同一优先级；
+- 不可用时仍回到 More 菜单，原有响应式行为保留。
+
+**RED/GREEN**：
+
+- RED：helper 缺失、Find 未接线，**0 pass / 2 fail**；
+- GREEN：Undo/Redo 定向回归 **14 pass / 0 fail**；
+- GREEN：完整 `npm test` **3630 pass / 0 fail**；
+- GREEN：ESLint、136 个 source imports、TypeScript、
+  client build consistency、`npm pack --dry-run` 150 files、
+  `git diff --check` 通过。
+
+```bash
+node --test tests/search-find-toolbar-prioritizes-undo-redo-when-available.test.mjs
+npm test
+```
+
+**运行态证据**：
+
+- 临时文件中 2 处查询经 Replace All 替换成功；
+- 24×24 Undo 直接按钮可见，无需打开 More；
+- Undo 后文件恢复、2 处结果回来，Redo 直接按钮出现；
+- Redo 后再次替换、结果为空；
+- Query/Replacement 保持，最终焦点回到查找输入框；
+- 临时搜索文件和 Ego TaskSpace 均已清理。
+
+**长期约束**：
+
+- Replace history 可用时是直接工具栏的高优先级动作；
+- 不可用时不得占用持续搜索配置的空间，应回到 More；
+- dock 的响应式优先级必须由动作可用性驱动，不能硬编码成另一套工具栏。
+
 ## 2026-11-21 — Commit Changes 的 ArrowLeft 必须回到父树节点
 
 **作用域**：Commit Changes ARIA tree、键盘导航、目录/文件/group 焦点迁移。

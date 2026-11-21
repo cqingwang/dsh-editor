@@ -24,6 +24,15 @@ test('Find captures the opener and restores a connected Project tree without an 
   let currentEditorRequested = false;
   const closeFindToolWindow = loadTypeScriptCallback(workspaceSource, 'closeFindToolWindow', {
     findToolReturnFocusRef,
+    closeFindPopupSession: () => false,
+    findToolSessionsRef: {
+      current: {
+        active: null,
+        activeId: null,
+        sessions: [],
+        close: () => {},
+      },
+    },
     setFindTool: (value) => {
       closed = value === null;
     },

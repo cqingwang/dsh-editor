@@ -1277,16 +1277,43 @@ export function searchEverywhereTextIdleState<T extends FindToolState>(current: 
  * @param {Function} t - locale translator.
  * @param {number} matches - visible occurrence count.
  * @param {number} files - visible file group count.
+ * @param {boolean} [truncated=false] - whether more results exist beyond the cap.
  * @returns {string} localized result summary.
  */
 export function findToolResultSummary(
   t: (key: string, params?: Record<string, unknown>) => string,
   matches: number,
   files: number,
+  truncated = false,
 ): string {
+  if (truncated === true) {
+    return files === 1
+      ? t('editor.findToolSummaryOneFileTruncated', { matches })
+      : t('editor.findToolSummaryTruncated', { matches, files });
+  }
   if (matches === 1 && files === 1) return t('editor.findToolSummaryOne');
   if (files === 1) return t('editor.findToolSummaryOneFile', { matches });
   return t('editor.findToolSummary', { matches, files });
+}
+
+export interface FindToolCompactCount {
+  count: number;
+  fileCount: number | null;
+  truncated: boolean;
+}
+
+/** Preserve numeric count semantics while the dock renders them with icons. */
+export function findToolCompactCount(
+  matches: unknown,
+  files: unknown,
+  fileFilterMode: unknown,
+  truncated: unknown,
+): FindToolCompactCount {
+  return {
+    count: Math.max(0, Math.trunc(Number(matches) || 0)),
+    fileCount: fileFilterMode === true ? null : Math.max(0, Math.trunc(Number(files) || 0)),
+    truncated: truncated === true,
+  };
 }
 
 /**

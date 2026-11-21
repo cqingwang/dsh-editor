@@ -438,6 +438,20 @@ function Icon({ name, size = 14 }: IconProps) {
           <path d='M9.2 1.8v3.2h3.2' />
         </svg>
       );
+    case 'matchCount':
+      return (
+        <svg {...common}>
+          <path d='M2.2 3.4h11.6M2.2 8h3.2M10.1 8h3.7M2.2 12.6h11.6' />
+          <path d='M6.1 6.1v3.8M9.4 6.1v3.8' />
+        </svg>
+      );
+    case 'fileStack':
+      return (
+        <svg {...common}>
+          <path d='M5.2 1.8h4.6l2.1 2.1v7.4H5.2V1.8Z' />
+          <path d='M9.8 1.8v2.1h2.1M3.2 5.1v9.1h6.5' />
+        </svg>
+      );
     case 'check':
       return (
         <svg {...common}>

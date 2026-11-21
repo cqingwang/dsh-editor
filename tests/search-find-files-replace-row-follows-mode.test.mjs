@@ -21,7 +21,7 @@ test('Find in Files opens Find-only while Replace mode exposes the Replace row',
   assert.match(findTool, /replaceExpanded && !fileFilterMode\s+\?\s*\(\s*<div[\s\S]{0,100}styles\.findToolReplaceRow/u);
   assert.match(
     findTool,
-    /label=\{replaceExpanded \? t\('editor\.findToolHideReplace'\) : t\('editor\.findToolShowReplace'\)\}/u,
+    /label: replaceExpanded \? t\('editor\.findToolHideReplace'\) : t\('editor\.findToolShowReplace'\)/u,
   );
   assert.match(findTool, /data-dsh-find-replace-input=''/);
   assert.ok(findTool.indexOf('styles.findToolSearchRow') < findTool.indexOf('styles.findToolReplaceRow'));

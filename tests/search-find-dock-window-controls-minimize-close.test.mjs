@@ -9,7 +9,7 @@ const findDockStateHook = await read('src/client/components/editor/use-find-dock
 const terminal = await read('src/client/terminal.ts');
 const locales = await read('src/client/locales.ts');
 
-test('the Find dock exposes fixed minimize and close controls outside overflow', () => {
+test('the Find dock exposes a fixed minimize control while tabs own closing', () => {
   assert.match(terminal, /FIND_TOOL_DOCK_MIN_HEIGHT = 180/u);
   assert.match(terminal, /FIND_TOOL_DOCK_MAX_HEIGHT = 720/u);
   assert.match(terminal, /Math\.max\(FIND_TOOL_DOCK_MIN_HEIGHT, Math\.min\(FIND_TOOL_DOCK_MAX_HEIGHT, next\)\)/u);
@@ -19,8 +19,13 @@ test('the Find dock exposes fixed minimize and close controls outside overflow',
   assert.match(findTool, /data-dsh-find-window-controls=''/u);
   assert.match(
     findTool,
-    /data-dsh-find-window-controls=''[\s\S]*?icon=\{minimized \? 'expand' : 'hide'\}[\s\S]*?onClick=\{onMinimize\}[\s\S]*?icon='close'[\s\S]*?onClick=\{onClose\}/u,
+    /data-dsh-find-window-controls=''[\s\S]*?icon=\{minimized \? 'expand' : 'hide'\}[\s\S]*?onClick=\{onMinimize\}/u,
   );
+  const controls = findTool.slice(
+    findTool.indexOf("data-dsh-find-window-controls=''"),
+    findTool.indexOf('</span>', findTool.indexOf("data-dsh-find-window-controls=''")),
+  );
+  assert.doesNotMatch(controls, /icon='close'/u);
   assert.doesNotMatch(findTool, /id: 'hide',[\s\S]*?icon: 'close'/u);
 });
 

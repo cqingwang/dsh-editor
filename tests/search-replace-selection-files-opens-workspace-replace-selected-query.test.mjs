@@ -28,14 +28,14 @@ test('workspace Find can focus the replacement input after mounting', () => {
   const openFindTool = loadTypeScriptCallback(workspaceSource, 'openFindTool', {
     findToolContentQuery: (query) => String(query ?? '').trim(),
     completeFindFiles: (value) =>
-      Array.isArray(value) ? value.filter((item) => typeof item?.path === 'string').map((item) => ({ path: item.path })) : [],
+      Array.isArray(value)
+        ? value.filter((item) => typeof item?.path === 'string').map((item) => ({ path: item.path }))
+        : [],
     completeFindMatches: (value) =>
       Array.isArray(value)
         ? value.filter(
             (item) =>
-              typeof item?.path === 'string' &&
-              typeof item.line === 'number' &&
-              typeof item.column === 'number',
+              typeof item?.path === 'string' && typeof item.line === 'number' && typeof item.column === 'number',
           )
         : [],
     normalizeSearchOptions: (value) => value ?? {},
@@ -43,6 +43,8 @@ test('workspace Find can focus the replacement input after mounting', () => {
     readFindScope: () => ({ mode: 'project', preset: 'projectFiles', directory: '' }),
     readFindDirectoryRecursive: () => true,
     rootRef: { current: '' },
+    findToolSessionsRef: { current: { active: null } },
+    findToolFocusSelector: () => '[data-dsh-find-replace-input]',
     setTerminalOpen: () => {},
     setSearchEverywhere: () => {},
     setFindTool: (value) => {

@@ -36,7 +36,7 @@ test('Find opens as a popup and can transfer the same state to a dock', () => {
   );
   assert.match(transfer, /setTerminalOpen\(false\)/);
   assert.match(transfer, /surface: 'dock'/);
-  assert.match(transfer, /data-dsh-find-tool-window\] input\[role="combobox"\]/);
+  assert.match(transfer, /focusFindToolCurrentSurface\(\)/);
 });
 
 test('Find renders one shared result model in a resizable bottom dock', () => {
@@ -90,7 +90,10 @@ test('Opening Find from the shortcut returns an existing docked result to the po
     source.indexOf('const closeFindToolWindow', source.indexOf('const openFindInFilesFromShortcut =')),
   );
   assert.match(shortcut, /surface === 'dock'/);
-  assert.match(shortcut, /current\.surface === 'dock' \? 'popup'/);
+  assert.match(
+    shortcut,
+    /if \(findTool\?\.surface === 'dock'\)\s+return openFindTool\(selectedQuery, 'find', null, 'query', 'popup', true\);/u,
+  );
   assert.match(shortcut, /mode: current\.surface === 'dock' && hasSelectionQuery === false \? current\.mode : 'find'/u);
 });
 
@@ -114,6 +117,7 @@ test('Explicit Find tool-window actions open the dock instead of the popup', () 
     readFindScope: () => ({ mode: 'project', preset: 'projectFiles', directory: '' }),
     readFindDirectoryRecursive: () => true,
     rootRef: { current: '' },
+    findToolFocusSelector: () => '[data-dsh-find-replace-input]',
     findDockState: {
       claimFindDockSlot: () => {},
     },
@@ -121,6 +125,11 @@ test('Explicit Find tool-window actions open the dock instead of the popup', () 
     setSearchEverywhere: () => {},
     setFindTool: (value) => {
       state = value;
+    },
+    findToolSessions: {
+      open: (value) => {
+        state = value;
+      },
     },
     findToolHandoffSequenceRef: { current: 0 },
     findToolDraftRef: { current: { query: '', replace: '' } },

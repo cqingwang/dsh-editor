@@ -9,20 +9,19 @@ const component = await readFile(
 const injectedCss = await readFile(new URL('../src/client/injected-css.ts', import.meta.url), 'utf8');
 const actionBar = await readFile(new URL('../src/client/components/ui/CompactActionBar.tsx', import.meta.url), 'utf8');
 
-test('narrow Find dock compacts duplicate title, mask and header actions', () => {
+test('narrow Find dock keeps the query in tabs and compacts secondary actions', () => {
   assert.match(component, /className='dsh-editor-find-controls'/u);
-  assert.match(component, /className='dsh-editor-find-tool-title'/u);
   assert.match(component, /className='dsh-editor-find-tool-count'/u);
-  assert.match(component, /className='dsh-editor-find-tool-spacer'/u);
   assert.match(component, /className='dsh-editor-find-file-mask-control'/u);
-  assert.match(component, /className='dsh-editor-find-file-mask-label'/u);
   assert.match(component, /className='dsh-editor-find-file-mask-input'/u);
-  assert.match(component, /className='dsh-editor-find-scope-mode-group'/u);
+  assert.match(component, /data-dsh-find-dock-header=''/u);
+  assert.match(component, /data-dsh-find-session-tab=\{tab\.id\}/u);
+  assert.match(component, /data-dsh-find-dock-file-mask-popover=''/u);
   assert.match(
     component,
     /type='checkbox'\s+checked=\{fileMaskEnabled\}\s+aria-label=\{t\('editor\.searchFileMaskLabel'\)\}\s+title=\{t\('editor\.searchFileMaskLabel'\)\}/u,
   );
-  assert.match(component, /className=\{floating \? undefined : 'dsh-editor-find-dock-header-actions'\}/u);
+  assert.match(component, /className='dsh-editor-find-dock-header-actions'/u);
   assert.match(actionBar, /className\?: string;/u);
   assert.match(actionBar, /className=\{className \?\? undefined\}/u);
 });
@@ -35,7 +34,7 @@ test('the compact rules are container-scoped to the narrow dock', () => {
   assert.match(injectedCss, /@container dsh-find-dock \(max-width: 360px\)/u);
   assert.match(
     injectedCss,
-    /\.dsh-editor-find-tool-title,\s+\.dsh-editor-find-tool-count,\s+\.dsh-editor-find-tool-spacer,\s+\.dsh-editor-find-file-mask-label \{ display: none !important; \}/u,
+    /\.dsh-editor-find-tool-title,\s+\.dsh-editor-find-tool-spacer,\s+\.dsh-editor-find-file-mask-label \{ display: none !important; \}/u,
   );
   assert.match(
     injectedCss,
@@ -43,7 +42,7 @@ test('the compact rules are container-scoped to the narrow dock', () => {
   );
   assert.match(
     injectedCss,
-    /\.dsh-editor-find-dock-header-actions \{ flex-basis: 88px !important; width: 88px !important; min-width: 88px !important; \}/u,
+    /\.dsh-editor-find-dock-header-actions \{ flex-basis: 28px !important; width: 28px !important; min-width: 28px !important; \}/u,
   );
   assert.match(injectedCss, /@container dsh-find-dock \(max-width: 220px\)/u);
   assert.match(injectedCss, /\.dsh-editor-find-file-mask-control \{ display: none !important; \}/u);
@@ -53,7 +52,7 @@ test('the compact rules are container-scoped to the narrow dock', () => {
   );
   assert.match(
     injectedCss,
-    /\.dsh-editor-find-dock-header-actions \{ flex-basis: 52px !important; width: 52px !important; min-width: 52px !important; \}/u,
+    /\.dsh-editor-find-dock-header-actions \{ flex-basis: 28px !important; width: 28px !important; min-width: 28px !important; \}/u,
   );
   assert.match(
     injectedCss,

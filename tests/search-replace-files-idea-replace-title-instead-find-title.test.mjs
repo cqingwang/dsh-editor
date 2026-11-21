@@ -36,7 +36,7 @@ test('Replace mode keeps the same flat popup chrome and bottom actions', () => {
     findTool,
     /const popupOccurrences = React\.useMemo\([\s\S]*?\.\.\.scopedFileResults\.map[\s\S]*?\.\.\.scopedMatches\.map/u,
   );
-  assert.match(findTool, /actions=\{floating \? popupHeaderActions : toolbarActions\}/u);
+  assert.match(findTool, /actions=\{popupHeaderActions\}/u);
   assert.match(findTool, /t\('editor\.searchReplaceAll'\)/);
   assert.match(findTool, /t\('editor\.replaceCurrent'\)/);
 });

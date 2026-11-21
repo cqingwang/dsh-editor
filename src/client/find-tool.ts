@@ -14,6 +14,17 @@ export interface FindToolDraft {
   searchGeneration?: number;
 }
 
+export const FIND_TOOL_PREVIEW_MIN_PERCENT = 20;
+export const FIND_TOOL_PREVIEW_MAX_PERCENT = 80;
+export const FIND_TOOL_PREVIEW_DEFAULT_PERCENT = 46;
+
+/** Keep the remembered result/preview split reachable at every dock width. */
+export function clampFindPreviewPercent(value: unknown): number {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return FIND_TOOL_PREVIEW_DEFAULT_PERCENT;
+  return Math.max(FIND_TOOL_PREVIEW_MIN_PERCENT, Math.min(FIND_TOOL_PREVIEW_MAX_PERCENT, numeric));
+}
+
 /** Preserve the reopen draft and the generation that owns it. */
 export function findToolDraftFromState(
   state: { query?: unknown; replace?: unknown; searchGeneration?: unknown } | null | undefined,

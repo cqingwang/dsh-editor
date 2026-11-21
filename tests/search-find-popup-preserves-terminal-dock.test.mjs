@@ -16,6 +16,7 @@ function loadOpenFindTool(terminalStates) {
     readFindScope: () => ({ mode: 'project', preset: 'projectFiles', directory: '' }),
     readFindDirectoryRecursive: () => true,
     rootRef: { current: '' },
+    findToolFocusSelector: () => '[data-dsh-find-replace-input]',
     findDockState: {
       claimFindDockSlot: () => terminalStates.push(false),
     },
@@ -23,6 +24,12 @@ function loadOpenFindTool(terminalStates) {
     setSearchEverywhere: () => {},
     setFindTool: (value) => {
       findState = value;
+    },
+    findToolSessionsRef: { current: { active: null } },
+    findToolSessions: {
+      open: (value) => {
+        findState = value;
+      },
     },
     findToolHandoffSequenceRef: { current: 0 },
     findToolDraftRef: { current: { query: '', replace: '' } },

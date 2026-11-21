@@ -176,6 +176,13 @@ import { QuickOpen, type QuickOpenState, useQuickOpenShortcut } from './componen
 import { SearchEverywhere, type SearchEverywhereState } from './components/search/SearchEverywhere';
 import { ShowUsagesPopup } from './components/search/ShowUsagesPopup';
 import {
+  closeFindPopupSession,
+  findToolFocusSelector,
+  focusFindToolCurrentSurface,
+  useFindToolSessions,
+  useFindToolTabActions,
+} from './components/search/use-find-tool-sessions';
+import {
   directoryScopeRequest,
   findToolAfterCustomScopesChange,
   findScopePreflight,
@@ -1240,8 +1247,12 @@ function EditorWorkspace({
   /* Monaco effects mount before Search Everywhere is declared below. Route
          their callbacks through a ref so the dependency arrays cannot hit TDZ. */ const openSearchEverywhereRef =
     React.useRef<(tab?: string, query?: string, withReplace?: boolean) => void>(() => {});
-  /* IDEA's persistent Find tool window, shared by Find/Replace in Files. */ const [findTool, setFindTool] =
-    React.useState<FindToolState | null>(null);
+  /* IDEA's persistent Find tool window, shared by Find/Replace in Files. */
+  const findToolSessions = useFindToolSessions<FindToolState>();
+  const findTool = findToolSessions.active;
+  const setFindTool = findToolSessions.setActive;
+  const findToolSessionsRef = React.useRef(findToolSessions);
+  findToolSessionsRef.current = findToolSessions;
   if (findTool !== null) {
     findToolDraftRef.current = findToolDraftFromState(findTool);
   }
@@ -4473,19 +4484,7 @@ function EditorWorkspace({
     openFiles,
     t,
   ]);
-  /**
-   * Move a Search Everywhere result set into IDEA's persistent Find tool.
-   *
-   * The tool window has its own query lifecycle so subsequent edits no
-   * longer depend on the transient dialog being mounted.
-   * @param {string} [query=''] - initial search text.
-   * @param {'find'|'replace'} [mode='find'] - whether to show replacement.
-   * @param {{files?: object[], matches?: object[], truncated?: boolean}|null} [initial=null] - existing results.
-   * @param {'query'|'replace'} [focusTarget='query'] - input to focus after mounting.
-   * @param {'popup'|'dock'} [surface='popup'] - transient popup or persistent tool window.
-   * @param {boolean} [restoreDraft=false] - restore the last direct-shortcut draft.
-   * @returns {void}
-   */ const openFindTool = React.useCallback(
+  const openFindTool = React.useCallback(
     (
       query = '',
       mode: 'find' | 'replace' = 'find',
@@ -4514,7 +4513,7 @@ function EditorWorkspace({
       /* Only the persistent bottom Find tool displaces the Terminal dock. */
       if (surface === 'dock') findDockState.claimFindDockSlot();
       setSearchEverywhere(null);
-      setFindTool({
+      const nextFindTool: FindToolState = {
         surface: surface === 'dock' ? 'dock' : 'popup',
         ...savedOptions,
         query: draft.query,
@@ -4535,13 +4534,13 @@ function EditorWorkspace({
         searchScopeRecursive: readFindDirectoryRecursive(rootRef.current),
         searchGeneration: 0,
         loadedGeneration: initial === null || initial?.refresh === true ? -1 : 0,
-      });
+      };
+      if (surface === 'dock' || findToolSessionsRef.current.active?.surface === 'dock')
+        findToolSessions.open(nextFindTool);
+      else setFindTool(nextFindTool);
       /* Monaco restores editor focus after a context-menu action returns.
            Defer past that restoration so the requested Find field wins. */ window.setTimeout(() => {
-        const target =
-          focusTarget === 'replace'
-            ? '[data-dsh-find-replace-input]'
-            : '[data-dsh-find-tool-window] input[role="combobox"]';
+        const target = findToolFocusSelector(surface, focusTarget);
         document.querySelector<HTMLElement>(target)?.focus?.();
       }, 40);
     },
@@ -4554,17 +4553,9 @@ function EditorWorkspace({
    */ const openFindToolInDock = React.useCallback(() => {
     findDockState.claimFindDockSlot();
     setFindTool((current) => (current === null ? current : { ...current, surface: 'dock' }));
-    window.setTimeout(() => {
-      document.querySelector<HTMLElement>('[data-dsh-find-tool-window] input[role="combobox"]')?.focus?.();
-    }, 0);
+    focusFindToolCurrentSurface();
   }, []);
-  /**
-   * IDEA's persistent Find toolbar Settings action.
-   *
-   * It reopens the same query and options in the configuration popup while
-   * preserving the current find/replace mode and result selection.
-   * @returns {void}
-   */ const openFindToolSettings = React.useCallback(() => {
+  const openFindToolSettings = React.useCallback(() => {
     setFindTool((current) => (current === null ? current : { ...current, surface: 'popup', mode: current.mode }));
     window.setTimeout(() => {
       document.querySelector<HTMLElement>('[data-dsh-find-tool-window] input[role="combobox"]')?.focus?.();
@@ -4659,18 +4650,21 @@ function EditorWorkspace({
       },
       [customFindScopes, writeSharedFindScopes],
     );
-  /**
-   * Open Replace in Files from the Editor without losing the live scope.
-   *
-   * A direct shortcut restores the last Find/Replace draft. Editor selection
-   * overrides the query, while Directory and other scope settings remain.
-   * @returns {void}
-   */ const openReplaceInFilesFromEditor = React.useCallback(() => {
+  const openReplaceInFilesFromEditor = React.useCallback(() => {
     const selectedQuery = selectedEditorFindQuery(currentCodeEditor());
     if (findTool === null) {
       openFindTool(selectedQuery, 'replace', null, 'query', 'popup', true);
       return;
     }
+    if (findTool.surface === 'dock')
+      return openFindTool(
+        selectedQuery !== '' ? selectedQuery : findTool.query,
+        'replace',
+        null,
+        'query',
+        'popup',
+        true,
+      );
     setFindTool((current) => {
       if (current === null) return current;
       const query = selectedQuery !== '' ? selectedQuery : current.query;
@@ -4693,6 +4687,7 @@ function EditorWorkspace({
     React.useCallback(() => {
       const selectedQuery = selectedEditorFindQuery(currentCodeEditor());
       const hasSelectionQuery = selectedQuery !== '';
+      if (findTool?.surface === 'dock') return openFindTool(selectedQuery, 'find', null, 'query', 'popup', true);
       if (findTool !== null) {
         setFindTool((current) =>
           current === null
@@ -4707,7 +4702,7 @@ function EditorWorkspace({
                 loading: hasSelectionQuery ? false : current.loading,
                 error: hasSelectionQuery ? null : current.error,
                 index: hasSelectionQuery ? 0 : current.index,
-                surface: current.surface === 'dock' ? 'popup' : (current.surface ?? 'popup'),
+                surface: 'popup',
                 searchGeneration: hasSelectionQuery ? (current.searchGeneration ?? 0) + 1 : current.searchGeneration,
                 loadedGeneration: hasSelectionQuery ? -1 : current.loadedGeneration,
               },
@@ -4719,13 +4714,10 @@ function EditorWorkspace({
       }
       openFindTool(selectedQuery, 'find', null, 'query', 'popup', true);
     }, [currentCodeEditor, findTool, openFindTool]);
-  /**
-   * Hide Find, restoring a displaced Terminal first or the connected opener,
-   * then the editor or nearest stable workspace surface.
-   * @returns {void}
-   */ const closeFindToolWindow = React.useCallback(() => {
+  const closeFindToolWindow = React.useCallback(() => {
     const previous = findToolReturnFocusRef.current;
     findToolReturnFocusRef.current = null;
+    if (closeFindPopupSession(findToolSessionsRef.current)) return;
     findDockState.setMinimized(false);
     setFindTool(null);
     if (findDockState.restoreTerminalAfterFind()) {
@@ -4744,6 +4736,7 @@ function EditorWorkspace({
       focusWorkspaceFallback(document.querySelector<HTMLElement>('[data-dsh-editor-workspace]'));
     }, 0);
   }, [currentCodeEditor, currentCodePath]);
+  const findToolTabActions = useFindToolTabActions(findToolSessions, closeFindToolWindow);
   /**
    * Open IDEA's transient Show Usages popup for one symbol or selection.
    * The popup owns filtering and navigation for this loaded result set;
@@ -11302,6 +11295,9 @@ function EditorWorkspace({
       <FindToolWindow
         t={t}
         state={findTool}
+        tabs={findToolSessions.sessions}
+        activeTabId={findToolSessions.activeId}
+        {...findToolTabActions}
         floating={findTool.surface !== 'dock'}
         activeFilePath={activePath}
         openFilePaths={openFiles.map((file) => file.path)}

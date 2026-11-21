@@ -8,16 +8,11 @@ const component = await readFile(
 );
 
 test('Show Replace in the dock reveals and focuses the replacement field', () => {
-  const toggle = component.slice(
-    component.indexOf("label={replaceExpanded ? t('editor.findToolHideReplace') : t('editor.findToolShowReplace')}"),
-    component.indexOf(
-      '</ToolbarButton>',
-      component.indexOf("label={replaceExpanded ? t('editor.findToolHideReplace')"),
-    ),
-  );
+  const toggleStart = component.indexOf("id: 'replaceMode'");
+  const toggle = component.slice(toggleStart, component.indexOf("id: 'newLine'", toggleStart));
+  assert.ok(toggleStart >= 0);
   assert.match(
     toggle,
-    /onClick=\{\(\) => \{\s+if \(replaceExpanded\) \{\s+setReplaceExpanded\(false\);\s+return;\s+\}\s+focusReplaceInput\(\);/u,
+    /onClick: \(\) => \{\s+if \(replaceExpanded\) setReplaceExpanded\(false\);\s+else focusReplaceInput\(\);\s+\}/u,
   );
-  assert.doesNotMatch(toggle, /setReplaceExpanded\(\(current\) => !current\)/u);
 });

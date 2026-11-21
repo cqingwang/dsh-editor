@@ -542,9 +542,9 @@ export function installStyles(): void {
            header actions so they stay on one row instead of consuming three. */
     '.dsh-editor-find-controls[data-dsh-find-controls] { container: dsh-find-dock / inline-size; }',
     '@container dsh-find-dock (max-width: 360px) {',
-    '  .dsh-editor-find-tool-title, .dsh-editor-find-tool-count, .dsh-editor-find-tool-spacer, .dsh-editor-find-file-mask-label { display: none !important; }',
+    '  .dsh-editor-find-tool-title, .dsh-editor-find-tool-spacer, .dsh-editor-find-file-mask-label { display: none !important; }',
     '  .dsh-editor-find-file-mask-input { width: 56px !important; min-width: 56px !important; }',
-    '  .dsh-editor-find-dock-header-actions { flex-basis: 88px !important; width: 88px !important; min-width: 88px !important; }',
+    '  .dsh-editor-find-dock-header-actions { flex-basis: 28px !important; width: 28px !important; min-width: 28px !important; }',
     '}',
     /* Below this width the mask cannot share the title row with either menu
            or window controls. Keep the window actions pinned at the upper-right;
@@ -552,7 +552,7 @@ export function installStyles(): void {
     '@container dsh-find-dock (max-width: 220px) {',
     '  .dsh-editor-find-file-mask-control { display: none !important; }',
     '  .dsh-editor-find-controls[data-dsh-find-controls] > div > svg:first-child { display: none !important; }',
-    '  .dsh-editor-find-dock-header-actions { flex-basis: 52px !important; width: 52px !important; min-width: 52px !important; }',
+    '  .dsh-editor-find-dock-header-actions { flex-basis: 28px !important; width: 28px !important; min-width: 28px !important; }',
     '  .dsh-editor-find-scope-mode-group { flex: 1 1 auto !important; min-width: 0 !important; flex-wrap: wrap !important; }',
     '}',
     /* A narrow tool window shows the change list only; the diff needs room to be useful. */

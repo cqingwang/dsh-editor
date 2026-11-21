@@ -9,7 +9,7 @@ const inlineStyleSource = await readFile(new URL('src/client/inline-styles.ts', 
 
 test('the floating Find title does not shrink below its Idea label', () => {
   assert.match(componentSource, /\.\.\.styles\.findToolTitle,/u);
-  assert.match(componentSource, /\.\.\.\(floating \? styles\.findToolPopupTitle : null\)/u);
+  assert.match(componentSource, /\.\.\.styles\.findToolPopupTitle,/u);
   assert.match(styleSource, /findToolPopupTitle: \{[\s\S]*?flex: '0 0 auto'/u);
   assert.match(inlineStyleSource, /findToolPopupTitle: \{[\s\S]*?flex: '0 0 auto'/u);
 });

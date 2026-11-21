@@ -9,9 +9,7 @@ export function claimFindDockSlot(
   setTerminalOpen(false);
 }
 
-export function takeFindDockTerminalRestore(
-  findDockRestoreTerminalRef: React.MutableRefObject<boolean>,
-): boolean {
+export function takeFindDockTerminalRestore(findDockRestoreTerminalRef: React.MutableRefObject<boolean>): boolean {
   const restoreTerminal = findDockRestoreTerminalRef.current;
   findDockRestoreTerminalRef.current = false;
   return restoreTerminal;
