@@ -31,3 +31,22 @@ test('line numbers and folding icons render one compact visual size', () => {
     /\.monaco-editor \.margin-view-overlays \.codicon-folding-expanded,[\s\S]*?font-size: \$\{EDITOR_GUTTER_LAYOUT\.foldIconFontSize\}px !important;[\s\S]*?margin-left: \$\{EDITOR_GUTTER_LAYOUT\.foldIconMarginLeft\}px !important;/u,
   );
 });
+
+test('sticky scroll reuses the same compact line-number and folding geometry', () => {
+  const stickyFoldRuleStart = injectedCssSource.indexOf(
+    "'.monaco-editor .sticky-line-number .codicon-folding-expanded,'",
+  );
+  assert.notEqual(stickyFoldRuleStart, -1);
+  const stickyFoldRuleEnd = injectedCssSource.indexOf("    '}',", stickyFoldRuleStart);
+  assert.notEqual(stickyFoldRuleEnd, -1);
+  const stickyFoldRule = injectedCssSource.slice(stickyFoldRuleStart, stickyFoldRuleEnd);
+
+  assert.match(
+    injectedCssSource,
+    /\.monaco-editor \.sticky-line-number,[\s\S]*?\.monaco-editor \.sticky-line-number-inner \{[\s\S]*?font-size: var\(--dsh-editor-font-size-caption, 10px\) !important;/u,
+  );
+  assert.match(
+    stickyFoldRule,
+    /font-size: \$\{EDITOR_GUTTER_LAYOUT\.foldIconFontSize\}px !important;[\s\S]*?margin-left: \$\{EDITOR_GUTTER_LAYOUT\.foldIconMarginLeft\}px !important;[\s\S]*?cursor: pointer !important;/u,
+  );
+});

@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, symlink } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
-import { WorkspaceWatcher } from '../lib/index.js';
+import { workspaceFileOperations, WorkspaceWatcher } from '../lib/index.js';
 
 const host = await readFile(new URL('../lib/index.js', import.meta.url), 'utf8');
 
@@ -64,6 +66,32 @@ test('recursive events report precise directories or request a bounded fallback 
   assert.equal(events.filter((event) => event.type === 'change').at(-1)?.dirs, null);
   assert.deepEqual(events.filter((event) => event.type === 'change').at(-1)?.paths, ['root-file.ts']);
   watcher.close();
+});
+
+test('recursive events include loaded symlink aliases for internal target paths', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'dsh-editor-watch-alias-'));
+  const real = join(root, 'real', 'sub');
+  await mkdir(real, { recursive: true });
+  await symlink(real, join(root, 'alias'), 'dir');
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await workspaceFileOperations.files(root, 100, { includeExcluded: true });
+
+  let listener = null;
+  const fakeWatch = (_path, _options, callback) => {
+    listener = callback;
+    return { close() {}, on() {} };
+  };
+  const events = [];
+  const watcher = new WorkspaceWatcher(root, (event) => events.push(event), {
+    recursive: true,
+    watchImpl: fakeWatch,
+  });
+  t.after(() => watcher.close());
+  watcher.start();
+  listener('rename', 'real/sub/changed.txt');
+  await new Promise((resolve) => setTimeout(resolve, 180));
+
+  assert.deepEqual(events.find((event) => event.type === 'change')?.dirs, ['real/sub', 'alias']);
 });
 
 test('the fallback watcher count is small enough to close without freezing', () => {

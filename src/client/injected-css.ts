@@ -659,6 +659,20 @@ export function installStyles(): void {
     `  font-size: ${EDITOR_GUTTER_LAYOUT.foldIconFontSize}px !important;`,
     `  margin-left: ${EDITOR_GUTTER_LAYOUT.foldIconMarginLeft}px !important;`,
     '}',
+    /* Sticky scroll repeats the gutter in the overlay widget, outside
+       `.margin-view-overlays`; it needs the same compact type and icon metrics. */
+    '.monaco-editor .sticky-line-number,',
+    '.monaco-editor .sticky-line-number-inner {',
+    '  font-size: var(--dsh-editor-font-size-caption, 10px) !important;',
+    '}',
+    '.monaco-editor .sticky-line-number .codicon-folding-expanded,',
+    '.monaco-editor .sticky-line-number .codicon-folding-collapsed,',
+    '.monaco-editor .sticky-line-number .codicon-folding-manual-expanded,',
+    '.monaco-editor .sticky-line-number .codicon-folding-manual-collapsed {',
+    `  font-size: ${EDITOR_GUTTER_LAYOUT.foldIconFontSize}px !important;`,
+    `  margin-left: ${EDITOR_GUTTER_LAYOUT.foldIconMarginLeft}px !important;`,
+    '  cursor: pointer !important;',
+    '}',
     /* ⌘/Ctrl hover over a navigable identifier mirrors the language-service
            link affordance: pointer cursor plus an accent underline. The class is
            applied by a Monaco decoration only while the modifier is held. */

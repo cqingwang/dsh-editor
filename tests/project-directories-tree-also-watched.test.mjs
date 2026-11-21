@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -122,6 +122,27 @@ test('the watcher skips only git metadata and caps the watcher count', () => {
   assert.match(host, /if \(this\.watchers\.size >= MAX_WATCHED_DIRECTORIES\) return;/);
   /* The walk bound for quick-open / Move-to is a separate list and still skips them. */
   assert.match(host, /const WALK_IGNORED = new Set\(\[/);
+});
+
+test('fallback watchers follow symlink directories without recursing through cycles', async (t) => {
+  const external = await mkdtemp(join(tmpdir(), 'dsh-editor-watch-link-target-'));
+  t.after(() => rm(external, { recursive: true, force: true }));
+  const { dir, events, watcher } = await workspace(t);
+  await symlink(external, join(dir, 'linked-dir'), 'dir');
+  await symlink(dir, join(dir, 'loop'), 'dir');
+
+  const watched = await settle(watcher);
+  assert.ok(watched.includes('/linked-dir'), `symlink directory is not watched: ${JSON.stringify(watched)}`);
+  assert.ok(watched.includes('/loop'), `cycle link itself should remain observable: ${JSON.stringify(watched)}`);
+
+  await settleFrames(events);
+  events.length = 0;
+  await writeFile(join(external, 'changed.txt'), 'changed\n');
+  await until(
+    () => events.some((event) => event.type === 'change' && event.dirs?.includes('linked-dir')),
+    8000,
+  );
+  assert.ok(events.some((event) => event.type === 'change' && event.dirs?.includes('linked-dir')));
 });
 
 test('removing an ignored directory still reaches the tree', async (t) => {

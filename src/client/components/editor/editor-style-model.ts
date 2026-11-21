@@ -59,7 +59,7 @@ export type EditorSurfaceTone = 'toolWindow' | 'code';
 export const EDITOR_SURFACE_BACKGROUNDS = {
   light: {
     toolWindow: '#eef1f4',
-    code: '#faf9f6',
+    code: '#f9fbf9',
   },
   dark: {
     toolWindow: '#181a1d',

@@ -1,5 +1,254 @@
 # dsh-editor 工程记忆
 
+## 2026-11-21 — Project watcher 跟随 symlink 目录目标
+
+**作用域**：WorkspaceWatcher per-directory fallback、Project 外部变化刷新、
+symlink 目录环检测。
+
+**症状 / 原始证据**：
+
+- macOS recursive FSEvents 能上报 symlink 目标内的变化；
+- `recursive:false` fallback 只监听 workspace root，
+  symlink 目标目录内新增文件没有任何 change 帧；
+- `syncDirectory()` 使用 `row.isDirectory()` 建立 live 目录集合，
+  symlink 对 Dirent 永远不是 directory，因此不会创建目标 watcher；
+- 简单改用 `stat()` 后还必须防止 link-to-ancestor 递归环。
+- 当 symlink 目标位于 workspace 内部时，FSEvents 上报真实目标路径
+  `real/sub`；只展开 `alias` 的 Project 视图不会收到别名的刷新帧。
+
+**修复**：
+
+- fallback 扫描对每个目录项使用跟随 symlink 后的
+  `stat().isDirectory()` 判断 live directory；
+- `syncDirectory()` 新增 `realpath()` visited identity，
+  链接环只保留逻辑 watcher，不重复递归同一真实目录；
+- Host 登记 Project/Search 已加载目录的逻辑路径与真实路径别名；
+  watcher 发帧时同时加入目标路径和已加载链接路径；
+- 别名注册表按 workspace 与真实目录有界缓存，不向 Client 暴露真实绝对路径；
+- watcher key 仍使用工作区逻辑路径，确保 change 帧上报
+  `linked-dir` 而不是泄漏外部真实路径；
+- 删除/消失目录的 live watcher 清理语义保持不变。
+
+**RED/GREEN**：
+
+- RED：fallback watched 目录只有 `/`，symlink 目标文件变化无事件；
+- GREEN：`linked-dir` 与 `loop` 均建立逻辑 watcher；
+- GREEN：目标目录新增文件后上报
+  `dirs: ['linked-dir']`；
+- GREEN：`loop -> workspace root` 不产生无限 watcher 递归；
+- GREEN：内部目标事件同时上报 `real/sub` 与已加载别名 `alias`；
+- GREEN：watcher/symlink 定向 **17 pass / 0 fail**；
+- GREEN：完整 `npm test` **3620 pass / 0 fail**；
+- GREEN：`node --check lib/index.js`、`check:client-build`、
+  `git diff --check` 通过。
+
+**运行态证据**：
+
+- Harness 重启为新 Host PID **66121**；
+- Project 展开 `linked-dir` 后初始显示 `before.txt`；
+- 在链接目标目录外部创建 `after.txt` 后，
+  Project 无需手动刷新即自动显示 `after.txt`；
+- 内部目标复验只展开 `alias`、不展开 `real`；
+  在真实目标 `real/sub` 创建 `after.txt` 后，`alias` 下也自动显示该文件；
+- 临时 workspace/target fixture 已清理。
+
+**Symlink 边界收尾**：
+
+- 多级目录链接只遍历一次；
+- 断链保持隐藏，IDEA Reload All from Disk 后行为一致；
+- 无读取权限的目标不会中断可读文件的 Project 枚举或文本搜索；
+- symlink fixture 回归 **5 pass / 0 fail**。
+
+**长期约束**：
+
+- watcher fallback 的目录类型必须使用跟随 symlink 后的目标类型；
+- 所有 watcher 递归扫描必须使用真实目录身份防环；
+- change 帧继续使用工作区逻辑路径，不向客户端暴露链接目标绝对路径。
+
+## 2026-11-21 — Project 与 Editor 护眼底色减黄提亮
+
+**作用域**：Project 文件树、Monaco 代码区、共享编辑器背景 token。
+
+**用户反馈**：
+
+- 现有护眼底色仍偏黄；
+- 希望背景再淡一些，同时保持 Project 与 Editor 一致。
+
+**根因 / 调整**：
+
+- 旧 light code 背景为 `#faf9f6`，RGB 红/绿通道高于蓝色，偏暖；
+- 新背景改为 `#f9fbf9`：
+  - RGB：249 / 251 / 249；
+  - 红蓝通道相等，绿色仅高 2；
+  - 相对亮度高于旧值，色相不再偏黄；
+- Project 与 Editor 继续共用 `--dsh-editor-code-background`；
+- Commit 工具窗 `#eef1f4`、行号 Gutter、语法色、字体和布局不变。
+
+**回归测试**：
+
+```bash
+node --test tests/editor-surfaces-use-distinct-restful-backgrounds.test.mjs
+node --test tests/editor-gutter-divider-content-surface-gap-share-one-rule-set.test.mjs \
+  tests/editor-gutter-line-numbers-fold-icons-use-compact-layout.test.mjs
+```
+
+- RED：`green >= red` 对新旧值中偏黄的旧色失败；
+- GREEN：新色比旧色更亮，RGB 通道差不超过 6，G/B 不低于 R；
+- GREEN：背景/Gutter 定向 **12 pass / 0 fail**；
+- GREEN：完整 `npm test` **3616 pass / 0 fail**；
+- GREEN：ESLint、135 个 source imports、TypeScript、Prettier、
+  client build consistency、`node --check`、`git diff --check` 通过。
+
+**运行态证据**：
+
+- CSS token：`--dsh-editor-code-background: #f9fbf9`；
+- Project 面板 computed background：`rgb(249, 251, 249)`；
+- Monaco computed background：`rgb(249, 251, 249)`；
+- Gutter 使用独立 hover-solid token，未随护眼底色改变；
+- Ego Browser 截图确认视觉偏黄明显减弱，背景更淡。
+
+**长期约束**：
+
+- Project 与 Editor 必须继续只消费同一个 light code background token；
+- Commit 工具窗与 Monaco line-number gutter 保持独立背景；
+- 后续调色不得重新引入 R/B 明显失衡的暖黄倾向。
+
+## 2026-11-21 — Project、Editor、搜索按目标类型处理 symlink
+
+**作用域**：Host 目录枚举、Project 树、Quick Open、文件/文本搜索、
+Replace in Files、编辑器读取和原子保存。
+
+**症状 / 原始证据**：
+
+- Linux/macOS 工作区中的 symlink 目录在 Project 中显示成文件；
+- symlink 目录不能展开，也不会进入 Quick Open、Project speed search
+  或 Find in Files；
+- symlink 文件可以先打开，因为读取路径使用 `stat()` 跟随目标；
+- 根因位于共享 `listDirectory()`：
+  `Dirent.isDirectory()` 对 symlink 返回 false，代码虽用 `stat()` 得到
+  目标信息，却仍用未跟随的 `row.isDirectory()` 写 entry kind；
+- 修复 kind 后若递归 walk 不记录真实目录身份，
+  `link -> workspace root` 会产生无限别名链并耗尽遍历预算。
+
+**修复**：
+
+- `listDirectory()` 统一使用 `stat()` 跟随 symlink 后的
+  `childInfo.isDirectory()` 决定 directory/file；
+- Quick Open、Project speed search、Move To 目录候选和嵌套 Git 根扫描
+  增加 `realpath()` visited identity，链接环与重复目录别名只遍历一次；
+- 编辑器读取继续跟随链接；原子保存先解析链接目标，再替换目标文件，
+  链接本身保持不变；
+- Search/Replace 继续使用逻辑工作区路径，写入目标通过 symlink 解析。
+
+**回归测试**：
+
+```bash
+node --test tests/project-symlink-directories-and-files-follow-targets.test.mjs
+node --test tests/search-atomic-write-replaces-inode-preserves-permission-bits.test.mjs \
+  tests/project-workspace-directory-picker-canonical-case.test.mjs \
+  tests/file-operations.test.mjs
+```
+
+- RED：symlink 目录被当成 file；文本搜索只找到 symlink 文件，
+  找不到目录链接内部文件；
+- GREEN：目录/文件链接进入 Project 与搜索候选；
+- GREEN：目录链接内部文件可被 Project speed search 和文本搜索命中；
+- GREEN：`loop -> workspace root` 不产生 `loop/loop/...` 或无限遍历；
+- GREEN：Replace in Files 更新链接目标后，目录链接和文件链接仍是 symlink；
+- 新增 symlink 定向 **3 pass / 0 fail**；
+- 邻接 symlink/文件操作测试 **14 pass / 0 fail**；
+- 完整 `npm test` **3615 pass / 0 fail**；
+- `node --check lib/index.js`、`check:client-build`、`git diff --check` 通过。
+
+**运行态证据**：
+
+- Harness 重启后，Project 树将 `linked-dir` 和 `loop` 显示为可展开目录，
+  `linked-file.txt` 显示为文件；
+- 双击 `linked-file.txt` 打开其目标内容；
+- 编辑并保存后，`lstat(link).isSymbolicLink()` 仍为 true，
+  目标文件内容已更新；
+- Project speed search 输入 `inside` 命中
+  `linked-dir/nested/inside.txt`；
+- Search Everywhere 文本搜索命中
+  `dsh-symlink-verify/linked-dir/nested/inside.txt:1:1`；
+- Enter 后编辑器打开该链接路径并显示目标内容；
+- 临时 fixture 已清理。
+
+**长期约束**：
+
+- Project entry kind 必须来自跟随 symlink 后的目标类型，不得直接使用
+  `readdir` 的 `Dirent.isDirectory()`；
+- 所有递归目录 walk 必须保存真实目录身份并跳过已访问目标；
+- 搜索结果显示逻辑链接路径，但文件身份和写入目标可以解析到真实文件；
+- 不得用 `lstat` 判定可打开文件类型，否则会退回“打开链接本身”的错误语义。
+
+## 2026-11-21 — Monaco sticky scroll 行号与折叠箭头对齐紧凑 Gutter
+
+**作用域**：编辑器普通 Gutter、Monaco sticky scroll overlay、
+折叠图标字号与行号字号。
+
+**症状 / 原始证据**：
+
+- 普通 Gutter 已收紧为行号/折叠图标 10px；
+- 运行态滚动到 `package-lock.json` 第 3000 行后，
+  `.sticky-line-number-inner` 仍为 13px；
+- `.sticky-line-number .codicon-folding-expanded` 仍为 16px；
+- sticky 行号根元素自身仍是 16px，导致滚动时纵向阅读字号跳变。
+
+**根因**：
+
+- 既有样式只覆盖 `.margin-view-overlays`；
+- Monaco sticky scroll 位于 `.overlayWidgets .sticky-widget`，
+  使用独立 DOM：`.sticky-line-number`、`.sticky-line-number-inner`；
+- 既有 Gutter 回归只检查普通 DOM 选择器，未覆盖 sticky-scroll 域。
+
+**修复**：
+
+- `.sticky-line-number` 与 `.sticky-line-number-inner` 统一使用
+  `--dsh-editor-font-size-caption`；
+- sticky 的 expanded/collapsed/manual 折叠图标统一使用共享
+  `EDITOR_GUTTER_LAYOUT.foldIconFontSize` 和 `foldIconMarginLeft`；
+- sticky 折叠图标补齐与普通 Gutter 一致的 pointer 光标；
+- 扩展 `editor-gutter-line-numbers-fold-icons-use-compact-layout`，
+  同时守住普通 Gutter 与 sticky-scroll。
+
+**RED/GREEN**：
+
+- RED：新增 sticky 选择器回归失败；
+- RED：收紧规则作用域后，sticky 折叠图标缺少 pointer 光标；
+- GREEN：Gutter 定向 **3 pass / 0 fail**；
+- GREEN：完整 `npm test` **3612 pass / 0 fail**；
+- GREEN：运行态普通/粘滞行号及全部可见折叠图标均为 **10px**，
+  `margin-left: 0px`。
+- GREEN：sticky 折叠图标运行态 `cursor: pointer`，
+  命中盒保持 **20×20** 且 `pointer-events: auto`。
+
+**验证命令**：
+
+```bash
+node --test tests/editor-gutter-line-numbers-fold-icons-use-compact-layout.test.mjs
+npm run build:client
+npm run check:client-build
+node --check lib/client.js
+git diff --check
+```
+
+- Prettier、ESLint、135 个 source imports、TypeScript 通过；
+- `npm pack --dry-run`：149 files；
+- `lib/client.js`：约 2,537.7 KB。
+
+**长期约束**：
+
+- Monaco Gutter 样式必须同时覆盖普通 margin 与 sticky-scroll overlay；
+- 新增 Gutter 视觉参数必须来自 `EDITOR_GUTTER_LAYOUT` 或共享字号 token；
+- 不得为了隐藏 sticky 折叠图标而改用 `display:none` 或关闭折叠功能。
+
+**同轮 Find / Replace 复验**：
+
+- Search Everywhere 查询 `confirmSearchReplace` 能进入 Find 工具窗口；
+- Replace All 确认框初始焦点为“取消”，Escape 取消后焦点回到替换输入框；
+- 替换文本与查询文本均保留，确认框关闭后没有发生写入。
+
 ## 2026-11-21 — DSH Pocket manifest 401 与 dsh-rea 重复工厂注册
 
 **作用域**：DSH Pocket LAN 认证层、`@jwbo6/dsh-rea` 客户端注册 id、

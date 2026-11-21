@@ -59,6 +59,17 @@ test('tool-window and code surfaces retain distinct low-glare palette entries', 
   assert.ok(contrastAgainstBlack(lightCode) >= 7);
 });
 
+test('the light reading surface is paler and less yellow than the previous warm tone', () => {
+  const lightCode = palette.editorSurfaceBackground('light', 'code');
+  const [red, green, blue] = rgb(lightCode);
+  const channels = [red, green, blue];
+
+  assert.ok(green >= red);
+  assert.ok(blue >= red);
+  assert.ok(Math.max(...channels) - Math.min(...channels) <= 6);
+  assert.ok(relativeLuminance(lightCode) > relativeLuminance('#faf9f6'));
+});
+
 test('the shared surface owners consume the same background tokens', () => {
   assert.match(injectedCssSource, /--dsh-editor-project-background: \$\{EDITOR_SURFACE_BACKGROUNDS\.light\.code\}/u);
   assert.match(injectedCssSource, /--dsh-editor-code-background: \$\{EDITOR_SURFACE_BACKGROUNDS\.light\.code\}/u);
