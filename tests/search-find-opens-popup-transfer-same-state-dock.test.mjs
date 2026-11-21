@@ -114,6 +114,9 @@ test('Explicit Find tool-window actions open the dock instead of the popup', () 
     readFindScope: () => ({ mode: 'project', preset: 'projectFiles', directory: '' }),
     readFindDirectoryRecursive: () => true,
     rootRef: { current: '' },
+    findDockState: {
+      claimFindDockSlot: () => {},
+    },
     setTerminalOpen: () => {},
     setSearchEverywhere: () => {},
     setFindTool: (value) => {

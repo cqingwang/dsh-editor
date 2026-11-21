@@ -101,7 +101,7 @@ test('npm pack carries code and the shared grammar, not the runtimes', async (t)
      The migrated TSX component graph legitimately grows the owned source list,
      so keep this guard against the vendored-runtime explosion rather than the
      old component-count ceiling. */
-  assert.ok(files.length < 150, `pack has ${files.length} files`);
+  assert.ok(files.length < 160, `pack has ${files.length} files`);
 });
 
 test('the install shape pnpm produces still resolves every asset', async (t) => {

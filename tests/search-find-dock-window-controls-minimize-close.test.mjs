@@ -5,6 +5,7 @@ import test from 'node:test';
 const read = (path) => readFile(new URL(`../${path}`, import.meta.url), 'utf8');
 const findTool = await read('src/client/components/search/FindToolWindow.tsx');
 const workspace = await read('src/client/editor-workspace.tsx');
+const findDockStateHook = await read('src/client/components/editor/use-find-dock-slot-state.ts');
 const terminal = await read('src/client/terminal.ts');
 const locales = await read('src/client/locales.ts');
 
@@ -24,14 +25,15 @@ test('the Find dock exposes fixed minimize and close controls outside overflow',
 });
 
 test('the workspace toggles the dock height without deleting Find state', () => {
-  assert.match(workspace, /const \[findToolDockMinimized, setFindToolDockMinimized\] = React\.useState\(false\)/u);
-  assert.match(workspace, /height=\{findToolDockMinimized \? FIND_TOOL_DOCK_MIN_HEIGHT : findToolDockHeight\}/u);
-  assert.match(workspace, /minimized=\{findToolDockMinimized\}/u);
-  assert.match(workspace, /onMinimize=\{toggleFindToolDockMinimized\}/u);
-  assert.match(workspace, /resizable=\{!findToolDockMinimized\}/u);
+  assert.match(findDockStateHook, /const \[minimized, setMinimized\] = React\.useState\(false\)/u);
+  assert.match(findDockStateHook, /toggleMinimized = React\.useCallback/u);
+  assert.match(workspace, /height=\{findDockState\.minimized \? FIND_TOOL_DOCK_MIN_HEIGHT : findToolDockHeight\}/u);
+  assert.match(workspace, /minimized=\{findDockState\.minimized\}/u);
+  assert.match(workspace, /onMinimize=\{findDockState\.toggleMinimized\}/u);
+  assert.match(workspace, /resizable=\{!findDockState\.minimized\}/u);
   assert.match(
     workspace,
-    /const closeFindToolWindow = React\.useCallback\(\(\) => \{[\s\S]*?setFindToolDockMinimized\(false\)/u,
+    /const closeFindToolWindow = React\.useCallback\(\(\) => \{[\s\S]*?findDockState\.setMinimized\(false\)/u,
   );
 });
 

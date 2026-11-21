@@ -165,6 +165,7 @@ import { EditorWorkspaceBody } from './components/editor/EditorWorkspaceBody';
 import { EditorWorkspaceMainColumn } from './components/editor/EditorWorkspaceMainColumn';
 import { EditorWorkspaceShell } from './components/editor/EditorWorkspaceShell';
 import { EditorWorkspaceSurface } from './components/editor/EditorWorkspaceSurface';
+import { useFindDockSlotState } from './components/editor/use-find-dock-slot-state';
 import { MarkdownPreviewPane } from './components/editor/MarkdownPreviewPane';
 import { ProjectPanel, type ProjectTreeContextMenuPayload } from './components/project/ProjectPanel';
 import { FindToolDock } from './components/search/FindToolDock';
@@ -199,6 +200,7 @@ import {
   filterChangeSequence,
   isConflict,
   listedInChangeBand,
+  parentChangeTreeRowIndex,
   revealCollapseKeys,
   selectOpenedChordAction,
   splitChanges,
@@ -650,6 +652,7 @@ function EditorWorkspace({
   const [sideDragging, setSideDragging] = React.useState(false);
   /* IDEA's Alt+F12 terminal dock. */ const [terminalOpen, setTerminalOpen] =
     usePersistentTerminalDockOpen(workspaceId);
+  const findDockState = useFindDockSlotState(terminalOpen, setTerminalOpen);
   /* A monotonic request, not a boolean: repeated Alt+F12 must focus again
          even when the dock component was already mounted and cached. */ const [
     terminalFocusGeneration,
@@ -1254,7 +1257,6 @@ function EditorWorkspace({
   const [findToolDockHeight, setFindToolDockHeight] = React.useState(() =>
     clampFindDockHeight(readStoredNumber('dsh-editor.find.height', 280)),
   );
-  const [findToolDockMinimized, setFindToolDockMinimized] = React.useState(false);
   const findToolRequestRef = React.useRef(0);
   const findToolHandoffSequenceRef = React.useRef(0);
   const replaceWriteBusyRef = React.useRef(false);
@@ -4509,7 +4511,8 @@ function EditorWorkspace({
         activeElement !== document.body
       )
         findToolReturnFocusRef.current = activeElement;
-      setTerminalOpen(false);
+      /* Only the persistent bottom Find tool displaces the Terminal dock. */
+      if (surface === 'dock') findDockState.claimFindDockSlot();
       setSearchEverywhere(null);
       setFindTool({
         surface: surface === 'dock' ? 'dock' : 'popup',
@@ -4549,7 +4552,7 @@ function EditorWorkspace({
    * query、options、scope 与活动结果保持不变，只切换承载 surface。
    * @returns {void}
    */ const openFindToolInDock = React.useCallback(() => {
-    setTerminalOpen(false);
+    findDockState.claimFindDockSlot();
     setFindTool((current) => (current === null ? current : { ...current, surface: 'dock' }));
     window.setTimeout(() => {
       document.querySelector<HTMLElement>('[data-dsh-find-tool-window] input[role="combobox"]')?.focus?.();
@@ -4668,7 +4671,6 @@ function EditorWorkspace({
       openFindTool(selectedQuery, 'replace', null, 'query', 'popup', true);
       return;
     }
-    setTerminalOpen(false);
     setFindTool((current) => {
       if (current === null) return current;
       const query = selectedQuery !== '' ? selectedQuery : current.query;
@@ -4717,22 +4719,19 @@ function EditorWorkspace({
       }
       openFindTool(selectedQuery, 'find', null, 'query', 'popup', true);
     }, [currentCodeEditor, findTool, openFindTool]);
-  /** Toggle the Find dock between its readable minimum and last user height. */
-  const toggleFindToolDockMinimized = React.useCallback(() => {
-    setFindToolDockMinimized((current) => !current);
-  }, []);
   /**
-   * Hide the persistent Find tool and return the caret to its opener.
-   *
-   * Closing from Escape, Hide, or the toolbar overflow unmounts the focused
-   * control. Restore the connected opener first; when that surface was
-   * transient, focus the active editor or the nearest stable workspace surface.
+   * Hide Find, restoring a displaced Terminal first or the connected opener,
+   * then the editor or nearest stable workspace surface.
    * @returns {void}
    */ const closeFindToolWindow = React.useCallback(() => {
     const previous = findToolReturnFocusRef.current;
     findToolReturnFocusRef.current = null;
-    setFindToolDockMinimized(false);
+    findDockState.setMinimized(false);
     setFindTool(null);
+    if (findDockState.restoreTerminalAfterFind()) {
+      setTerminalFocusGeneration((generation) => generation + 1);
+      return;
+    }
     window.setTimeout(() => {
       if (previous !== null && previous.isConnected) {
         previous.focus();
@@ -10353,16 +10352,8 @@ function EditorWorkspace({
   }, []);
   const changeTypeaheadBufferRef = React.useRef('');
   const changeTypeaheadAtRef = React.useRef(0);
-  /**
-   * Keyboard navigation for IDEA's Changes list.
-   *
-   * The list is one focusable tree in visual order (staged rows, then
-   * unstaged, then unversioned), including only rows the current filter has
-   * not hidden. Moving the cursor selects but never opens a diff; Enter is
-   * the deliberate Show Diff, and Space toggles the commit checkbox.
-   * @param {KeyboardEvent} event - keydown from the changes scroller.
-   * @returns {void}
-   */ const onChangesKeyDown = React.useCallback(
+  /** IDEA Changes tree: arrows/Home/End select, Enter opens the diff, Space toggles
+   * commit inclusion, and ArrowLeft walks to the parent row. */ const onChangesKeyDown = React.useCallback(
     (event: React.KeyboardEvent<HTMLDivElement>) => {
       if (event.target instanceof Element && event.target.closest('input, textarea, select') !== null) return;
       const focused = event.currentTarget;
@@ -10482,6 +10473,18 @@ function EditorWorkspace({
         event.stopPropagation();
         choose(rows.length - 1);
         return;
+      }
+      if (event.key === 'ArrowLeft') {
+        const parent = parentChangeTreeRowIndex(
+          rows.map((row) => row.getAttribute('aria-level')),
+          index,
+        );
+        if (parent !== null) {
+          event.preventDefault();
+          event.stopPropagation();
+          choose(parent);
+          return;
+        }
       }
       if (current === null) return;
       if (event.key === 'Enter') {
@@ -11480,8 +11483,8 @@ function EditorWorkspace({
           setFindTool((current) => current && { ...current, handoffHandledRevision })
         }
         onClose={closeFindToolWindow}
-        minimized={findToolDockMinimized}
-        onMinimize={toggleFindToolDockMinimized}
+        minimized={findDockState.minimized}
+        onMinimize={findDockState.toggleMinimized}
       />
     );
   return (
@@ -12468,14 +12471,14 @@ function EditorWorkspace({
           />
           <FindToolDock
             open={findTool?.surface === 'dock' && terminalOpen === false}
-            height={findToolDockMinimized ? FIND_TOOL_DOCK_MIN_HEIGHT : findToolDockHeight}
+            height={findDockState.minimized ? FIND_TOOL_DOCK_MIN_HEIGHT : findToolDockHeight}
             minHeight={FIND_TOOL_DOCK_MIN_HEIGHT}
             maxHeight={FIND_TOOL_DOCK_MAX_HEIGHT}
             title={t('editor.findToolDockResize')}
             clampHeight={clampFindDockHeight}
             onHeightChange={setFindToolDockHeight}
             onCommit={(final) => writeStoredNumber('dsh-editor.find.height', final)}
-            resizable={!findToolDockMinimized}
+            resizable={!findDockState.minimized}
             children={findToolWindowElement}
           />
           <EditorTerminalDock

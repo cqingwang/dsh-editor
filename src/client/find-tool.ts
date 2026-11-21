@@ -324,6 +324,17 @@ export function findReplaceDisabledReasons({
 }
 
 /**
+ * Keep an available Replace Undo/Redo action in the direct Find toolbar.
+ *
+ * Floating Find always owns its compact header outright. The dock competes
+ * with persistent search configuration, so replacement history becomes a
+ * direct action only while it can actually be used.
+ */
+export function findToolReplaceHistoryActionPinned(floating: boolean, available: boolean): boolean {
+  return floating === true || available === true;
+}
+
+/**
  * Resolve IDEA's empty-result search-option clearing shortcuts.
  *
  * IDEA offers Ctrl+C/W/X for the three boolean filters and

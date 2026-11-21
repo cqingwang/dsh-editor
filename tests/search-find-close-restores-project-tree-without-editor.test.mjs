@@ -27,7 +27,10 @@ test('Find captures the opener and restores a connected Project tree without an 
     setFindTool: (value) => {
       closed = value === null;
     },
-    setFindToolDockMinimized: () => {},
+    findDockState: {
+      setMinimized: () => {},
+      restoreTerminalAfterFind: () => false,
+    },
     window: {
       setTimeout(callback) {
         callback();

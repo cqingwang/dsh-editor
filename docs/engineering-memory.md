@@ -1,5 +1,163 @@
 # dsh-editor 工程记忆
 
+## 2026-11-21 — Commit Changes 的 ArrowLeft 必须回到父树节点
+
+**作用域**：Commit Changes ARIA tree、键盘导航、目录/文件/group 焦点迁移。
+
+**症状 / 原始证据**：
+
+- Changes 已暴露 `role='treeitem'` 和真实 `aria-level`；
+- 选中 `src/client/diff.ts`（level 3）后按 ArrowLeft，焦点不移动；
+- group 和 open directory 的局部 handler 只负责展开/折叠；
+- closed directory 和 file row 落入共享 handler，但共享 handler 没有
+  ArrowLeft 分支，因此缺少标准树的父节点返回路径。
+
+**修复**：
+
+- `diff.ts` 新增纯函数 `parentChangeTreeRowIndex(levels, index)`：
+  从当前行向前找最近的 `aria-level` 更小行；
+- Changes 共享 keydown 在 ArrowLeft 时调用现有 `choose(parentIndex)`，
+  不新增第二套选择、焦点或滚动逻辑；
+- 父层为 group 时选择 group，为 directory 时回到该目录；
+- Find dock 的最小化状态并入共享 `useFindDockSlotState()`，
+  主工作区仍保持 **12598 lines**，低于 **12600** 行审查上限。
+
+**RED/GREEN**：
+
+- RED：父节点解析函数缺失，**0 pass / 2 fail**；
+- GREEN：嵌套、closed directory、顶层和非法 index 边界全部通过；
+- GREEN：Changes/Find/source-split 定向回归 **24 pass / 0 fail**；
+- GREEN：完整 `npm test` **3628 pass / 0 fail**；
+- GREEN：ESLint、136 个 source imports、TypeScript、
+  client build consistency、`npm pack --dry-run` 150 files、
+  `git diff --check` 通过。
+
+```bash
+node --test tests/commit-changes-arrow-left-moves-to-parent-tree-row.test.mjs
+npm test
+```
+
+**运行态证据**：
+
+- `src/client/diff.ts`：`aria-level=3`、`aria-selected=true`；
+- 按 ArrowLeft 后活动元素为 `src/client`：`aria-level=2`、
+  `aria-expanded=true`；
+- 父目录显示 IDEA 风格焦点环，选择/diff 状态保持一致。
+
+**长期约束**：
+
+- Changes 是可导航 ARIA tree，ArrowLeft 在子节点上必须返回最近父节点；
+- open directory 仍优先折叠，只有折叠后或叶子才走父节点迁移；
+- 树层级计算应复用纯 index helper，不在多个 handler 分叉 DOM 规则。
+
+## 2026-11-21 — Find dock 关闭必须恢复被其占用的 Terminal
+
+**作用域**：Editor 底部单槽、Find 持久结果窗、Terminal dock、焦点恢复。
+
+**症状 / 原始证据**：
+
+- Terminal dock 打开且 `Terminal input` 聚焦时，从 Find popup
+  执行“在查找窗口中打开”；
+- Find dock 接管底部槽位后 Terminal pane 被卸载，这是单槽互斥的预期行为；
+- 关闭 Find 结果后底部槽位保持空白，Terminal 没有恢复，焦点落到编辑器；
+- 根因是 Find 接管槽位时只执行 `setTerminalOpen(false)`，
+  没有记录 Terminal 在接管前是否打开。
+
+**修复**：
+
+- 新增 `components/editor/use-find-dock-slot-state.ts`：
+  - `claimFindDockSlot()` 仅在 Terminal 原本打开时登记待恢复；
+  - `restoreTerminalAfterFind()` 消费一次性标记并重新打开 Terminal；
+  - Terminal 主动打开时由 effect 清除旧标记；
+- `closeFindToolWindow()` 先恢复被占用的 Terminal，再递增
+  `terminalFocusGeneration`，避免错误地恢复到编辑器；
+- 纯状态转换与 React 状态 hook 分离，`editor-workspace.tsx`
+  保持 **12598 lines**，低于现有 **12600** 行审查上限；
+- `scripts/build-client.mjs` 明确编译并嵌入新 hook 模块。
+
+**RED/GREEN**：
+
+- RED：新增 dock 恢复行为回归 **0 pass / 3 fail**；
+- GREEN：dock、Find、source-split 定向回归 **13 pass / 0 fail**；
+- GREEN：完整 `npm test` **3626 pass / 0 fail**；
+- GREEN：ESLint、136 个 source imports、TypeScript、
+  client build consistency、`node --check scripts/build-client.mjs` 通过；
+- GREEN：`npm pack --dry-run` **150 files**，
+  vendored-runtime 防护阈值更新为 `< 160`；
+- GREEN：`git diff --check` 通过。
+
+```bash
+node --test tests/terminal-find-dock-restores-displaced-terminal.test.mjs
+node --test tests/search-find-close-restores-project-tree-without-editor.test.mjs \
+  tests/search-find-popup-preserves-terminal-dock.test.mjs
+npm test
+```
+
+**运行态证据**：
+
+- Terminal 初始 pane：`341 × 181`，焦点 `Terminal input`；
+- Find dock 活跃时：Find query 聚焦，Terminal pane 卸载；
+- 关闭 Find dock 后：Terminal pane 恢复 `341 × 181` 且可见，
+  焦点自动回到 `Terminal input`；
+- Find dock 已卸载，没有双底部面板或残留占位。
+
+**长期约束**：
+
+- 单一底部槽位被 Find 临时接管时，必须保存被驱逐的可见工具状态；
+- 只有 Find dock 真正占用槽位才关闭 Terminal，浮层 Find 不得到此关闭；
+- 新增共享状态逻辑优先落到独立 hook/model，避免主工作区重新膨胀。
+
+## 2026-11-21 — 浮动 Find 不得关闭已打开的 Terminal dock
+
+**作用域**：Editor 的 Find in Files / Replace in Files popup、Terminal dock、
+底部 Find tool window。
+
+**症状 / 原始证据**：
+
+- Terminal dock 打开且 PTY 聚焦时按 `⌘⇧F`；
+- Find dialog 出现后 `[data-dsh-terminal-pane]` 从 DOM 中消失；
+- 按 Escape 关闭 Find 后 Terminal 仍未恢复，用户必须再次打开终端；
+- 根因位于共享 `openFindTool()`：popup 与 dock 两种 surface 都无条件调用
+  `setTerminalOpen(false)`，而底部单槽互斥只适用于 Find dock；
+- 已打开的 Find 结果切到 Replace popup 时也存在相同的无条件关闭。
+
+**修复**：
+
+- `openFindTool()` 仅在 `surface === 'dock'` 时关闭 Terminal；
+- 浮动 Find popup 与浮层 Replace 保留 Terminal dock 的 open 状态和 PTY；
+- 显式 “Open in Find Window” / Find tool-window 仍关闭 Terminal，
+  因为二者共享同一个底部槽位。
+
+**RED/GREEN**：
+
+- RED：新增行为回归 **0 pass / 2 fail**；
+- GREEN：popup Find 不再写入 Terminal close，dock Find 仍写入一次；
+- GREEN：新增回归与相关搜索/Terminal 回归 **21 pass / 0 fail**；
+- GREEN：完整 `npm test` **3622 pass / 0 fail**；
+- GREEN：ESLint、135 个 source imports、TypeScript、
+  client build consistency、`git diff --check` 通过。
+
+```bash
+node --test tests/search-find-popup-preserves-terminal-dock.test.mjs
+node --test tests/search-find-opens-popup-transfer-same-state-dock.test.mjs \
+  tests/project-alt-1-2-3-raise-project-commit-terminal.test.mjs
+npm test
+```
+
+**运行态证据**：
+
+- Terminal pane 打开尺寸为 `341 × 181`，焦点为 `Terminal input`；
+- Find dialog 打开期间 Terminal pane 仍保持挂载；
+- Escape 关闭 Find 后 Terminal pane 仍可见、尺寸不变，
+  焦点回到 `Terminal input`；
+- Ego Browser 截图确认底部终端提示符与编辑区状态都保留。
+
+**长期约束**：
+
+- 浮动搜索不能以清理底部 dock 作为打开前提；
+- 只有真正占用同一底部槽位的 Find dock 才能关闭 Terminal；
+- 搜索 surface 切换必须保留 Terminal PTY 与用户上下文。
+
 ## 2026-11-21 — Project watcher 跟随 symlink 目录目标
 
 **作用域**：WorkspaceWatcher per-directory fallback、Project 外部变化刷新、

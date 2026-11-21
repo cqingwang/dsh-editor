@@ -679,6 +679,24 @@ export function flattenChangeTree(
 }
 
 /**
+ * Resolve IDEA's ArrowLeft parent step from flattened tree levels.
+ *
+ * The nearest earlier row with a smaller `aria-level` is the visible parent.
+ * Closed directories and file rows use this path; open directory rows collapse
+ * first in their own handler.
+ */
+export function parentChangeTreeRowIndex(levels: readonly unknown[], index: number): number | null {
+  const rowIndex = Math.floor(Number(index));
+  const currentLevel = Number(levels[rowIndex]);
+  if (!Number.isSafeInteger(rowIndex) || rowIndex < 0 || !Number.isFinite(currentLevel)) return null;
+  for (let candidate = rowIndex - 1; candidate >= 0; candidate -= 1) {
+    const candidateLevel = Number(levels[candidate]);
+    if (Number.isFinite(candidateLevel) && candidateLevel < currentLevel) return candidate;
+  }
+  return null;
+}
+
+/**
  * Every collapse key below (and including) one directory, group-prefixed.
  *
  * IDEA's ⌥-click on a tree node toggles the whole subtree in one gesture;

@@ -49,6 +49,7 @@ import { basename, callFs } from '../../editor-core';
 import {
   findReplaceDisabledReasons,
   findSearchOptionShortcutAction,
+  findToolReplaceHistoryActionPinned,
   findToolReplaceAdvanceIndex,
   findToolResultsAreCurrent,
 } from '../../find-tool';
@@ -1310,7 +1311,7 @@ function FindToolWindowView({
         disabled: canUndoLastReplace !== true || state.replaceBusy === true,
         onClick: onUndoLastReplace,
         group: 'replace',
-        pinned: floating === true,
+        pinned: findToolReplaceHistoryActionPinned(floating, canUndoLastReplace === true),
       },
       {
         id: 'redoReplace',
@@ -1319,7 +1320,7 @@ function FindToolWindowView({
         disabled: canRedoLastReplace !== true || state.replaceBusy === true,
         onClick: onRedoLastReplace,
         group: 'replace',
-        pinned: floating === true,
+        pinned: findToolReplaceHistoryActionPinned(floating, canRedoLastReplace === true),
       },
       {
         id: 'previous',
