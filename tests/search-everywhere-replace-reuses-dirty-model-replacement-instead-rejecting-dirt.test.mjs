@@ -28,7 +28,7 @@ test('Search Everywhere replaces clean files through the host and commits dirty 
   assert.ok(dirtyCommit > hostCall);
   assert.match(replaceInFiles, /targets: \[\.\.\.cleanTargets\.values\(\)\]/);
   assert.match(replaceInFiles, /const dirtyCommit = commitFindToolDirtyPlans\(dirtyPlans\)/);
-  assert.match(replaceInFiles, /const replacedCount = Number\(value\?\.replacements \?\? 0\) \+ dirtyReplacements/);
+  assert.match(replaceInFiles, /replaceOperationState\(/);
   assert.match(replaceInFiles, /searchReplaceCountParams\(t, replacedCount, changed\.length\)/);
 });
 

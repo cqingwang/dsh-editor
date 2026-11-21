@@ -14,6 +14,8 @@ import { SearchFileResultItem } from './SearchFileResultItem';
 import {
   centerPreviewLineInContainer,
   findSearchScopePresetAvailable,
+  findFocusShouldReleaseOutsideSurface,
+  findShouldRestoreFocusAfterResultsChange,
   findToolDisplayGroups,
   findToolGroupBoundaryTarget,
   findToolGroupId,
@@ -44,7 +46,12 @@ import {
   writeFileMaskHistory,
 } from '../../commit';
 import { basename, callFs } from '../../editor-core';
-import { findSearchOptionShortcutAction, findToolReplaceAdvanceIndex } from '../../find-tool';
+import {
+  findReplaceDisabledReasons,
+  findSearchOptionShortcutAction,
+  findToolReplaceAdvanceIndex,
+  findToolResultsAreCurrent,
+} from '../../find-tool';
 import { editorFindResult, highlightParts, normalizeTextSearchContextFilter, readStoredText } from '../../terminal';
 
 type Translate = (key: string, params?: Record<string, unknown>) => string;
@@ -222,6 +229,8 @@ function FindToolWindowView({
   changedFilePaths = [],
 }: FindToolWindowProps) {
   const listRef = React.useRef(null);
+  const rootRef = React.useRef<HTMLDivElement | null>(null);
+  const findFocusOwnedRef = React.useRef(false);
   const previewBodyRef = React.useRef(null);
   const groupButtonRefs = React.useRef(new Map());
   const occurrenceRefs = React.useRef(new Map());
@@ -234,6 +243,20 @@ function FindToolWindowView({
   const replaceAdvanceReadyRef = React.useRef(0);
   const rerunSelectionRef = React.useRef(null);
   const FIND_TOOL_LISTBOX_ID = 'dsh-editor-find-tool-listbox';
+  React.useEffect(() => {
+    const releaseFindFocusOwnership = (event: Event) => {
+      const root = rootRef.current;
+      if (root === null) return;
+      if (findFocusShouldReleaseOutsideSurface(event.target instanceof Node && root.contains(event.target)))
+        findFocusOwnedRef.current = false;
+    };
+    document.addEventListener('pointerdown', releaseFindFocusOwnership, true);
+    document.addEventListener('focusin', releaseFindFocusOwnership, true);
+    return () => {
+      document.removeEventListener('pointerdown', releaseFindFocusOwnership, true);
+      document.removeEventListener('focusin', releaseFindFocusOwnership, true);
+    };
+  }, []);
   const collapsedFiles = React.useMemo(
     () => new Set(Array.isArray(state.collapsedFiles) ? state.collapsedFiles : []),
     [state.collapsedFiles],
@@ -426,6 +449,8 @@ function FindToolWindowView({
     [scopedFileResults, scopedMatches],
   );
   const occurrences: FindToolOccurrenceRow[] = floating ? popupOccurrences : dockVisibleRows.rows;
+  const showEmptyFindResult =
+    state.error === null && state.loading !== true && hasFindToolContentQuery(query) && occurrences.length === 0;
   const occurrenceIndexByKey = React.useMemo(() => {
     const positions = new Map<string, number>();
     occurrences.forEach((entry, position) => {
@@ -459,26 +484,18 @@ function FindToolWindowView({
   const activeIndex = Math.max(0, Math.min(Number(state.index) || 0, Math.max(0, occurrences.length - 1)));
   const active = occurrences[activeIndex] ?? null;
   const activeTextOccurrence = active?.kind === 'text' ? active : null;
-  const replaceAllDisabledReason =
-    state.replaceBusy === true
-      ? t('editor.findReplaceBusy')
-      : state.loading === true
-        ? t('editor.findReplaceLoading')
-        : state.error !== null
-          ? t('editor.findReplaceSearchError')
-          : scopedMatches.length === 0
-            ? t('editor.findReplaceAllDisabled')
-            : null;
-  const replaceCurrentDisabledReason =
-    state.replaceBusy === true
-      ? t('editor.findReplaceBusy')
-      : state.loading === true
-        ? t('editor.findReplaceLoading')
-        : state.error !== null
-          ? t('editor.findReplaceSearchError')
-          : active?.kind !== 'text'
-            ? t('editor.findReplaceCurrentDisabled')
-            : null;
+  const replaceDisabledReasons = findReplaceDisabledReasons({
+    replaceBusy: state.replaceBusy,
+    searchGeneration: state.searchGeneration,
+    loadedGeneration: state.loadedGeneration,
+    loading: state.loading,
+    error: state.error,
+    matchCount: scopedMatches.length,
+    activeKind: active?.kind,
+    t,
+  });
+  const replaceAllDisabledReason = replaceDisabledReasons.all;
+  const replaceCurrentDisabledReason = replaceDisabledReasons.current;
   const rerunFindSearch = () => {
     if (active !== null && typeof active.rowKey === 'string') {
       rerunSelectionRef.current = {
@@ -1460,6 +1477,14 @@ function FindToolWindowView({
     if (state.index !== activeIndex) onMove(0, occurrences.length, activeIndex);
   }, [handoffHandledRevision, handoffRevision, state.index, activeIndex, occurrences.length, onMove]);
   React.useEffect(() => {
+    if (state.loading === true || state.loadedGeneration !== state.searchGeneration) return;
+    const target =
+      active === null ? queryInputRef.current : (occurrenceRefs.current.get(active.rowKey) ?? queryInputRef.current);
+    const focusStillInside = rootRef.current?.contains(document.activeElement) === true;
+    if (findShouldRestoreFocusAfterResultsChange(findFocusOwnedRef.current, focusStillInside, target !== null))
+      target?.focus?.();
+  }, [active?.rowKey, occurrences.length, state.loadedGeneration, state.searchGeneration, state.loading]);
+  React.useEffect(() => {
     if (!previewOpen || active === null || typeof active.path !== 'string' || active.path === '') {
       if (previewOpen && rerunSelectionRef.current !== null && state.loading === true) {
         return undefined;
@@ -1635,11 +1660,19 @@ function FindToolWindowView({
             }
           : styles.findTool
       }
+      ref={rootRef}
       data-dsh-find-tool-window=''
       data-dsh-find-tool-surface={floating ? 'popup' : 'dock'}
       role={floating ? 'dialog' : 'region'}
       aria-modal={floating ? 'true' : undefined}
       aria-label={surfaceTitle}
+      onFocusCapture={() => {
+        findFocusOwnedRef.current = true;
+      }}
+      onBlurCapture={(event) => {
+        const next = event.relatedTarget;
+        if (next instanceof Node && !event.currentTarget.contains(next)) findFocusOwnedRef.current = false;
+      }}
       onKeyDown={handleFindToolRootKeyDown}>
       <div
         style={floating ? styles.findToolPopupControls : styles.findToolDockControls}
@@ -2156,15 +2189,15 @@ function FindToolWindowView({
             aria-activedescendant={active === null ? undefined : findToolOptionId(active.rowKey)}
             tabIndex={0}
             onKeyDown={handleListKeyDown}>
-            {state.loading === true && occurrences.length === 0 ? (
+            {state.error === null && state.loading === true && occurrences.length === 0 ? (
               <div style={floating ? styles.findToolPopupMessage : styles.findToolMessage}>{t('editor.loading')}</div>
             ) : null}
-            {state.loading !== true && !hasFindToolContentQuery(query) ? (
+            {state.error === null && state.loading !== true && !hasFindToolContentQuery(query) ? (
               <div style={floating ? styles.findToolPopupMessage : styles.findToolMessage}>
                 {t('editor.findToolEmptyQuery')}
               </div>
             ) : null}
-            {state.loading !== true && hasFindToolContentQuery(query) && occurrences.length === 0 ? (
+            {showEmptyFindResult ? (
               <div style={floating ? styles.findToolPopupMessage : styles.findToolMessage}>
                 {floating ? t('editor.findToolNothingFound') : t('editor.findToolNoMatches')}
                 {showFindSearchOptionSummary ? (
@@ -2566,14 +2599,21 @@ function FindToolWindowView({
                   ...styles.conflictAction,
                   ...styles.findToolBottomAction,
                   opacity:
-                    state.replaceBusy || state.loading || state.error !== null || scopedMatches.length === 0 ? 0.45 : 1,
+                    state.replaceBusy ||
+                    state.loading ||
+                    state.error !== null ||
+                    scopedMatches.length === 0 ||
+                    !findToolResultsAreCurrent(state)
+                      ? 0.45
+                      : 1,
                 }}
                 data-dsh-find-bottom-action='replace-all'
                 disabled={
                   state.replaceBusy === true ||
                   state.loading === true ||
                   state.error !== null ||
-                  scopedMatches.length === 0
+                  scopedMatches.length === 0 ||
+                  !findToolResultsAreCurrent(state)
                 }
                 title={replaceAllDisabledReason || `${t('editor.searchReplaceAll')} (⌥⇧⏎)`}
                 aria-description={replaceAllDisabledReason || undefined}
@@ -2587,7 +2627,11 @@ function FindToolWindowView({
                   ...styles.conflictAction,
                   ...styles.findToolBottomAction,
                   opacity:
-                    state.replaceBusy || state.loading || state.error !== null || activeTextOccurrence === null
+                    state.replaceBusy ||
+                    state.loading ||
+                    state.error !== null ||
+                    activeTextOccurrence === null ||
+                    !findToolResultsAreCurrent(state)
                       ? 0.45
                       : 1,
                 }}
@@ -2596,7 +2640,8 @@ function FindToolWindowView({
                   state.replaceBusy === true ||
                   state.loading === true ||
                   state.error !== null ||
-                  activeTextOccurrence === null
+                  activeTextOccurrence === null ||
+                  !findToolResultsAreCurrent(state)
                 }
                 title={replaceCurrentDisabledReason || `${t('editor.replaceCurrent')} (Enter)`}
                 aria-description={replaceCurrentDisabledReason || undefined}

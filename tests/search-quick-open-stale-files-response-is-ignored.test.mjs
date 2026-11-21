@@ -4,10 +4,7 @@ import test from 'node:test';
 
 import { loadTypeScriptCallback } from './ts-source.mjs';
 
-const source = await readFile(
-  new URL('../src/client/editor-workspace.tsx', import.meta.url),
-  'utf8',
-);
+const source = await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8');
 
 test('a superseded Quick Open file-list response cannot overwrite the newer open', async () => {
   let quickOpen = null;
@@ -22,6 +19,7 @@ test('a superseded Quick Open file-list response cannot overwrite the newer open
     },
     quickOpenFilesRequestRef,
     quickOpenFilesAbortRef,
+    searchDirectoryRules: { excludedDirectories: [], includedDirectories: [] },
     callFs: (_payload, options) =>
       new Promise((resolve) => {
         requests.push({ resolve, signal: options?.signal });

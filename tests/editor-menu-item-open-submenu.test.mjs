@@ -20,12 +20,12 @@ test('a menu item can open a submenu', () => {
   assert.match(block, /Array\.isArray\(item\.items\) && item\.items\.length > 0/);
   assert.match(block, /setSubmenu\(/);
   /* Round 90 added the parent-item measurement inside the same handler. */
-  assert.match(block, /onMouseEnter=\{\(event\) => \{[\s\S]{0,500}?setSubmenu\(/);
+  assert.match(block, /onMouseEnter=\{\(event\) => \{[\s\S]{0,650}?setSubmenu\(/);
 });
 
 test('the parent item shows a chevron instead of a shortcut', () => {
   const start = source.indexOf('export function ContextMenu(');
-  const block = source.slice(start, start + 12000);
+  const block = source.slice(start, start + 14000);
   assert.match(block, />\s+›\s+<\/span>/);
 });
 

@@ -72,7 +72,8 @@ test('the branch popup reads the list on open and confirms before a dirty checko
       calls.push(request);
       return { root: '/repo', branch: request.branch, prefix: '', changes: [] };
     },
-    setCommitBusy: () => {},
+    beginCommitOperation: () => true,
+    endCommitOperation: () => {},
     setCommitError: () => {},
     setGit: () => {},
     setCommitSelection: () => {},
@@ -95,7 +96,8 @@ test('the branch popup reads the list on open and confirms before a dirty checko
     branchMenuRequestRef: { current: 0 },
     t,
     callGit: async () => ({ branches: ['main', 'feature'], branch: 'main' }),
-    setCommitBusy: () => {},
+    beginCommitOperation: () => true,
+    endCommitOperation: () => {},
     setCommitError: () => {},
     setMenu: (menu) => menus.push(menu),
     branchPromptOriginRef: { current: null },

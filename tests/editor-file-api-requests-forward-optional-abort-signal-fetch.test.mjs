@@ -17,18 +17,27 @@ test('file API requests forward an optional abort signal to fetch', () => {
     'fetch',
     'currentSessionId',
     'currentEditorWorkspaceId',
+    'SEARCH_SESSION_ID',
+    'activeSearchRevision',
     `${extractFunction('requestFileApi')}\nreturn async (payload, options) => requestFileApi(payload, options);`,
   )(
-    async (url, options) => ({
-      ok: true,
-      status: 200,
-      json: async () => ({ ok: true, value: { signal: options.signal } }),
-    }),
+    async (url, options) => {
+      const body = JSON.parse(options.body);
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ ok: true, value: { signal: options.signal, body } }),
+      };
+    },
     () => 'session',
     () => '',
+    'page-session',
+    7,
   );
   return requestFileApi({ op: 'searchText' }, { signal: 'abort-signal' }).then(({ data }) => {
     assert.equal(data.value.signal, 'abort-signal');
+    assert.equal(data.value.body.searchSessionId, 'page-session');
+    assert.equal(data.value.body.searchRevision, 7);
   });
 });
 
@@ -36,6 +45,11 @@ test('callFs forwards request options without changing existing callers', () => 
   const callFs = extractFunction('callFs');
   assert.match(callFs, /function callFs(?:<[^>]+>)?\(payload, options = \{\}\)/u);
   assert.match(callFs, /requestFileApi\(payload, options\)/u);
+});
+
+test('the mounted editor publishes its search revision to file API requests', () => {
+  assert.match(workspaceSource, /setCurrentSearchRevision\(searchRevision\)/u);
+  assert.match(editorCoreSource, /searchRevision: activeSearchRevision/u);
 });
 
 test('Find aborts in-flight text searches when its generation is replaced', () => {

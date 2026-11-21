@@ -181,6 +181,7 @@ test('a watcher frame re-reads the parent of every changed directory', () => {
     {
       disposed: false,
       chain: Promise.resolve(),
+      root: '/workspace',
       refreshTree: async (directories) => {
         refreshes.push(directories);
         return ['assets'];
@@ -191,6 +192,8 @@ test('a watcher frame re-reads the parent of every changed directory', () => {
       checkExternalChanges: async () => {
         externalChecks += 1;
       },
+      invalidateFindAfterExternalDelete: async () => {},
+      setFindTool: () => {},
       setMarkdownAssetRevisions: (updater) => {
         revisions = updater({ global: 0, directories: {} });
       },
@@ -198,6 +201,8 @@ test('a watcher frame re-reads the parent of every changed directory', () => {
         global: current.global,
         directories: Object.fromEntries((changed ?? []).map((directory) => [directory, 1])),
       }),
+      workspaceChangeInvalidatesSearchScope: () => false,
+      setSearchRevision: () => {},
     },
   );
   handle({ type: 'change', dirs: ['assets', 7] });

@@ -25,9 +25,7 @@ function extractFunction(name) {
 }
 
 test('Find Action shortcut follows IDEA default and macOS System Shortcuts keymaps', () => {
-  const matches = new Function(
-    `${extractFunction('findActionShortcutMatches')}; return findActionShortcutMatches;`,
-  )();
+  const matches = new Function(`${extractFunction('findActionShortcutMatches')}; return findActionShortcutMatches;`)();
   const event = (key, modifiers = {}) => ({
     key,
     metaKey: false,
@@ -51,7 +49,7 @@ test('Find Action advertises its primary macOS shortcut', () => {
   const start = actions.indexOf("id: 'findAction'");
   const end = actions.indexOf("id: '", start + 1);
   const action = actions.slice(start, end < 0 ? actions.length : end);
-  assert.match(action, /shortcut: '⇧⌘A'/);
+  assert.match(action, /shortcut: findActionShortcutLabel\(isMacPlatform\(/);
 });
 
 test('Search Everywhere owns Find Action chords without closing the dialog', () => {
@@ -65,8 +63,14 @@ test('Search Everywhere owns Find Action chords without closing the dialog', () 
   assert.match(component, /data-dsh-search-query/);
   assert.match(component, /event\.preventDefault\(\)/);
   assert.match(component, /event\.stopPropagation\(\)/);
-  assert.doesNotMatch(component.slice(
-    component.indexOf('const findActionShortcut ='),
-    component.indexOf("window.addEventListener('keydown', onKeyDown, true)", component.indexOf('const findActionShortcut =')),
-  ), /onClose\(\)/);
+  assert.doesNotMatch(
+    component.slice(
+      component.indexOf('const findActionShortcut ='),
+      component.indexOf(
+        "window.addEventListener('keydown', onKeyDown, true)",
+        component.indexOf('const findActionShortcut ='),
+      ),
+    ),
+    /onClose\(\)/,
+  );
 });

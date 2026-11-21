@@ -24,6 +24,10 @@ test('editor language model resolves case-insensitive names and extensions', () 
   assert.equal(languageFor('.env.local'), 'ini');
   assert.equal(languageFor('.editorconfig'), 'ini');
   assert.equal(languageFor('page.mdx'), 'mdx');
+  assert.equal(languageFor('main.c'), 'c');
+  assert.equal(languageFor('MAIN.H'), 'cpp');
+  assert.equal(languageFor('app.cpp'), 'cpp');
+  assert.equal(languageFor('widget.HPP'), 'cpp');
 });
 
 test('editor language model keeps plaintext fallbacks', () => {

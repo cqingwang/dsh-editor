@@ -180,14 +180,13 @@ test('client replace records gate host Undo on a stable operation id', () => {
     source.indexOf('const replaceFindToolOccurrence = React.useCallback'),
     source.indexOf('const undoFindReplace = React.useCallback'),
   );
-  for (const operationSource of [replaceAll, replaceOne]) {
-    assert.match(operationSource, /const operationId = typeof value\?\.operationId === 'string' \? value\.operationId : ''/);
-    assert.match(operationSource, /operationId,/);
-    assert.match(operationSource, /clean: operationId !== '' &&/);
-  }
-  assert.match(replaceAll, /clean: operationId !== '' && hostChanged\.length > 0/);
+  assert.match(replaceAll, /dirtyReplaceUndo\(dirtyPlans\)/);
+  assert.match(replaceAll, /replaceOperationState\(/);
+  assert.match(replaceAll, /boundedReplaceHistory\(current, operation\)/);
+  assert.match(replaceOne, /const operationId = typeof value\?\.operationId === 'string' \? value\.operationId : ''/);
+  assert.match(replaceOne, /operationId,/);
+  assert.match(replaceOne, /clean: operationId !== '' &&/);
   assert.match(replaceOne, /clean: operationId !== '' && dirtyFile === undefined && changed\.length > 0/);
-  assert.match(replaceAll, /dirty: dirtyUndo,/);
   assert.match(replaceOne, /dirty:\s*dirtyFile !== undefined && dirtyRewrite !== null && dirtyBeforeContent !== null/);
 });
 

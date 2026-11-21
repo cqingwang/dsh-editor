@@ -12,7 +12,7 @@ const replaceAllButton = component.slice(
 test('Replace All is disabled while the host write or a new search generation is busy', () => {
   assert.match(
     replaceAllButton,
-    /disabled=\{\s+state\.replaceBusy === true \|\|\s+state\.loading === true \|\|\s+state\.error !== null \|\|\s+scopedMatches\.length === 0\s+\}/u,
+    /disabled=\{\s+state\.replaceBusy === true \|\|\s+state\.loading === true \|\|\s+state\.error !== null \|\|\s+scopedMatches\.length === 0 \|\|\s+!findToolResultsAreCurrent\(state\)\s+\}/u,
   );
   assert.match(replaceAllButton, /state\.replaceBusy \? t\('editor\.loading'\) : t\('editor\.searchReplaceAll'\)/);
 });

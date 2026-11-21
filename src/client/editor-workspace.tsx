@@ -1,5 +1,11 @@
 /* editor-workspace.tsx: dsh-editor workspace component. Generated into lib/client.js by scripts/build-client.mjs. */
 import { normalizeMarkdownMode, isMarkdownPath } from './components/editor/editor-document-model';
+import {
+  definitionCandidateContent,
+  definitionPathIdentities,
+  definitionSearchText,
+  definitionStatusMessageKey,
+} from './components/editor/editor-definition-navigation';
 import { templateFor } from './components/editor/editor-file-template-model';
 import { gotoLineShortcutMatches, parseGotoLinePosition } from './components/editor/editor-navigation-model';
 import { dirname, isImagePreviewPath, nextMarkdownAssetRevisions } from './components/editor/editor-path-model';
@@ -27,18 +33,19 @@ import {
 import { changeModel } from './components/ui/git-change-model';
 import { ContextMenu, type ContextMenuModel } from './components/ui/Menu';
 import {
+  definitionReceiverTypeAt,
   navigationHistoryRecord,
   navigationHistoryStep,
   navigationPathForModel,
   normalizeNavigationLocation,
   resolveWorkspaceDefinition,
-  type DefinitionSearchOptions,
   type NavigationHistory,
   type NavigationLocation,
 } from './code-navigation';
 import {
   doubleShiftAction,
   findActionShortcutBlockedByChildContext,
+  findActionShortcutLabel,
   findActionShortcutMatches,
   ideaFindStepShortcutAction,
   ideaUsageFamilyShortcut,
@@ -52,11 +59,19 @@ import { styles } from './inline-styles';
 import { searchReplaceCountParams } from './locales';
 import {
   boundedReplaceHistory,
+  claimCommitRequestAttempt,
   claimReplaceAttempt,
   commitFindToolDirtyPlans,
+  commitRetryFocusTarget,
+  completeFindFiles,
+  completeFindMatches,
+  completeSearchMatches,
+  confirmFindReplaceAndGeneration,
+  dirtyReplaceUndo,
   findToolContentQuery,
   findToolQueryTransition,
   findToolRequestIsCurrent,
+  findReplaceAttemptIsCurrent,
   findUsagesSearchTarget,
   hasFindToolContentQuery,
   hostOnlyReplaceOperation,
@@ -64,7 +79,9 @@ import {
   normalizeRecentSearchEntry,
   normalizeSearchOptions,
   parseIdeaScopeXml,
+  persistSearchDirectoryRulesAfterDelete,
   planWorkspaceReplacements,
+  pruneFindCollapsedFiles,
   readCommandHistory,
   readCustomFindScopes,
   readFindDirectoryRecursive,
@@ -74,8 +91,11 @@ import {
   readFindScope,
   readFindUsagesHistory,
   readReplaceHistory,
+  readSearchDirectoryRules,
   readSearchHistory,
   readSearchOptions,
+  invalidateFindAfterExternalDelete,
+  remapSearchDirectoryRulesAfterMove,
   releaseReplaceAttempt,
   rememberCommandHistory,
   rememberSearchHistory,
@@ -84,20 +104,33 @@ import {
   rememberWorkspaceReplacement,
   rememberWorkspaceSearchQuery,
   replaceAttemptIsCurrent,
+  replaceAttemptWorkspaceIsCurrent,
+  searchReplaceFailureMessage,
+  replaceOperationState,
   replaceFailureSettlement,
   replaceFailureState,
   replaceGenerationIsCurrent,
   searchEverywhereReplaceSuccessState,
+  searchReplaceAttemptIsCurrent,
   searchEverywhereTabTransition,
+  searchEverywhereTextIdleState,
+  searchEverywhereTextRetryState,
+  searchDirectoryEffectiveState,
+  searchDirectoryToggleDisabledReason,
+  workspaceChangeInvalidatesSearchScope,
+  searchPathAllowedByDirectoryRules,
   serializeIdeaScopeXml,
+  toggleSearchDirectoryRule,
   writeCommandHistory,
   writeCustomFindScopes,
   writeFindDirectoryRecursive,
   writeFindPopupGeometry,
   writeFloatingPopupGeometry,
   writeFindScope,
+  writeSearchDirectoryRules,
   writeSearchHistory,
   writeSearchOptions,
+  type SearchDirectoryRules,
 } from './commit';
 import { CommitPanel } from './components/commit/CommitPanel';
 import { MoveToPicker } from './components/commit/MoveToPicker';
@@ -136,9 +169,16 @@ import { FindToolDock } from './components/search/FindToolDock';
 import { FloatingToolPopup } from './components/search/FindToolPopup';
 import { FindToolWindow } from './components/search/FindToolWindow';
 import { confirmSearchReplace } from './components/search/search-replace-confirmation';
-import { QuickOpen } from './components/search/QuickOpen';
-import { SearchEverywhere } from './components/search/SearchEverywhere';
+import { QuickOpen, type QuickOpenState, useQuickOpenShortcut } from './components/search/QuickOpen';
+import { SearchEverywhere, type SearchEverywhereState } from './components/search/SearchEverywhere';
 import { ShowUsagesPopup } from './components/search/ShowUsagesPopup';
+import {
+  directoryScopeRequest,
+  findScopePreflight,
+  findToolFileCandidatesRequest,
+  useSearchInvalidation,
+} from './components/search/search-scope';
+import { useSearchEverywhereFileCandidates } from './components/search/use-search-everywhere-file-candidates';
 import { EditorTerminalArea } from './components/terminal/EditorTerminalArea';
 import { EditorTerminalDock } from './components/terminal/EditorTerminalDock';
 import type { EditorTerminalDescriptor } from './components/terminal/EditorTerminalTab';
@@ -165,6 +205,7 @@ import {
   callGit,
   commitPatchDownloadName,
   createCodeEditorGroup,
+  currentEditorWorkspaceId,
   downloadPatchBlob,
   ensureEditorModel,
   harnessEditorLocation,
@@ -177,13 +218,16 @@ import {
   requestEditorSemanticTokensWhenReady,
   searchTextFailureMessage,
   selectedEditorFindQuery,
+  setCurrentSearchRevision,
 } from './editor-core';
 import {
   commitLocalDiffEntries,
   commitRelationTargets,
   type FindToolDraft,
   findFilePathMatches,
+  findToolDraftFromState,
   findToolReopenDraft,
+  findToolResultsAreCurrent,
   normalizeFileExtensionFilter,
   orderedRevisionPair,
   overflowTabs,
@@ -202,13 +246,9 @@ import {
   toolWindowShortcutAction,
 } from './injected-css';
 import { commitEnglish } from './locales';
-import {
-  bindEditorFileDragCleanup,
-  compactDirectoryExpansionPaths,
-  editorFileDragProps,
-  uploadWorkspaceDropToProject,
-} from './project';
+import { bindEditorFileDragCleanup, compactDirectoryExpansionPaths, editorFileDragProps } from './project';
 import type { ProjectUploadBusyState } from './project';
+import { useProjectUploadDrop } from './components/project/use-project-upload-drop';
 import {
   callTerminal,
   changeTypeaheadRows,
@@ -351,7 +391,6 @@ interface CommitFileMenuPayload {
   x: number;
   y: number;
 }
-
 interface SelectedPatch {
   patch: string;
   files?: unknown[];
@@ -407,19 +446,6 @@ type FindToolMatch = NonNullable<FindToolState['matches']>[number];
 type FileListResponse = { files?: string[]; truncated?: boolean };
 type TextSearchResponse = { matches?: FindToolMatch[]; truncated?: boolean; dirtyPaths?: string[] };
 type EditorFindMatches = Pick<ReturnType<typeof editorFindResult>, 'matches' | 'error'>;
-type SearchEverywhereFile = React.ComponentProps<typeof SearchEverywhere>['files'][number];
-type SearchEverywhereText = React.ComponentProps<typeof SearchEverywhere>['textMatches'][number];
-type SearchEverywhereState = NonNullable<React.ComponentProps<typeof SearchEverywhere>['state']> & {
-  files: SearchEverywhereFile[];
-  textMatches: SearchEverywhereText[];
-  textLoading: boolean;
-  textTruncated: boolean;
-  textRevision: number;
-  error: string | null;
-  replaceBusy: boolean;
-  replaceFocusRequest: number;
-  [key: string]: unknown;
-};
 const SEARCH_EVERYWHERE_POPUP_GEOMETRY_STORAGE_KEY = 'dsh-editor.searchEverywhere.popup.geometry.v1';
 const SEARCH_EVERYWHERE_POPUP_GEOMETRY_DEFAULTS = {
   width: 820,
@@ -454,13 +480,6 @@ interface EditorTabDragState {
 interface EditorTabDropState extends EditorTabDragState {
   after: boolean;
 }
-interface QuickOpenState {
-  query: string;
-  index: number;
-  files?: string[];
-  loading?: boolean;
-  error?: string | null;
-}
 interface FocusedEditorState {
   path: string;
   editor: Monaco.editor.IStandaloneCodeEditor | null;
@@ -490,39 +509,6 @@ interface HarnessReferenceLocation {
   column: number;
   endLine: number | null;
   endColumn: number | null;
-}
-function completeSearchMatches(
-  matches: ReadonlyArray<{ path?: string; line?: number; column?: number }>,
-): FindToolMatch[] {
-  const completed: FindToolMatch[] = [];
-  for (const match of matches) {
-    if (typeof match.path !== 'string' || typeof match.line !== 'number' || typeof match.column !== 'number') continue;
-    completed.push({ ...match, path: match.path, line: match.line, column: match.column });
-  }
-  return completed;
-}
-function completeFindFiles(value: unknown): FindToolFile[] {
-  if (!Array.isArray(value)) return [];
-  return value.flatMap((item): FindToolFile[] => {
-    if (item === null || typeof item !== 'object') return [];
-    const record = item as Record<string, unknown>;
-    if (typeof record.path !== 'string' || record.path === '') return [];
-    return [{ ...record, path: record.path }];
-  });
-}
-function completeFindMatches(value: unknown): FindToolMatch[] {
-  if (!Array.isArray(value)) return [];
-  const candidates: Array<{ path?: string; line?: number; column?: number }> = [];
-  for (const item of value) {
-    if (item === null || typeof item !== 'object') continue;
-    const record = item as Record<string, unknown>;
-    const candidate: { path?: string; line?: number; column?: number; [key: string]: unknown } = { ...record };
-    if (typeof record.path === 'string') candidate.path = record.path;
-    if (typeof record.line === 'number') candidate.line = record.line;
-    if (typeof record.column === 'number') candidate.column = record.column;
-    candidates.push(candidate);
-  }
-  return completeSearchMatches(candidates);
 }
 /**
  * Focus Monaco only after the file surface has mounted.
@@ -781,8 +767,22 @@ function EditorWorkspace({
   const [amend, setAmend] = React.useState(false);
   const [commitSelection, setCommitSelection] = React.useState<Set<string>>(() => new Set());
   const commitSelectionLoadedRef = React.useRef(false);
-  const [commitBusy, setCommitBusy] = React.useState(false);
+  const [commitBusy, setCommitBusyState] = React.useState(false);
+  const commitOperationCountRef = React.useRef(0);
+  const repositoryUpdateGuardRef = React.useRef(false);
+  const beginCommitOperation = React.useCallback(() => {
+    if (repositoryUpdateGuardRef.current) return false;
+    commitOperationCountRef.current += 1;
+    setCommitBusyState(true);
+    return true;
+  }, []);
+  const endCommitOperation = React.useCallback(() => {
+    commitOperationCountRef.current = Math.max(0, commitOperationCountRef.current - 1);
+    if (commitOperationCountRef.current === 0) setCommitBusyState(false);
+  }, []);
   const [commitError, setCommitError] = React.useState<string | null>(null);
+  const commitStatusRetryGuardRef = React.useRef(false);
+  const [commitStatusRetrying, setCommitStatusRetrying] = React.useState(false);
   /* Git refuses to commit without an identity; say so before the message is written. */ const [
     identityMissing,
     setIdentityMissing,
@@ -790,6 +790,7 @@ function EditorWorkspace({
   /* The reason the last push failed; clears on a successful one. */ const [pushError, setPushError] = React.useState<
     string | null
   >(null);
+  const gitNetworkRequestGuardRef = React.useRef(false);
   /* A push can take a while; it needs its own busy flag so Commit stays usable. */ const [pushBusy, setPushBusy] =
     React.useState(false);
   /* Fetch and Update share the network cost of push, so each gets its own flag. */ const [fetchBusy, setFetchBusy] =
@@ -1174,6 +1175,24 @@ function EditorWorkspace({
     React.useRef<Set<string>>(new Set());
   const [replaceState, setReplaceState] = React.useState<EditorFindState | null>(null);
   const [editorFindHistoryMenu, setEditorFindHistoryMenu] = React.useState<EditorFindHistoryMenu | null>(null);
+  const [searchDirectoryRules, setSearchDirectoryRules] = React.useState<SearchDirectoryRules>(() =>
+    readSearchDirectoryRules(root),
+  );
+  const [searchRevision, setSearchRevision] = React.useState(0);
+  React.useEffect(() => setCurrentSearchRevision(searchRevision), [searchRevision]);
+  React.useEffect(() => {
+    setSearchDirectoryRules(readSearchDirectoryRules(root));
+  }, [root]);
+  const toggleSearchDirectory = React.useCallback(
+    (path: string): void => {
+      setSearchDirectoryRules((current) => {
+        const next = toggleSearchDirectoryRule(path, current);
+        writeSearchDirectoryRules(root, next);
+        return next;
+      });
+    },
+    [root],
+  );
   const [quickOpen, setQuickOpen] = React.useState<QuickOpenState | null>(null);
   const quickOpenReturnFocusRef = React.useRef<HTMLElement | null>(null);
   const quickOpenFilesRequestRef = React.useRef(0);
@@ -1192,10 +1211,20 @@ function EditorWorkspace({
   const [findReplaceUndoStack, setFindReplaceUndoStack] = React.useState<ReplaceHistoryEntry[]>([]);
   const [findReplaceRedoStack, setFindReplaceRedoStack] = React.useState<ReplaceHistoryEntry[]>([]);
   const [recentCommands, setRecentCommands] = React.useState(() => readCommandHistory());
-  const searchEverywhereFilesRef = React.useRef<SearchEverywhereFile[]>([]);
-  const searchEverywhereFilesScopeRef = React.useRef<boolean | null>(null);
-  const searchEverywhereFilesRequestRef = React.useRef(0);
-  const searchEverywhereFilesAbortRef = React.useRef<AbortController | null>(null);
+  const {
+    filesRef: searchEverywhereFilesRef,
+    truncatedRef: searchEverywhereFilesTruncatedRef,
+    scopeRef: searchEverywhereFilesScopeRef,
+    requestFiles: requestSearchEverywhereFiles,
+    updateFileMask: scheduleSearchEverywhereFileMask,
+    updateQuery: updateSearchEverywhereQuery,
+    abortRequests: abortSearchEverywhereFileRequests,
+    clearCache: clearSearchEverywhereFileCache,
+  } = useSearchEverywhereFileCandidates({
+    setSearchEverywhere,
+    searchDirectoryRules,
+    t,
+  });
   const searchEverywhereReturnFocusRef = React.useRef<HTMLElement | null>(null);
   const findToolReturnFocusRef = React.useRef<HTMLElement | null>(null);
   const findToolDraftRef = React.useRef<FindToolDraft>({ query: '', replace: '' });
@@ -1206,9 +1235,9 @@ function EditorWorkspace({
     React.useRef<(tab?: string, query?: string, withReplace?: boolean) => void>(() => {});
   /* IDEA's persistent Find tool window, shared by Find/Replace in Files. */ const [findTool, setFindTool] =
     React.useState<FindToolState | null>(null);
-  React.useEffect(() => {
-    if (findTool !== null) findToolDraftRef.current = { query: findTool.query, replace: findTool.replace };
-  }, [findTool?.query, findTool?.replace]);
+  if (findTool !== null) {
+    findToolDraftRef.current = findToolDraftFromState(findTool);
+  }
   const [findToolFileCandidates, setFindToolFileCandidates] = React.useState<string[]>([]);
   const [findToolFileCandidatesScope, setFindToolFileCandidatesScope] = React.useState<boolean | null>(null);
   const [findToolFileCandidatesTruncated, setFindToolFileCandidatesTruncated] = React.useState(false);
@@ -1872,17 +1901,17 @@ function EditorWorkspace({
         }
         return valid.size === current.size ? current : valid;
       });
-      return value;
+      return true;
     } catch (failure) {
       const message = failure instanceof Error ? failure.message : String(failure);
       if (isGitRepositoryMissingMessage(message)) {
         reportGitFailure(failure);
-        return null;
+        return true;
       }
       setGit({ root: '', branch: '', prefix: '', changes: [] });
       setCommitSelection(new Set());
       setCommitError(message);
-      return null;
+      return false;
     }
   }, [reportGitFailure]);
   /**
@@ -2744,6 +2773,18 @@ function EditorWorkspace({
       if (workspace !== '') writeRecentFiles(workspace, next);
       return next;
     });
+    setSearchDirectoryRules((current) => {
+      const next = remapSearchDirectoryRulesAfterMove(current, moves);
+      if (
+        next.excludedDirectories.join('\u0000') === current.excludedDirectories.join('\u0000') &&
+        next.includedDirectories.join('\u0000') === current.includedDirectories.join('\u0000')
+      ) {
+        return current;
+      }
+      const workspace = rootRef.current;
+      if (workspace !== '') writeSearchDirectoryRules(workspace, next);
+      return next;
+    });
   }, []);
   const remapProjectExpandedPathsForMoves = React.useCallback((entries: Array<[string, string]>) => {
     const next = remapProjectExpandedPaths(expandedRef.current, entries);
@@ -2757,6 +2798,10 @@ function EditorWorkspace({
       if (next !== current) writeProjectManualOrder(rootRef.current, next);
       return next;
     });
+  }, []);
+  const pruneSearchDirectoryRulesForDeletedPaths = React.useCallback((paths: string[]) => {
+    setSearchDirectoryRules((current) => persistSearchDirectoryRulesAfterDelete(rootRef.current, current, paths));
+    void invalidateFindAfterExternalDelete(rootRef.current, paths, setFindTool, true);
   }, []);
   const openFile = React.useCallback(
     async (path: string, options: { preview?: boolean; silentError?: boolean } = {}) => {
@@ -3002,6 +3047,7 @@ function EditorWorkspace({
       const model = modelsRef.current.get(path);
       if (model === undefined) return;
       const file = openFilesRef.current.find((entry) => entry.path === path);
+      if (!beginCommitOperation()) return;
       try {
         const value = await callFs<{ mtime?: number | null }>({
           op: 'write',
@@ -3035,6 +3081,8 @@ function EditorWorkspace({
         } else {
           setEditorError(message);
         }
+      } finally {
+        endCommitOperation();
       }
     },
     [loadGit],
@@ -3283,7 +3331,6 @@ function EditorWorkspace({
   );
   /**
    * Resolve the symbol under one editor position and reveal its declaration.
-   *
    * Imports are resolved from workspace files first; other languages use the
    * existing bounded text search and re-read the candidate for an exact
    * declaration location. This intentionally stays a navigation shortcut,
@@ -3292,7 +3339,11 @@ function EditorWorkspace({
    * @param {object} position - Monaco one-based line/column.
    * @returns {void}
    */ const goToDefinitionAt = React.useCallback(
-    (editor: Monaco.editor.ICodeEditor, position: Monaco.Position) => {
+    (
+      editor: Monaco.editor.ICodeEditor,
+      position: Monaco.Position,
+      targetKind: 'declaration' | 'implementation' = 'declaration',
+    ) => {
       const model = editor?.getModel?.() ?? null;
       const word = model === null ? null : (model.getWordAtPosition?.(position) ?? null);
       const symbol = typeof word?.word === 'string' ? word.word.trim() : '';
@@ -3310,30 +3361,21 @@ function EditorWorkspace({
         line: position?.lineNumber ?? 1,
         column: position?.column ?? 1,
       });
+      const content = model.getValue();
       void resolveWorkspaceDefinition({
         path,
-        content: model.getValue(),
+        content,
         symbol,
-        readFile: async (target: string): Promise<string> => {
-          const existing = modelsRef.current.get(target);
-          if (existing !== undefined) return existing.getValue();
-          const value = await callFs<{ content?: string }>({ op: 'read', path: target });
-          return value?.content ?? '';
-        },
-        searchText: async (query: string, options?: DefinitionSearchOptions) => {
-          const value = await callFs({
-            op: 'searchText',
-            query,
-            regex: true,
-            maxMatches: 80,
-            scopeIncludePatterns: options?.scopeIncludePatterns,
-          });
-          return Array.isArray(value?.matches) ? value.matches : [];
-        },
+        callOffset: model.getOffsetAt(position),
+        targetKind,
+        receiverType: definitionReceiverTypeAt(content, model.getOffsetAt(position), symbol, true),
+        readFile: (target: string) => definitionCandidateContent(target, modelsRef.current),
+        pathIdentities: definitionPathIdentities,
+        searchText: definitionSearchText,
       })
         .then((target) => {
           if (target === null) {
-            flashStatus(t('editor.definitionNotFound', { name: symbol }));
+            flashStatus(t(definitionStatusMessageKey(targetKind, 'notFound'), { name: symbol }));
             return;
           }
           openFileAtLocation(target.path, target.line, target.column, {
@@ -3342,7 +3384,7 @@ function EditorWorkspace({
         })
         .catch((failure) => {
           flashStatus(
-            t('editor.definitionFailed', {
+            t(definitionStatusMessageKey(targetKind, 'failed'), {
               message: failure instanceof Error ? failure.message : String(failure),
             }),
           );
@@ -3558,6 +3600,8 @@ function EditorWorkspace({
       gotoLineLabel: t('editor.gotoLine'),
       onGoToDefinition: goToDefinitionAt,
       goToDefinitionLabel: t('editor.goToDefinitionAction'),
+      onGoToImplementation: (editor, position) => goToDefinitionAt(editor, position, 'implementation'),
+      goToImplementationLabel: t('editor.goToImplementationAction'),
       onNavigateBack: navigateBackHistory,
       onNavigateForward: navigateForwardHistory,
       navigationBackLabel: t('editor.navigationBackAction'),
@@ -3965,6 +4009,8 @@ function EditorWorkspace({
       gotoLineLabel: t('editor.gotoLine'),
       onGoToDefinition: goToDefinitionAt,
       goToDefinitionLabel: t('editor.goToDefinitionAction'),
+      onGoToImplementation: (editor, position) => goToDefinitionAt(editor, position, 'implementation'),
+      goToImplementationLabel: t('editor.goToImplementationAction'),
       onNavigateBack: navigateBackHistory,
       onNavigateForward: navigateForwardHistory,
       navigationBackLabel: t('editor.navigationBackAction'),
@@ -4179,17 +4225,6 @@ function EditorWorkspace({
     },
     [closePaths],
   );
-  /* Cmd/Ctrl+Shift+O opens "Go to File", IDEA's most-used navigation shortcut. */ React.useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (!(event.metaKey || event.ctrlKey) || !event.shiftKey || event.key.toLowerCase() !== 'o') return;
-      const host = document.querySelector<HTMLElement>('[data-dsh-editor-workspace]');
-      if (host === null || !document.body.contains(host)) return;
-      event.preventDefault();
-      void openQuickOpen();
-    };
-    window.addEventListener('keydown', onKeyDown, true);
-    return () => window.removeEventListener('keydown', onKeyDown, true);
-  }, []);
   const rememberQuickOpenOrigin = React.useCallback(() => {
     if (document.querySelector('[data-dsh-quick-open]') !== null) return;
     const activeElement =
@@ -4205,68 +4240,55 @@ function EditorWorkspace({
     const searchAbort = new AbortController();
     quickOpenFilesAbortRef.current = searchAbort;
     setPaletteMode('files');
-    setQuickOpen({ query: '', index: 0, loading: true, error: null });
+    setQuickOpen({ query: '', index: 0, truncated: false, loading: true, error: null });
     try {
-      const value = await callFs<FileListResponse>({ op: 'files' }, { signal: searchAbort.signal });
+      const value = await callFs<FileListResponse>(
+        { op: 'files', respectGitIgnore: true, searchDirectoryRules },
+        { signal: searchAbort.signal },
+      );
       if (quickOpenFilesRequestRef.current !== requestId) return;
       setQuickOpen((current) =>
-        current === null ? current : { ...current, files: value.files ?? [], loading: false, error: null },
+        current === null
+          ? current
+          : {
+              ...current,
+              files: value.files ?? [],
+              truncated: value.truncated === true,
+              loading: false,
+              error: null,
+            },
       );
     } catch (failure) {
       if (failure?.name === 'AbortError' || failure?.name === 'CanceledError') return;
       if (quickOpenFilesRequestRef.current !== requestId) return;
-      const message = failure instanceof Error ? failure.message : String(failure);
+      const message = searchTextFailureMessage(failure, t);
       setQuickOpen((current) =>
-        current === null ? current : { ...current, files: [], loading: false, error: message },
+        current === null ? current : { ...current, files: [], truncated: false, loading: false, error: message },
       );
     } finally {
       if (quickOpenFilesAbortRef.current === searchAbort) quickOpenFilesAbortRef.current = null;
     }
-  }, [rememberQuickOpenOrigin]);
-  /**
-   * Load the file candidate list for one explicit non-project scope.
-   * @param {boolean} includeNonProject - whether excluded directories are included.
-   * @returns {void}
-   */ const requestSearchEverywhereFiles = React.useCallback((includeNonProject: boolean) => {
-    const requestId = ++searchEverywhereFilesRequestRef.current;
-    searchEverywhereFilesAbortRef.current?.abort();
-    const searchAbort = new AbortController();
-    searchEverywhereFilesAbortRef.current = searchAbort;
-    void callFs<FileListResponse>(
-      { op: 'files', includeExcluded: includeNonProject === true },
-      { signal: searchAbort.signal },
-    )
-      .then((value) => {
-        if (searchEverywhereFilesRequestRef.current !== requestId) return;
-        const files: SearchEverywhereFile[] = Array.isArray(value?.files)
-          ? value.files.filter((path): path is string => typeof path === 'string').map((path) => ({ path }))
-          : [];
-        searchEverywhereFilesRef.current = files;
-        searchEverywhereFilesScopeRef.current = includeNonProject === true;
-        setSearchEverywhere((current) =>
-          current === null || current.includeNonProject !== (includeNonProject === true)
-            ? current
-            : { ...current, files },
-        );
-      })
-      .catch((failure) => {
-        if (failure?.name === 'AbortError' || failure?.name === 'CanceledError') return;
-        if (searchEverywhereFilesRequestRef.current !== requestId) return;
-        setSearchEverywhere((current) =>
-          current === null || current.includeNonProject !== (includeNonProject === true)
-            ? current
-            : {
-                ...current,
-                error: failure instanceof Error ? failure.message : String(failure),
-              },
-        );
-      })
-      .finally(() => {
-        if (searchEverywhereFilesAbortRef.current === searchAbort) {
-          searchEverywhereFilesAbortRef.current = null;
-        }
-      });
-  }, []);
+  }, [rememberQuickOpenOrigin, searchDirectoryRules, t]);
+  useQuickOpenShortcut(openQuickOpen);
+  const requestSearchEverywhereFilesForActiveMask = React.useCallback(
+    (includeNonProject: boolean) =>
+      requestSearchEverywhereFiles(
+        includeNonProject,
+        typeof searchEverywhere?.fileMask === 'string' ? searchEverywhere.fileMask : '',
+      ),
+    [requestSearchEverywhereFiles, searchEverywhere?.fileMask],
+  );
+  useSearchInvalidation({
+    searchRevision,
+    searchDirectoryRules,
+    searchEverywhere,
+    requestFiles: requestSearchEverywhereFilesForActiveMask,
+    setSearchEverywhere,
+    setFindTool,
+  });
+  React.useEffect(() => {
+    searchEverywhereFilesScopeRef.current = null;
+  }, [searchDirectoryRules]);
   /**
    * Open IDEA's Search Everywhere in one requested tab.
    * @param {'all'|'files'|'text'|'actions'} [tab='all'] - initial tab.
@@ -4275,6 +4297,7 @@ function EditorWorkspace({
    * @returns {void}
    */ const openSearchEverywhere = React.useCallback(
     (tab: 'all' | 'files' | 'text' | 'actions' = 'all', query = '', withReplace = false) => {
+      abortSearchEverywhereFileRequests();
       const activeElement = document.activeElement instanceof HTMLElement ? document.activeElement : null;
       if (
         activeElement !== null &&
@@ -4292,6 +4315,8 @@ function EditorWorkspace({
         withReplace,
         replace: '',
         files: cachedFilesMatchScope ? searchEverywhereFilesRef.current : [],
+        filesScope: cachedFilesMatchScope ? includeNonProject : undefined,
+        filesTruncated: cachedFilesMatchScope ? searchEverywhereFilesTruncatedRef.current : false,
         textMatches: [],
         textLoading: false,
         textTruncated: false,
@@ -4303,10 +4328,11 @@ function EditorWorkspace({
         ...savedOptions,
       };
       setSearchEverywhere(initial);
+      updateSearchEverywhereQuery(query);
       if (cachedFilesMatchScope && initial.files.length > 0) return;
-      requestSearchEverywhereFiles(includeNonProject);
+      requestSearchEverywhereFiles(includeNonProject, typeof initial.fileMask === 'string' ? initial.fileMask : '');
     },
-    [requestSearchEverywhereFiles],
+    [abortSearchEverywhereFileRequests, requestSearchEverywhereFiles, updateSearchEverywhereQuery],
   );
   React.useEffect(() => {
     openSearchEverywhereRef.current = openSearchEverywhere;
@@ -4318,12 +4344,20 @@ function EditorWorkspace({
   }, [openSearchEverywhere]);
   const toggleIncludeNonProject = React.useCallback(() => {
     if (searchEverywhere === null) return;
+    abortSearchEverywhereFileRequests();
     const includeNonProject = searchEverywhere.includeNonProject !== true;
     setSearchEverywhere((current) =>
-      current === null ? current : { ...current, includeNonProject, index: 0, error: null },
+      current === null ? current : { ...current, includeNonProject, filesTruncated: false, index: 0, error: null },
     );
-    requestSearchEverywhereFiles(includeNonProject);
-  }, [requestSearchEverywhereFiles, searchEverywhere]);
+    requestSearchEverywhereFiles(
+      includeNonProject,
+      typeof searchEverywhere.fileMask === 'string' ? searchEverywhere.fileMask : '',
+    );
+  }, [abortSearchEverywhereFileRequests, requestSearchEverywhereFiles, searchEverywhere]);
+  const updateSearchEverywhereFileMask = React.useCallback(
+    (fileMask: string) => scheduleSearchEverywhereFileMask(fileMask, searchEverywhere?.includeNonProject === true),
+    [scheduleSearchEverywhereFileMask, searchEverywhere?.includeNonProject],
+  );
   const searchEverywhereRawQuery = searchEverywhere?.query.trim() ?? '';
   const searchEverywhereTextQuery = searchEverywhereRawQuery;
   const searchEverywhereOpen = searchEverywhere !== null;
@@ -4333,20 +4367,14 @@ function EditorWorkspace({
     if (!searchEverywhereTextActive) return undefined;
     const requestId = ++searchTextRequestRef.current;
     if (searchEverywhereTextQuery.length < 2) {
-      setSearchEverywhere((current) =>
-        current === null
-          ? current
-          : {
-              ...current,
-              textMatches: [],
-              textLoading: false,
-              textTruncated: false,
-            },
-      );
+      setSearchEverywhere(searchEverywhereTextIdleState);
       return undefined;
     }
     setSearchEverywhere((current) => (current === null ? current : { ...current, textLoading: true, error: null }));
     const searchAbort = new AbortController();
+    const dirtyFiles = (Array.isArray(openFiles) ? openFiles : []).filter(
+      (file) => file?.dirty === true && typeof file.content === 'string',
+    );
     const timer = window.setTimeout(() => {
       void callFs<TextSearchResponse>(
         {
@@ -4358,18 +4386,26 @@ function EditorWorkspace({
           wholeWords: searchEverywhere?.wholeWords === true,
           regex: searchEverywhere?.regex === true,
           fileMask: normalizeFileExtensionFilter(searchEverywhere?.fileMask),
+          dirtyPaths: dirtyFiles.map((file) => file.path),
+          searchDirectoryRules,
         },
         { signal: searchAbort.signal },
       )
         .then((value) => {
           if (searchTextRequestRef.current !== requestId) return;
           const hostMatches = Array.isArray(value?.matches) ? value.matches : [];
-          const dirtyFiles = (Array.isArray(openFiles) ? openFiles : []).filter(
-            (file) => file?.dirty === true && typeof file.content === 'string',
-          );
+          const eligibleDirtyPaths = Array.isArray(value?.dirtyPaths) ? new Set(value.dirtyPaths) : null;
+          const mergeDirtyFiles =
+            eligibleDirtyPaths === null
+              ? dirtyFiles.filter((file) => searchPathAllowedByDirectoryRules(file.path, searchDirectoryRules))
+              : dirtyFiles.filter(
+                  (file) =>
+                    eligibleDirtyPaths.has(file.path) &&
+                    searchPathAllowedByDirectoryRules(file.path, searchDirectoryRules),
+                );
           const merged = mergeFindToolDirtyMatches(
             hostMatches,
-            dirtyFiles,
+            mergeDirtyFiles,
             searchEverywhereTextQuery,
             {
               caseSensitive: searchEverywhere?.caseSensitive === true,
@@ -4409,6 +4445,7 @@ function EditorWorkspace({
                   textLoading: false,
                   textTruncated: false,
                   error: searchTextFailureMessage(failure, t),
+                  errorSource: 'text',
                 },
           );
         });
@@ -4428,6 +4465,7 @@ function EditorWorkspace({
     searchEverywhere?.regex,
     searchEverywhere?.preserveCase,
     searchEverywhere?.fileMask,
+    searchDirectoryRules,
     openFiles,
     t,
   ]);
@@ -4536,7 +4574,7 @@ function EditorWorkspace({
    * @returns {void}
    */ const changeFindToolScope = React.useCallback((scope: FindToolScope) => {
     const normalized = writeFindScope(rootRef.current, scope);
-    const { mode, preset, directory } = normalized;
+    const { mode, preset, directory } = directoryScopeRequest(normalized, scope);
     setFindTool((current) => {
       if (current === null) return current;
       if (
@@ -4900,7 +4938,6 @@ function EditorWorkspace({
   React.useEffect(() => {
     if (!findToolOpen || findToolSearchScopeMode !== 'files') return undefined;
     const includeExcluded = findTool?.includeExcluded === true;
-    if (findToolFileCandidatesScope === includeExcluded) return undefined;
     const requestId = ++findToolFileRequestRef.current;
     findToolFileAbortRef.current?.abort();
     const searchAbort = new AbortController();
@@ -4908,7 +4945,14 @@ function EditorWorkspace({
     setFindTool((current) =>
       current === null || current.searchScopeMode !== 'files' ? current : { ...current, loading: true, error: null },
     );
-    void callFs<FileListResponse>({ op: 'files', includeExcluded }, { signal: searchAbort.signal })
+    void callFs<FileListResponse>(
+      findToolFileCandidatesRequest(
+        includeExcluded,
+        normalizeFileExtensionFilter(findTool?.fileMask),
+        searchDirectoryRules,
+      ),
+      { signal: searchAbort.signal },
+    )
       .then((value) => {
         if (findToolFileRequestRef.current !== requestId) return;
         const files = (Array.isArray(value?.files) ? value.files : []).filter(
@@ -4927,7 +4971,7 @@ function EditorWorkspace({
             : {
                 ...current,
                 loading: false,
-                error: failure instanceof Error ? failure.message : String(failure),
+                error: searchTextFailureMessage(failure, t),
               },
         );
       })
@@ -4935,7 +4979,15 @@ function EditorWorkspace({
         if (findToolFileAbortRef.current === searchAbort) findToolFileAbortRef.current = null;
       });
     return () => searchAbort.abort();
-  }, [findToolOpen, findToolSearchScopeMode, findTool?.includeExcluded, findToolFileCandidatesScope]);
+  }, [
+    findToolOpen,
+    findToolSearchScopeMode,
+    findTool?.includeExcluded,
+    findTool?.fileMask,
+    searchRevision,
+    searchDirectoryRules,
+    t,
+  ]);
   React.useEffect(() => {
     if (!findToolOpen || findToolSearchScopeMode !== 'files') return;
     const includeExcluded = findTool?.includeExcluded === true;
@@ -4964,7 +5016,7 @@ function EditorWorkspace({
         wholeWords: current.wholeWords === true,
         fileMask: current.fileMask,
       }).map((path): FindToolFile => ({ path }));
-      return {
+      return pruneFindCollapsedFiles({
         ...current,
         files,
         matches: [],
@@ -4972,7 +5024,7 @@ function EditorWorkspace({
         loading: false,
         error: null,
         loadedGeneration: generation,
-      };
+      });
     });
   }, [
     findToolOpen,
@@ -4992,19 +5044,16 @@ function EditorWorkspace({
     const generation = findTool.searchGeneration;
     const requestId = ++findToolRequestRef.current;
     const requestRoot = rootRef.current;
-    if (!hasFindToolContentQuery(findToolQuery)) {
-      setFindTool((current) =>
-        current === null
-          ? current
-          : {
-              ...current,
-              files: [],
-              matches: [],
-              truncated: false,
-              loading: false,
-              loadedGeneration: generation,
-            },
-      );
+    const preflight = findScopePreflight(findTool, {
+      hasQuery: hasFindToolContentQuery(findToolQuery),
+      generation,
+      directory: findToolSearchScopeMode === 'directory' ? findTool?.searchScopeDirectory : '',
+      searchDirectoryRules,
+      excludedMessage: (path) => t('editor.findToolDirectoryExcluded', { path }),
+      invalidMessage: (path) => t('editor.findToolDirectoryInvalid', { path }),
+    });
+    if (preflight !== null) {
+      setFindTool(preflight.state);
       return undefined;
     }
     setFindTool((current) => (current === null ? current : { ...current, loading: true, error: null }));
@@ -5034,6 +5083,7 @@ function EditorWorkspace({
               : undefined,
           gitScope: findToolGitScope,
           dirtyPaths: dirtyFiles.map((file) => file.path),
+          searchDirectoryRules,
         },
         { signal: searchAbort.signal },
       )
@@ -5067,14 +5117,14 @@ function EditorWorkspace({
           setFindTool((current) =>
             current === null
               ? current
-              : {
+              : pruneFindCollapsedFiles({
                   ...current,
                   matches: completeSearchMatches(merged.matches),
                   truncated: value?.truncated === true || merged.truncated,
                   loading: false,
                   loadedGeneration: generation,
                   error: null,
-                },
+                }),
           );
           rememberCurrentFindQuery(findToolQuery);
         })
@@ -5116,6 +5166,7 @@ function EditorWorkspace({
     findTool?.searchScopeRecursive,
     findToolAllowedScopePathsKey,
     findToolGitScope,
+    searchDirectoryRules,
     openFiles,
     recentFiles,
     rememberCurrentFindQuery,
@@ -5152,7 +5203,7 @@ function EditorWorkspace({
       if (!next.open) return;
       event.preventDefault();
       event.stopPropagation();
-      openSearchEverywhere('all');
+      openSearchEverywhere('all', selectedEditorFindQuery(currentCodeEditor()));
       window.setTimeout(() => document.querySelector<HTMLElement>('[data-dsh-search-query]')?.focus?.(), 0);
     };
     const resetGesture = () => {
@@ -5164,11 +5215,9 @@ function EditorWorkspace({
       window.removeEventListener('keydown', onKeyDown, true);
       window.removeEventListener('blur', resetGesture);
     };
-  }, [openSearchEverywhere]);
+  }, [currentCodeEditor, openSearchEverywhere]);
   const cancelWorkspaceSearchRequests = React.useCallback(() => {
-    searchEverywhereFilesRequestRef.current += 1;
-    searchEverywhereFilesAbortRef.current?.abort();
-    searchEverywhereFilesAbortRef.current = null;
+    abortSearchEverywhereFileRequests();
     quickOpenFilesRequestRef.current += 1;
     quickOpenFilesAbortRef.current?.abort();
     quickOpenFilesAbortRef.current = null;
@@ -5187,7 +5236,7 @@ function EditorWorkspace({
     findToolFileRequestRef.current += 1;
     findToolFileAbortRef.current?.abort();
     findToolFileAbortRef.current = null;
-  }, []);
+  }, [abortSearchEverywhereFileRequests]);
   const previousWorkspaceSearchRootRef = React.useRef(root);
   React.useEffect(() => {
     const previousWorkspaceRoot = previousWorkspaceSearchRootRef.current;
@@ -5197,8 +5246,7 @@ function EditorWorkspace({
       setFindToolFileCandidates([]);
       setFindToolFileCandidatesScope(null);
       setFindToolFileCandidatesTruncated(false);
-      searchEverywhereFilesRef.current = [];
-      searchEverywhereFilesScopeRef.current = null;
+      clearSearchEverywhereFileCache();
       setSearchEverywhere(null);
       setShowUsages(null);
       setFindTool(null);
@@ -5209,7 +5257,7 @@ function EditorWorkspace({
     setRecentFindQueries(root === '' ? [] : readFindQueryHistory(root));
     setRecentFindUsages(root === '' ? [] : readFindUsagesHistory(root));
     setRecentReplacements(root === '' ? [] : readReplaceHistory(root));
-  }, [cancelWorkspaceSearchRequests, root]);
+  }, [cancelWorkspaceSearchRequests, clearSearchEverywhereFileCache, root]);
   React.useEffect(() => {
     return () => cancelWorkspaceSearchRequests();
   }, [cancelWorkspaceSearchRequests]);
@@ -5574,14 +5622,12 @@ function EditorWorkspace({
     currentCodeEditor,
   ]);
   const closeSearchEverywhere = React.useCallback(() => {
-    searchEverywhereFilesRequestRef.current += 1;
-    searchEverywhereFilesAbortRef.current?.abort();
+    abortSearchEverywhereFileRequests();
     searchEverywhereReturnFocusRef.current = null;
     setSearchEverywhere(null);
-  }, []);
+  }, [abortSearchEverywhereFileRequests]);
   const dismissSearchEverywhere = React.useCallback(() => {
-    searchEverywhereFilesRequestRef.current += 1;
-    searchEverywhereFilesAbortRef.current?.abort();
+    abortSearchEverywhereFileRequests();
     const previous = searchEverywhereReturnFocusRef.current;
     searchEverywhereReturnFocusRef.current = null;
     setSearchEverywhere(null);
@@ -5589,7 +5635,7 @@ function EditorWorkspace({
       if (previous !== null && previous.isConnected) previous.focus();
       else currentCodeEditor()?.focus?.();
     }, 0);
-  }, [currentCodeEditor]);
+  }, [abortSearchEverywhereFileRequests, currentCodeEditor]);
   const rememberSearchEverywhereQuery = React.useCallback((query: string) => {
     const workspace = rootRef.current;
     if (workspace === '') return;
@@ -5715,7 +5761,7 @@ function EditorWorkspace({
           icon: 'settings',
           label: t('editor.findActionAction'),
           description: t('editor.findActionHint'),
-          shortcut: '⇧⌘A',
+          shortcut: findActionShortcutLabel(isMacPlatform(navigator.userAgentData?.platform ?? navigator.platform)),
           keepOpen: true,
           rememberQuery: false,
           run: () => {
@@ -6455,8 +6501,11 @@ function EditorWorkspace({
    * the host's protected disk-write path and transactional rollback.
    * @returns {Promise<void>} resolves after the write attempt and refresh.
    */ const replaceInFiles = React.useCallback(async () => {
-    const request = { id: searchTextRequestRef.current, query: searchEverywhere?.query ?? '' };
-    const query = request.query.trim();
+    const requestQuery = searchEverywhere?.query ?? '';
+    const request = { id: searchTextRequestRef.current, sessionId: currentSessionId(), workspaceId };
+    const requestWorkspaceIsCurrent = () =>
+      replaceAttemptWorkspaceIsCurrent(request, currentEditorWorkspaceId(), currentSessionId());
+    const query = requestQuery.trim();
     const replacement = typeof searchEverywhere?.replace === 'string' ? searchEverywhere.replace : '';
     const matches = Array.isArray(searchEverywhere?.textMatches) ? searchEverywhere.textMatches : [];
     if (query === '' || matches.length === 0) return;
@@ -6493,26 +6542,23 @@ function EditorWorkspace({
     const operationFileCount = new Set([...cleanTargets.keys(), ...dirtyPlans.map((plan) => plan.path)]).size;
     if (operationFileCount === 0) return;
     if (!claimReplaceAttempt(replaceWriteBusyRef, searchEverywhere?.replaceBusy === true)) return;
-    if (!(await confirmSearchReplace(t, query, replacement, matches.length, operationFileCount))) {
-      releaseReplaceAttempt(replaceWriteBusyRef);
-      setSearchEverywhere((current) =>
-        current === null
-          ? current
-          : {
-              ...current,
-              replaceFocusRequest: (current.replaceFocusRequest ?? 0) + 1,
-            },
-      );
-      return;
-    }
+    const confirmedReplace = await confirmFindReplaceAndGeneration(
+      () => confirmSearchReplace(t, query, replacement, matches.length, operationFileCount),
+      () =>
+        searchReplaceAttemptIsCurrent(
+          request,
+          currentEditorWorkspaceId(),
+          searchTextRequestRef.current,
+          currentSessionId(),
+        ),
+      replaceWriteBusyRef,
+      setSearchEverywhere,
+    );
+    if (!confirmedReplace) return;
     /* Search Everywhere uses the same host undo slot. Any previous Find
            operation is no longer recoverable once this replacement starts. */ setFindReplaceUndoStack([]);
     setFindReplaceRedoStack([]);
-    const dirtyUndo = dirtyPlans.map((plan) => ({
-      path: plan.path,
-      afterContent: plan.text,
-      beforeContent: plan.model.getValue(),
-    }));
+    const dirtyUndo = dirtyReplaceUndo(dirtyPlans);
     let hostChanged: string[] = [];
     let hostResult: { operationId?: unknown; replacements?: unknown } | null = null;
     setSearchEverywhere((current) => (current === null ? current : { ...current, replaceBusy: true, error: null }));
@@ -6530,9 +6576,11 @@ function EditorWorkspace({
               regex: searchEverywhere.regex === true,
               preserveCase: searchEverywhere.preserveCase === true,
               fileMask: normalizeFileExtensionFilter(searchEverywhere.fileMask),
+              searchDirectoryRules,
             });
       hostChanged = Array.isArray(value?.files) ? value.files : [];
       hostResult = value;
+      if (!requestWorkspaceIsCurrent()) return;
       const dirtyCommit = commitFindToolDirtyPlans(dirtyPlans);
       const dirtyReplacements = dirtyCommit.count;
       const dirtyChanged = dirtyCommit.paths;
@@ -6550,39 +6598,32 @@ function EditorWorkspace({
         );
       }
       await refreshHostReplaceChanges(hostChanged);
-      const changed = [...new Set([...hostChanged, ...dirtyChanged])];
+      if (!requestWorkspaceIsCurrent()) return;
       rememberCurrentSearchQuery(query);
       rememberCurrentReplacement(replacement);
-      const replacedCount = Number(value?.replacements ?? 0) + dirtyReplacements;
-      const operationId = typeof value?.operationId === 'string' ? value.operationId : '';
-      const operation = {
-        operationId,
-        clean: operationId !== '' && hostChanged.length > 0,
-        dirty: dirtyUndo,
-        files: changed,
-        replacements: replacedCount,
-      };
+      const { changed, operation, replacedCount } = replaceOperationState(
+        value,
+        hostChanged,
+        dirtyChanged,
+        dirtyReplacements,
+        dirtyUndo,
+      );
       setFindReplaceRedoStack([]);
       setFindReplaceUndoStack((current) => boundedReplaceHistory(current, operation));
       flashStatus(t('editor.searchReplaceDone', searchReplaceCountParams(t, replacedCount, changed.length)));
       setSearchEverywhere((current) =>
         searchEverywhereReplaceSuccessState(
           current,
-          replaceAttemptIsCurrent(request.id, request.query, searchTextRequestRef.current, current?.query),
+          replaceAttemptIsCurrent(request.id, requestQuery, searchTextRequestRef.current, current?.query),
         ),
       );
     } catch (failure) {
-      const failureMessage = failure instanceof Error ? failure.message : String(failure);
-      const message =
-        hostChanged.length > 0
-          ? t('editor.searchReplacePartialFailure', {
-              message: failureMessage,
-            })
-          : failureMessage;
+      if (!requestWorkspaceIsCurrent()) return;
+      const message = searchReplaceFailureMessage(failure, hostChanged.length, t);
       setSearchEverywhere((current) =>
         replaceFailureSettlement(
           current,
-          replaceAttemptIsCurrent(request.id, request.query, searchTextRequestRef.current, current?.query),
+          replaceAttemptIsCurrent(request.id, requestQuery, searchTextRequestRef.current, current?.query),
           message,
         ),
       );
@@ -6595,7 +6636,6 @@ function EditorWorkspace({
   }, [flashStatus, loadGit, reloadFile, rememberCurrentReplacement, rememberCurrentSearchQuery, searchEverywhere, t]);
   /**
    * Apply IDEA's Replace in Files action from the persistent Find window.
-   *
    * Dirty open documents are replaced in their Monaco models; clean targets
    * continue through the host's guarded disk write. Each dirty model edit is
    * isolated as its own undo step.
@@ -6603,7 +6643,11 @@ function EditorWorkspace({
    */ const replaceInFindTool = React.useCallback(
     async (allowedPaths: Set<string> | null = null) => {
       const query = findToolContentQuery(findTool?.query);
+      if (!findToolResultsAreCurrent(findTool)) return;
       const requestGeneration = Math.max(0, Number(findTool?.searchGeneration) || 0);
+      const request = { workspaceId, generation: requestGeneration, sessionId: currentSessionId() };
+      const requestWorkspaceIsCurrent = () =>
+        replaceAttemptWorkspaceIsCurrent(request, currentEditorWorkspaceId(), currentSessionId());
       const allowed = allowedPaths instanceof Set ? allowedPaths : null;
       const matches = (Array.isArray(findTool?.matches) ? findTool.matches : []).filter(
         (match) => allowed === null || allowed.has(match.path),
@@ -6653,18 +6697,19 @@ function EditorWorkspace({
       const operationFileCount = new Set([...cleanTargets.keys(), ...dirtyPlans.map((plan) => plan.path)]).size;
       if (operationFileCount === 0) return;
       if (!claimReplaceAttempt(replaceWriteBusyRef, findTool?.replaceBusy === true)) return;
-      if (!(await confirmSearchReplace(t, query, findTool.replace, matches.length, operationFileCount))) {
-        releaseReplaceAttempt(replaceWriteBusyRef);
-        setFindTool((current) =>
-          current === null
-            ? current
-            : {
-                ...current,
-                replaceFocusRequest: (current.replaceFocusRequest ?? 0) + 1,
-              },
-        );
-        return;
-      }
+      const confirmedReplace = await confirmFindReplaceAndGeneration(
+        () => confirmSearchReplace(t, query, findTool.replace, matches.length, operationFileCount),
+        () =>
+          findReplaceAttemptIsCurrent(
+            request,
+            currentEditorWorkspaceId(),
+            findToolDraftRef.current.searchGeneration,
+            currentSessionId(),
+          ),
+        replaceWriteBusyRef,
+        setFindTool,
+      );
+      if (!confirmedReplace) return;
       let hostChanged: string[] = [];
       let hostResult: { operationId?: unknown; replacements?: unknown } | null = null;
       setFindTool((current) =>
@@ -6678,11 +6723,7 @@ function EditorWorkspace({
             },
       );
       try {
-        const dirtyUndo = dirtyPlans.map((plan) => ({
-          path: plan.path,
-          afterContent: plan.text,
-          beforeContent: plan.model.getValue(),
-        }));
+        const dirtyUndo = dirtyReplaceUndo(dirtyPlans);
         const value =
           cleanTargets.size === 0
             ? null
@@ -6699,9 +6740,11 @@ function EditorWorkspace({
                 contextFilter: normalizeTextSearchContextFilter(findTool.contextFilter),
                 scopeIncludePatterns: findToolScopeIncludePatterns,
                 scopeExcludePatterns: findToolScopeExcludePatterns,
+                searchDirectoryRules,
               });
         hostChanged = Array.isArray(value?.files) ? value.files : [];
         hostResult = value;
+        if (!requestWorkspaceIsCurrent()) return;
         const dirtyCommit = commitFindToolDirtyPlans(dirtyPlans);
         const dirtyReplacements = dirtyCommit.count;
         const dirtyChanged = dirtyCommit.paths;
@@ -6719,18 +6762,16 @@ function EditorWorkspace({
           );
         }
         await refreshHostReplaceChanges(hostChanged);
-        const changed = [...new Set([...hostChanged, ...dirtyChanged])];
+        if (!requestWorkspaceIsCurrent()) return;
         rememberCurrentFindQuery(query);
         rememberCurrentReplacement(findTool.replace);
-        const replacedCount = Number(value?.replacements ?? 0) + dirtyReplacements;
-        const operationId = typeof value?.operationId === 'string' ? value.operationId : '';
-        const operation = {
-          operationId,
-          clean: operationId !== '' && hostChanged.length > 0,
-          dirty: dirtyUndo,
-          files: changed,
-          replacements: replacedCount,
-        };
+        const { changed, operation, replacedCount } = replaceOperationState(
+          value,
+          hostChanged,
+          dirtyChanged,
+          dirtyReplacements,
+          dirtyUndo,
+        );
         setFindReplaceRedoStack([]);
         setFindReplaceUndoStack((current) => boundedReplaceHistory(current, operation));
         flashStatus(t('editor.searchReplaceDone', searchReplaceCountParams(t, replacedCount, changed.length)));
@@ -6750,13 +6791,8 @@ function EditorWorkspace({
                 },
         );
       } catch (failure) {
-        const failureMessage = failure instanceof Error ? failure.message : String(failure);
-        const message =
-          hostChanged.length > 0
-            ? t('editor.searchReplacePartialFailure', {
-                message: failureMessage,
-              })
-            : failureMessage;
+        if (!requestWorkspaceIsCurrent()) return;
+        const message = searchReplaceFailureMessage(failure, hostChanged.length, t);
         flashStatus(message);
         setFindTool((current) => replaceFailureState(current, requestGeneration, message));
         const hostUndo = hostOnlyReplaceOperation(hostResult, hostChanged);
@@ -6781,6 +6817,7 @@ function EditorWorkspace({
    */ const replaceFindToolOccurrence = React.useCallback(
     async (match: FindToolMatch, activeIndex: number) => {
       const query = findToolContentQuery(findTool?.query);
+      if (!findToolResultsAreCurrent(findTool)) return;
       const requestGeneration = Math.max(0, Number(findTool?.searchGeneration) || 0);
       const line = Number(match?.line);
       const column = Number(match?.column);
@@ -6873,6 +6910,7 @@ function EditorWorkspace({
                 contextFilter: normalizeTextSearchContextFilter(findTool.contextFilter),
                 scopeIncludePatterns: findToolScopeIncludePatterns,
                 scopeExcludePatterns: findToolScopeExcludePatterns,
+                searchDirectoryRules,
               })
             : null;
         if (dirtyFile !== undefined && dirtyModel !== undefined && dirtyRewrite !== null && dirtyOffset !== null) {
@@ -7463,7 +7501,7 @@ function EditorWorkspace({
       async (name: string) => {
         const dirty = (openFilesRef.current ?? []).some((file) => file.dirty === true);
         if (dirty && !window.confirm(t('editor.checkoutDirty'))) return;
-        setCommitBusy(true);
+        if (!beginCommitOperation()) return;
         try {
           const value = await callGit<WorkspaceGitStatus>({
             op: 'checkout',
@@ -7483,7 +7521,7 @@ function EditorWorkspace({
         } catch (failure) {
           reportGitFailure(failure);
         } finally {
-          setCommitBusy(false);
+          endCommitOperation();
         }
       },
       [loadLog, reloadFile, refreshTree, reportGitFailure, t],
@@ -7495,7 +7533,7 @@ function EditorWorkspace({
         typeof HTMLElement !== 'undefined' && document.activeElement instanceof HTMLElement
           ? document.activeElement
           : null;
-      setCommitBusy(true);
+      if (!beginCommitOperation()) return;
       setCommitError(null);
       try {
         const value = await callGit({ op: 'branches' });
@@ -7547,7 +7585,7 @@ function EditorWorkspace({
         if (branchMenuRequestRef.current !== requestId) return;
         reportGitFailure(failure);
       } finally {
-        if (branchMenuRequestRef.current === requestId) setCommitBusy(false);
+        endCommitOperation();
       }
     },
     [checkoutBranch, openNamePrompt, reportGitFailure, t],
@@ -7563,7 +7601,7 @@ function EditorWorkspace({
     if (namePrompt === null) return;
     const name = namePrompt.value.trim();
     if (name === '') return;
-    setCommitBusy(true);
+    if (!beginCommitOperation()) return;
     try {
       if (namePrompt.kind === 'tag') {
         /* A tag moves no HEAD and rewrites no file: only the graph's ref list
@@ -7597,7 +7635,7 @@ function EditorWorkspace({
       const message = failure instanceof Error ? failure.message : String(failure);
       setNamePrompt((current) => (current === null ? current : { ...current, error: message }));
     } finally {
-      setCommitBusy(false);
+      endCommitOperation();
     }
   }, [finishNamePrompt, graph, loadGraph, loadLog, namePrompt, reloadFile, refreshTree, t]);
   /**
@@ -7610,7 +7648,7 @@ function EditorWorkspace({
     async (operation: 'save' | 'pop' | 'apply' | 'drop', ref?: string) => {
       if (operation === 'pop' && !window.confirm(t('editor.stashPopConfirm'))) return;
       if (operation === 'drop' && !window.confirm(t('editor.stashDropConfirm', { ref: ref ?? '' }))) return;
-      setCommitBusy(true);
+      if (!beginCommitOperation()) return;
       setCommitError(null);
       setCommitNotice(null);
       try {
@@ -7635,7 +7673,7 @@ function EditorWorkspace({
       } catch (failure) {
         reportGitFailure(failure);
       } finally {
-        setCommitBusy(false);
+        endCommitOperation();
       }
     },
     [refreshTree, reportGitFailure, t],
@@ -7649,7 +7687,7 @@ function EditorWorkspace({
    */ const runShelve = React.useCallback(
     async (operation: 'save' | 'apply' | 'drop', ref?: string, paths?: string[]) => {
       if (operation === 'drop' && !window.confirm(t('editor.shelveConfirmDrop', { ref: ref ?? '' }))) return;
-      setCommitBusy(true);
+      if (!beginCommitOperation()) return;
       setCommitError(null);
       setCommitNotice(null);
       try {
@@ -7673,7 +7711,7 @@ function EditorWorkspace({
       } catch (failure) {
         reportGitFailure(failure);
       } finally {
-        setCommitBusy(false);
+        endCommitOperation();
       }
     },
     [refreshTree, reportGitFailure, t],
@@ -7681,7 +7719,7 @@ function EditorWorkspace({
   /* Open IDEA's stash menu from the current stack. */ const openStashMenu = React.useCallback(
     async (position: { x: number; y: number }) => {
       const requestId = ++commitMenuRequestRef.current;
-      setCommitBusy(true);
+      if (!beginCommitOperation()) return;
       setCommitError(null);
       try {
         const value = await callGit<WorkspaceGitStatus>({
@@ -7706,7 +7744,7 @@ function EditorWorkspace({
         if (commitMenuRequestRef.current !== requestId) return;
         reportGitFailure(failure);
       } finally {
-        if (commitMenuRequestRef.current === requestId) setCommitBusy(false);
+        endCommitOperation();
       }
     },
     [git, reportGitFailure, runStash, t],
@@ -7714,7 +7752,7 @@ function EditorWorkspace({
   /* Open IDEA's selected-path Shelve menu from the current shelves. */ const openShelveMenu = React.useCallback(
     async (position: { x: number; y: number }) => {
       const requestId = ++commitMenuRequestRef.current;
-      setCommitBusy(true);
+      if (!beginCommitOperation()) return;
       setCommitError(null);
       try {
         const value = await callGit<WorkspaceGitStatus>({
@@ -7740,7 +7778,7 @@ function EditorWorkspace({
         if (commitMenuRequestRef.current !== requestId) return;
         reportGitFailure(failure);
       } finally {
-        if (commitMenuRequestRef.current === requestId) setCommitBusy(false);
+        endCommitOperation();
       }
     },
     [commitSelection, reportGitFailure, runShelve, t],
@@ -7777,14 +7815,18 @@ function EditorWorkspace({
         )
       )
         return;
-      setCommitBusy(true);
+      if (!beginCommitOperation()) return;
       try {
+        const deletedPaths: string[] = [];
         for (const path of targets) {
           /* Deleting a parent first would make its children vanish from under us. */ await callFs({
             op: 'delete',
             path,
-          }).catch(() => {});
+          })
+            .then(() => deletedPaths.push(path))
+            .catch(() => {});
         }
+        pruneSearchDirectoryRulesForDeletedPaths(deletedPaths);
         await refreshTree();
         await loadGit();
         const active = activePathRef.current;
@@ -7793,10 +7835,10 @@ function EditorWorkspace({
       } catch (failure) {
         setTreeError(failure instanceof Error ? failure.message : String(failure));
       } finally {
-        setCommitBusy(false);
+        endCommitOperation();
       }
     },
-    [closeFile, dirtyUnder, loadGit, refreshTree, t],
+    [closeFile, dirtyUnder, loadGit, pruneSearchDirectoryRulesForDeletedPaths, refreshTree, t],
   );
   /* Delete one entry after confirmation, then refresh the tree and git status. */ const removeEntry =
     React.useCallback(
@@ -7814,8 +7856,10 @@ function EditorWorkspace({
           )
         )
           return;
+        if (!beginCommitOperation()) return;
         try {
           await callFs({ op: 'delete', path: row.path });
+          pruneSearchDirectoryRulesForDeletedPaths([row.path]);
           await refreshTree();
           await loadGit();
           if (
@@ -7826,9 +7870,11 @@ function EditorWorkspace({
           }
         } catch (failure) {
           setTreeError(failure instanceof Error ? failure.message : String(failure));
+        } finally {
+          endCommitOperation();
         }
       },
-      [closeFile, dirtyUnder, loadGit, projectName, refreshTree, t],
+      [closeFile, dirtyUnder, loadGit, projectName, pruneSearchDirectoryRulesForDeletedPaths, refreshTree, t],
     );
   /**
    * Compare each open tab's recorded mtime with the file on disk.
@@ -7920,7 +7966,13 @@ function EditorWorkspace({
     const controller = new AbortController();
     let disposed = false;
     let chain = Promise.resolve();
-    const handle = (event: { type?: string; dirs?: unknown[]; message?: unknown }) => {
+    const handle = (event: {
+      type?: string;
+      dirs?: unknown[];
+      paths?: unknown[];
+      searchScopeMayHaveChanged?: unknown;
+      message?: unknown;
+    }) => {
       if (disposed) return;
       if (event.type === 'change') {
         const changedDirectories = Array.isArray(event.dirs)
@@ -7930,12 +7982,16 @@ function EditorWorkspace({
                writes and one could resurrect a listing the other just dropped. */ chain = chain
           .then(async () => {
             if (disposed) return;
+            if (event.searchScopeMayHaveChanged === true || workspaceChangeInvalidatesSearchScope(event.paths)) {
+              setSearchRevision((current) => current + 1);
+            }
             /* The watcher names the directories that changed; without that hint
                    only the root is re-read. */ const changedListings = await refreshTree(
               changedDirectories === null ? undefined : changedDirectories,
             );
             await loadGit();
             await checkExternalChanges();
+            void invalidateFindAfterExternalDelete(root, event.paths, setFindTool);
             setMarkdownAssetRevisions((current) => nextMarkdownAssetRevisions(current, changedListings));
           })
           .catch(() => {
@@ -8177,6 +8233,7 @@ function EditorWorkspace({
       return;
     }
     const path = createState.parent === '' ? name : `${createState.parent}/${name}`;
+    if (!beginCommitOperation()) return;
     try {
       await callFs({ op: 'create', path, kind: createState.kind });
       /* IDEA's "New from Template": a named file gets the language's skeleton
@@ -8227,6 +8284,8 @@ function EditorWorkspace({
       if (createState.kind === 'file') await openFile(path);
     } catch (error) {
       setTreeError(error instanceof Error ? error.message : String(error));
+    } finally {
+      endCommitOperation();
     }
   }, [createState, foldersFirst, openFile, showExcludedFiles, showHidden, sortMode, t]);
   /* IDEA's "Reveal in Finder": hand the absolute path to the platform file manager. */ const revealInFinder =
@@ -8252,7 +8311,7 @@ function EditorWorkspace({
   const restage = React.useCallback(
     async (paths: string[], staged: boolean, focusPath?: string) => {
       if (paths.length === 0) return false;
-      setCommitBusy(true);
+      if (!beginCommitOperation()) return false;
       setCommitError(null);
       try {
         const value = await callGit<WorkspaceGitStatus>({
@@ -8276,7 +8335,7 @@ function EditorWorkspace({
         reportGitFailure(failure);
         return false;
       } finally {
-        setCommitBusy(false);
+        endCommitOperation();
       }
     },
     [reportGitFailure],
@@ -8556,6 +8615,16 @@ function EditorWorkspace({
           ...(showDirectoryActions
             ? [
                 {
+                  id: 'toggleSearchDirectory',
+                  label:
+                    searchDirectoryEffectiveState(row.path, searchDirectoryRules) === 'excluded'
+                      ? t('editor.includeDirectoryInSearch')
+                      : t('editor.excludeDirectoryFromSearch'),
+                  disabled: isRoot || batch.length > 1,
+                  disabledReason: searchDirectoryToggleDisabledReason(batch.length, t) ?? undefined,
+                  run: () => toggleSearchDirectory(row.path),
+                },
+                {
                   id: 'stageHere',
                   label: t('editor.stageThisDirectory'),
                   disabled: batch.length > 1 || (git?.changes ?? []).length === 0,
@@ -8622,51 +8691,38 @@ function EditorWorkspace({
       startCreate,
       t,
       toggleDirectory,
+      toggleSearchDirectory,
+      searchDirectoryRules,
       buildHarnessPathAction,
     ],
   );
   const uploadDropBusyRef = React.useRef<ProjectUploadBusyState>({ current: false });
-  const uploadDroppedEntries = React.useCallback(
-    (handles: Parameters<typeof uploadWorkspaceDropToProject>[0]['handles'], targetDirectory: string) =>
-      uploadWorkspaceDropToProject({
-        handles,
-        targetDirectory,
-        callFs,
-        refreshTree: async () => {
-          await refreshTree();
-        },
-        loadGit: async () => {
-          await loadGit();
-        },
-        uploadBusyRef: uploadDropBusyRef.current,
-        setExpanded,
-        setChildren: (updater) => setChildren((current) => updater(current) as Record<string, WorkspaceEntry[]>),
-        setEntries: (nextEntries) => setEntries(nextEntries as WorkspaceEntry[]),
-        setTreeError,
-        flashStatus,
-        applyTreeSelection,
-        showHidden,
-        sortMode,
-        foldersFirst,
-        showExcludedFiles,
-        projectName,
-        setUploadBusy,
-        setUploadProgress,
-        t,
-      }),
-    [
-      applyTreeSelection,
-      flashStatus,
-      foldersFirst,
-      loadGit,
-      projectName,
-      refreshTree,
-      showExcludedFiles,
-      showHidden,
-      sortMode,
-      t,
-    ],
-  );
+  const uploadDroppedEntries = useProjectUploadDrop({
+    beginOperation: beginCommitOperation,
+    endOperation: endCommitOperation,
+    uploadBusyRef: uploadDropBusyRef.current,
+    callFs,
+    refreshTree: async () => {
+      await refreshTree();
+    },
+    loadGit: async () => {
+      await loadGit();
+    },
+    setExpanded,
+    setChildren: (updater) => setChildren((current) => updater(current) as Record<string, WorkspaceEntry[]>),
+    setEntries: (nextEntries) => setEntries(nextEntries as WorkspaceEntry[]),
+    setTreeError,
+    flashStatus,
+    applyTreeSelection,
+    showHidden,
+    sortMode,
+    foldersFirst,
+    showExcludedFiles,
+    projectName,
+    setUploadBusy,
+    setUploadProgress,
+    t,
+  });
   /* Move one entry into a directory by drag-and-drop, reusing the rename endpoint. */ const moveEntry =
     React.useCallback(
       async (source: string | string[], targetDirectory: string) => {
@@ -8674,74 +8730,83 @@ function EditorWorkspace({
           Array.isArray(source) ? source : [source]
         ).filter((entry) => typeof entry === 'string' && entry !== '');
         if (sources.length === 0) return;
-        /* Plan the whole selection first: a destination that already exists (or
+        if (!beginCommitOperation()) return;
+        try {
+          /* Plan the whole selection first: a destination that already exists (or
              a batch whose members share a basename) is refused BEFORE the first
              rename, so a failed drag never leaves the tree half-moved.
              The candidate destinations are ASKED OF THE HOST, not read off the
              visible rows: a collapsed directory's children are not in `rows`, and
              a collision with one of them used to slip through and silently
              overwrite the file. */ const candidate = sources
-          .filter((entry) => !(targetDirectory === entry || targetDirectory.startsWith(`${entry}/`)))
-          .map((entry) => (targetDirectory === '' ? basename(entry) : `${targetDirectory}/${basename(entry)}`));
-        const described: Array<{ path?: string; exists?: boolean }> =
-          candidate.length === 0
-            ? []
-            : await callFs<Array<{ path?: string; exists?: boolean }>>({ op: 'exists', paths: candidate }).catch(
-                (): Array<{ path?: string; exists?: boolean }> => [],
-              );
-        const taken = new Set((described ?? []).filter((entry) => entry.exists === true).map((entry) => entry.path));
-        const existing = new Set([...rows.map((row) => row.path), ...taken]);
-        const plan = planMoves(sources, targetDirectory, existing);
-        if (plan.moves.length === 0) {
-          if (plan.intoSelf.length > 0) setTreeError(t('editor.moveIntoSelf'));
-          else if (plan.conflicts.length > 0) setTreeError(t('editor.moveConflict', { path: plan.conflicts[0].to }));
-          return;
-        }
-        const moved: Record<string, string> = {};
-        try {
-          for (const move of plan.moves) {
-            await callFs({ op: 'rename', path: move.from, to: move.to });
-            moved[move.from] = move.to;
+            .filter((entry) => !(targetDirectory === entry || targetDirectory.startsWith(`${entry}/`)))
+            .map((entry) => (targetDirectory === '' ? basename(entry) : `${targetDirectory}/${basename(entry)}`));
+          const described: Array<{ path?: string; exists?: boolean }> =
+            candidate.length === 0
+              ? []
+              : await callFs<Array<{ path?: string; exists?: boolean }>>({ op: 'exists', paths: candidate }).catch(
+                  (): Array<{ path?: string; exists?: boolean }> => [],
+                );
+          const taken = new Set((described ?? []).filter((entry) => entry.exists === true).map((entry) => entry.path));
+          const existing = new Set([...rows.map((row) => row.path), ...taken]);
+          const plan = planMoves(sources, targetDirectory, existing);
+          if (plan.moves.length === 0) {
+            if (plan.intoSelf.length > 0) setTreeError(t('editor.moveIntoSelf'));
+            else if (plan.conflicts.length > 0) setTreeError(t('editor.moveConflict', { path: plan.conflicts[0].to }));
+            return;
           }
-          const entries = Object.entries(moved);
-          if (entries.length === 0) return;
-          /* The refusal sentence names what DID move; built once, shown after
+          const moved: Record<string, string> = {};
+          try {
+            for (const move of plan.moves) {
+              await callFs({ op: 'rename', path: move.from, to: move.to });
+              moved[move.from] = move.to;
+            }
+            const entries = Object.entries(moved);
+            if (entries.length === 0) return;
+            /* The refusal sentence names what DID move; built once, shown after
                the refresh (which clears `treeError`). */ const summary = describeMoveResult({
-            moved: entries.map(([, to]) => to),
-            conflicts: plan.conflicts,
-            target: targetDirectory,
-          });
-          const moveNotice =
-            summary === null
-              ? null
-              : summary.blocked ===
-                  undefined /* A clean move still needs an acknowledgement: silence reads like a no-op. */
-                ? t('editor.movedCount', {
-                    count: summary.done,
-                    target: summary.target === '' ? t('editor.projectRoot') : summary.target,
-                  })
-                : describeMoved(
-                    entries.map(([, to]) => to),
-                    summary.blocked,
-                    t,
-                  );
-          /* Open tabs, previews, comparisons and Models follow their files. */ remapEditorPaths(entries);
-          remapProjectExpandedPathsForMoves(entries);
-          remapProjectManualOrderForMoves(entries);
-          const movedPaths = entries.map(([, to]) => to);
-          const primary = movedPaths[movedPaths.length - 1] ?? null;
-          applyTreeSelection(new Set(movedPaths), primary, primary);
-          await refreshTree();
-          await loadGit();
-          /* After the refresh, not before: `refreshTree` reloads the root and
+              moved: entries.map(([, to]) => to),
+              conflicts: plan.conflicts,
+              target: targetDirectory,
+            });
+            const moveNotice =
+              summary === null
+                ? null
+                : summary.blocked ===
+                    undefined /* A clean move still needs an acknowledgement: silence reads like a no-op. */
+                  ? t('editor.movedCount', {
+                      count: summary.done,
+                      target: summary.target === '' ? t('editor.projectRoot') : summary.target,
+                    })
+                  : describeMoved(
+                      entries.map(([, to]) => to),
+                      summary.blocked,
+                      t,
+                    );
+            /* Open tabs, previews, comparisons and Models follow their files. */ remapEditorPaths(entries);
+            remapProjectExpandedPathsForMoves(entries);
+            remapProjectManualOrderForMoves(entries);
+            const movedPaths = entries.map(([, to]) => to);
+            const primary = movedPaths[movedPaths.length - 1] ?? null;
+            applyTreeSelection(new Set(movedPaths), primary, primary);
+            await refreshTree();
+            await loadGit();
+            /* After the refresh, not before: `refreshTree` reloads the root and
                that reload clears `treeError`, so a message set first was wiped
                before it could be read. */ setTreeError(moveNotice);
-        } catch (failure) {
-          setTreeError(failure instanceof Error ? failure.message : String(failure));
+          } catch (failure) {
+            setTreeError(failure instanceof Error ? failure.message : String(failure));
+          }
+        } finally {
+          endCommitOperation();
+          /* Move-to is keyboard-owned: once its dialog closes, the Project tree
+             must reclaim focus instead of leaving it on <body>. */
+          focusProjectAfterOption();
         }
       },
       [
         applyTreeSelection,
+        focusProjectAfterOption,
         loadGit,
         refreshTree,
         remapEditorPaths,
@@ -8756,7 +8821,7 @@ function EditorWorkspace({
       async (paths: string[], side: 'ours' | 'theirs') => {
         if (paths.length === 0) return;
         const resolvedPaths = new Set(paths);
-        setCommitBusy(true);
+        if (!beginCommitOperation()) return;
         setCommitError(null);
         try {
           const value = await callGit<WorkspaceGitStatus>({
@@ -8787,7 +8852,7 @@ function EditorWorkspace({
         } catch (failure) {
           reportGitFailure(failure);
         } finally {
-          setCommitBusy(false);
+          endCommitOperation();
         }
       },
       [refreshTree, reportGitFailure],
@@ -8805,7 +8870,7 @@ function EditorWorkspace({
       async (hash: string) => {
         if (typeof hash !== 'string' || hash === '') return;
         if (!window.confirm(t('editor.checkoutRevisionConfirm', { hash: hash.slice(0, 7) }))) return;
-        setCommitBusy(true);
+        if (!beginCommitOperation()) return;
         setCommitError(null);
         setCommitNotice(null);
         try {
@@ -8822,7 +8887,7 @@ function EditorWorkspace({
         } catch (failure) {
           reportGitFailure(failure);
         } finally {
-          setCommitBusy(false);
+          endCommitOperation();
         }
       },
       [loadLog, refreshTree, reportGitFailure, t],
@@ -8846,7 +8911,7 @@ function EditorWorkspace({
           ? t('editor.resetHardConfirm', { hash: shortHash, dirty })
           : t('editor.resetConfirm', { hash: shortHash, mode: modeLabel });
       if (!window.confirm(confirmation)) return;
-      setCommitBusy(true);
+      if (!beginCommitOperation()) return;
       setCommitError(null);
       setCommitNotice(null);
       try {
@@ -8869,7 +8934,7 @@ function EditorWorkspace({
       } catch (failure) {
         reportGitFailure(failure);
       } finally {
-        setCommitBusy(false);
+        endCommitOperation();
       }
     },
     [loadLog, reloadFile, refreshTree, reportGitFailure, t],
@@ -8887,7 +8952,7 @@ function EditorWorkspace({
         )
       )
         return;
-      setCommitBusy(true);
+      if (!beginCommitOperation()) return;
       setCommitError(null);
       setCommitNotice(null);
       try {
@@ -8901,7 +8966,7 @@ function EditorWorkspace({
       } catch (failure) {
         reportGitFailure(failure);
       } finally {
-        setCommitBusy(false);
+        endCommitOperation();
       }
     },
     [loadLog, refreshTree, reportGitFailure, t],
@@ -9186,7 +9251,7 @@ function EditorWorkspace({
             .filter((entry) => (stagedOnly ? entry.staged === true : entry.staged !== true))
             .map((entry) => `${entry.staged === true ? 'staged' : 'unstaged'}:${entry.path}`),
         );
-        setCommitBusy(true);
+        if (!beginCommitOperation()) return;
         setCommitError(null);
         try {
           const value = await callGit<WorkspaceGitStatus>({
@@ -9209,7 +9274,7 @@ function EditorWorkspace({
         } catch (failure) {
           reportGitFailure(failure);
         } finally {
-          setCommitBusy(false);
+          endCommitOperation();
         }
       },
       [chosenChanges, openFile, reconcileChangeSelection, refreshTree, reportGitFailure, t],
@@ -9219,7 +9284,7 @@ function EditorWorkspace({
          callback dependency can never enter the TDZ. */ const addToGitignore = React.useCallback(
     async (paths: string[]) => {
       if (paths.length === 0) return;
-      setCommitBusy(true);
+      if (!beginCommitOperation()) return;
       setCommitError(null);
       try {
         const value = await callGit<{ added?: string[] }>({ op: 'ignore', paths });
@@ -9232,7 +9297,7 @@ function EditorWorkspace({
       } catch (failure) {
         reportGitFailure(failure);
       } finally {
-        setCommitBusy(false);
+        endCommitOperation();
       }
     },
     [loadGit, refreshTree, reportGitFailure, t],
@@ -9303,7 +9368,7 @@ function EditorWorkspace({
       }
       const dirty = openFilesRef.current.filter((file) => file.dirty === true);
       if (dirty.length > 0 && !window.confirm(t('editor.applyPatchDirty', { count: dirty.length }))) return false;
-      setCommitBusy(true);
+      if (!beginCommitOperation()) return false;
       setCommitError(null);
       setCommitNotice(null);
       try {
@@ -9333,7 +9398,7 @@ function EditorWorkspace({
         reportGitFailure(failure);
         return false;
       } finally {
-        setCommitBusy(false);
+        endCommitOperation();
       }
     },
     [commitBusy, refreshTree, reloadFile, reportGitFailure, saveAll, t],
@@ -9796,6 +9861,7 @@ function EditorWorkspace({
       /* A freshly created entry that keeps its name simply leaves edit mode. */ setRenameState(null);
       return;
     }
+    if (!beginCommitOperation()) return;
     try {
       await callFs({ op: 'rename', path: renameState.path, to: next });
       remapEditorPaths([[renameState.path, next]]);
@@ -9807,6 +9873,8 @@ function EditorWorkspace({
       await loadGit();
     } catch (failure) {
       setTreeError(failure instanceof Error ? failure.message : String(failure));
+    } finally {
+      endCommitOperation();
     }
   }, [
     loadGit,
@@ -9845,6 +9913,18 @@ function EditorWorkspace({
     },
     [commitMode],
   );
+  const retryCommitStatus = React.useCallback(async (): Promise<void> => {
+    if (!claimCommitRequestAttempt(false, commitStatusRetryGuardRef)) return;
+    setCommitStatusRetrying(true);
+    try {
+      const refreshed = await loadGit();
+      const target = commitRetryFocusTarget(refreshed, activityRef.current, panelVisibleRef.current);
+      if (target !== null) focusToolWindowContent(target);
+    } finally {
+      commitStatusRetryGuardRef.current = false;
+      setCommitStatusRetrying(false);
+    }
+  }, [focusToolWindowContent, loadGit]);
   const restoredToolWindowFocusRef = React.useRef(focusRequest);
   React.useEffect(() => {
     const restoreRequested = restoreToolWindowFocus === true && restoredToolWindowFocusRef.current !== -1;
@@ -10587,8 +10667,8 @@ function EditorWorkspace({
    * Publishing (no upstream yet) is handled by the host, so the failure the
    * user sees is the real reason rather than git's "no upstream" paragraph.
    */ const pushNow = React.useCallback(async () => {
+    if (!claimCommitRequestAttempt(pushBusy || fetchBusy || updateBusy, gitNetworkRequestGuardRef)) return;
     setPushBusy(true);
-    setPushError(null);
     try {
       const value = await callGit<WorkspaceGitStatus>({
         op: 'push',
@@ -10598,12 +10678,16 @@ function EditorWorkspace({
         value.published === true ? t('editor.pushedPublished', { branch: value.branch ?? '' }) : t('editor.pushed'),
       );
       setCommitError(null);
+      setPushError(null);
+      const target = commitRetryFocusTarget(true, activityRef.current, panelVisibleRef.current);
+      if (target !== null) focusToolWindowContent(target);
     } catch (failure) {
       reportGitFailure(failure, setPushError);
     } finally {
+      gitNetworkRequestGuardRef.current = false;
       setPushBusy(false);
     }
-  }, [reportGitFailure, t]);
+  }, [fetchBusy, focusToolWindowContent, pushBusy, reportGitFailure, t, updateBusy]);
   /**
    * Fetch every remote without touching the working tree (IDEA's Fetch).
    *
@@ -10611,6 +10695,7 @@ function EditorWorkspace({
    * running it is the refreshed `behind` count in the commit toolbar.
    * @returns {Promise<void>} resolves once the status has been refreshed.
    */ const fetchNow = React.useCallback(async () => {
+    if (!claimCommitRequestAttempt(fetchBusy || updateBusy || pushBusy, gitNetworkRequestGuardRef)) return;
     setFetchBusy(true);
     setCommitError(null);
     try {
@@ -10623,9 +10708,10 @@ function EditorWorkspace({
     } catch (failure) {
       reportGitFailure(failure);
     } finally {
+      gitNetworkRequestGuardRef.current = false;
       setFetchBusy(false);
     }
-  }, [reportGitFailure, t]);
+  }, [fetchBusy, pushBusy, reportGitFailure, t, updateBusy]);
   /**
    * IDEA's Update Project: fast-forward onto the upstream and re-read tabs.
    *
@@ -10634,8 +10720,11 @@ function EditorWorkspace({
    * save would silently revert the update. Unsaved edits are confirmed first.
    * @returns {Promise<void>} resolves once the tree and tabs are refreshed.
    */ const updateNow = React.useCallback(async () => {
+    if (commitOperationCountRef.current > 0) return;
     if ((openFilesRef.current ?? []).some((file) => file.dirty === true) && !window.confirm(t('editor.updateDirty')))
       return;
+    if (!claimCommitRequestAttempt(fetchBusy || updateBusy || pushBusy, gitNetworkRequestGuardRef)) return;
+    repositoryUpdateGuardRef.current = true;
     setUpdateBusy(true);
     setCommitError(null);
     setCommitNotice(null);
@@ -10656,9 +10745,11 @@ function EditorWorkspace({
     } catch (failure) {
       reportGitFailure(failure);
     } finally {
+      repositoryUpdateGuardRef.current = false;
+      gitNetworkRequestGuardRef.current = false;
       setUpdateBusy(false);
     }
-  }, [loadLog, reloadFile, refreshTree, reportGitFailure, t]);
+  }, [fetchBusy, loadLog, pushBusy, reloadFile, refreshTree, reportGitFailure, t, updateBusy]);
   /**
    * IDEA's Commit tool-window options.
    *
@@ -10680,6 +10771,7 @@ function EditorWorkspace({
           gitNotManaged: git?.isRepo === false,
           fetchBusy,
           updateBusy,
+          pushBusy,
           commitBusy,
           stageAllAvailable: stageAllPaths.length > 0,
           groupBy,
@@ -10705,6 +10797,7 @@ function EditorWorkspace({
       groupBy,
       openShelveMenu,
       openStashMenu,
+      pushBusy,
       stageEveryChange,
       t,
       updateBusy,
@@ -10716,7 +10809,7 @@ function EditorWorkspace({
       if (gitRef.current?.isRepo === false) return;
       const paths = [...commitSelection];
       if (commitMessage.trim() === '' || paths.length === 0) return;
-      setCommitBusy(true);
+      if (!beginCommitOperation()) return;
       setCommitError(null);
       setCommitNotice(null);
       setPushError(null);
@@ -10780,7 +10873,7 @@ function EditorWorkspace({
       } catch (failure) {
         reportGitFailure(failure);
       } finally {
-        setCommitBusy(false);
+        endCommitOperation();
       }
     },
     [amend, commitMessage, commitSelection, git, loadLog, reportGitFailure, root, t],
@@ -11458,9 +11551,14 @@ function EditorWorkspace({
             textTruncated={searchEverywhere.textTruncated === true}
             error={searchEverywhere.error ?? null}
             replaceBusy={searchEverywhere.replaceBusy === true}
-            onQuery={(query) =>
-              setSearchEverywhere((current) => (current === null ? current : { ...current, query, index: 0 }))
+            onRetryFiles={() =>
+              requestSearchEverywhereFiles(
+                searchEverywhere.includeNonProject === true,
+                typeof searchEverywhere.fileMask === 'string' ? searchEverywhere.fileMask : '',
+              )
             }
+            onRetryText={() => setSearchEverywhere(searchEverywhereTextRetryState)}
+            onQuery={updateSearchEverywhereQuery}
             onTab={(tab) =>
               setSearchEverywhere((current) =>
                 current === null ? current : searchEverywhereTabTransition(current, tab),
@@ -11561,20 +11659,7 @@ function EditorWorkspace({
                 current === null ? current : { ...current, preserveCase: current.preserveCase !== true },
               )
             }
-            onFileMaskChange={(fileMask) =>
-              setSearchEverywhere((current) =>
-                current === null
-                  ? current
-                  : {
-                      ...current,
-                      fileMask,
-                      textMatches: [],
-                      textRevision: (current.textRevision ?? 0) + 1,
-                      index: 0,
-                      error: null,
-                    },
-              )
-            }
+            onFileMaskChange={updateSearchEverywhereFileMask}
             onOpenInRightSplit={(path, location) => {
               const validLocation =
                 location !== null &&
@@ -11595,6 +11680,7 @@ function EditorWorkspace({
           t={t}
           mode={paletteMode}
           files={quickOpen.files ?? []}
+          truncated={quickOpen.truncated === true}
           changes={new Map((git?.changes ?? []).map((change) => [change.path, change.status]))}
           loading={quickOpen.loading === true}
           error={quickOpen.error ?? null}
@@ -11824,6 +11910,8 @@ function EditorWorkspace({
                 uploadBusy={uploadBusy}
                 uploadProgress={uploadProgress}
                 showHidden={showHidden}
+                searchDirectoryRules={searchDirectoryRules}
+                searchRevision={searchRevision}
                 foldersFirst={foldersFirst}
                 showExcludedFiles={showExcludedFiles}
                 sortMode={sortMode}
@@ -11864,7 +11952,7 @@ function EditorWorkspace({
                 amend={amend}
                 busy={commitBusy}
                 error={commitError}
-                onRetryStatus={() => void loadGit()}
+                onRetryStatus={retryCommitStatus}
                 notice={commitNotice}
                 diffTarget={diffTarget}
                 selectedChange={selectedChange}
@@ -12065,6 +12153,9 @@ function EditorWorkspace({
                 identityMissing={identityMissing}
                 pushFailure={pushError}
                 onPush={() => void pushNow()}
+                networkBusy={fetchBusy || updateBusy}
+                workingTreeBusy={updateBusy}
+                retryingStatus={commitStatusRetrying}
                 undoMessage={clearedMessage}
                 onUndoMessage={restoreClearedMessage}
                 pushing={pushBusy}

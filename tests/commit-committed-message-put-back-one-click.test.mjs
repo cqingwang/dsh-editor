@@ -23,13 +23,14 @@ test('a committed message can be put back with one click', () => {
 test('push has its own busy flag so committing stays possible', () => {
   assert.match(workspace, /const \[pushBusy, setPushBusy\] =\s+React\.useState\(false\);/u);
   const pushAt = workspace.indexOf('const pushNow = React.useCallback(');
-  const pushEnd = workspace.indexOf('}, [reportGitFailure, t]);', pushAt);
+  const pushEnd = workspace.indexOf('/**\n   * Fetch every remote', pushAt);
+  assert.notEqual(pushEnd, -1);
   const body = workspace.slice(pushAt, pushEnd);
   /* The standalone push must not touch the commit busy flag. */
   assert.equal(body.includes('setCommitBusy'), false);
   assert.match(body, /setPushBusy\(true\);/);
   assert.match(body, /setPushBusy\(false\);/);
-  assert.match(commitPanel, /pushing \? t\('editor\.pushing'\) : t\('editor\.retryPush'\)/);
+  assert.match(commitPanel, /pushRetryControl\.busy \? t\('editor\.pushing'\) : t\('editor\.retryPush'\)/);
 });
 
 test('copy-as-path:line only quotes the caret of the file actually open', () => {

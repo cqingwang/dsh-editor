@@ -20,8 +20,8 @@ const source = [
 function loadHelpers() {
   const names = ['wholeWordIndex', 'normalizeFileExtensionFilter', 'fileExtensionFilterMatches', 'fuzzyScore'];
   const functions = names.map((name) => transpileTypeScriptFunction(findToolSource, name)).join('\n');
-  const loaded = new Function('basename', `${functions}\nreturn { ${names.join(', ')} };`)(
-    (path) => path.split('/').at(-1),
+  const loaded = new Function('basename', `${functions}\nreturn { ${names.join(', ')} };`)((path) =>
+    path.split('/').at(-1),
   );
   return {
     wholeWordIndex: loaded.wholeWordIndex,
@@ -59,7 +59,10 @@ test('case and whole-word filters are shared by path and Action matching', () =>
 });
 
 test('Search Everywhere applies the shared filters to Actions and Files', () => {
-  assert.match(source, /rankSearchActions\(actions, effectiveQuery, recentCommands, \{[\s\S]*?caseSensitive: state\.caseSensitive === true,[\s\S]*?wholeWords: state\.wholeWords === true,/);
+  assert.match(
+    source,
+    /rankSearchActions\(actions, effectiveQuery, recentCommands, \{[\s\S]*?caseSensitive: state\.caseSensitive === true,[\s\S]*?wholeWords: state\.wholeWords === true,/,
+  );
   assert.match(source, /\.filter\(\(file\) => fileExtensionFilterMatches\(file\.path, state\.fileMask\)\)/);
   assert.match(
     source,
@@ -108,22 +111,28 @@ test('all text-search and replace handoffs use normalized extension masks', () =
 test('double Shift opens Search Everywhere while Cmd/Ctrl+Shift+F opens Find in Files', () => {
   const shortcut = workspaceSource.slice(
     workspaceSource.indexOf('const openFindInFilesFromShortcut ='),
-    workspaceSource.indexOf('const closeFindToolWindow', workspaceSource.indexOf('const openFindInFilesFromShortcut =')),
+    workspaceSource.indexOf(
+      'const closeFindToolWindow',
+      workspaceSource.indexOf('const openFindInFilesFromShortcut ='),
+    ),
   );
   assert.match(shortcut, /if \(findTool !== null\)/);
   assert.match(shortcut, /selectedEditorFindQuery\(currentCodeEditor\(\)\)/);
   assert.match(shortcut, /openFindTool\(selectedQuery, 'find', null, 'query', 'popup', true\)/);
   const doubleShiftEffect = source.slice(
     source.indexOf('const next = doubleShiftAction'),
-    source.indexOf('}, [openSearchEverywhere]);', source.indexOf('const next = doubleShiftAction')) +
-      '}, [openSearchEverywhere]);'.length,
+    source.indexOf('}, [currentCodeEditor, openSearchEverywhere]);', source.indexOf('const next = doubleShiftAction')) +
+      '}, [currentCodeEditor, openSearchEverywhere]);'.length,
   );
   assert.match(doubleShiftEffect, /doubleShiftAction\(/);
-  assert.match(doubleShiftEffect, /openSearchEverywhere\('all'\)/);
+  assert.match(doubleShiftEffect, /openSearchEverywhere\('all', selectedEditorFindQuery\(currentCodeEditor\(\)\)\)/);
   assert.doesNotMatch(doubleShiftEffect, /openFindInFilesFromShortcut\(\)/);
   const cmdShift = source.slice(
     source.indexOf("if (key === 'f' && event.shiftKey)"),
-    source.indexOf("const host = document.querySelector('[data-dsh-editor-workspace]');", source.indexOf("if (key === 'f' && event.shiftKey)")),
+    source.indexOf(
+      "const host = document.querySelector('[data-dsh-editor-workspace]');",
+      source.indexOf("if (key === 'f' && event.shiftKey)"),
+    ),
   );
   assert.match(cmdShift, /openFindInFilesFromShortcut\(\)/);
 });
@@ -140,11 +149,17 @@ test('Find in Files keeps File mask top-right and query filters at the right edg
   assert.match(findTool, /icon='matchCase'/);
   assert.match(findTool, /icon='wholeWords'/);
   assert.match(findTool, /icon='regex'/);
-  const toolbarActions = findTool.slice(findTool.indexOf('const toolbarActions = ['), findTool.indexOf('React.useEffect(() => {\n        if (handoffRevision'));
+  const toolbarActions = findTool.slice(
+    findTool.indexOf('const toolbarActions = ['),
+    findTool.indexOf('React.useEffect(() => {\n        if (handoffRevision'),
+  );
   assert.doesNotMatch(toolbarActions, /id: 'case'/);
   assert.doesNotMatch(toolbarActions, /id: 'words'/);
   assert.doesNotMatch(toolbarActions, /id: 'regex'/);
-  assert.match(source, /findToolFileMaskControl: \{[\s\S]*?justify-content|findToolFileMaskControl: \{[\s\S]*?display: 'inline-flex'/);
+  assert.match(
+    source,
+    /findToolFileMaskControl: \{[\s\S]*?justify-content|findToolFileMaskControl: \{[\s\S]*?display: 'inline-flex'/,
+  );
   assert.match(source, /findToolFilterGroup: \{[\s\S]*?marginLeft: 'auto'/);
 });
 
@@ -175,11 +190,7 @@ test('Find in Files scope row maps Project, Directory and truthful presets', () 
 
 test('scope filtering also limits Replace All targets', () => {
   const scope = loadTypeScriptFunction(commitSource, 'findToolPathMatchesScope');
-  const scopedMatches = [
-    { path: 'src/a.ts' },
-    { path: 'src/b.ts' },
-    { path: 'docs/a.md' },
-  ].filter((match) =>
+  const scopedMatches = [{ path: 'src/a.ts' }, { path: 'src/b.ts' }, { path: 'docs/a.md' }].filter((match) =>
     scope(match.path, 'scope', {
       allowedPaths: ['src/a.ts', 'src/b.ts'],
       preset: 'scope',
@@ -194,12 +205,12 @@ test('scope filtering also limits Replace All targets', () => {
 test('repeating the shortcut focuses an open Find without resetting it', () => {
   const shortcut = workspaceSource.slice(
     workspaceSource.indexOf('const openFindInFilesFromShortcut ='),
-    workspaceSource.indexOf('openFindTool(textQuery, \'find\')', workspaceSource.indexOf('const openFindInFilesFromShortcut =')),
+    workspaceSource.indexOf(
+      "openFindTool(textQuery, 'find')",
+      workspaceSource.indexOf('const openFindInFilesFromShortcut ='),
+    ),
   );
   assert.match(shortcut, /if \(findTool !== null\)/);
-  assert.match(
-    shortcut,
-    /current\.surface === 'dock' && hasSelectionQuery === false \? current\.mode : 'find'/u,
-  );
+  assert.match(shortcut, /current\.surface === 'dock' && hasSelectionQuery === false \? current\.mode : 'find'/u);
   assert.match(shortcut, /input\[role="combobox"\]/);
 });

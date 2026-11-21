@@ -34,6 +34,6 @@ test('Search Everywhere exposes the IDEA include non-project items toggle', () =
   assert.match(dialog, /includeNonProject/);
   assert.match(dialog, /t\('editor\.includeNonProjectItems'\)/);
   assert.match(dialog, /onToggleIncludeNonProject/);
-  assert.match(source, /op: 'files', includeExcluded:/);
+  assert.match(source, /op: 'files',\s*includeExcluded:/);
   assert.match(source, /includeExcluded: searchEverywhere\?\.includeNonProject === true/);
 });

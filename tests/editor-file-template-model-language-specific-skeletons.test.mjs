@@ -19,6 +19,10 @@ test('editor file template model keeps language-specific skeletons', () => {
   assert.equal(templateFor('a.json'), '{}\n');
   assert.equal(templateFor('a.go'), 'package main\n');
   assert.equal(templateFor('a.sh'), '#!/usr/bin/env bash\nset -euo pipefail\n');
+  assert.equal(templateFor('main.c'), '#include <stdio.h>\n\nint main(void) {\n  return 0;\n}\n');
+  assert.equal(templateFor('main.cpp'), '#include <iostream>\n\nint main() {\n  return 0;\n}\n');
+  assert.equal(templateFor('widget.h'), '#pragma once\n\n');
+  assert.equal(templateFor('widget.hpp'), '#pragma once\n\n');
   assert.match(templateFor('index.html'), /^<!doctype html>/);
 });
 

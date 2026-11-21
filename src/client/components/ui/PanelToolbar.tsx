@@ -8,6 +8,7 @@ import {
   panelToolbarFit,
   selectCompactActions,
   toolbarActionActive,
+  toolbarBadgeAccessibleLabel,
   type ToolbarActionLike,
 } from './toolbar-model';
 
@@ -71,6 +72,7 @@ function PanelToolbar({
   const rightKey = combinedRight.map((action) => action.id).join('|');
   const overflowKey = overflowMenuItems.map((item) => item?.id ?? 'separator').join('|');
   const actionSlotWidth = dense ? 22 : 25;
+  const badgeAccessibleLabel = toolbarBadgeAccessibleLabel(badge, t('editor.branchPopup'));
   React.useLayoutEffect(() => {
     const node = ref.current;
     if (node === null) return;
@@ -215,6 +217,7 @@ function PanelToolbar({
       {badge === null ? null : onBadge === undefined ? (
         <span
           ref={badgeRef}
+          title={badgeAccessibleLabel}
           style={styles.branchChip}>
           {badge}
         </span>
@@ -228,8 +231,8 @@ function PanelToolbar({
             border: 'none',
             cursor: 'pointer',
           }}
-          title={t('editor.branchPopup')}
-          aria-label={t('editor.branchPopup')}
+          title={badgeAccessibleLabel}
+          aria-label={badgeAccessibleLabel}
           aria-haspopup={badgeHasPopup}
           aria-expanded={badgeHasPopup === undefined ? undefined : badgeExpanded === true}
           onClick={(event) => {

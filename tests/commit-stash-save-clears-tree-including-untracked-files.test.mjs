@@ -72,7 +72,10 @@ test('an unknown sub-action degrades to list and never writes', async (t) => {
 test('the commit toolbar offers stash and the panel shows template chips', () => {
   const client = read('src/client/editor-workspace.tsx');
   const options = read('src/client/components/commit/commit-options-menu.ts');
-  assert.match(options, /id: 'stash',\n\s+label: t\('editor\.stash'\),\n\s+disabled: gitNotManaged,\n\s+run: onStash/);
+  assert.match(
+    options,
+    /id: 'stash',\n\s+label: t\('editor\.stash'\),\n\s+disabled: gitNotManaged \|\| commitBusy \|\| updateBusy,\n\s+run: onStash/,
+  );
   assert.match(client, /const openStashMenu = React\.useCallback\(/);
   /* The sub-action field is `action`: `op` already names the route operation. */
   /* Round 68 added apply/drop refs, so the request now carries an optional ref. */

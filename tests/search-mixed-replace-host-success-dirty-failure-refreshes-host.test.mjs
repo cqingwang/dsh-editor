@@ -56,10 +56,7 @@ test('host-success/dirty-failure refreshes clean files through one shared helper
 
 test('host-success/dirty-failure reports that clean files were already changed', () => {
   for (const block of [replaceInFiles, replaceInFind]) {
-    assert.match(
-      block,
-      /hostChanged\.length > 0[\s\S]*?t\('editor\.searchReplacePartialFailure',\s*\{\s*message: failureMessage,?\s*\}\)/u,
-    );
+    assert.match(block, /searchReplaceFailureMessage\(failure, hostChanged\.length, t\)/u);
   }
   assert.ok(source.includes("searchReplacePartialFailure: '替换未完整完成：{message}。已完成修改的磁盘文件已刷新。'"));
   assert.ok(

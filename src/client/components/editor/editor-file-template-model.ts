@@ -9,6 +9,10 @@ export type EditorFileTemplateExtension =
   | 'md'
   | 'markdown'
   | 'go'
+  | 'c'
+  | 'h'
+  | 'cpp'
+  | 'hpp'
   | 'sh'
   | 'bash'
   | 'zsh'
@@ -38,6 +42,13 @@ export function templateFor(name: unknown): string {
       return `# ${base}\n`;
     case 'go':
       return 'package main\n';
+    case 'c':
+      return '#include <stdio.h>\n\nint main(void) {\n  return 0;\n}\n';
+    case 'cpp':
+      return '#include <iostream>\n\nint main() {\n  return 0;\n}\n';
+    case 'h':
+    case 'hpp':
+      return '#pragma once\n\n';
     case 'sh':
     case 'bash':
     case 'zsh':

@@ -26,7 +26,7 @@ test('commit message box submits with the platform shortcut', () => {
   assert.match(client, /\(event\.metaKey \|\| event\.ctrlKey\) && event\.key === 'Enter'/);
   assert.match(
     client,
-    /if \(!busy && !gitNotManaged && selectedPaths\.size > 0 && message\.trim\(\) !== ''\) onCommit\(false\)/,
+    /if \(\s*!busy &&\s*!workingTreeBusy &&\s*!gitNotManaged &&\s*selectedPaths\.size > 0 &&\s*message\.trim\(\) !== ''\s*\)\s+onCommit\(false\)/,
   );
 });
 

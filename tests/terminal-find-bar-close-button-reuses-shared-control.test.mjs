@@ -29,11 +29,11 @@ test('Terminal Find close label exists in both dictionaries', () => {
 test('Terminal Find disables navigation when there is no match', () => {
   assert.match(
     findBar,
-    /icon='chevronDown'\s+label=\{t\('editor\.findNext'\)\}\s+disabled=\{find\.total === 0\}/u,
+    /icon='chevronUp'\s+label=\{t\('editor\.findPrevious'\)\}\s+disabled=\{find\.total === 0\}/u,
   );
   assert.match(
     findBar,
-    /icon='chevronRight'\s+label=\{t\('editor\.findPrevious'\)\}\s+disabled=\{find\.total === 0\}/u,
+    /icon='chevronDown'\s+label=\{t\('editor\.findNext'\)\}\s+disabled=\{find\.total === 0\}/u,
   );
 });
 

@@ -2,11 +2,16 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-import { transpileTypeScriptFunction } from './ts-source.mjs';
+import {
+  extractUseEffectExpressionContaining,
+  loadTypeScriptExpression,
+  transpileTypeScriptFunction,
+} from './ts-source.mjs';
 
 const editorCoreSource = await readFile(new URL('../src/client/editor-core.ts', import.meta.url), 'utf8');
+const workspaceSource = await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8');
 const source = [
-  await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8'),
+  workspaceSource,
   editorCoreSource,
   await readFile(new URL('../src/client/terminal.ts', import.meta.url), 'utf8'),
   await readFile(new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url), 'utf8'),
@@ -31,14 +36,20 @@ test('the live editor selection becomes the exact Find in Files query', () => {
   const model = {
     getValueInRange: () => '  exact\nselected  ',
   };
-  assert.equal(selectedEditorFindQuery({
-    getModel: () => model,
-    getSelection: () => ({ isEmpty: () => false }),
-  }), '  exact\nselected  ');
-  assert.equal(selectedEditorFindQuery({
-    getModel: () => model,
-    getSelection: () => ({ isEmpty: () => true }),
-  }), '');
+  assert.equal(
+    selectedEditorFindQuery({
+      getModel: () => model,
+      getSelection: () => ({ isEmpty: () => false }),
+    }),
+    '  exact\nselected  ',
+  );
+  assert.equal(
+    selectedEditorFindQuery({
+      getModel: () => model,
+      getSelection: () => ({ isEmpty: () => true }),
+    }),
+    '',
+  );
   assert.equal(selectedEditorFindQuery(null), '');
 });
 
@@ -68,10 +79,88 @@ test('double Shift opens Search Everywhere while Cmd/Ctrl+Shift+F uses the selec
   assert.match(source, /doubleShiftAction\(doubleShiftAtRef\.current, event, performance\.now\(\)\)/u);
   const doubleShiftEffect = source.slice(
     source.indexOf('const next = doubleShiftAction'),
-    source.indexOf('}, [openSearchEverywhere]);', source.indexOf('const next = doubleShiftAction')),
+    source.indexOf('}, [currentCodeEditor, openSearchEverywhere]);', source.indexOf('const next = doubleShiftAction')),
   );
-  assert.match(doubleShiftEffect, /openSearchEverywhere\('all'\)/u);
+  assert.match(doubleShiftEffect, /openSearchEverywhere\('all', selectedEditorFindQuery\(currentCodeEditor\(\)\)\)/u);
   assert.doesNotMatch(doubleShiftEffect, /openFindInFilesFromShortcut\(\)/u);
+});
+
+test('double Shift seeds Search Everywhere from the active editor selection', () => {
+  const selectedEditorFindQuery = new Function(
+    `${extractFunction('selectedEditorFindQuery')}; return selectedEditorFindQuery;`,
+  )();
+  const runDoubleShift = (editor) => {
+    const listeners = new Map();
+    const opened = [];
+    let now = 100;
+    const effect = loadTypeScriptExpression(
+      workspaceSource,
+      extractUseEffectExpressionContaining(workspaceSource, 'doubleShiftAction(doubleShiftAtRef.current'),
+      {
+        currentCodeEditor: () => editor,
+        document: { querySelector: () => ({ focus() {} }) },
+        doubleShiftAtRef: { current: 0 },
+        doubleShiftAction: (previousAt, event, current) => {
+          if (previousAt === 0) return { lastAt: current, open: false };
+          if (event.key !== 'Shift') return { lastAt: 0, open: false };
+          return { lastAt: 0, open: true };
+        },
+        openSearchEverywhere: (...args) => opened.push(args),
+        performance: { now: () => now },
+        selectedEditorFindQuery,
+        visibleEditorWorkspace: () => ({}),
+        window: {
+          addEventListener(type, listener) {
+            listeners.set(type, listener);
+          },
+          removeEventListener(type, listener) {
+            if (listeners.get(type) === listener) listeners.delete(type);
+          },
+          setTimeout() {},
+        },
+      },
+    );
+    const cleanup = effect();
+    const keydown = listeners.get('keydown');
+    const event = {
+      key: 'Shift',
+      repeat: false,
+      metaKey: false,
+      ctrlKey: false,
+      altKey: false,
+      preventDefault() {},
+      stopPropagation() {},
+    };
+    keydown(event);
+    now = 300;
+    keydown(event);
+    cleanup();
+    return opened;
+  };
+  const selection = {
+    isEmpty: () => false,
+    startLineNumber: 2,
+    startColumn: 3,
+    endLineNumber: 2,
+    endColumn: 14,
+  };
+  const model = {
+    getValueInRange: (range) => (range === selection ? '  exact text  ' : ''),
+  };
+  assert.deepEqual(
+    runDoubleShift({
+      getModel: () => model,
+      getSelection: () => selection,
+    }),
+    [['all', '  exact text  ']],
+  );
+  assert.deepEqual(
+    runDoubleShift({
+      getModel: () => model,
+      getSelection: () => ({ isEmpty: () => true }),
+    }),
+    [['all', '']],
+  );
 });
 
 test('the four redundant Monaco search actions leave the body context menu', () => {
@@ -85,7 +174,7 @@ test('the four redundant Monaco search actions leave the body context menu', () 
     assert.doesNotMatch(block, /contextMenuGroupId/u);
     assert.doesNotMatch(block, /contextMenuOrder/u);
   }
-  assert.equal((source.match(/contextMenuGroupId: 'navigation'/g) ?? []).length, 10);
+  assert.equal((source.match(/contextMenuGroupId: 'navigation'/g) ?? []).length, 11);
 });
 
 test('Browser Search replaces the Google-only visible label but keeps aliases', () => {

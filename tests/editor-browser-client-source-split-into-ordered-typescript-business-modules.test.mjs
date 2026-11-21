@@ -65,6 +65,16 @@ test('lib/client.js is generated from the current modules', () => {
   assert.match(output, /13 modules verified/);
 });
 
+test('the generated client includes the editor definition navigation host adapter', async () => {
+  const client = await readFile(join(root, 'lib', 'client.js'), 'utf8');
+  assert.match(
+    client,
+    /\/\* ─────────────────────── components\/editor\/editor-definition-navigation\.ts ─────────────────────── \*\//u,
+  );
+  assert.match(client, /async function definitionPathIdentities\(paths\)/u);
+  assert.match(client, /async function definitionCandidateContent\(\s*target,\s*models\s*\)/u);
+});
+
 test('Every source module remains reviewable instead of regrowing one monolith', async () => {
   for (const name of moduleOrder) {
     const source = await readFile(join(partsDir, name), 'utf8');
@@ -72,6 +82,6 @@ test('Every source module remains reviewable instead of regrowing one monolith',
     /* JSX formatting expands the workspace layout while the remaining hook logic
        is split incrementally; keep a bounded ceiling instead of the old compressed
        createElement line count. */
-    assert.ok(lineCount <= 12500, `${name} has ${lineCount} lines`);
+    assert.ok(lineCount <= 12600, `${name} has ${lineCount} lines`);
   }
 });

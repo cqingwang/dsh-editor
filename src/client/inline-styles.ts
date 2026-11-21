@@ -1327,7 +1327,7 @@ export const styles: EditorStyleSheet = {
   },
   /* Extended (⌘/Shift) selection: IDEA fills it lighter than the primary row. */
   treeRowSelectedSoft: {
-    background: 'var(--dsw-alias-interactive-bg-hover-solid)',
+    background: 'color-mix(in srgb, var(--dsw-alias-state-business-primary) 20%, transparent)',
     color: 'var(--dsw-alias-label-primary)',
   },
   chevron: {
@@ -2549,6 +2549,9 @@ export const styles: EditorStyleSheet = {
     flexDirection: 'column',
     gap: 3,
     flex: 'none',
+    maxHeight: 'min(38vh, 220px)',
+    overflowY: 'auto',
+    overscrollBehavior: 'contain',
     padding: '4px 6px 0',
   },
   commitNotice: {

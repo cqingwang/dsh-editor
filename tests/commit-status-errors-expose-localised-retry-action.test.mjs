@@ -15,5 +15,5 @@ test('Commit status errors expose a localised retry action', () => {
   const panel = source.slice(panelStart, panelEnd);
   assert.match(panel, /onRetryStatus,/);
   assert.match(panel, /error !== null[\s\S]*?onRetryStatus === undefined[\s\S]*?onRetryStatus\?\.\(\)[\s\S]*?t\('editor\.logRetry'\)/);
-  assert.match(source, /onRetryStatus: \(\) => void loadGit\(\)/);
+  assert.match(source, /onRetryStatus: retryCommitStatus/u);
 });

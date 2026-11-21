@@ -90,6 +90,22 @@ interface TerminalSelectionPosition {
   end: { x: number; y: number };
 }
 
+export interface TerminalErrorState {
+  message: string;
+  limitReached: boolean;
+}
+
+/** Detect the host's retained-shell cap without coupling callers to its wording. */
+export function terminalCreateFailureLimitReached(failure: unknown): boolean {
+  const message = failure instanceof Error ? failure.message : String(failure);
+  return /at most \d+ terminals/iu.test(message);
+}
+
+/** A tab close resolves a cap alert but must preserve unrelated terminal errors. */
+export function terminalErrorAfterTabClosed<T extends TerminalErrorState>(current: T | null): T | null {
+  return current?.limitReached === true ? null : current;
+}
+
 export interface TerminalPanelProps {
   t: Translate;
   generation: number;
@@ -197,13 +213,26 @@ function TerminalPanel({
   const terminalCwdRef = React.useRef(new Map<string, string>());
   const [activeId, setActiveId] = React.useState<string | null>(null);
   const closingTerminalIdsRef = React.useRef(new Set<string>());
+  const busyOperationCountRef = React.useRef(0);
+  const createInFlightRef = React.useRef(false);
+  const refreshRequestRef = React.useRef(0);
+  const renameInFlightRef = React.useRef<string | null>(null);
   const terminalReorderRequestRef = React.useRef(0);
+  const shellMenuRequestRef = React.useRef(0);
   const [available, setAvailable] = React.useState(true);
   /* Resolved README per terminal, so the tab menu can disable the item when the
      shell's directory has none (the cwd alone is always a non-empty string). */
   const [readmePaths, setReadmePaths] = React.useState<Record<string, string>>({});
-  const [error, setError] = React.useState<string | null>(null);
+  const [error, setError] = React.useState<TerminalErrorState | null>(null);
   const [busy, setBusy] = React.useState(false);
+  const beginBusyOperation = React.useCallback(() => {
+    busyOperationCountRef.current += 1;
+    setBusy(true);
+  }, []);
+  const endBusyOperation = React.useCallback(() => {
+    busyOperationCountRef.current = Math.max(0, busyOperationCountRef.current - 1);
+    if (busyOperationCountRef.current === 0) setBusy(false);
+  }, []);
   /* Terminals that were moved INTO the editor area (IDEA's "Move to Editor").
      Their PTY keeps running; the dock stops rendering the tab. */
   const [editorIds, setEditorIds] = React.useState(() => readEditorTerminals());
@@ -561,10 +590,12 @@ function TerminalPanel({
 
   /* Ask the host which terminals this Session still retains. */
   const refresh = React.useCallback(async () => {
+    const requestId = ++refreshRequestRef.current;
     try {
       const value = await callTerminal({
         op: 'list',
       });
+      if (refreshRequestRef.current !== requestId) return;
       const listed = Array.isArray(value?.terminals) ? value.terminals : [];
       const reconciled = reconcileTerminalDockState(listed, editorIdsRef.current, activeRef.current);
       pruneTerminalCwdMetadata(
@@ -579,9 +610,13 @@ function TerminalPanel({
       setActiveId(reconciled.activeId);
       setError(null);
     } catch (failure) {
-      setError(failure instanceof Error ? failure.message : String(failure));
+      if (refreshRequestRef.current !== requestId) return;
+      setError({
+        message: failure instanceof Error ? failure.message : String(failure),
+        limitReached: false,
+      });
     } finally {
-      setLoaded(true);
+      if (refreshRequestRef.current === requestId) setLoaded(true);
     }
   }, []);
   React.useEffect(() => {
@@ -729,7 +764,7 @@ function TerminalPanel({
   const describeCreateFailure = React.useCallback(
     (failure: unknown): string => {
       const message = failure instanceof Error ? failure.message : String(failure);
-      return /at most \d+ terminals/iu.test(message) ? t('editor.terminalLimit') : message;
+      return terminalCreateFailureLimitReached(failure) ? t('editor.terminalLimit') : message;
     },
     [t],
   );
@@ -739,7 +774,9 @@ function TerminalPanel({
       directory: string | undefined = undefined,
       restoreSnapshot = '',
     ) => {
-      setBusy(true);
+      if (createInFlightRef.current) return null;
+      createInFlightRef.current = true;
+      beginBusyOperation();
       setError(null);
       try {
         const grid = await awaitMeasured();
@@ -768,13 +805,17 @@ function TerminalPanel({
           onStartDirectoryUsed?.();
         return created;
       } catch (failure) {
-        setError(describeCreateFailure(failure));
+        setError({
+          message: describeCreateFailure(failure),
+          limitReached: terminalCreateFailureLimitReached(failure),
+        });
         return null;
       } finally {
-        setBusy(false);
+        createInFlightRef.current = false;
+        endBusyOperation();
       }
     },
-    [awaitMeasured, describeCreateFailure, startDirectory, onStartDirectoryUsed],
+    [awaitMeasured, beginBusyOperation, describeCreateFailure, endBusyOperation, startDirectory, onStartDirectoryUsed],
   );
 
   /**
@@ -906,11 +947,13 @@ function TerminalPanel({
   /* The arrow beside "+" lists installed shells without allocating a process. */
   const openShellMenu = React.useCallback(async () => {
     const rect = newButtonRef.current?.getBoundingClientRect();
-    setBusy(true);
+    const requestId = ++shellMenuRequestRef.current;
+    beginBusyOperation();
     try {
       const value = await callTerminal({
         op: 'shells',
       });
+      if (shellMenuRequestRef.current !== requestId) return;
       const entries = value.shells ?? [];
       setShellMenu({
         x: rect?.left ?? 240,
@@ -933,11 +976,15 @@ function TerminalPanel({
               })),
       });
     } catch (failure) {
-      setError(failure instanceof Error ? failure.message : String(failure));
+      if (shellMenuRequestRef.current !== requestId) return;
+      setError({
+        message: failure instanceof Error ? failure.message : String(failure),
+        limitReached: false,
+      });
     } finally {
-      setBusy(false);
+      endBusyOperation();
     }
-  }, [createTerminal, t]);
+  }, [beginBusyOperation, createTerminal, endBusyOperation, t]);
 
   /* Double-click a tab title to rename it, the way IDE terminals do. */
   const commitRename = React.useCallback(async () => {
@@ -947,17 +994,29 @@ function TerminalPanel({
       setRenaming(null);
       return;
     }
+    const targetId = renaming.id;
+    const requestKey = `${targetId}\u0000${title}`;
+    if (renameInFlightRef.current === requestKey) return;
+    renameInFlightRef.current = requestKey;
     try {
-      renamedRef.current.add(renaming.id);
+      renamedRef.current.add(targetId);
       const value = await callTerminal({
         op: 'rename',
-        id: renaming.id,
+        id: targetId,
         title,
       });
-      setTerminals((current) => current.map((terminal) => (terminal.id === renaming.id ? value.terminal : terminal)));
-      setRenaming(null);
+      setTerminals((current) => current.map((terminal) => (terminal.id === targetId ? value.terminal : terminal)));
+      setRenaming((current) =>
+        current !== null && current.id === targetId && current.value.trim() === title ? null : current,
+      );
     } catch (failure) {
-      setError(failure instanceof Error ? failure.message : String(failure));
+      if (renameInFlightRef.current !== requestKey) return;
+      setError({
+        message: failure instanceof Error ? failure.message : String(failure),
+        limitReached: false,
+      });
+    } finally {
+      if (renameInFlightRef.current === requestKey) renameInFlightRef.current = null;
     }
   }, [renaming]);
   const closeTerminal = React.useCallback(
@@ -995,6 +1054,7 @@ function TerminalPanel({
       }
       setTerminals(remaining);
       setActiveId((active) => (active === id ? nextActive : active));
+      setError(terminalErrorAfterTabClosed);
       if (focusedId === id) {
         window.setTimeout(() => emulatorRef.current?.focus?.(), 0);
       } else if (closingTabHadFocus) {
@@ -1068,6 +1128,7 @@ function TerminalPanel({
       setActiveId(keepId);
       setSplitId(null);
       setFocusedPane('left');
+      setError(terminalErrorAfterTabClosed);
       window.setTimeout(() => emulatorRef.current?.focus?.(), 0);
       await Promise.all(
         doomed.map((terminal) =>
@@ -2141,16 +2202,16 @@ function TerminalPanel({
             {find.total === 0 ? t('editor.noMatches') : `${find.index + 1}/${find.total}`}
           </span>
           <ToolbarButton
+            icon='chevronUp'
+            label={t('editor.findPrevious')}
+            disabled={find.total === 0}
+            onClick={() => moveTerminalSelection(findEmulator(), find, setFind, -1)}
+          />
+          <ToolbarButton
             icon='chevronDown'
             label={t('editor.findNext')}
             disabled={find.total === 0}
             onClick={() => moveTerminalSelection(findEmulator(), find, setFind, 1)}
-          />
-          <ToolbarButton
-            icon='chevronRight'
-            label={t('editor.findPrevious')}
-            disabled={find.total === 0}
-            onClick={() => moveTerminalSelection(findEmulator(), find, setFind, -1)}
           />
           <ToolbarButton
             icon='close'
@@ -2223,7 +2284,7 @@ function TerminalPanel({
                 find={find}
                 getCwd={() => cwdRef.current}
                 onGrid={reportGrid}
-                onError={(message) => setError(message)}
+                onError={(message) => setError({ message, limitReached: false })}
                 onExit={(code) =>
                   setTerminals((current) =>
                     current.map((terminal) =>
@@ -2351,7 +2412,7 @@ function TerminalPanel({
                 find={find}
                 getCwd={() => splitTerminal.cwd}
                 onGrid={reportGrid}
-                onError={(message) => setError(message)}
+                onError={(message) => setError({ message, limitReached: false })}
                 onExit={(code) =>
                   setTerminals((current) =>
                     current.map((terminal) =>
@@ -2428,7 +2489,7 @@ function TerminalPanel({
               style={{
                 color: 'var(--dsw-alias-state-error-primary)',
               }}>
-              {error}
+              {error.message}
             </span>
           </div>
         )

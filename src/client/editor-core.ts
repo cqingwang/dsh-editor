@@ -49,6 +49,7 @@ interface EditorActionHandlers {
   onSearchText?: () => void;
   onGotoLine?: () => void;
   onGoToDefinition?: (editor: Monaco.editor.ICodeEditor, position: Monaco.Position) => void;
+  onGoToImplementation?: (editor: Monaco.editor.ICodeEditor, position: Monaco.Position) => void;
   onNavigateBack?: () => void;
   onNavigateForward?: () => void;
   onFindUsages?: (editor: Monaco.editor.ICodeEditor) => void;
@@ -79,9 +80,22 @@ interface EditorActionHandlers {
   searchWebLabel?: string;
   gotoLineLabel?: string;
   goToDefinitionLabel?: string;
+  goToImplementationLabel?: string;
   navigationBackLabel?: string;
   navigationForwardLabel?: string;
   sendHarnessReferenceLabel?: string;
+}
+
+/** One cache identity per loaded browser module instance. */
+const SEARCH_SESSION_ID =
+  typeof globalThis.crypto?.randomUUID === 'function'
+    ? globalThis.crypto.randomUUID()
+    : `search-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+let activeSearchRevision = 0;
+
+/** Publish the mounted editor's ignore/search revision to every file API call. */
+export function setCurrentSearchRevision(value: unknown): void {
+  activeSearchRevision = Math.max(0, Math.trunc(Number(value) || 0));
 }
 
 interface MonacoContextMenuContribution extends Monaco.editor.IEditorContribution {
@@ -271,7 +285,27 @@ export function searchTextFailureMessage(
   t: (key: string, params?: Record<string, unknown>) => string,
 ): string {
   const message = failure instanceof Error ? failure.message : String(failure);
-  return /unknown operation\s+"searchText"/iu.test(message) ? t('editor.searchTextServiceUnavailable') : message;
+  if (/unknown operation\s+"searchText"/iu.test(message)) return t('editor.searchTextServiceUnavailable');
+  if (
+    /(?:index file (?:smaller than expected|corrupt)|unable to read .*(?:gitignore|exclude)|failed to read .*(?:gitignore|exclude)|stdout maxbuffer.*exceeded)/iu.test(
+      message,
+    )
+  ) {
+    const detail = message
+      .replace(/^(?:fatal|error):\s*/iu, '')
+      .replace(/\s+/gu, ' ')
+      .trim()
+      .slice(0, 240);
+    return t('editor.searchGitIgnoreUnavailable', { message: detail });
+  }
+  const missingDirectory = message.match(/search directory does not exist:\s*(.+)$/iu);
+  if (missingDirectory !== null) {
+    return t('editor.findToolDirectoryMissing', { path: missingDirectory[1].trim() });
+  }
+  const invalidDirectory = message.match(/invalid search directory scope:\s*(.+)$/iu);
+  return invalidDirectory === null
+    ? message
+    : t('editor.findToolDirectoryInvalid', { path: invalidDirectory[1].trim() });
 }
 
 /**
@@ -290,7 +324,13 @@ async function requestFileApi(
   const response = await fetch('api/dsh-editor/fs', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ sessionId, workspaceId, ...payload }),
+    body: JSON.stringify({
+      sessionId,
+      workspaceId,
+      searchSessionId: SEARCH_SESSION_ID,
+      searchRevision: activeSearchRevision,
+      ...payload,
+    }),
     signal: options.signal,
   });
   const data = await response.json().catch(() => ({}));
@@ -430,6 +470,9 @@ const IDEA_SEMANTIC_LANGUAGE_IDS = [
   'protobuf',
   'solidity',
   'graphql',
+  'shell',
+  'bash',
+  'sh',
 ] as const;
 
 async function provideIdeaLightSemanticTokens(
@@ -920,6 +963,17 @@ export function createCodeEditorGroup(
       run: (editorInstance) => {
         const position = editorInstance.getPosition?.() ?? null;
         if (position !== null) void actionsHandlers.onGoToDefinition?.(editorInstance, position);
+      },
+    }),
+    editor.addAction({
+      id: 'dsh-editor.goToImplementation',
+      label: actionsHandlers.goToImplementationLabel ?? 'Go to Implementation',
+      keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyMod.Alt | monaco.KeyCode.KeyB],
+      contextMenuGroupId: 'navigation',
+      contextMenuOrder: 1.1,
+      run: (editorInstance) => {
+        const position = editorInstance.getPosition?.() ?? null;
+        if (position !== null) void actionsHandlers.onGoToImplementation?.(editorInstance, position);
       },
     }),
     editor.addAction({

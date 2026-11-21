@@ -26,12 +26,19 @@ const searchEverywhere = source.slice(
 );
 
 test('Cancelling Replace All returns focus to the replacement input', () => {
-  for (const replaceBlock of [replaceInFind, replaceInSearch]) {
-    const cancelAt = replaceBlock.indexOf('confirmSearchReplace');
-    const returnAt = replaceBlock.indexOf('return;', cancelAt);
-    const cancelBranch = replaceBlock.slice(cancelAt, returnAt);
-    assert.match(cancelBranch, /replaceFocusRequest: \(current\.replaceFocusRequest \?\? 0\) \+ 1/u);
-  }
+  const findCancelAt = replaceInFind.indexOf('confirmFindReplaceAndGeneration');
+  const findCancelBranch = replaceInFind.slice(findCancelAt, replaceInFind.indexOf('return;', findCancelAt));
+  assert.match(findCancelBranch, /replaceWriteBusyRef/u);
+  assert.match(findCancelBranch, /setFindTool/u);
+
+  const searchCancelAt = replaceInSearch.indexOf('confirmSearchReplace');
+  const searchCancelBranch = replaceInSearch.slice(
+    searchCancelAt,
+    replaceInSearch.indexOf('return;', searchCancelAt),
+  );
+  assert.match(searchCancelBranch, /replaceWriteBusyRef/u);
+  assert.match(searchCancelBranch, /if \(!confirmedReplace\)/u);
+  assert.match(source, /function findToolReplaceAbortState[\s\S]*?replaceFocusRequest/u);
 });
 
 test('Search Everywhere owns a replacement ref and reacts to focus requests', () => {

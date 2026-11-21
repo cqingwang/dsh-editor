@@ -45,7 +45,7 @@ test('Replace All preflights dirty buffers and sends only clean targets to the h
   assert.match(source, /model\.pushEditOperations/);
   assert.match(replaceAll, /targets: \[\.\.\.cleanTargets\.values\(\)\]/);
   assert.match(replaceAll, /dirtyReplacements/);
-  assert.match(replaceAll, /\(value\?\.replacements \?\? 0\) \+ dirtyReplacements/);
+  assert.match(replaceAll, /replaceOperationState\(/);
 });
 
 test('Single Replace performs exact dirty-buffer replacement without disk fallback', () => {

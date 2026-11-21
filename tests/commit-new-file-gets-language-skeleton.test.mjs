@@ -38,6 +38,10 @@ test('a new file gets its language skeleton', () => {
   assert.equal(templateFor('a.py'), '"""a."""\n');
   assert.equal(templateFor('a.json'), '{}\n');
   assert.equal(templateFor('a.go'), 'package main\n');
+  assert.equal(templateFor('a.c'), '#include <stdio.h>\n\nint main(void) {\n  return 0;\n}\n');
+  assert.equal(templateFor('a.cpp'), '#include <iostream>\n\nint main() {\n  return 0;\n}\n');
+  assert.equal(templateFor('a.h'), '#pragma once\n\n');
+  assert.equal(templateFor('a.hpp'), '#pragma once\n\n');
   assert.match(templateFor('a.sh'), /^#!\/usr\/bin\/env bash\nset -euo pipefail\n$/);
   assert.match(templateFor('index.html'), /^<!doctype html>/);
 });

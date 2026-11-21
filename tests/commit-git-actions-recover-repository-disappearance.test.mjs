@@ -60,6 +60,6 @@ test('remaining Commit actions use the shared repository boundary and retain the
   assert.doesNotMatch(workspace, /setPushError\(failure instanceof Error \? failure\.message : String\(failure\)\)/u);
   assert.match(
     workspace,
-    /const commit = React\.useCallback\([\s\S]*?catch \(failure\) \{[\s\S]*?reportGitFailure\(failure\);[\s\S]*?finally \{[\s\S]*?setCommitBusy\(false\);/u,
+    /const commit = React\.useCallback\([\s\S]*?catch \(failure\) \{[\s\S]*?reportGitFailure\(failure\);[\s\S]*?finally \{[\s\S]*?endCommitOperation\(\);/u,
   );
 });

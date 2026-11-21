@@ -40,7 +40,7 @@ test('IDEA Stage All Tracked is a direct Changes toolbar action', () => {
   const panel = source.slice(source.indexOf('function CommitPanel('), source.indexOf('function CommitLogView('));
   assert.ok(panel.indexOf("id: 'refresh'") < panel.indexOf("id: 'stageAllTracked'"));
   assert.match(panel, /id: 'stageAllTracked'[\s\S]*?label: t\('editor\.stageAllTracked'\)/);
-  assert.match(panel, /disabled: busy \|\| gitNotManaged \|\| stageAllTrackedPaths\.length === 0/);
+  assert.match(panel, /disabled: busy \|\| workingTreeBusy \|\| gitNotManaged \|\| stageAllTrackedPaths\.length === 0/);
   assert.match(panel, /onClick: \(\) => onStageAllTracked\?\.\(\)/);
 });
 

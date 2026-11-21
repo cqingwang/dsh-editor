@@ -54,9 +54,9 @@ test('double Shift opens Search Everywhere while Cmd/Ctrl+Shift+F opens Find in 
   assert.match(source, /const openFindInFilesFromShortcut =/);
   const doubleShiftEffect = source.slice(
     source.indexOf('const next = doubleShiftAction'),
-    source.indexOf('}, [openSearchEverywhere]);', source.indexOf('const next = doubleShiftAction')),
+    source.indexOf('}, [currentCodeEditor, openSearchEverywhere]);', source.indexOf('const next = doubleShiftAction')),
   );
-  assert.match(doubleShiftEffect, /openSearchEverywhere\('all'\)/);
+  assert.match(doubleShiftEffect, /openSearchEverywhere\('all', selectedEditorFindQuery\(currentCodeEditor\(\)\)\)/);
   assert.doesNotMatch(doubleShiftEffect, /openFindInFilesFromShortcut\(\)/);
   const findInFilesShortcut = source.slice(
     source.indexOf("if (key === 'f' && event.shiftKey)"),

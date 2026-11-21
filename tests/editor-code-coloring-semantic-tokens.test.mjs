@@ -8,6 +8,7 @@ const source = await readFile(
   new URL('../src/client/components/editor/editor-theme-model.ts', import.meta.url),
   'utf8',
 );
+const editorCoreSource = await readFile(new URL('../src/client/editor-core.ts', import.meta.url), 'utf8');
 const helpers = loadTypeScriptModule(source, [
   'clipIdeaLightSemanticTokensToRange',
   'collectIdeaLightHeuristicSemanticTokens',
@@ -63,6 +64,62 @@ test('TypeScript lexical hints identify methods, properties and local variables'
   assert.ok(tokenNames.includes('ideaProperty'));
   assert.ok(tokenNames.includes('ideaMethod'));
   assert.ok(tokenNames.includes('ideaFunction'));
+});
+
+test('Shell functions, assignments and variable references receive semantic colors', () => {
+  const text = [
+    '#!/usr/bin/env bash',
+    'color_variable="value"',
+    'color_function() {',
+    '  printf \'%s\\n\' "$color_variable"',
+    '}',
+    'color_function',
+  ].join('\n');
+  const tokens = helpers.mergeIdeaLightSemanticTokens(helpers.collectIdeaLightHeuristicSemanticTokens(text, 'shell'));
+  const lines = text.split('\n');
+  const values = tokens.map((token) => ({
+    value: lines[token.line]?.slice(token.startCharacter, token.startCharacter + token.length),
+    tokenType: token.tokenType,
+  }));
+  assert.deepEqual(
+    values.filter((token) => token.value !== ''),
+    [
+      { value: 'color_variable', tokenType: 'ideaVariable' },
+      { value: 'color_function', tokenType: 'ideaFunction' },
+      { value: 'color_variable', tokenType: 'ideaVariable' },
+      { value: 'color_function', tokenType: 'ideaFunction' },
+    ],
+  );
+});
+
+test('Shell language ids are registered with the shared semantic token provider', () => {
+  assert.match(editorCoreSource, /'shell',\s*'bash',\s*'sh',/u);
+});
+
+test('Shell local/export, arrays and parameter expansion keep semantic roles', () => {
+  const text = [
+    'local color_local="${color_variable:-fallback}"',
+    'export color_export="$color_variable"',
+    'color_array=("$color_variable")',
+    'printf \'%s\\n\' "${color_array[0]}"',
+  ].join('\n');
+  const tokens = helpers.mergeIdeaLightSemanticTokens(
+    helpers.collectIdeaLightHeuristicSemanticTokens(text, 'shell'),
+  );
+  const lines = text.split('\n');
+  const values = tokens.map((token) => ({
+    value: lines[token.line]?.slice(token.startCharacter, token.startCharacter + token.length),
+    tokenType: token.tokenType,
+  }));
+  for (const value of ['color_local', 'color_export', 'color_array']) {
+    assert.ok(
+      values.some((token) => token.value === value && token.tokenType === 'ideaVariable'),
+      `${value} should be a variable`,
+    );
+  }
+  assert.ok(
+    values.filter((token) => token.value === 'color_variable' && token.tokenType === 'ideaVariable').length >= 3,
+  );
 });
 
 test('class, interface, struct and related declaration targets receive semantic tokens', () => {
@@ -590,9 +647,7 @@ test('Rust impl targets color trait and implementing type declarations', () => {
     '    fn item(&self) -> Self::Item;',
     '}',
   ].join('\n');
-  const tokens = helpers.mergeIdeaLightSemanticTokens(
-    helpers.collectIdeaLightHeuristicSemanticTokens(text, 'rust'),
-  );
+  const tokens = helpers.mergeIdeaLightSemanticTokens(helpers.collectIdeaLightHeuristicSemanticTokens(text, 'rust'));
   const lines = text.split('\n');
   const implTargets = tokens
     .filter((token) => token.line === 4)
@@ -607,13 +662,251 @@ test('Rust impl targets color trait and implementing type declarations', () => {
   ]);
   assert.deepEqual(
     tokens
-      .filter((token) => ['Source', 'Item', 'item'].includes(lines[token.line]?.slice(
-        token.startCharacter,
-        token.startCharacter + token.length,
-      )))
+      .filter((token) =>
+        ['Source', 'Item', 'item'].includes(
+          lines[token.line]?.slice(token.startCharacter, token.startCharacter + token.length),
+        ),
+      )
       .map((token) => token.tokenType),
     ['ideaInterface', 'ideaTypeAlias', 'ideaMethod'],
   );
+});
+
+test('C and C++ namespaces, parameters and type members use semantic colors', () => {
+  const text = [
+    '#include "../include/widget.hpp"',
+    'namespace app {',
+    'struct Point { int x; int y; };',
+    'class Widget {',
+    'public:',
+    '  Widget(int id);',
+    '  int render(const Point& point) const;',
+    'private:',
+    '  int id_;',
+    '};',
+    'int helper(int value) {',
+    '  return value;',
+    '}',
+    '}',
+  ].join('\n');
+  const tokens = helpers.mergeIdeaLightSemanticTokens(helpers.collectIdeaLightHeuristicSemanticTokens(text, 'cpp'));
+  const lines = text.split('\n');
+  const declarations = tokens.map((token) => ({
+    value: (lines[token.line] ?? '').slice(token.startCharacter, token.startCharacter + token.length),
+    tokenType: token.tokenType,
+  }));
+  assert.deepEqual(
+    declarations.filter((token) =>
+      ['app', 'Point', 'Widget', 'x', 'y', 'id', 'render', 'point', 'id_', 'helper', 'value'].includes(token.value),
+    ),
+    [
+      { value: 'app', tokenType: 'ideaModule' },
+      { value: 'Point', tokenType: 'ideaClass' },
+      { value: 'x', tokenType: 'ideaProperty' },
+      { value: 'y', tokenType: 'ideaProperty' },
+      { value: 'Widget', tokenType: 'ideaClass' },
+      { value: 'Widget', tokenType: 'ideaMethod' },
+      { value: 'id', tokenType: 'ideaParameter' },
+      { value: 'render', tokenType: 'ideaMethod' },
+      { value: 'point', tokenType: 'ideaParameter' },
+      { value: 'id_', tokenType: 'ideaProperty' },
+      { value: 'helper', tokenType: 'ideaMethod' },
+      { value: 'value', tokenType: 'ideaParameter' },
+      { value: 'value', tokenType: 'ideaVariable' },
+    ],
+  );
+  assert.equal(
+    declarations.some(
+      (token) => ['public', 'private', 'protected'].includes(token.value) && token.tokenType === 'ideaProperty',
+    ),
+    false,
+  );
+});
+
+test('C headers color prototypes, parameters and aggregate fields', () => {
+  const text = ['#pragma once', 'struct Pair { int x; int y; };', 'int helper(int value);'].join('\n');
+  const tokens = helpers.mergeIdeaLightSemanticTokens(helpers.collectIdeaLightHeuristicSemanticTokens(text, 'c'));
+  const lines = text.split('\n');
+  const declarations = tokens.map((token) => ({
+    value: (lines[token.line] ?? '').slice(token.startCharacter, token.startCharacter + token.length),
+    tokenType: token.tokenType,
+  }));
+  assert.deepEqual(
+    declarations.filter((token) => ['Pair', 'x', 'y', 'helper', 'value'].includes(token.value)),
+    [
+      { value: 'Pair', tokenType: 'ideaClass' },
+      { value: 'x', tokenType: 'ideaProperty' },
+      { value: 'y', tokenType: 'ideaProperty' },
+      { value: 'helper', tokenType: 'ideaMethod' },
+      { value: 'value', tokenType: 'ideaParameter' },
+    ],
+  );
+});
+
+test('C++ templates, inheritance and qualified definitions use declaration roles', () => {
+  const text = [
+    'template <class T>',
+    'class Widget final : public Base<T> {',
+    'public:',
+    '  Widget* next;',
+    '  const Config& config_;',
+    '  T value;',
+    '};',
+    'Widget::Widget(int id) {}',
+    'int Widget::render(const Point& point) const { return point.x; }',
+  ].join('\n');
+  const tokens = helpers.mergeIdeaLightSemanticTokens(helpers.collectIdeaLightHeuristicSemanticTokens(text, 'cpp'));
+  const lines = text.split('\n');
+  const tokenAt = (line, value) =>
+    tokens
+      .filter(
+        (token) =>
+          token.line === line &&
+          lines[line]?.slice(token.startCharacter, token.startCharacter + token.length) === value,
+      )
+      .map((token) => token.tokenType);
+
+  assert.deepEqual(tokenAt(0, 'T'), ['ideaTypeParameter']);
+  assert.ok(tokenAt(1, 'Widget').includes('ideaClass'));
+  assert.ok(tokenAt(1, 'Base').includes('ideaClass'));
+  assert.deepEqual(tokenAt(3, 'next'), ['ideaProperty']);
+  assert.deepEqual(tokenAt(4, 'config_'), ['ideaProperty']);
+  assert.deepEqual(tokenAt(5, 'value'), ['ideaProperty']);
+  assert.ok(tokenAt(7, 'Widget').includes('ideaClass'));
+  assert.ok(tokenAt(7, 'Widget').includes('ideaMethod'));
+  assert.equal(tokenAt(7, 'Widget').includes('ideaProperty'), false);
+  assert.ok(tokenAt(8, 'Widget').includes('ideaClass'));
+  assert.deepEqual(tokenAt(8, 'render'), ['ideaMethod']);
+  assert.ok(tokenAt(8, 'point').includes('ideaParameter'));
+});
+
+test('C++ operators, function-pointer parameters and initializer members keep IDEA roles', () => {
+  const text = [
+    'class Point {',
+    'public:',
+    '  bool operator==(const Point& other) const;',
+    '  Point& operator+=(const Point& rhs);',
+    '  explicit operator bool() const;',
+    '};',
+    '',
+    'using Callback = int (*)(int value, const Point& point);',
+    '',
+    'Point operator+(const Point& left, const Point& right);',
+    'void register_callback(int (*callback)(int value), const Point& point);',
+    '',
+    'class Widget {',
+    'public:',
+    '  Widget(int id, const Point& origin);',
+    'private:',
+    '  Point origin_;',
+    '  Callback callback_;',
+    '};',
+    '',
+    'Widget::Widget(int id, const Point& origin) : origin_(origin) {}',
+    '',
+    'bool Point::operator==(const Point& other) const { return x == other.x; }',
+  ].join('\n');
+  const tokens = helpers.mergeIdeaLightSemanticTokens(helpers.collectIdeaLightHeuristicSemanticTokens(text, 'cpp'));
+  const lines = text.split('\n');
+  const tokenAt = (line, value) =>
+    tokens
+      .filter(
+        (token) =>
+          token.line === line &&
+          lines[line]?.slice(token.startCharacter, token.startCharacter + token.length) === value,
+      )
+      .map((token) => token.tokenType);
+
+  assert.deepEqual(tokenAt(2, 'operator=='), ['ideaMethod']);
+  assert.ok(tokenAt(2, 'other').includes('ideaParameter'));
+  assert.deepEqual(tokenAt(3, 'operator+='), ['ideaMethod']);
+  assert.deepEqual(tokenAt(4, 'operator bool'), ['ideaMethod']);
+  assert.deepEqual(tokenAt(7, 'int'), []);
+  assert.deepEqual(tokenAt(9, 'operator+'), ['ideaMethod']);
+  assert.ok(tokenAt(9, 'left').includes('ideaParameter'));
+  assert.ok(tokenAt(9, 'right').includes('ideaParameter'));
+  assert.deepEqual(tokenAt(10, 'register_callback'), ['ideaMethod']);
+  assert.ok(tokenAt(10, 'callback').includes('ideaParameter'));
+  assert.ok(tokenAt(10, 'point').includes('ideaParameter'));
+  assert.equal(tokenAt(10, 'value').includes('ideaParameter'), false);
+  assert.ok(tokenAt(20, 'origin_').includes('ideaProperty'));
+  assert.ok(tokenAt(22, 'Point').includes('ideaClass'));
+  assert.deepEqual(tokenAt(22, 'operator=='), ['ideaMethod']);
+  assert.ok(tokenAt(22, 'other').includes('ideaParameter'));
+});
+
+test('C++ macros and advanced parameter declarations keep IDEA roles', () => {
+  const text = [
+    '#define MAX(a, b) ((a) > (b) ? (a) : (b))',
+    '#define HANDLE_NAME "sample"',
+    '#define CALLBACK(fn) fn',
+    '',
+    '#if defined(ENABLE_TRACE) && !defined(DISABLE_TRACE)',
+    'void trace(const char* message);',
+    '#endif',
+    '',
+    'void register_handler(void (Widget::*callback)(int value), int numbers[4], int timeout = 10);',
+    'void register_unnamed(int (*)(int), const Point& point);',
+  ].join('\n');
+  const tokens = helpers.mergeIdeaLightSemanticTokens(helpers.collectIdeaLightHeuristicSemanticTokens(text, 'cpp'));
+  const lines = text.split('\n');
+  const tokenAt = (line, value) =>
+    tokens
+      .filter(
+        (token) =>
+          token.line === line &&
+          lines[line]?.slice(token.startCharacter, token.startCharacter + token.length) === value,
+      )
+      .map((token) => token.tokenType);
+
+  assert.deepEqual(tokenAt(0, 'MAX'), ['ideaMethod']);
+  assert.ok(tokenAt(0, 'a').includes('ideaParameter'));
+  assert.ok(tokenAt(0, 'b').includes('ideaParameter'));
+  assert.deepEqual(tokenAt(1, 'HANDLE_NAME'), ['ideaConstant']);
+  assert.deepEqual(tokenAt(2, 'CALLBACK'), ['ideaMethod']);
+  assert.ok(tokenAt(2, 'fn').includes('ideaParameter'));
+  assert.ok(tokenAt(4, 'ENABLE_TRACE').includes('ideaConstant'));
+  assert.ok(tokenAt(4, 'DISABLE_TRACE').includes('ideaConstant'));
+  assert.deepEqual(tokenAt(5, 'trace'), ['ideaMethod']);
+  assert.ok(tokenAt(5, 'message').includes('ideaParameter'));
+  assert.deepEqual(tokenAt(8, 'register_handler'), ['ideaMethod']);
+  assert.ok(tokenAt(8, 'callback').includes('ideaParameter'));
+  assert.ok(tokenAt(8, 'numbers').includes('ideaParameter'));
+  assert.ok(tokenAt(8, 'timeout').includes('ideaParameter'));
+  assert.equal(tokenAt(8, 'value').includes('ideaParameter'), false);
+  assert.deepEqual(tokenAt(9, 'register_unnamed'), ['ideaMethod']);
+  assert.ok(tokenAt(9, 'point').includes('ideaParameter'));
+});
+
+test('C++ multiline, stringified and pasted macro parameters stay parameters', () => {
+  const text = [
+    '#define TRACE_CALL(fn, value) \\',
+    '  do { fn(value); } while (0)',
+    '#define PASTE(a, b) a##b',
+    '#define STRINGIFY(x) #x',
+    '#define CALL_MAX(a, b) MAX(a, b)',
+  ].join('\n');
+  const tokens = helpers.mergeIdeaLightSemanticTokens(helpers.collectIdeaLightHeuristicSemanticTokens(text, 'cpp'));
+  const lines = text.split('\n');
+  const tokenAt = (line, value) =>
+    tokens
+      .filter(
+        (token) =>
+          token.line === line &&
+          lines[line]?.slice(token.startCharacter, token.startCharacter + token.length) === value,
+      )
+      .map((token) => token.tokenType);
+
+  assert.deepEqual(tokenAt(0, 'TRACE_CALL'), ['ideaMethod']);
+  assert.ok(tokenAt(0, 'fn').includes('ideaParameter'));
+  assert.ok(tokenAt(0, 'value').includes('ideaParameter'));
+  assert.deepEqual(tokenAt(1, 'fn'), ['ideaParameter']);
+  assert.deepEqual(tokenAt(1, 'value'), ['ideaParameter']);
+  assert.ok(tokenAt(2, 'a').includes('ideaParameter'));
+  assert.ok(tokenAt(2, 'b').includes('ideaParameter'));
+  assert.ok(tokenAt(3, 'x').includes('ideaParameter'));
+  assert.ok(tokenAt(4, 'a').includes('ideaParameter'));
+  assert.ok(tokenAt(4, 'b').includes('ideaParameter'));
 });
 
 test('preview text ranges preserve IDEA variable and method foregrounds', () => {

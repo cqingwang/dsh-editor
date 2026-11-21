@@ -146,6 +146,9 @@ test('open tabs follow a moved directory, not just a moved file', () => {
     setDiffTarget: (updater) => updater({ path: 'src/a.ts', staged: false }),
     setAnnotateTarget: (updater) => updater({ path: 'src/a.ts' }),
     setRecentFiles: (updater) => updater(['src/a.ts']),
+    remapSearchDirectoryRulesAfterMove: (rules) => rules,
+    setSearchDirectoryRules: (updater) => updater({ excludedDirectories: [], includedDirectories: [] }),
+    writeSearchDirectoryRules: () => {},
     rootRef: { current: '/repo' },
     writeRecentFiles: () => {},
   });

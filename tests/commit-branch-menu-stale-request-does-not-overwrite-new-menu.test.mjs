@@ -19,8 +19,12 @@ test('a stale branch-list failure cannot overwrite the newer branch menu', async
     branchMenuRequestRef,
     branchPromptOriginRef: { current: null },
     document: { activeElement: null },
-    setCommitBusy: (value) => {
-      busy = value;
+    beginCommitOperation: () => {
+      busy = true;
+      return true;
+    },
+    endCommitOperation: () => {
+      busy = false;
     },
     setCommitError: (value) => errors.push(value),
     setMenu: (value) => {

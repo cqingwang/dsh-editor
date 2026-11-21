@@ -14,6 +14,14 @@ export interface ToolbarActionLike {
   ariaExpanded?: boolean;
 }
 
+/** Combine a badge's popup action with the value the chip currently displays. */
+export function toolbarBadgeAccessibleLabel(value: unknown, popupLabel: unknown): string {
+  const action = typeof popupLabel === 'string' ? popupLabel.trim() : '';
+  const badge = typeof value === 'string' || typeof value === 'number' ? String(value).trim() : '';
+  if (badge === '') return action;
+  return action === '' ? badge : `${action}: ${badge}`;
+}
+
 export function panelToolbarFit(
   width: number,
   titleWidth: number,

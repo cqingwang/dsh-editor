@@ -10,6 +10,30 @@ import { trapDialogFocus } from '../ui/focus-trap';
 
 type Translate = (key: string, params?: Record<string, unknown>) => string;
 
+export interface QuickOpenState {
+  query: string;
+  index: number;
+  files?: string[];
+  truncated?: boolean;
+  loading?: boolean;
+  error?: string | null;
+}
+
+/** Own IDEA's global Go to File shortcut and always invoke the latest opener. */
+export function useQuickOpenShortcut(openQuickOpen: () => void): void {
+  React.useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!(event.metaKey || event.ctrlKey) || !event.shiftKey || event.key.toLowerCase() !== 'o') return;
+      const host = document.querySelector<HTMLElement>('[data-dsh-editor-workspace]');
+      if (host === null || !document.body.contains(host)) return;
+      event.preventDefault();
+      openQuickOpen();
+    };
+    window.addEventListener('keydown', onKeyDown, true);
+    return () => window.removeEventListener('keydown', onKeyDown, true);
+  }, [openQuickOpen]);
+}
+
 function quickOpenOptionId(path: string): string {
   return `dsh-editor-quick-open-option-${encodeURIComponent(path)}`;
 }
@@ -17,6 +41,7 @@ function quickOpenOptionId(path: string): string {
 export interface QuickOpenProps {
   t: Translate;
   files: string[];
+  truncated?: boolean;
   changes: Map<string, string>;
   query: string;
   loading: boolean;
@@ -32,6 +57,7 @@ export interface QuickOpenProps {
 function QuickOpen({
   t,
   files,
+  truncated = false,
   changes,
   query,
   loading,
@@ -174,6 +200,14 @@ function QuickOpen({
               </div>
             );
           })}
+          {truncated ? (
+            <div
+              style={styles.treeMessage}
+              role='status'
+              aria-live='polite'>
+              {t('editor.searchFilesTruncated')}
+            </div>
+          ) : null}
         </div>
       </div>
     </div>

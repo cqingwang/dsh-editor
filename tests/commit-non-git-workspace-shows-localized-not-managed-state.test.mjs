@@ -20,7 +20,10 @@ test('Commit treats a non-git workspace as a normal state', () => {
   assert.match(workspace, /isRepo\?: boolean/u);
   assert.match(panel, /isRepo\?: boolean/u);
   assert.match(panel, /const gitNotManaged = git\?\.isRepo === false;/u);
-  assert.match(panel, /gitNotManaged \? <div style=\{styles\.commitNotice\}>\{t\('editor\.gitNotManaged'\)\}<\/div>/u);
+  assert.match(
+    panel,
+    /gitNotManaged \? \([\s\S]*?role='status'[\s\S]*?\{t\('editor\.gitNotManaged'\)\}/u,
+  );
   assert.match(locales, /gitNotManaged: '当前不受git管理'/u);
   assert.match(locales, /gitNotManaged: 'This workspace is not managed by Git'/u);
   assert.equal(
@@ -47,14 +50,18 @@ test('Git-only Commit actions are inert without a repository', () => {
   assert.equal(
     (
       panel.match(
-        /disabled=\{busy \|\| gitNotManaged \|\| selectedPaths\.size === 0 \|\| message\.trim\(\) === ''\}/gu,
+        /disabled=\{\s*busy \|\|\s*workingTreeBusy \|\|\s*gitNotManaged \|\|\s*selectedPaths\.size === 0 \|\|\s*message\.trim\(\) === ''\s*\}/gu,
       ) ?? []
     ).length,
     2,
   );
-  assert.match(panel, /disabled=\{busy \|\| gitNotManaged \|\| pushing\}/u);
+  assert.match(
+    panel,
+    /commitRetryControlState\(busy === true \|\| networkBusy === true \|\| gitNotManaged, pushing\)/u,
+  );
+  assert.match(panel, /disabled=\{pushRetryControl\.disabled\}/u);
   assert.match(panel, /<CommitLog\s+hidden=\{mode !== 'log'\}\s+disabled=\{gitNotManaged\}/u);
-  assert.match(panel, /checked=\{amend\}\s+disabled=\{busy \|\| gitNotManaged\}/u);
+  assert.match(panel, /checked=\{amend\}\s+disabled=\{busy \|\| workingTreeBusy \|\| gitNotManaged\}/u);
   assert.match(
     workspace,
     /if \(next && \(git\?\.isRepo === false \|\| git\?\.lastCommit === null \|\| git\?\.lastCommit === undefined\)\) return;/u,
@@ -98,7 +105,7 @@ test('Changes action strip uses native disabled semantics in not-managed state',
 test('keyboard commit and stale Git-owned state stay closed without a repository', () => {
   assert.match(
     panel,
-    /if \(!busy && !gitNotManaged && selectedPaths\.size > 0 && message\.trim\(\) !== ''\) onCommit\(false\);/u,
+    /if \(\s*!busy &&\s*!workingTreeBusy &&\s*!gitNotManaged &&\s*selectedPaths\.size > 0 &&\s*message\.trim\(\) !== ''\s*\)\s+onCommit\(false\);/u,
   );
   assert.match(
     workspace,

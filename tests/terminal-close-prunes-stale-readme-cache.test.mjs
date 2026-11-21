@@ -70,6 +70,8 @@ test('closing the last terminal using a cwd clears that README entry', async () 
     writeTerminalColors: () => {},
     setTerminals: () => {},
     setActiveId: () => {},
+    setError: () => {},
+    terminalErrorAfterTabClosed: () => null,
     window: {
       setTimeout(callback) {
         callback();

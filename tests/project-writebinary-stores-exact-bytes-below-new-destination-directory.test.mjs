@@ -74,5 +74,6 @@ test('Project uploads preflight every destination before starting chunked files'
   assert.match(upload, /uploadWorkspaceFile\(\s*entry\.file,\s*destinationOf\(entry\.path\),/u);
   assert.match(client, /file\.slice\(offset, end\)\.arrayBuffer\(\)/u);
   assert.match(client, /requestWorkspaceUpload\('start'/u);
-  assert.match(client, /uploadWorkspaceDropToProject\(\{/u);
+  assert.match(client, /uploadProjectDropWithGuard\(/u);
+  assert.match(client, /useProjectUploadDrop\(\{/u);
 });

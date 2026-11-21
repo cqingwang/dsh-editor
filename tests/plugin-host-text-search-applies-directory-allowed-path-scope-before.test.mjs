@@ -32,11 +32,13 @@ test('Host text search applies directory and allowed-path scope before the match
     });
     assert.deepEqual(allowed.matches.map((match) => match.path), ['scoped/inside.txt']);
 
-    const escaped = await workspaceFileOperations.searchText(root, 'needle', {
-      maxMatches: 5,
-      directory: '..',
-    });
-    assert.deepEqual(escaped.matches, []);
+    await assert.rejects(
+      workspaceFileOperations.searchText(root, 'needle', {
+        maxMatches: 5,
+        directory: '..',
+      }),
+      /invalid search directory scope: \.\./u,
+    );
   } finally {
     await rm(root, { recursive: true, force: true });
   }

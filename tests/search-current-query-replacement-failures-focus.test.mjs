@@ -26,9 +26,16 @@ function loadReplaceFailureState() {
 
 test('the current query keeps replacement failures and focus', () => {
   const patch = loadReplaceFailureState();
-  const state = { query: 'end', searchGeneration: 4, replaceFocusRequest: 2, replaceBusy: true };
+  const state = {
+    query: 'end',
+    searchGeneration: 4,
+    replaceFocusRequest: 2,
+    replaceBusy: true,
+    errorSource: 'files',
+  };
   const next = patch(state, 4, 'failed');
   assert.equal(next.error, 'failed');
+  assert.equal(next.errorSource, null);
   assert.equal(next.replaceBusy, false);
   assert.equal(next.replaceFocusRequest, 3);
 });
@@ -61,13 +68,15 @@ test('Search Everywhere replacement attempts are scoped to their request and que
 
 test('Search Everywhere failures settle through the shared stale-safe focus state', () => {
   const settle = new Function(`${extractSource('replaceFailureSettlement')}\nreturn replaceFailureSettlement;`)();
-  const current = { query: 'Value', replaceFocusRequest: 2, replaceBusy: true };
+  const current = { query: 'Value', replaceFocusRequest: 2, replaceBusy: true, errorSource: 'files' };
   const currentFailure = settle(current, true, 'failed');
   assert.equal(currentFailure.error, 'failed');
+  assert.equal(currentFailure.errorSource, null);
   assert.equal(currentFailure.replaceBusy, false);
   assert.equal(currentFailure.replaceFocusRequest, 3);
   const staleFailure = settle(current, false, 'old failure');
   assert.equal(staleFailure.error, null);
+  assert.equal(staleFailure.errorSource, null);
   assert.equal(staleFailure.replaceBusy, false);
   assert.equal(staleFailure.replaceFocusRequest, 2);
 
@@ -77,12 +86,12 @@ test('Search Everywhere failures settle through the shared stale-safe focus stat
   );
   assert.match(
     replaceInSearch,
-    /const request = \{ id: searchTextRequestRef\.current, query: searchEverywhere\?\.query \?\? '' \};/u,
+    /const request = \{ id: searchTextRequestRef\.current, sessionId: currentSessionId\(\), workspaceId \};/u,
   );
   assert.ok((replaceInSearch.match(/replaceFailureSettlement\(/gu) ?? []).length >= 2);
   assert.match(
     replaceInSearch,
-    /replaceAttemptIsCurrent\(request\.id,\s*request\.query,\s*searchTextRequestRef\.current,\s*current\?\.query\)/u,
+    /replaceAttemptIsCurrent\(request\.id,\s*requestQuery,\s*searchTextRequestRef\.current,\s*current\?\.query\)/u,
   );
 });
 

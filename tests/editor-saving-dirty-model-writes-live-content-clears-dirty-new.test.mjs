@@ -41,7 +41,7 @@ test('Search Everywhere text requests invalidate stale responses after open-file
   const effect = source.slice(source.indexOf('const searchEverywhereRawQuery'), source.indexOf('const openFindTool ='));
   assert.match(effect, /const requestId = \+\+searchTextRequestRef\.current/u);
   assert.match(effect, /if \(searchTextRequestRef\.current !== requestId\) return;/gu);
-  assert.match(effect, /searchEverywhere\?\.fileMask,\s+openFiles,\s+t,/u);
+  assert.match(effect, /searchEverywhere\?\.fileMask,\s+searchDirectoryRules,\s+openFiles,\s+t,/u);
 });
 
 test('Dirty buffers replace host rows instead of duplicating the same path', () => {

@@ -3324,6 +3324,70 @@ export function filterTreeRows(rows: ProjectTreeRow[], query: string): ProjectTr
   return rows.filter((row) => keep.has(row.path) && row.kind !== 'placeholder');
 }
 
+const PROJECT_SPEED_SEARCH_SYSTEM_FILE_NAMES = new Set([
+  '.ds_store',
+  'desktop.ini',
+  'ehthumbs.db',
+  'ehthumbs_vista.db',
+  'thumbs.db',
+]);
+const PROJECT_SPEED_SEARCH_SYSTEM_FILE_EXTENSIONS = new Set(['.class', '.o', '.obj']);
+
+function projectSpeedSearchPathIsGenerated(path: string): boolean {
+  const name = path.slice(path.lastIndexOf('/') + 1).toLowerCase();
+  if (PROJECT_SPEED_SEARCH_SYSTEM_FILE_NAMES.has(name)) return true;
+  const dot = name.lastIndexOf('.');
+  return dot >= 0 && PROJECT_SPEED_SEARCH_SYSTEM_FILE_EXTENSIONS.has(name.slice(dot));
+}
+
+/**
+ * Filter local Project rows with the same OS metadata boundary as Host search.
+ *
+ * Filtered views such as Open Files and Changed Files never start the recursive
+ * Host walk, so their local filter must not surface Finder/Explorer cache files
+ * that the recursive search would exclude.
+ */
+export function filterProjectSpeedSearchRows(
+  rows: ProjectTreeRow[] | null | undefined,
+  query: unknown,
+): ProjectTreeRow[] {
+  const list = Array.isArray(rows) ? rows : [];
+  const needle = typeof query === 'string' ? query.trim() : '';
+  if (needle === '') return list;
+  return filterTreeRows(
+    list.filter(
+      (row) =>
+        row === null ||
+        row === undefined ||
+        typeof row.path !== 'string' ||
+        row.path === '' ||
+        !projectSpeedSearchPathIsGenerated(row.path),
+    ),
+    needle,
+  );
+}
+
+/**
+ * Resolve one Project speed-search key without splitting the no-match flow.
+ *
+ * IDEA closes speed search on Enter even when nothing can be opened, while
+ * directional keys only move between real hits. Keeping this decision pure
+ * prevents the input from becoming an inert modal trap after a zero-match query.
+ */
+export function projectSpeedSearchKeyAction(
+  event: { key?: unknown } | null | undefined,
+  hitCount: unknown,
+): 'close' | 'next' | 'previous' | 'open' | null {
+  const key = typeof event?.key === 'string' ? event.key : '';
+  const count = Math.max(0, Math.trunc(Number(hitCount) || 0));
+  if (key === 'Escape') return 'close';
+  if (key === 'Enter') return count === 0 ? 'close' : 'open';
+  if (count === 0) return null;
+  if (key === 'ArrowDown') return 'next';
+  if (key === 'ArrowUp') return 'previous';
+  return null;
+}
+
 /**
  * Build Project rows from recursive name-search matches.
  *

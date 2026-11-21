@@ -10,6 +10,7 @@ interface ProjectMenuItem {
   kind?: 'section';
   label: string;
   shortcut?: string;
+  active?: boolean;
   disabled?: boolean;
   restoreFocus?: boolean;
   run?: () => void;
@@ -103,6 +104,7 @@ export function projectOptionsMenuItems({
           id: 'previewTab',
           label: t('editor.projectPreviewTab'),
           shortcut: previewTabEnabled ? '✓' : '',
+          active: previewTabEnabled,
           restoreFocus: false,
           run: onTogglePreviewTab,
         },
@@ -110,6 +112,7 @@ export function projectOptionsMenuItems({
           id: 'singleClickOpen',
           label: t('editor.openFilesSingleClick'),
           shortcut: singleClickOpen ? '✓' : '',
+          active: singleClickOpen,
           restoreFocus: false,
           run: onToggleSingleClickOpen,
         },
@@ -117,6 +120,7 @@ export function projectOptionsMenuItems({
           id: 'openDirectoriesSingleClick',
           label: t('editor.openDirectoriesSingleClick'),
           shortcut: openDirectoriesSingleClick ? '✓' : '',
+          active: openDirectoriesSingleClick,
           restoreFocus: false,
           run: onToggleOpenDirectoriesSingleClick,
         },
@@ -135,6 +139,7 @@ export function projectOptionsMenuItems({
           id: 'showExcludedFiles',
           label: t('editor.showExcludedFiles'),
           shortcut: showExcludedFiles ? '✓' : '',
+          active: showExcludedFiles,
           restoreFocus: false,
           run: onToggleShowExcludedFiles,
         },
@@ -142,6 +147,7 @@ export function projectOptionsMenuItems({
           id: 'compactDirectories',
           label: t('editor.compactDirectories'),
           shortcut: compactDirectories ? '✓' : '',
+          active: compactDirectories,
           restoreFocus: false,
           run: onToggleCompactDirectories,
         },
@@ -149,6 +155,7 @@ export function projectOptionsMenuItems({
           id: 'hidden',
           label: t('editor.showHidden'),
           shortcut: showHidden ? '✓' : '',
+          active: showHidden,
           restoreFocus: false,
           run: onToggleHidden,
         },
@@ -164,6 +171,7 @@ export function projectOptionsMenuItems({
             id: `sort:${mode}`,
             label: t(`editor.sort_${labelMode}`),
             shortcut: (sortMode ?? 'name') === mode ? '✓' : '',
+            active: (sortMode ?? 'name') === mode,
             restoreFocus: false,
             run: () => onApplySortMode(mode),
           };
@@ -179,6 +187,7 @@ export function projectOptionsMenuItems({
           id: 'foldersFirst',
           label: t('editor.foldersAlwaysOnTop'),
           shortcut: foldersFirst ? '✓' : '',
+          active: foldersFirst,
           restoreFocus: false,
           run: onToggleFoldersFirst,
         },

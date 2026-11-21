@@ -19,7 +19,10 @@ function searchEverywhere() {
 
 test('Search Everywhere receives the workspace replacement history', () => {
   const dialog = searchEverywhere();
-  const render = source.slice(source.indexOf('React.createElement(SearchEverywhere'), source.indexOf('quickOpen === null'));
+  const render = source.slice(
+    source.indexOf('React.createElement(SearchEverywhere'),
+    source.indexOf('quickOpen === null'),
+  );
   assert.match(dialog, /replaceHistory,/);
   assert.match(render, /replaceHistory: recentReplacements/);
 });
@@ -51,7 +54,7 @@ test('Replace history preserves the draft until the user chooses an item', () =>
 
 test('Search Everywhere exposes one non-duplicated live result status', () => {
   const dialog = searchEverywhere();
-  assert.match(dialog, /const searchResultStatus =\s+error !== null\s+\? ''\s+: textLoading/u);
+  assert.match(dialog, /const searchResultStatus =\s+visibleError !== null\s+\? ''\s+: textLoading/u);
   assert.match(dialog, /aria-live='polite'/);
   assert.match(dialog, /aria-atomic='true'/);
   assert.match(dialog, /role='status'/);

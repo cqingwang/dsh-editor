@@ -17,6 +17,7 @@ export interface MenuAction {
   ariaKeyShortcuts?: string;
   danger?: boolean;
   disabled?: boolean;
+  disabledReason?: string;
   keepOpen?: boolean;
   restoreFocus?: boolean;
   run?: () => void;
@@ -42,6 +43,11 @@ export interface ContextMenuProps {
   t?: (key: string, params?: Record<string, unknown>) => string;
 }
 
+/** A menu appearing under a stationary pointer must not activate an unrelated hover submenu. */
+export function contextMenuHoverOpensSubmenu(hasChildren: boolean, pointerMovedSinceOpen: boolean): boolean {
+  return hasChildren && pointerMovedSinceOpen;
+}
+
 export function ContextMenu({ menu, onClose }: ContextMenuProps) {
   const ref = React.useRef<HTMLDivElement | null>(null);
   const [position, setPosition] = React.useState({
@@ -55,6 +61,7 @@ export function ContextMenu({ menu, onClose }: ContextMenuProps) {
   const [itemRect, setItemRect] = React.useState<DOMRect | null>(null);
   const returnFocusRef = React.useRef<HTMLElement | null>(null);
   const skipReturnFocusRef = React.useRef(false);
+  const pointerMovedSinceOpenRef = React.useRef(false);
   const typeaheadPrefixRef = React.useRef({ query: '', expiresAt: 0 });
   const itemButton = (id: string): HTMLButtonElement | null =>
     [...(ref.current?.querySelectorAll<HTMLButtonElement>('button[data-menu-item-id]') ?? [])].find(
@@ -71,6 +78,14 @@ export function ContextMenu({ menu, onClose }: ContextMenuProps) {
     );
     return [...(childMenu?.querySelectorAll<HTMLButtonElement>('button[data-menu-item-id]:not(:disabled)') ?? [])];
   };
+
+  React.useEffect(() => {
+    const markPointerMoved = (): void => {
+      pointerMovedSinceOpenRef.current = true;
+    };
+    window.addEventListener('pointermove', markPointerMoved, { passive: true });
+    return () => window.removeEventListener('pointermove', markPointerMoved);
+  }, []);
 
   React.useEffect(() => {
     returnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -266,6 +281,7 @@ export function ContextMenu({ menu, onClose }: ContextMenuProps) {
               data-menu-item-id={item.id}
               aria-label={item.label}
               aria-checked={typeof item.active === 'boolean' ? item.active : undefined}
+              aria-description={item.disabledReason}
               aria-haspopup={Array.isArray(item.items) && item.items.length > 0 ? 'menu' : undefined}
               aria-expanded={Array.isArray(item.items) && item.items.length > 0 ? submenu === item.id : undefined}
               aria-keyshortcuts={item.ariaKeyShortcuts}
@@ -276,13 +292,16 @@ export function ContextMenu({ menu, onClose }: ContextMenuProps) {
                 ...(item.disabled ? styles.menuItemDisabled : null),
               }}
               disabled={item.disabled === true}
+              title={item.disabled === true ? item.disabledReason : undefined}
               onMouseEnter={(event) => {
+                const hasChildren = Array.isArray(item.items) && item.items.length > 0;
+                if (!contextMenuHoverOpensSubmenu(hasChildren, pointerMovedSinceOpenRef.current)) return;
                 const childHadFocus =
                   document.activeElement instanceof Element &&
                   document.activeElement.closest('[role="menu"]') !== ref.current;
                 if (childHadFocus) event.currentTarget.focus();
                 setItemRect(event.currentTarget.getBoundingClientRect());
-                setSubmenu(Array.isArray(item.items) && item.items.length > 0 ? item.id : null);
+                setSubmenu(hasChildren ? item.id : null);
               }}
               onClick={(event) => {
                 const parent = event.currentTarget;
@@ -395,6 +414,7 @@ export function ContextMenu({ menu, onClose }: ContextMenuProps) {
                 data-menu-item-id={child.id}
                 aria-label={child.label}
                 aria-checked={typeof child.active === 'boolean' ? child.active : undefined}
+                aria-description={child.disabledReason}
                 aria-haspopup={Array.isArray(child.items) && child.items.length > 0 ? 'menu' : undefined}
                 aria-expanded={Array.isArray(child.items) && child.items.length > 0 ? submenu === child.id : undefined}
                 aria-keyshortcuts={child.ariaKeyShortcuts}
@@ -405,6 +425,7 @@ export function ContextMenu({ menu, onClose }: ContextMenuProps) {
                   ...(child.disabled ? styles.menuItemDisabled : null),
                 }}
                 disabled={child.disabled === true}
+                title={child.disabled === true ? child.disabledReason : undefined}
                 onClick={(event) => {
                   event.stopPropagation();
                   if (child.disabled === true) return;

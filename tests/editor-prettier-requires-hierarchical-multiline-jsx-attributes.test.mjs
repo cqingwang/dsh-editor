@@ -33,13 +33,17 @@ test('reusable UI components are imported TSX modules', async () => {
   const panelToolbar = await read('src/client/components/ui/PanelToolbar.tsx');
   assert.match(panelToolbar, /<ToolbarButton\s+key=\{action\.id\}/u);
   assert.match(panelToolbar, /<ContextMenu\s+menu=\{menu\}/u);
-  assert.match(await read('src/client/components/ui/index.tsx'), /export \{ PanelToolbar \} from '\.\/PanelToolbar\.tsx'/u);
+  assert.match(
+    await read('src/client/components/ui/index.tsx'),
+    /export \{ PanelToolbar \} from '\.\/PanelToolbar\.tsx'/u,
+  );
 });
 
 test('esbuild compiles the TSX module graph into the deployed client', async () => {
   const build = await read('scripts/build-client.mjs');
   assert.match(build, /import \{ build \} from 'esbuild'/u);
-  assert.match(build, /components', 'ui', 'index\.tsx'/u);
+  assert.match(build, /const separateBundleEntryModule = 'components\/ui\/index\.tsx'/u);
+  assert.match(build, /entryPoints: \[separateBundleEntryPath\]/u);
   assert.match(build, /format: 'cjs'/u);
   assert.match(build, /external: \['react'/u);
   assert.match(build, /const __dshUiModule = \(\(\) => \{/u);

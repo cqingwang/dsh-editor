@@ -14,10 +14,12 @@ import { fileURLToPath } from 'node:url';
 import { transformAsync } from '@babel/core';
 import { parse } from '@babel/parser';
 import { build } from 'esbuild';
+import { findMissingSeparatelyBundledEntries, findUnbundledRuntimeModules } from './client-bundle-closure.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const partsDir = join(root, 'src', 'client');
 const outputPath = join(root, 'lib', 'client.js');
+const separateBundleEntryModule = 'components/ui/index.tsx';
 const files = [
   'foundation.ts',
   'locales.ts',
@@ -83,6 +85,15 @@ const unlistedFiles = availableFiles.filter((name) => !files.includes(name));
 const legacyJavaScriptFiles = readdirSync(partsDir, { recursive: true })
   .filter((name) => typeof name === 'string' && (name.endsWith('.js') || name.endsWith('.jsx')))
   .sort((left, right) => left.localeCompare(right, 'en'));
+const separateBundleEntryPath = join(partsDir, ...separateBundleEntryModule.split('/'));
+const missingSeparateEntries = findMissingSeparatelyBundledEntries({
+  clientDir: partsDir,
+  separatelyBundledEntries: [separateBundleEntryModule],
+});
+if (missingSeparateEntries.length > 0) {
+  console.error(`build-client: separate bundle entry is missing: ${separateBundleEntryModule}`);
+  process.exit(1);
+}
 const clientCompilerOptions = JSON.parse(readFileSync(join(root, 'tsconfig.client.json'), 'utf8')).compilerOptions;
 const monacoTypeScriptConfig = {
   target: clientCompilerOptions.target,
@@ -398,6 +409,30 @@ const indentedProjectOptionsMenu = projectOptionsMenuBody
   .map((line) => (line === '' ? '' : `    ${line}`))
   .join('\n');
 const projectOptionsMenuModule = `\n    /* ─────────────────────── components/project/project-options-menu.ts ─────────────────────── */\n${indentedProjectOptionsMenu}\n`;
+
+const projectUploadDropResult = await transformAsync(
+  readFileSync(join(partsDir, 'components', 'project', 'use-project-upload-drop.ts'), 'utf8'),
+  {
+    filename: 'use-project-upload-drop.ts',
+    plugins: [['@babel/plugin-transform-typescript', { isTSX: false, allExtensions: true }]],
+    generatorOpts: {
+      retainLines: true,
+      jsescOption: { quotes: 'single', minimal: true },
+    },
+    configFile: false,
+    babelrc: false,
+  },
+);
+const projectUploadDropBody = stripModuleSyntax(projectUploadDropResult.code ?? '').trimEnd();
+if (projectUploadDropBody === '') {
+  console.error('build-client: Babel produced an empty project upload drop module');
+  process.exit(1);
+}
+const indentedProjectUploadDrop = projectUploadDropBody
+  .split('\n')
+  .map((line) => (line === '' ? '' : `    ${line}`))
+  .join('\n');
+const projectUploadDropModule = `\n    /* ─────────────────────── components/project/use-project-upload-drop.ts ─────────────────────── */\n${indentedProjectUploadDrop}\n`;
 
 const commitPanelResult = await transformAsync(
   readFileSync(join(partsDir, 'components', 'commit', 'CommitPanel.tsx'), 'utf8'),
@@ -1173,6 +1208,8 @@ const indentedEditorLanguageModel = editorLanguageModelBody
   .join('\n');
 const editorLanguageModelModule = `\n    /* ─────────────────────── components/editor/editor-language-model.ts ─────────────────────── */\n${indentedEditorLanguageModel}\n`;
 
+const editorDefinitionNavigationModule = `\n    /* ─────────────────────── components/editor/editor-definition-navigation.ts ─────────────────────── */\n${await moduleSourceForBuild('components/editor/editor-definition-navigation.ts')}\n`;
+
 const annotatePreviewResult = await transformAsync(
   readFileSync(join(partsDir, 'components', 'diff', 'AnnotatePreview.tsx'), 'utf8'),
   {
@@ -1670,6 +1707,56 @@ const indentedSearchReplaceConfirmation = searchReplaceConfirmationBody
   .map((line) => (line === '' ? '' : `    ${line}`))
   .join('\n');
 const searchReplaceConfirmationModule = `\n    /* ─────────────────────── components/search/search-replace-confirmation.ts ─────────────────────── */\n${indentedSearchReplaceConfirmation}\n`;
+
+const searchScopeInvalidationResult = await transformAsync(
+  readFileSync(join(partsDir, 'components', 'search', 'search-scope.ts'), 'utf8'),
+  {
+    filename: 'search-scope.ts',
+    plugins: [['@babel/plugin-transform-typescript', { isTSX: false, allExtensions: true }]],
+    generatorOpts: {
+      retainLines: true,
+      jsescOption: { quotes: 'single', minimal: true },
+    },
+    configFile: false,
+    babelrc: false,
+  },
+);
+const searchScopeInvalidationBody = stripModuleSyntax(searchScopeInvalidationResult.code ?? '').trimEnd();
+if (searchScopeInvalidationBody === '') {
+  console.error('build-client: Babel produced an empty search scope invalidation module');
+  process.exit(1);
+}
+const indentedSearchScopeInvalidation = searchScopeInvalidationBody
+  .split('\n')
+  .map((line) => (line === '' ? '' : `    ${line}`))
+  .join('\n');
+const searchScopeInvalidationModule = `\n    /* ─────────────────────── components/search/search-scope.ts ─────────────────────── */\n${indentedSearchScopeInvalidation}\n`;
+
+const searchEverywhereFileCandidatesResult = await transformAsync(
+  readFileSync(join(partsDir, 'components', 'search', 'use-search-everywhere-file-candidates.ts'), 'utf8'),
+  {
+    filename: 'use-search-everywhere-file-candidates.ts',
+    plugins: [['@babel/plugin-transform-typescript', { isTSX: false, allExtensions: true }]],
+    generatorOpts: {
+      retainLines: true,
+      jsescOption: { quotes: 'single', minimal: true },
+    },
+    configFile: false,
+    babelrc: false,
+  },
+);
+const searchEverywhereFileCandidatesBody = stripModuleSyntax(
+  searchEverywhereFileCandidatesResult.code ?? '',
+).trimEnd();
+if (searchEverywhereFileCandidatesBody === '') {
+  console.error('build-client: Babel produced an empty Search Everywhere file-candidates module');
+  process.exit(1);
+}
+const indentedSearchEverywhereFileCandidates = searchEverywhereFileCandidatesBody
+  .split('\n')
+  .map((line) => (line === '' ? '' : `    ${line}`))
+  .join('\n');
+const searchEverywhereFileCandidatesModule = `\n    /* ─────────────────────── components/search/use-search-everywhere-file-candidates.ts ─────────────────────── */\n${indentedSearchEverywhereFileCandidates}\n`;
 
 const commitGraphFoldBarResult = await transformAsync(
   readFileSync(join(partsDir, 'components', 'commit', 'CommitGraphFoldBar.tsx'), 'utf8'),
@@ -2614,7 +2701,7 @@ const indentedEditorErrorBanner = editorErrorBannerBody
 const editorErrorBannerModule = `\n    /* ─────────────────────── components/editor/EditorErrorBanner.tsx ─────────────────────── */\n${indentedEditorErrorBanner}\n`;
 
 const uiResult = await build({
-  entryPoints: [join(partsDir, 'components', 'ui', 'index.tsx')],
+  entryPoints: [separateBundleEntryPath],
   bundle: true,
   write: false,
   platform: 'browser',
@@ -2658,7 +2745,20 @@ const footer = `
 });
 `;
 
-const output = `${header}${editorTabModelModule}${editorStyleModelModule}${editorThemeModelModule}${body}${workspaceDirectoryModelModule}${fileTreeViewModule}${projectPanelModule}${projectOptionsMenuModule}${commitPanelModule}${commitOptionsMenuModule}${gitActionFailureReporterModule}${stashShelveMenuModule}${commitLogMenuModule}${commitFileMenuModule}${commitLogGraphControllerModule}${commitLogFlatControllerModule}${commitLogListCommandModelModule}${commitLogScopeAnnouncementModule}${commitLogShortcutModelModule}${commitLogSelectionModelModule}${commitLogViewModelModule}${commitLogViewPreferencesModule}${namePromptModule}${commitSearchModelModule}${revisionPickerModule}${moveToPickerModule}${codePreviewCodeModule}${editorStatusFactsModule}${markdownModeSwitchModule}${imagePreviewPaneModule}${markdownPreviewPaneModule}${workspaceFileModelModule}${workspaceImagePreviewModule}${editorPathModelModule}${editorDocumentModelModule}${markdownScrollModelModule}${editorNavigationModelModule}${editorFileTemplateModelModule}${editorLanguageModelModule}${annotatePreviewModule}${repositoryVersionPreviewModule}${combinedDiffColorModelModule}${conflictMarkerModelModule}${diffPreviewModule}${projectSelectionModelModule}${terminalScreenModule}${editorTerminalTabModule}${editorTerminalAreaModule}${editorTerminalDockModule}${persistentTerminalDockOpenModule}${terminalPanelModule}${searchFileResultItemModule}${searchEverywhereModule}${showUsagesPopupModule}${quickOpenModule}${findScopeEditorModule}${findToolWindowModule}${searchReplaceConfirmationModule}${commitGraphStateModelModule}${commitGraphFoldBarModule}${commitGraphRowModule}${commitGraphModule}${commitLogModule}${commitLogDetailPaneModule}${commitLogToolbarModule}${commitLogFlatRowModule}${commitLogListStateModule}${measuringScreenModule}${editorErrorBoundaryModule}${editorMountModule}${editorGotoLinePopupModule}${editorFindBarModule}${editorStatusBarModule}${editorFileTabModule}${editorTabStripModule}${editorDiffTabModule}${editorConflictBarsModule}${editorSplitHeaderModule}${editorSplitPaneModule}${editorMainPaneModule}${editorSplitDividerModule}${editorDiffAreaModule}${editorAnnotateAreaModule}${findToolDockModule}${findToolPopupModule}${workspaceDirectoryPickerModule}${editorFileSurfaceModule}${editorWorkspaceShellModule}${editorWorkspaceBodyModule}${editorToolWindowPanelModule}${editorToolWindowResizerModule}${editorWorkspaceMainColumnModule}${editorWorkspaceSurfaceModule}${editorErrorBannerModule}${uiPrelude}${footer}`;
+const output = `${header}${editorTabModelModule}${editorStyleModelModule}${editorThemeModelModule}${body}${workspaceDirectoryModelModule}${fileTreeViewModule}${projectPanelModule}${projectOptionsMenuModule}${projectUploadDropModule}${commitPanelModule}${commitOptionsMenuModule}${gitActionFailureReporterModule}${stashShelveMenuModule}${commitLogMenuModule}${commitFileMenuModule}${commitLogGraphControllerModule}${commitLogFlatControllerModule}${commitLogListCommandModelModule}${commitLogScopeAnnouncementModule}${commitLogShortcutModelModule}${commitLogSelectionModelModule}${commitLogViewModelModule}${commitLogViewPreferencesModule}${namePromptModule}${commitSearchModelModule}${revisionPickerModule}${moveToPickerModule}${codePreviewCodeModule}${editorStatusFactsModule}${markdownModeSwitchModule}${imagePreviewPaneModule}${markdownPreviewPaneModule}${workspaceFileModelModule}${workspaceImagePreviewModule}${editorPathModelModule}${editorDocumentModelModule}${markdownScrollModelModule}${editorNavigationModelModule}${editorFileTemplateModelModule}${editorLanguageModelModule}${editorDefinitionNavigationModule}${annotatePreviewModule}${repositoryVersionPreviewModule}${combinedDiffColorModelModule}${conflictMarkerModelModule}${diffPreviewModule}${projectSelectionModelModule}${terminalScreenModule}${editorTerminalTabModule}${editorTerminalAreaModule}${editorTerminalDockModule}${persistentTerminalDockOpenModule}${terminalPanelModule}${searchFileResultItemModule}${searchEverywhereModule}${showUsagesPopupModule}${quickOpenModule}${findScopeEditorModule}${findToolWindowModule}${searchReplaceConfirmationModule}${searchScopeInvalidationModule}${searchEverywhereFileCandidatesModule}${commitGraphStateModelModule}${commitGraphFoldBarModule}${commitGraphRowModule}${commitGraphModule}${commitLogModule}${commitLogDetailPaneModule}${commitLogToolbarModule}${commitLogFlatRowModule}${commitLogListStateModule}${measuringScreenModule}${editorErrorBoundaryModule}${editorMountModule}${editorGotoLinePopupModule}${editorFindBarModule}${editorStatusBarModule}${editorFileTabModule}${editorTabStripModule}${editorDiffTabModule}${editorConflictBarsModule}${editorSplitHeaderModule}${editorSplitPaneModule}${editorMainPaneModule}${editorSplitDividerModule}${editorDiffAreaModule}${editorAnnotateAreaModule}${findToolDockModule}${findToolPopupModule}${workspaceDirectoryPickerModule}${editorFileSurfaceModule}${editorWorkspaceShellModule}${editorWorkspaceBodyModule}${editorToolWindowPanelModule}${editorToolWindowResizerModule}${editorWorkspaceMainColumnModule}${editorWorkspaceSurfaceModule}${editorErrorBannerModule}${uiPrelude}${footer}`;
+const emittedModuleNames = [...output.matchAll(/\/\* ─+ ([^\s]+\.(?:ts|tsx)) ─+ \*\//gu)].map((match) => match[1]);
+const unbundledRuntimeModules = findUnbundledRuntimeModules({
+  clientDir: partsDir,
+  entryModules: files,
+  includedModules: emittedModuleNames,
+  separatelyBundledEntries: [separateBundleEntryModule],
+});
+if (unbundledRuntimeModules.length > 0) {
+  console.error(
+    `build-client: imported runtime modules are missing from the bundle: ${unbundledRuntimeModules.join(', ')}`,
+  );
+  process.exit(1);
+}
 const check = process.argv.includes('--check');
 
 if (check) {

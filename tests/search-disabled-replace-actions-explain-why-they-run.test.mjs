@@ -9,11 +9,14 @@ const findTool = source.slice(
 );
 
 test('disabled Replace actions explain why they cannot run', () => {
-  assert.match(findTool, /const replaceAllDisabledReason =\s+state\.replaceBusy === true/u);
-  assert.match(findTool, /t\('editor\.findReplaceAllDisabled'\)/u);
-  assert.match(findTool, /const replaceCurrentDisabledReason =\s+state\.replaceBusy === true/u);
-  assert.match(findTool, /t\('editor\.findReplaceLoading'\)/u);
-  assert.match(findTool, /t\('editor\.findReplaceCurrentDisabled'\)/u);
+  assert.match(findTool, /const replaceDisabledReasons = findReplaceDisabledReasons\(\{/u);
+  assert.match(findTool, /replaceBusy: state\.replaceBusy/u);
+  assert.match(findTool, /loading: state\.loading/u);
+  assert.match(findTool, /error: state\.error/u);
+  assert.match(findTool, /matchCount: scopedMatches\.length/u);
+  assert.match(findTool, /activeKind: active\?\.kind/u);
+  assert.match(findTool, /const replaceAllDisabledReason = replaceDisabledReasons\.all/u);
+  assert.match(findTool, /const replaceCurrentDisabledReason = replaceDisabledReasons\.current/u);
   assert.match(findTool, /title=\{replaceAllDisabledReason \|\|/u);
   assert.match(findTool, /aria-description=\{replaceAllDisabledReason \|\| undefined\}/u);
   assert.match(findTool, /title=\{replaceCurrentDisabledReason \|\|/u);

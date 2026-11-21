@@ -57,6 +57,7 @@ test('Single replacement records the replaced row and applies one advance reques
   const replaceFindToolOccurrence = loadTypeScriptCallback(workspaceSource, 'replaceFindToolOccurrence', {
     findToolContentQuery: (query) => String(query ?? ''),
     findTool: state,
+    findToolResultsAreCurrent: () => true,
     hasFindToolContentQuery: () => true,
     openFilesRef: { current: [] },
     modelsRef: { current: new Map() },
@@ -66,6 +67,7 @@ test('Single replacement records the replaced row and applies one advance reques
     normalizeFileExtensionFilter: () => '',
     findToolScopeIncludePatterns: [],
     findToolScopeExcludePatterns: [],
+    searchDirectoryRules: { excludedDirectories: [], includedDirectories: [] },
     claimReplaceAttempt: () => true,
     replaceWriteBusyRef: { current: false },
     releaseReplaceAttempt: () => {},

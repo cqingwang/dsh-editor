@@ -54,12 +54,15 @@ test('recursive events report precise directories or request a bounded fallback 
   listener('rename', 'src/deep/file.ts');
   await new Promise((resolve) => setTimeout(resolve, 160));
   assert.deepEqual(events.find((event) => event.type === 'change')?.dirs, ['src/deep']);
+  assert.deepEqual(events.find((event) => event.type === 'change')?.paths, ['src/deep/file.ts']);
   listener('rename', '.git/index');
   await new Promise((resolve) => setTimeout(resolve, 160));
   assert.equal(events.filter((event) => event.type === 'change').at(-1)?.dirs, null);
+  assert.deepEqual(events.filter((event) => event.type === 'change').at(-1)?.paths, ['.git/index']);
   listener('rename', 'root-file.ts');
   await new Promise((resolve) => setTimeout(resolve, 160));
   assert.equal(events.filter((event) => event.type === 'change').at(-1)?.dirs, null);
+  assert.deepEqual(events.filter((event) => event.type === 'change').at(-1)?.paths, ['root-file.ts']);
   watcher.close();
 });
 

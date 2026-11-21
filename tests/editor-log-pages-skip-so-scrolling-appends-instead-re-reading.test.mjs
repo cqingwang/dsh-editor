@@ -114,7 +114,10 @@ test('project tree filters in place on ⌘F and keeps ancestors of a hit', () =>
   const client = read('src/client/components/project/ProjectPanel.tsx') + '\n' + read('src/client/terminal.ts');
   assert.match(client, /function filterTreeRows\(rows(?::\s*[^,]+)?, query(?::\s*[^)]+)?\)(?::\s*[^\{]+)? \{/);
   assert.match(client, /for \(const path of \[\.\.\.keep\]\) \{/);
-  assert.match(client, /const localRows = React\.useMemo\(\(\) => filterTreeRows\(rows, search\), \[rows, search\]\);/);
+  assert.match(
+    client,
+    /const localRows = React\.useMemo\(\(\) => filterProjectSpeedSearchRows\(rows, search\), \[rows, search\]\);/,
+  );
   assert.match(client, /searchEntryRows\(searchEntries, projectName, compactDirectories, sortMode, manualOrder\)/);
   assert.match(client, /<FileTreeView[\s\S]*?rows=\{visibleRows\}/);
   /* The editor keeps ⌘F while its textarea has focus. */

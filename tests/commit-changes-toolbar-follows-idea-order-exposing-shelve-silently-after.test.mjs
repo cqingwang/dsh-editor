@@ -32,7 +32,10 @@ test('Changes toolbar follows IDEA order by exposing Shelve Silently after Show 
   assert.ok(refresh >= 0 && rollback > refresh && showDiff > rollback);
   assert.ok(shelve > showDiff && combinedDiff > shelve);
   assert.match(panel, /id: 'shelve',[\s\S]*?icon: 'stash',[\s\S]*?label: t\('editor\.shelve'\)/);
-  assert.match(panel, /id: 'shelve',[\s\S]*?disabled: gitNotManaged \|\| commitShelveActionDisabled\(/u);
+  assert.match(
+    panel,
+    /id: 'shelve',[\s\S]{0,500}?disabled:[\s\S]{0,160}?gitNotManaged[\s\S]{0,160}?commitShelveActionDisabled\(/u,
+  );
 });
 
 test('Shelve toolbar action reuses the existing shelf menu and selection semantics', () => {

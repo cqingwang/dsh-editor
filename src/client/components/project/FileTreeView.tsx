@@ -35,7 +35,9 @@ export interface FileTreeViewRowState<Row extends FileTreeViewRow = FileTreeView
 export interface FileTreeViewRowDecoration {
   className?: string;
   style?: React.CSSProperties;
+  iconClassName?: string;
   title?: string;
+  ariaDescription?: string;
   draggable?: boolean;
   onDragStart?: React.DragEventHandler<HTMLDivElement>;
   onDragEnd?: React.DragEventHandler<HTMLDivElement>;
@@ -219,6 +221,7 @@ function FileTreeView<Row extends FileTreeViewRow>({
             aria-setsize={position.setsize}
             aria-expanded={isDirectory ? open : undefined}
             aria-selected={selected}
+            aria-description={decoration?.ariaDescription}
             onClick={onRowClick === undefined ? undefined : (event) => onRowClick(state, event)}
             onMouseDown={
               onRowPointerDown === undefined
@@ -282,10 +285,27 @@ function FileTreeView<Row extends FileTreeViewRow>({
                 }}
               />
             )}
-            <EntryIcon
-              entry={row}
-              expanded={open}
-            />
+            {decoration?.iconClassName === undefined ? (
+              <EntryIcon
+                entry={row}
+                expanded={open}
+              />
+            ) : (
+              <span
+                className={decoration.iconClassName}
+                data-dsh-tree-icon-decoration=''
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flex: 'none',
+                }}>
+                <EntryIcon
+                  entry={row}
+                  expanded={open}
+                />
+              </span>
+            )}
             {renderInlineEditor?.(row) ??
               (renderName === undefined ? (
                 <span

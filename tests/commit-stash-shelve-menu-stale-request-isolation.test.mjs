@@ -17,8 +17,12 @@ test('a stale Stash list failure cannot overwrite the newer menu', async () => {
   const commitMenuRequestRef = { current: 0 };
   const openStashMenu = loadTypeScriptCallback(source, 'openStashMenu', {
     commitMenuRequestRef,
-    setCommitBusy: (value) => {
-      busy = value;
+    beginCommitOperation: () => {
+      busy = true;
+      return true;
+    },
+    endCommitOperation: () => {
+      busy = false;
     },
     setCommitError: (value) => errors.push(value),
     setMenu: (value) => {
@@ -54,14 +58,21 @@ test('Stash and Shelve menus share request generation isolation', () => {
 
   assert.match(block, /const requestId = \+\+commitMenuRequestRef\.current;/u);
   assert.match(block, /if \(commitMenuRequestRef\.current !== requestId\) return;/u);
-  assert.match(block, /if \(commitMenuRequestRef\.current === requestId\) setCommitBusy\(false\);/u);
+  assert.match(block, /finally \{\s+endCommitOperation\(\);\s+\}/u);
 });
 
 test('workspace reset invalidates pending Stash and Shelve list requests', () => {
-  const resetStart = source.indexOf('searchEverywhereFilesRequestRef.current += 1;');
+  const cancelStart = source.indexOf('const cancelWorkspaceSearchRequests = React.useCallback');
+  const cancelEnd = source.indexOf('const previousWorkspaceSearchRootRef', cancelStart);
+  assert.ok(cancelStart >= 0 && cancelEnd > cancelStart, 'workspace cancellation block is missing');
+  const cancelBlock = source.slice(cancelStart, cancelEnd);
+
+  const resetStart = source.indexOf('if (workspaceSearchSurfacesShouldReset(previousWorkspaceRoot, root))');
   const resetEnd = source.indexOf('setRecentReplacements(root === \'\' ? [] : readReplaceHistory(root));', resetStart);
   assert.ok(resetStart >= 0 && resetEnd > resetStart, 'workspace reset block is missing');
   const resetBlock = source.slice(resetStart, resetEnd);
 
-  assert.match(resetBlock, /commitMenuRequestRef\.current \+= 1;/u);
+  assert.match(cancelBlock, /commitMenuRequestRef\.current \+= 1;/u);
+  assert.match(resetBlock, /cancelWorkspaceSearchRequests\(\);/u);
+  assert.match(resetBlock, /clearSearchEverywhereFileCache\(\);/u);
 });

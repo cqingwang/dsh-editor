@@ -64,7 +64,8 @@ test('the branch popup offers new-branch and prompts for a name', async () => {
     branchMenuRequestRef: { current: 0 },
     t: (key) => key,
     callGit: async () => ({ branches: ['main'], branch: 'main' }),
-    setCommitBusy: () => {},
+    beginCommitOperation: () => true,
+    endCommitOperation: () => {},
     setCommitError: () => {},
     setMenu: (value) => {
       menu = value;

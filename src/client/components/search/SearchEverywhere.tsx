@@ -56,6 +56,21 @@ export function searchEverywhereEscapeTarget(resultInfoOpen: boolean): 'close-re
   return resultInfoOpen ? 'close-result-info' : 'dismiss';
 }
 
+/**
+ * Claim one provider Retry before React can unmount the failed provider row.
+ *
+ * A second click can be dispatched in the same browser task before the
+ * provider-owned error clears and the Retry button unmounts. The synchronous
+ * claim prevents that task from starting another request.
+ * @param guard - mutable request claim shared by both provider Retry actions.
+ * @returns whether this caller owns the retry request.
+ */
+export function claimSearchProviderRetry(guard: { current?: unknown } | null | undefined): boolean {
+  if (guard === null || typeof guard !== 'object' || guard.current === true) return false;
+  guard.current = true;
+  return true;
+}
+
 /** Choose grammatically correct result-count copy for one Search Everywhere status. */
 export function searchResultStatusLabel(count: number, t: Translate): string {
   const total = Number.isFinite(Number(count)) ? Math.max(0, Math.trunc(Number(count))) : 0;
@@ -66,12 +81,27 @@ export function searchResultStatusLabel(count: number, t: Translate): string {
       });
 }
 
-interface SearchEverywhereState {
+/** Choose the single empty-result message owned by the active provider. */
+export function searchEverywhereEmptyResultKind(tab: string, queryLength: number): 'text-hint' | 'no-matches' {
+  return tab === 'text' && queryLength < 2 ? 'text-hint' : 'no-matches';
+}
+
+export interface SearchEverywhereState {
   query: string;
   tab: string;
   index: number;
+  filesScope?: boolean;
+  filesTruncated?: boolean;
+  files: SearchFile[];
+  textMatches: SearchTextResult[];
+  textLoading: boolean;
+  textTruncated: boolean;
+  textRevision: number;
+  error: string | null;
+  errorSource?: 'files' | 'text' | null;
+  replaceBusy: boolean;
+  replaceFocusRequest: number;
   replace?: string;
-  replaceFocusRequest?: number;
   caseSensitive?: boolean;
   wholeWords?: boolean;
   regex?: boolean;
@@ -79,9 +109,10 @@ interface SearchEverywhereState {
   fileMask?: string;
   withReplace?: boolean;
   includeNonProject?: boolean;
+  [key: string]: unknown;
 }
 
-interface SearchFileResult {
+export interface SearchFile {
   path: string;
   content?: string;
   status?: string;
@@ -104,6 +135,22 @@ interface SearchActionRow {
   shortcut?: string;
   group?: string;
   disabled?: boolean;
+}
+
+/** Keep provider failures hidden while their owning provider is not visible. */
+export function searchEverywhereErrorIsVisible(
+  errorSource: unknown,
+  tab: string,
+  filters: { files?: unknown; text?: unknown },
+): boolean {
+  if (errorSource === 'files') return tab === 'files' || (tab === 'all' && filters.files === true);
+  if (errorSource === 'text') return tab === 'text' || (tab === 'all' && filters.text === true);
+  return true;
+}
+
+/** Expose cached file candidates only while they belong to the active scope. */
+export function searchEverywhereFilesForScope<T>(files: T[], filesScope: unknown, includeNonProject: unknown): T[] {
+  return filesScope === (includeNonProject === true) ? files : [];
 }
 
 interface SearchResult {
@@ -138,8 +185,8 @@ type FindHandoffRequest = ReturnType<typeof searchFindHandoff>['request'];
 export interface SearchEverywhereProps {
   t: Translate;
   state: SearchEverywhereState;
-  files: SearchFileResult[];
-  openFiles: SearchFileResult[];
+  files: SearchFile[];
+  openFiles: SearchFile[];
   changes: Map<string, string>;
   textMatches: SearchTextResult[];
   actions: SearchActionRow[];
@@ -153,6 +200,8 @@ export interface SearchEverywhereProps {
   textTruncated: boolean;
   error: string | null;
   replaceBusy: boolean;
+  onRetryFiles: () => void;
+  onRetryText: () => void;
   onQuery: (query: string) => void;
   onTab: (tab: string) => void;
   onMove: (delta: number, total?: number, index?: number) => void;
@@ -195,6 +244,8 @@ function SearchEverywhere({
   textTruncated,
   error,
   replaceBusy,
+  onRetryFiles,
+  onRetryText,
   onQuery,
   onTab,
   onMove,
@@ -226,7 +277,16 @@ function SearchEverywhere({
   const searchTabListRef = React.useRef(null);
   const resultTooltipTimerRef = React.useRef(null);
   const resultInfoCloseRef = React.useRef(null);
+  const providerRetryGuardRef = React.useRef(false);
   const dismissSearchEverywhere = onDismiss ?? onClose;
+  const retryProvider = (retry: () => void): void => {
+    if (!claimSearchProviderRetry(providerRetryGuardRef)) return;
+    retry();
+    window.setTimeout(() => {
+      providerRetryGuardRef.current = false;
+      searchInputRef.current?.focus?.();
+    }, 0);
+  };
   const SEARCH_EVERYWHERE_LISTBOX_ID = 'dsh-editor-search-everywhere-listbox';
   const [resultTooltip, setResultTooltip] = React.useState(null);
   const [resultMenu, setResultMenu] = React.useState(null);
@@ -340,9 +400,10 @@ function SearchEverywhere({
       })),
     [actions, effectiveQuery, recentCommands, state.caseSensitive, state.wholeWords, t],
   );
+  const scopedFiles = searchEverywhereFilesForScope(files, state.filesScope, state.includeNonProject);
   const fileMatches: SearchResult[] = React.useMemo(
     () =>
-      files
+      scopedFiles
         .filter((file) => fileExtensionFilterMatches(file.path, state.fileMask))
         .map((file) => ({
           path: file.path,
@@ -362,7 +423,7 @@ function SearchEverywhere({
           subtitle: dirname(entry.path),
           icon: 'file',
         })),
-    [effectiveQuery, files, state.caseSensitive, state.fileMask, state.wholeWords],
+    [effectiveQuery, scopedFiles, state.caseSensitive, state.fileMask, state.wholeWords],
   );
   const textResults: SearchResult[] = React.useMemo(
     () =>
@@ -423,15 +484,17 @@ function SearchEverywhere({
   ]);
   const activeIndex = normalizeSearchResultIndex(results, state.index);
   const activeResult = results[activeIndex] ?? null;
+  const visibleError =
+    error !== null && searchEverywhereErrorIsVisible(state.errorSource, effectiveTab, searchFilters) ? error : null;
+  const emptyResultKind = searchEverywhereEmptyResultKind(effectiveTab, effectiveQuery.length);
+  const emptyResultLabel = emptyResultKind === 'text-hint' ? t('editor.searchTextHint') : t('editor.searchNoMatches');
   const searchResultStatus =
-    error !== null
+    visibleError !== null
       ? ''
       : textLoading
         ? t('editor.loading')
         : results.length === 0
-          ? effectiveTab === 'text' && effectiveQuery.length < 2
-            ? t('editor.searchTextHint')
-            : t('editor.searchNoMatches')
+          ? emptyResultLabel
           : searchResultStatusLabel(results.length, t);
   const showFindInFilesFallback = searchEverywhereOffersFindInFiles({
     tab: effectiveTab,
@@ -472,6 +535,8 @@ function SearchEverywhere({
     .map((id) => activeSearchOptionLabels[id])
     .filter((label) => typeof label === 'string' && label !== '')
     .join(' · ');
+  const showFilesTruncated =
+    state.filesTruncated === true && (effectiveTab === 'files' || (effectiveTab === 'all' && searchFilters.files));
   const clearSearchOptions = () => {
     if (state.caseSensitive === true) onToggleCaseSensitive();
     if (state.wholeWords === true) onToggleWholeWords();
@@ -923,7 +988,7 @@ function SearchEverywhere({
       files: fileMatches,
       matches: textResults,
       activeRowKey: (result ?? activeResult)?.rowKey,
-      truncated: textTruncated,
+      truncated: textTruncated || state.filesTruncated === true,
       mode,
       withReplace: state.withReplace === true,
       caseSensitive: state.caseSensitive === true,
@@ -1310,11 +1375,26 @@ function SearchEverywhere({
           </button>
         </div>
       ) : null}
-      {error !== null ? (
+      {visibleError !== null ? (
         <div
           style={styles.searchEverywhereError}
           role='alert'>
-          {error}
+          <span>{visibleError}</span>
+          {state.errorSource === 'files' ? (
+            <button
+              type='button'
+              style={styles.conflictAction}
+              onClick={() => retryProvider(onRetryFiles)}>
+              {t('editor.searchFilesRetry')}
+            </button>
+          ) : state.errorSource === 'text' ? (
+            <button
+              type='button'
+              style={styles.conflictAction}
+              onClick={() => retryProvider(onRetryText)}>
+              {t('editor.searchTextRetry')}
+            </button>
+          ) : null}
         </div>
       ) : null}
       {resultInfo !== null ? (
@@ -1362,14 +1442,9 @@ function SearchEverywhere({
         {textLoading && effectiveTab !== 'actions' ? (
           <div style={styles.searchEverywhereMessage}>{t('editor.loading')}</div>
         ) : null}
-        {!textLoading && effectiveTab === 'text' && effectiveQuery.length > 0 && effectiveQuery.length < 2 ? (
-          <div style={styles.searchEverywhereMessage}>{t('editor.searchTextHint')}</div>
-        ) : null}
-        {results.length === 0 && !textLoading && error === null ? (
+        {results.length === 0 && !textLoading && visibleError === null ? (
           <div style={styles.searchEverywhereMessage}>
-            {effectiveTab === 'text' && effectiveQuery.length < 2
-              ? t('editor.searchTextHint')
-              : t('editor.searchNoMatches')}
+            {emptyResultLabel}
             {showClearOptionsFallback ? (
               <div
                 style={styles.searchEverywhereUsedOptions}
@@ -1525,6 +1600,14 @@ function SearchEverywhere({
             role='status'
             aria-live='polite'>
             {t('editor.searchTextTruncated')}
+          </div>
+        ) : null}
+        {showFilesTruncated ? (
+          <div
+            style={styles.searchEverywhereMessage}
+            role='status'
+            aria-live='polite'>
+            {t('editor.searchFilesTruncated')}
           </div>
         ) : null}
       </div>

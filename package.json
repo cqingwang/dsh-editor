@@ -21,6 +21,7 @@
     "lib/link-parser.mjs",
     "src/client",
     "scripts/build-client.mjs",
+    "scripts/client-bundle-closure.mjs",
     "locale/*.json",
     "cordis.patch.yml",
     "README.md"

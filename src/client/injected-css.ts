@@ -413,6 +413,10 @@ export function installStyles(): void {
     '  outline-offset: -1px !important;',
     '}',
     '.dsh-editor-tree-row:hover { background: var(--dsw-alias-interactive-bg-hover); }',
+    '.dsh-editor-tree-icon-search-excluded { opacity: 0.55; filter: grayscale(1); }',
+    '@media (prefers-color-scheme: dark) {',
+    '  .dsh-editor-tree-icon-search-excluded { opacity: 0.72; }',
+    '}',
     /* Menu rows are <button>s, so dropping the inline `background` (needed for
            the hover rule to win) left them painting the browser's default button
            face — a light grey that showed between the separator's margins and made
@@ -430,6 +434,7 @@ export function installStyles(): void {
     '.dsh-editor-menu-item:enabled:hover .dsh-editor-menu-shortcut { color: rgba(255, 255, 255, 0.82) !important; }',
     '.dsh-editor-menu-item:enabled:hover .dsh-editor-menu-danger { color: #fff !important; }',
     '.dsh-editor-tree-row-selected:hover { background: var(--dsw-alias-state-business-primary); }',
+    '.dsh-editor-tree-row-extended:hover { background: color-mix(in srgb, var(--dsw-alias-state-business-primary) 32%, transparent) !important; color: var(--dsw-alias-label-primary) !important; }',
     /* The commit just created, tinted so the user sees it land in the log. */
     '[data-dsh-log-new] { background: color-mix(in srgb, var(--dsw-alias-state-business-primary) 14%, transparent); }',
     '[data-dsh-log-new]:hover { background: color-mix(in srgb, var(--dsw-alias-state-business-primary) 22%, transparent); }',

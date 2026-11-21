@@ -2,7 +2,7 @@
 import type * as Monaco from 'monaco-editor';
 import { dirname } from './components/editor/editor-path-model';
 import type { IdeaLightTextStyleRange } from './components/editor/editor-theme-model';
-import { basename, ensureEditorTheme, safeLanguage } from './editor-core';
+import { basename, callFs, ensureEditorTheme, safeLanguage, searchTextFailureMessage } from './editor-core';
 import { findScopePatternsMatch, fuzzyScore, wholeWordIndex } from './find-tool';
 import { editorReplaceAll } from './terminal';
 import React from 'react';
@@ -886,6 +886,8 @@ export function findUsagesSearchTarget(editor: Monaco.editor.ICodeEditor | null 
 
 /**
  * Build the single Search Everywhere to Find handoff contract.
+ * A non-empty query without provider rows must ask Find to execute the search;
+ * otherwise the persistent surface opens with the dialog's empty snapshot.
  * @param {object} options - query, result sets, mode and persisted search options.
  * @returns {{needsConfirmation: boolean, total: number, request: object}} handoff request.
  */
@@ -920,10 +922,12 @@ export function searchFindHandoff({
     preserveCase: boolean;
     includeExcluded: boolean;
     fileMask: string;
+    refresh?: boolean;
   };
 } {
   const fileList = Array.isArray(files) ? files : [];
   const matchList = Array.isArray(matches) ? matches : [];
+  const normalizedQuery = typeof query === 'string' ? query : '';
   const total = fileList.length + matchList.length;
   const boundedLimit = Math.max(0, Number(limit) || 200);
   const rowKeys = [
@@ -939,7 +943,7 @@ export function searchFindHandoff({
     needsConfirmation: searchEverywhereRequiresResultConfirmation(fileList, matchList, boundedLimit),
     total,
     request: {
-      query: typeof query === 'string' ? query : '',
+      query: normalizedQuery,
       files: fileList,
       matches: matchList,
       index: activeIndex < 0 ? 0 : activeIndex,
@@ -951,6 +955,7 @@ export function searchFindHandoff({
       preserveCase: preserveCase === true,
       includeExcluded: includeExcluded === true,
       fileMask: typeof fileMask === 'string' ? fileMask : '',
+      ...(normalizedQuery.trim() !== '' && total === 0 ? { refresh: true } : null),
     },
   };
 }
@@ -976,6 +981,51 @@ export function findToolContentQuery(query: unknown): string {
   return typeof query === 'string' ? query : '';
 }
 
+/** Complete one text-search row only when its location is representable. */
+export function completeSearchMatches<T extends { path?: string; line?: number; column?: number }>(
+  matches: ReadonlyArray<T>,
+): Array<T & { path: string; line: number; column: number }> {
+  const completed: Array<T & { path: string; line: number; column: number }> = [];
+  for (const match of matches) {
+    if (typeof match.path !== 'string' || typeof match.line !== 'number' || typeof match.column !== 'number') continue;
+    completed.push({ ...match, path: match.path, line: match.line, column: match.column });
+  }
+  return completed;
+}
+
+/** Complete file rows returned by the host without trusting malformed entries. */
+export function completeFindFiles(value: unknown): Array<Record<string, unknown> & { path: string }> {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item): Array<Record<string, unknown> & { path: string }> => {
+    if (item === null || typeof item !== 'object') return [];
+    const record = item as Record<string, unknown>;
+    if (typeof record.path !== 'string' || record.path === '') return [];
+    return [{ ...record, path: record.path }];
+  });
+}
+
+/** Complete text-search rows returned by the host without inventing locations. */
+export function completeFindMatches(value: unknown): Array<
+  Record<string, unknown> & {
+    path: string;
+    line: number;
+    column: number;
+  }
+> {
+  if (!Array.isArray(value)) return [];
+  const candidates: Array<{ path?: string; line?: number; column?: number }> = [];
+  for (const item of value) {
+    if (item === null || typeof item !== 'object') continue;
+    const record = item as Record<string, unknown>;
+    const candidate: { path?: string; line?: number; column?: number; [key: string]: unknown } = { ...record };
+    if (typeof record.path === 'string') candidate.path = record.path;
+    if (typeof record.line === 'number') candidate.line = record.line;
+    if (typeof record.column === 'number') candidate.column = record.column;
+    candidates.push(candidate);
+  }
+  return completeSearchMatches(candidates);
+}
+
 /**
  * Decide whether Find has a representable content query.
  *
@@ -986,6 +1036,123 @@ export function findToolContentQuery(query: unknown): string {
  */
 export function hasFindToolContentQuery(query: unknown): boolean {
   return findToolContentQuery(query).length > 0;
+}
+
+/** Keep collapsed result groups only while their paths remain in the result. */
+export function pruneFindCollapsedFiles<T extends FindToolState>(current: T): T {
+  if (!Array.isArray(current.collapsedFiles) || current.collapsedFiles.length === 0) return current;
+  const paths = new Set(
+    [...(Array.isArray(current.files) ? current.files : []), ...(Array.isArray(current.matches) ? current.matches : [])]
+      .map((row) => {
+        const path = row !== null && typeof row === 'object' ? (row as { path?: unknown }).path : '';
+        return typeof path === 'string' ? path : '';
+      })
+      .filter((path) => path !== ''),
+  );
+  const next = current.collapsedFiles.filter((path): path is string => typeof path === 'string' && paths.has(path));
+  return next.length === current.collapsedFiles.length ? current : ({ ...current, collapsedFiles: next } as T);
+}
+
+/** Restore Find focus only when this surface owned it and its row disappeared. */
+export function findShouldRestoreFocusAfterResultsChange(
+  focusOwned: boolean,
+  focusStillInside: boolean,
+  hasTarget: boolean,
+): boolean {
+  return focusOwned === true && focusStillInside !== true && hasTarget === true;
+}
+
+/** Release Find focus ownership whenever pointer/focus enters another surface. */
+export function findFocusShouldReleaseOutsideSurface(targetStillInside: boolean): boolean {
+  return targetStillInside !== true;
+}
+
+/**
+ * Choose where Commit status Retry hands keyboard control after it settles.
+ *
+ * The Retry button disappears with the error strip on success. Moving focus
+ * immediately would race that unmount, while restoring after a failed attempt
+ * would take focus away from the still-actionable Retry button.
+ * @param refreshSucceeded - whether the retry reached a renderable Git state.
+ * @param activity - active editor tool-window id when the retry settled.
+ * @param panelVisible - whether the tool-window panel is still visible.
+ * @returns the tool window that must reclaim focus, or null when focus should stay.
+ */
+export function commitRetryFocusTarget(
+  refreshSucceeded: unknown,
+  activity: unknown,
+  panelVisible: unknown,
+): 'commit' | null {
+  return refreshSucceeded === true && activity === 'commit' && panelVisible === true ? 'commit' : null;
+}
+
+/** Invalidate the live Find result generation after a workspace mutation. */
+export function rerunFindToolAfterWorkspaceDelete<T extends FindToolState>(current: T): T {
+  if (!hasFindToolContentQuery(current.query)) return current;
+  return {
+    ...current,
+    loading: true,
+    error: null,
+    loadedGeneration: -1,
+    searchGeneration: (Number(current.searchGeneration) || 0) + 1,
+  } as T;
+}
+
+/** Treat only an explicit non-existing response as a deleted workspace path. */
+export function workspaceChangeHasMissingPath(described: unknown): boolean {
+  return Array.isArray(described) && described.some((entry) => entry?.exists !== true);
+}
+
+const FIND_DELETION_DEDUPE_MS = 1000;
+const FIND_DELETION_DEDUPE_LIMIT = 200;
+const recentFindDeletions = new Map<string, number>();
+
+function pruneRecentFindDeletions(now: number): void {
+  for (const [key, expiresAt] of recentFindDeletions) {
+    if (expiresAt <= now) recentFindDeletions.delete(key);
+  }
+  while (recentFindDeletions.size >= FIND_DELETION_DEDUPE_LIMIT) {
+    const oldest = recentFindDeletions.keys().next().value;
+    if (oldest === undefined) break;
+    recentFindDeletions.delete(oldest);
+  }
+}
+
+/** Refresh Find only when watcher-reported paths actually disappeared. */
+export async function invalidateFindAfterExternalDelete<T extends FindToolState>(
+  root: string,
+  paths: unknown,
+  update: (updater: (current: T | null) => T | null) => void,
+  knownDeleted = false,
+): Promise<void> {
+  const candidates = normalizeSearchDirectoryPaths(paths);
+  if (candidates.length === 0) return;
+  const now = Date.now();
+  pruneRecentFindDeletions(now);
+  const keyFor = (path: string): string => `${root}\u0000${path}`;
+  const fresh = candidates.filter((path) => !recentFindDeletions.has(keyFor(path)));
+  if (fresh.length === 0) return;
+  for (const path of fresh) recentFindDeletions.set(keyFor(path), now + FIND_DELETION_DEDUPE_MS);
+  let missing = new Set(fresh);
+  if (!knownDeleted) {
+    const described = await callFs<Array<{ path?: string; exists?: boolean }>>({
+      op: 'exists',
+      paths: fresh,
+    }).catch((): null => null);
+    if (described === null) {
+      for (const path of fresh) recentFindDeletions.delete(keyFor(path));
+      return;
+    }
+    missing = new Set(
+      described
+        .filter((entry) => entry?.exists !== true)
+        .map((entry) => normalizeSearchDirectoryPath(entry?.path))
+        .filter((path) => path !== ''),
+    );
+    for (const path of fresh) if (!missing.has(path)) recentFindDeletions.delete(keyFor(path));
+  }
+  if (missing.size === 0) return;
+  update((current) => (current === null ? current : rerunFindToolAfterWorkspaceDelete(current)));
 }
 
 /**
@@ -1042,8 +1209,55 @@ export function searchEverywhereTabTransition<T extends FindToolState>(
     ...current,
     tab: nextTab,
     index: 0,
-    error: null,
+    error: current.errorSource === 'files' || current.errorSource === 'text' ? current.error : null,
     textLoading: textCapable ? current.textLoading === true : false,
+  } as T;
+}
+
+/** Clear the current files-provider error as soon as its owning request starts. */
+export function searchEverywhereFilesRequestState<T extends { includeNonProject?: unknown }>(
+  current: T | null,
+  includeNonProject: unknown,
+): T | null {
+  if (current === null || current.includeNonProject !== (includeNonProject === true)) return current;
+  return {
+    ...current,
+    error: null,
+    errorSource: null,
+  } as T;
+}
+
+/** Clear a text-provider failure and trigger one fresh text search. */
+export function searchEverywhereTextRetryState<T extends { textRevision?: unknown }>(current: T | null): T | null {
+  if (current === null) return null;
+  return {
+    ...current,
+    error: null,
+    errorSource: null,
+    textRevision: (Number(current.textRevision) || 0) + 1,
+  } as T;
+}
+
+/**
+ * Clear text-provider state when the query becomes too short to search.
+ *
+ * Search Everywhere deliberately waits for two characters. No request starts
+ * in that state, so an old text failure or loading flag must not outlive the
+ * query that produced it. Files-provider errors belong to a different request
+ * and stay intact.
+ * @param {object|null} current - current Search Everywhere state.
+ * @returns {object|null} next state.
+ */
+export function searchEverywhereTextIdleState<T extends FindToolState>(current: T | null): T | null {
+  if (current === null) return null;
+  const ownsTextError = current.errorSource === 'text';
+  return {
+    ...current,
+    textMatches: [],
+    textLoading: false,
+    textTruncated: false,
+    error: ownsTextError ? null : current.error,
+    errorSource: ownsTextError ? null : current.errorSource,
   } as T;
 }
 
@@ -1284,6 +1498,41 @@ export function claimReplaceAttempt(guard: { current: boolean } | null | undefin
 }
 
 /**
+ * Reserve one Commit Retry request before React can commit its busy state.
+ *
+ * Status and Push Retry share the same requirement: repeated activation in one
+ * browser task must not create duplicate Git requests. The owning async
+ * operation releases the guard in its finally block.
+ * @param busy - state-level busy flag already committed to the UI.
+ * @param guard - synchronous request claim.
+ * @returns whether this caller owns the request.
+ */
+export function claimCommitRequestAttempt(busy: unknown, guard: { current?: unknown } | null | undefined): boolean {
+  if (busy === true || guard === null || typeof guard !== 'object' || guard.current === true) return false;
+  guard.current = true;
+  return true;
+}
+
+/**
+ * Preserve Retry focus while a request is pending.
+ *
+ * Native disabled removes focus from the button, so only unavailable actions
+ * use it. Pending requests expose aria-disabled/aria-busy and rely on the
+ * synchronous single-flight claim to reject repeats.
+ * @param unavailable - action cannot run because its tool window or repository is unavailable.
+ * @param pending - action already owns an in-flight request.
+ * @returns native and ARIA control state.
+ */
+export function commitRetryControlState(
+  unavailable: unknown,
+  pending: unknown,
+): { disabled: boolean; ariaDisabled: boolean; busy: boolean } {
+  const disabled = unavailable === true;
+  const busy = pending === true;
+  return { disabled, ariaDisabled: disabled || busy, busy };
+}
+
+/**
  * Release a replace write reserved by {@link claimReplaceAttempt}.
  * @param {{current: boolean}|null} guard - synchronous write guard.
  * @returns {void}
@@ -1315,6 +1564,50 @@ export function replaceAttemptIsCurrent(
 }
 
 /**
+ * Whether one Replace All request still targets the workspace that created it.
+ *
+ * Confirmation dialogs are asynchronous. During that interval the controller
+ * can destroy the old Editor host and select another workspace; a captured
+ * host operation would then be routed by the new workspace identity.
+ * Session-scoped Editor hosts legitimately expose an empty workspace id, so
+ * they fall back to their session identity.
+ * @param requestWorkspaceId - workspace id captured before showing the dialog.
+ * @param currentWorkspaceId - workspace id currently owned by the Editor.
+ * @param requestSessionId - session captured with the request.
+ * @param currentSessionId - session currently owned by the Editor.
+ * @returns whether both requests still target the same workspace.
+ */
+export function replaceAttemptWorkspaceIsCurrent(
+  request: { workspaceId?: unknown; sessionId?: unknown },
+  currentWorkspaceId: unknown,
+  currentSessionId: unknown,
+): boolean {
+  const requestWorkspaceId = request.workspaceId;
+  if (typeof requestWorkspaceId === 'string' && requestWorkspaceId !== '') {
+    return requestWorkspaceId === currentWorkspaceId;
+  }
+  return (
+    currentWorkspaceId === '' &&
+    typeof request.sessionId === 'string' &&
+    request.sessionId !== '' &&
+    request.sessionId === currentSessionId
+  );
+}
+
+/** Whether a Search Everywhere replacement still owns the live request. */
+export function searchReplaceAttemptIsCurrent(
+  request: { workspaceId?: unknown; sessionId?: unknown; id?: unknown },
+  currentWorkspaceId: unknown,
+  currentRequestId: unknown,
+  currentSessionId: unknown,
+): boolean {
+  return (
+    replaceAttemptWorkspaceIsCurrent(request, currentWorkspaceId, currentSessionId) &&
+    (Number(request.id) || 0) === (Number(currentRequestId) || 0)
+  );
+}
+
+/**
  * Whether a replacement still belongs to the current Find query generation.
  * Query and option changes increment this generation immediately, so both
  * failures and successes must use the same boundary before mutating rows.
@@ -1328,6 +1621,52 @@ export function replaceGenerationIsCurrent(
 ): boolean {
   if (current === null) return false;
   return (Number(current.searchGeneration) || 0) === (Number(requestGeneration) || 0);
+}
+
+/** Whether a Find replacement still owns the live workspace and generation. */
+export function findReplaceAttemptIsCurrent(
+  request: { workspaceId?: unknown; sessionId?: unknown; generation?: unknown },
+  currentWorkspaceId: unknown,
+  currentGeneration: unknown,
+  currentSessionId: unknown,
+): boolean {
+  return (
+    replaceAttemptWorkspaceIsCurrent(request, currentWorkspaceId, currentSessionId) &&
+    replaceGenerationIsCurrent({ searchGeneration: currentGeneration }, Number(request.generation) || 0)
+  );
+}
+
+/**
+ * Confirm Replace All only while its request still owns the live view.
+ *
+ * The predicate runs after the dialog resolves, so it must read mutable refs
+ * rather than values captured when the dialog opened. This catches query,
+ * generation and workspace changes that happen while confirmation is open.
+ * @param confirm - in-app Replace All confirmation.
+ * @param requestIsCurrent - live request ownership check.
+ * @param guard - synchronous Replace write guard.
+ * @param update - state owner used to return focus after cancel or invalidation.
+ * @returns whether the destructive host write may start.
+ */
+export async function confirmFindReplaceAndGeneration<T extends FindToolState>(
+  confirm: () => Promise<boolean>,
+  requestIsCurrent: () => boolean,
+  guard: { current: boolean } | null,
+  update: (updater: (current: T | null) => T | null) => void,
+): Promise<boolean> {
+  if ((await confirm()) && requestIsCurrent()) return true;
+  releaseReplaceAttempt(guard);
+  update(findToolReplaceAbortState);
+  return false;
+}
+
+/** Return replacement focus after a cancelled or stale confirmation. */
+export function findToolReplaceAbortState<T extends FindToolState>(current: T | null): T | null {
+  if (current === null) return current;
+  return {
+    ...current,
+    replaceFocusRequest: (Number(current.replaceFocusRequest) || 0) + 1,
+  } as T;
 }
 
 /**
@@ -1401,6 +1740,7 @@ export function replaceFailureSettlement<T extends FindToolState>(
     ...current,
     replaceBusy: false,
     error: isCurrent ? message : null,
+    errorSource: null,
     replaceFocusRequest: isCurrent
       ? (Number(current.replaceFocusRequest) || 0) + 1
       : Number(current.replaceFocusRequest) || 0,
@@ -1427,6 +1767,7 @@ export function searchEverywhereReplaceSuccessState<T extends FindToolState>(
           textMatches: [],
           textRevision: (Number(current.textRevision) || 0) + 1,
           error: null,
+          errorSource: null,
         }
       : null),
     replaceBusy: false,
@@ -1462,6 +1803,80 @@ export function hostOnlyReplaceOperation(
     dirty: [],
     files: paths,
     replacements: Math.max(0, Number(value?.replacements) || 0),
+  };
+}
+
+/**
+ * Format a failed replacement without hiding clean files already committed.
+ * @param failure - host or dirty-model failure.
+ * @param changedFileCount - clean files written before the failure.
+ * @param partialFailure - localized partial-success formatter.
+ * @returns the failure text appropriate for the commit boundary.
+ */
+export function replaceFailureMessage(
+  failure: unknown,
+  changedFileCount: unknown,
+  partialFailure: (message: string) => string,
+): string {
+  const message = failure instanceof Error ? failure.message : String(failure);
+  return Number(changedFileCount) > 0 ? partialFailure(message) : message;
+}
+
+/** Localize a search-replace failure before applying the partial-write wording. */
+export function searchReplaceFailureMessage(
+  failure: unknown,
+  changedFileCount: unknown,
+  t: (key: string, params?: Record<string, unknown>) => string,
+): string {
+  return replaceFailureMessage(new Error(searchTextFailureMessage(failure, t)), changedFileCount, (message) =>
+    t('editor.searchReplacePartialFailure', { message }),
+  );
+}
+
+export interface DirtyReplaceUndoEntry {
+  path: string;
+  beforeContent: string;
+  afterContent: string;
+}
+
+export interface ReplaceHistoryOperation {
+  operationId: string;
+  clean: boolean;
+  dirty: DirtyReplaceUndoEntry[];
+  files: string[];
+  replacements: number;
+}
+
+/** Capture the dirty-model half of one Replace All undo operation. */
+export function dirtyReplaceUndo(plans: DirtyReplacePlan[] | null | undefined): DirtyReplaceUndoEntry[] {
+  return (Array.isArray(plans) ? plans : []).map((plan) => ({
+    path: plan.path,
+    afterContent: plan.text,
+    beforeContent: plan.model.getValue(),
+  }));
+}
+
+/** Build the bounded Undo/Redo record shared by Search and Find Replace All. */
+export function replaceOperationState(
+  value: { operationId?: unknown; replacements?: unknown } | null | undefined,
+  hostChanged: string[],
+  dirtyChanged: string[],
+  dirtyReplacements: unknown,
+  dirtyUndo: DirtyReplaceUndoEntry[],
+): { changed: string[]; operation: ReplaceHistoryOperation; replacedCount: number } {
+  const changed = [...new Set([...hostChanged, ...dirtyChanged])];
+  const operationId = typeof value?.operationId === 'string' ? value.operationId : '';
+  const replacedCount = Number(value?.replacements ?? 0) + Math.max(0, Number(dirtyReplacements) || 0);
+  return {
+    changed,
+    replacedCount,
+    operation: {
+      operationId,
+      clean: operationId !== '' && hostChanged.length > 0,
+      dirty: dirtyUndo,
+      files: changed,
+      replacements: replacedCount,
+    },
   };
 }
 
@@ -2410,6 +2825,222 @@ export function writeSearchOptions(options: unknown): void {
   } catch {
     /* storage-less browsers keep the current in-memory options */
   }
+}
+
+export interface SearchDirectoryRules {
+  excludedDirectories: string[];
+  includedDirectories: string[];
+}
+
+function normalizeSearchDirectoryPath(value: unknown): string {
+  if (typeof value !== 'string') return '';
+  const normalized = value
+    .trim()
+    .replaceAll('\\', '/')
+    .replace(/^\.\/+/u, '')
+    .replace(/\/+$/u, '');
+  if (
+    normalized === '' ||
+    normalized.startsWith('/') ||
+    normalized.split('/').some((segment) => segment === '' || segment === '.' || segment === '..')
+  ) {
+    return '';
+  }
+  return normalized;
+}
+
+function normalizeSearchDirectoryPaths(value: unknown): string[] {
+  const entries = Array.isArray(value) ? value : [];
+  return [...new Set(entries.map(normalizeSearchDirectoryPath).filter((path) => path !== ''))].slice(0, 200);
+}
+
+/** Normalize per-workspace search directory include/exclude rules. */
+export function normalizeSearchDirectoryRules(value: unknown): SearchDirectoryRules {
+  const source =
+    value !== null && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+  const excludedDirectories = normalizeSearchDirectoryPaths(
+    source.excludedDirectories ?? source.excludeDirectories ?? source.excluded,
+  );
+  const requestedIncludedDirectories = normalizeSearchDirectoryPaths(
+    source.includedDirectories ?? source.includeDirectories ?? source.included,
+  );
+  return {
+    excludedDirectories,
+    includedDirectories: requestedIncludedDirectories.filter((included) =>
+      excludedDirectories.some((excluded) => included.startsWith(`${excluded}/`)),
+    ),
+  };
+}
+
+function searchDirectoryRulesStorageKey(root: string): string {
+  return `dsh-editor.search.directoryRules.v1:${typeof root === 'string' ? root : ''}`;
+}
+
+/** Read the per-workspace search directory rules. */
+export function readSearchDirectoryRules(root: string): SearchDirectoryRules {
+  try {
+    return normalizeSearchDirectoryRules(
+      JSON.parse(window.localStorage.getItem(searchDirectoryRulesStorageKey(root)) ?? '{}'),
+    );
+  } catch {
+    return normalizeSearchDirectoryRules(null);
+  }
+}
+
+/** Persist the per-workspace search directory rules. */
+export function writeSearchDirectoryRules(root: string, value: unknown): SearchDirectoryRules {
+  const normalized = normalizeSearchDirectoryRules(value);
+  try {
+    window.localStorage.setItem(searchDirectoryRulesStorageKey(root), JSON.stringify(normalized));
+  } catch {
+    /* storage-less browsers keep the current in-memory rules */
+  }
+  return normalized;
+}
+
+function searchDirectoryRuleMatches(path: string, rule: string): boolean {
+  return path === rule || path.startsWith(`${rule}/`);
+}
+
+/** Return the deepest matching include/exclude state for one directory or file path. */
+export function searchDirectoryEffectiveState(path: unknown, value: unknown): 'included' | 'excluded' {
+  const candidate = normalizeSearchDirectoryPath(path);
+  if (candidate === '') return 'included';
+  const rules = normalizeSearchDirectoryRules(value);
+  let excludedDepth = -1;
+  let includedDepth = -1;
+  for (const rule of rules.excludedDirectories) {
+    if (!searchDirectoryRuleMatches(candidate, rule)) continue;
+    excludedDepth = Math.max(excludedDepth, rule.split('/').length);
+  }
+  for (const rule of rules.includedDirectories) {
+    if (!searchDirectoryRuleMatches(candidate, rule)) continue;
+    includedDepth = Math.max(includedDepth, rule.split('/').length);
+  }
+  return excludedDepth > includedDepth ? 'excluded' : 'included';
+}
+
+/** True when a directory is excluded but one of its descendants is explicitly included. */
+export function searchDirectoryExcludedWithIncludedDescendant(path: unknown, value: unknown): boolean {
+  const directory = normalizeSearchDirectoryPath(path);
+  if (directory === '') return false;
+  const rules = normalizeSearchDirectoryRules(value);
+  return (
+    searchDirectoryEffectiveState(directory, rules) === 'excluded' &&
+    rules.includedDirectories.some((included) => included.startsWith(`${directory}/`))
+  );
+}
+
+/** True when a workspace change can alter Git-backed search scope. */
+export function workspaceChangeInvalidatesSearchScope(value: unknown): boolean {
+  const paths = Array.isArray(value)
+    ? value
+        .filter((path): path is string => typeof path === 'string' && path !== '')
+        .map((path) => path.replaceAll('\\', '/').replace(/^\.\/+/u, ''))
+    : [];
+  return paths.some(
+    (path) =>
+      path === '.gitignore' || path.endsWith('/.gitignore') || path === '.git/info/exclude' || path === '.git/index',
+  );
+}
+
+/** Toggle one directory between excluded and included search scope. */
+export function toggleSearchDirectoryRule(path: unknown, value: unknown): SearchDirectoryRules {
+  const directory = normalizeSearchDirectoryPath(path);
+  const rules = normalizeSearchDirectoryRules(value);
+  if (directory === '') return rules;
+  const state = searchDirectoryEffectiveState(directory, rules);
+  const withoutPath = (entries: string[]): string[] => entries.filter((entry) => entry !== directory);
+  if (state === 'excluded') {
+    return normalizeSearchDirectoryRules({
+      excludedDirectories: withoutPath(rules.excludedDirectories),
+      includedDirectories: [
+        ...rules.includedDirectories.filter((entry) => !entry.startsWith(`${directory}/`)),
+        directory,
+      ],
+    });
+  }
+  return normalizeSearchDirectoryRules({
+    excludedDirectories: [
+      ...rules.excludedDirectories.filter((entry) => entry === directory || !entry.startsWith(`${directory}/`)),
+      directory,
+    ],
+    includedDirectories: rules.includedDirectories.filter(
+      (entry) => entry !== directory && !entry.startsWith(`${directory}/`),
+    ),
+  });
+}
+
+/**
+ * Explain why the Project search-scope toggle is unavailable.
+ *
+ * Root scope is always searched, and a multi-row selection cannot be interpreted
+ * as one directory toggle. The menu owns the disabled action; this helper owns
+ * the truthful reason shown to pointer and assistive-technology users.
+ */
+export function searchDirectoryToggleDisabledReason(batchSize: unknown, t: (key: string) => string): string | null {
+  if (Math.max(0, Math.trunc(Number(batchSize) || 0)) > 1) return t('editor.searchDirectoryToggleBatchDisabled');
+  return null;
+}
+
+/** Follow directory scope rules across Project rename and move operations. */
+export function remapSearchDirectoryRulesAfterMove(value: unknown, entries: unknown): SearchDirectoryRules {
+  const rules = normalizeSearchDirectoryRules(value);
+  const moves = (Array.isArray(entries) ? entries : []).filter(
+    (entry): entry is [string, string] =>
+      Array.isArray(entry) &&
+      typeof entry[0] === 'string' &&
+      entry[0] !== '' &&
+      typeof entry[1] === 'string' &&
+      entry[1] !== '',
+  );
+  if (moves.length === 0) return rules;
+  const remap = (path: string): string => {
+    for (const [from, to] of moves) {
+      if (path === from) return to;
+      if (path.startsWith(`${from}/`)) return `${to}${path.slice(from.length)}`;
+    }
+    return path;
+  };
+  return normalizeSearchDirectoryRules({
+    excludedDirectories: rules.excludedDirectories.map(remap),
+    includedDirectories: rules.includedDirectories.map(remap),
+  });
+}
+
+/** Drop search scope rules whose directory or ancestor was deleted. */
+export function pruneSearchDirectoryRulesAfterDelete(value: unknown, paths: unknown): SearchDirectoryRules {
+  const rules = normalizeSearchDirectoryRules(value);
+  const deletedPaths = normalizeSearchDirectoryPaths(paths);
+  if (deletedPaths.length === 0) return rules;
+  const remains = (path: string): boolean =>
+    !deletedPaths.some((deleted) => path === deleted || path.startsWith(`${deleted}/`));
+  return normalizeSearchDirectoryRules({
+    excludedDirectories: rules.excludedDirectories.filter(remains),
+    includedDirectories: rules.includedDirectories.filter(remains),
+  });
+}
+
+/** Persist deletion pruning only when the normalized rules really changed. */
+export function persistSearchDirectoryRulesAfterDelete(
+  root: string,
+  current: SearchDirectoryRules,
+  paths: unknown,
+): SearchDirectoryRules {
+  const next = pruneSearchDirectoryRulesAfterDelete(current, paths);
+  if (
+    next.excludedDirectories.join('\u0000') === current.excludedDirectories.join('\u0000') &&
+    next.includedDirectories.join('\u0000') === current.includedDirectories.join('\u0000')
+  ) {
+    return current;
+  }
+  if (root !== '') writeSearchDirectoryRules(root, next);
+  return next;
+}
+
+/** True when a path remains inside the user's search directory scope. */
+export function searchPathAllowedByDirectoryRules(path: unknown, value: unknown): boolean {
+  return searchDirectoryEffectiveState(path, value) === 'included';
 }
 
 /**

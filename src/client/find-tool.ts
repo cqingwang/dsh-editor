@@ -11,6 +11,18 @@ interface FindOccurrence {
 export interface FindToolDraft {
   query: string;
   replace: string;
+  searchGeneration?: number;
+}
+
+/** Preserve the reopen draft and the generation that owns it. */
+export function findToolDraftFromState(
+  state: { query?: unknown; replace?: unknown; searchGeneration?: unknown } | null | undefined,
+): FindToolDraft {
+  return {
+    query: typeof state?.query === 'string' ? state.query : '',
+    replace: typeof state?.replace === 'string' ? state.replace : '',
+    searchGeneration: Number(state?.searchGeneration) || 0,
+  };
 }
 
 export function findToolReopenDraft(
@@ -243,6 +255,72 @@ export function findToolReplaceAdvanceIndex(
   if (replacedIndex >= 0) return (replacedIndex + 1) % rows.length;
   const requested = Math.trunc(Number(fallbackIndex) || 0);
   return Math.max(0, Math.min(rows.length - 1, requested));
+}
+
+interface FindReplaceDisabledReasonOptions {
+  replaceBusy?: unknown;
+  searchGeneration?: unknown;
+  loadedGeneration?: unknown;
+  loading?: unknown;
+  error?: unknown;
+  matchCount?: unknown;
+  activeKind?: unknown;
+  t: (key: string, params?: Record<string, unknown>) => string;
+}
+
+/** Whether the visible Find rows were produced by the current request. */
+export function findToolResultsAreCurrent(
+  state:
+    | {
+        searchGeneration?: unknown;
+        loadedGeneration?: unknown;
+      }
+    | null
+    | undefined,
+): boolean {
+  return (Number(state?.searchGeneration ?? 0) || 0) === (Number(state?.loadedGeneration ?? 0) || 0);
+}
+
+/**
+ * Explain why Find-style Replace actions are unavailable.
+ *
+ * A zero-match search has nothing to select, so both actions must describe the
+ * absent replaceable matches instead of asking for an impossible row selection.
+ */
+export function findReplaceDisabledReasons({
+  replaceBusy,
+  searchGeneration,
+  loadedGeneration,
+  loading,
+  error,
+  matchCount,
+  activeKind,
+  t,
+}: FindReplaceDisabledReasonOptions): { all: string | null; current: string | null } {
+  if (replaceBusy === true) {
+    const reason = t('editor.findReplaceBusy');
+    return { all: reason, current: reason };
+  }
+  if (!findToolResultsAreCurrent({ searchGeneration, loadedGeneration })) {
+    const reason = t('editor.findReplaceLoading');
+    return { all: reason, current: reason };
+  }
+  if (loading === true) {
+    const reason = t('editor.findReplaceLoading');
+    return { all: reason, current: reason };
+  }
+  if (error !== null && error !== undefined) {
+    const reason = t('editor.findReplaceSearchError');
+    return { all: reason, current: reason };
+  }
+  if (Math.max(0, Math.trunc(Number(matchCount) || 0)) === 0) {
+    const reason = t('editor.findReplaceAllDisabled');
+    return { all: reason, current: reason };
+  }
+  return {
+    all: null,
+    current: activeKind === 'text' ? null : t('editor.findReplaceCurrentDisabled'),
+  };
 }
 
 /**

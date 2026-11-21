@@ -2,13 +2,16 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-import { loadTypeScriptCallback } from './ts-source.mjs';
+import { loadTypeScriptCallback, loadTypeScriptModule } from './ts-source.mjs';
 
 const workspaceSource = await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8');
+const editorCoreSource = await readFile(new URL('../src/client/editor-core.ts', import.meta.url), 'utf8');
 const quickOpenSource = await readFile(
   new URL('../src/client/components/search/QuickOpen.tsx', import.meta.url),
   'utf8',
 );
+const { searchTextFailureMessage } = loadTypeScriptModule(editorCoreSource, ['searchTextFailureMessage']);
+const t = (key) => key;
 
 function loadOpenQuickOpen(callFs) {
   let state = null;
@@ -19,10 +22,13 @@ function loadOpenQuickOpen(callFs) {
     setPaletteMode: () => {},
     quickOpenFilesRequestRef,
     quickOpenFilesAbortRef,
+    searchDirectoryRules: { excludedDirectories: [], includedDirectories: [] },
     setQuickOpen(update) {
       state = typeof update === 'function' ? update(state) : update;
     },
     callFs,
+    searchTextFailureMessage,
+    t,
   });
   return {
     openQuickOpen,
@@ -43,6 +49,7 @@ test('Go to File reports loading until the host file list arrives', async () => 
   assert.deepEqual(palette.state(), {
     query: '',
     index: 0,
+    truncated: false,
     loading: true,
     error: null,
   });
@@ -52,6 +59,7 @@ test('Go to File reports loading until the host file list arrives', async () => 
     query: '',
     index: 0,
     files: ['README.md'],
+    truncated: false,
     loading: false,
     error: null,
   });
@@ -67,6 +75,7 @@ test('Go to File surfaces a host enumeration failure instead of an empty result'
     query: '',
     index: 0,
     files: [],
+    truncated: false,
     loading: false,
     error: 'workspace listing failed',
   });

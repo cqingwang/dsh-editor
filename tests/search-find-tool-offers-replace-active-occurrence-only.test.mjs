@@ -14,7 +14,7 @@ test('Find tool offers Replace for the active occurrence only', () => {
     source.indexOf('const FindToolWindow = FindToolWindowView;'),
   );
   assert.match(findToolWindow, /onReplaceOccurrence/);
-  assert.match(findToolWindow, /active\?\.kind !== 'text'/);
+  assert.match(findToolWindow, /activeKind: active\?\.kind/u);
   assert.match(findToolWindow, /t\('editor\.replaceCurrent'\)/);
   assert.match(findToolWindow, /onReplaceOccurrence\(active, activeIndex\)/);
 });

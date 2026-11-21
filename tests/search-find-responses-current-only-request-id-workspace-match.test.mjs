@@ -30,13 +30,20 @@ test('Find search responses capture and revalidate their workspace root', () => 
 });
 
 test('Workspace changes invalidate an in-flight Find request before closing it', () => {
+  const cancelStart = source.indexOf('const cancelWorkspaceSearchRequests = React.useCallback');
+  const cancelEnd = source.indexOf('const previousWorkspaceSearchRootRef', cancelStart);
+  assert.ok(cancelStart >= 0 && cancelEnd > cancelStart, 'workspace cancellation block is missing');
+  const cancelBlock = source.slice(cancelStart, cancelEnd);
+
   const effect = source.slice(
-    source.indexOf('searchEverywhereFilesRequestRef.current += 1;'),
+    source.indexOf('if (workspaceSearchSurfacesShouldReset(previousWorkspaceRoot, root))'),
     source.indexOf("setRecentReplacements(root === '' ? [] : readReplaceHistory(root));")
       + "setRecentReplacements(root === '' ? [] : readReplaceHistory(root));".length,
   );
+  assert.match(effect, /cancelWorkspaceSearchRequests\(\);/u);
   assert.match(
-    effect,
-    /findToolRequestRef\.current \+= 1;[\s\S]*?setFindTool\(null\)/,
+    cancelBlock,
+    /findToolRequestRef\.current \+= 1;/u,
   );
+  assert.ok(effect.indexOf('cancelWorkspaceSearchRequests()') < effect.indexOf('setFindTool(null)'));
 });

@@ -110,7 +110,7 @@ test('Commit Options preserves busy state, action order and callbacks', () => {
   assert.equal(childById(menu, 'fetch')?.label, 'editor.fetchBusy');
   assert.equal(childById(menu, 'fetch')?.disabled, true);
   assert.equal(childById(menu, 'update')?.label, 'editor.updateProject');
-  assert.equal(childById(menu, 'update')?.disabled, false);
+  assert.equal(childById(menu, 'update')?.disabled, true);
   assert.equal(childById(menu, 'applyPatchFile')?.disabled, true);
   assert.equal(childById(menu, 'applyPatchClipboard')?.disabled, true);
   assert.equal(childById(menu, 'stageAll')?.disabled, true);
@@ -131,6 +131,47 @@ test('Commit Options preserves busy state, action order and callbacks', () => {
     'shelve',
     'group:module',
   ]);
+
+  const updating = commitOptionsMenu({
+    t,
+    position: { x: 44, y: 66 },
+    fetchBusy: false,
+    updateBusy: true,
+    commitBusy: false,
+    stageAllAvailable: true,
+    groupBy: 'flat',
+    onApplyChangeGroupBy: () => {},
+    onFetch: () => {},
+    onUpdate: () => {},
+    onApplyPatchFile: () => {},
+    onApplyPatchClipboard: () => {},
+    onStageAll: () => {},
+    onStash: () => {},
+    onShelve: () => {},
+  });
+  assert.equal(childById(updating, 'fetch')?.disabled, true);
+  assert.equal(childById(updating, 'update')?.disabled, true);
+
+  const pushing = commitOptionsMenu({
+    t,
+    position: { x: 44, y: 66 },
+    fetchBusy: false,
+    updateBusy: false,
+    pushBusy: true,
+    commitBusy: false,
+    stageAllAvailable: true,
+    groupBy: 'flat',
+    onApplyChangeGroupBy: () => {},
+    onFetch: () => {},
+    onUpdate: () => {},
+    onApplyPatchFile: () => {},
+    onApplyPatchClipboard: () => {},
+    onStageAll: () => {},
+    onStash: () => {},
+    onShelve: () => {},
+  });
+  assert.equal(childById(pushing, 'fetch')?.disabled, true);
+  assert.equal(childById(pushing, 'update')?.disabled, true);
 });
 
 test('Commit Options disables Git-only actions when the workspace is not managed', () => {

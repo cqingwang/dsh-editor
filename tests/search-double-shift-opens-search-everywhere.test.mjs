@@ -32,10 +32,10 @@ test('double Shift opens Search Everywhere instead of Find in Files', () => {
   assert.deepEqual(action(100, 'Shift', 450), { lastAt: 0, open: false });
   const doubleShiftEffect = source.slice(
     source.indexOf('const next = doubleShiftAction'),
-    source.indexOf('}, [openSearchEverywhere]);', source.indexOf('const next = doubleShiftAction')) +
-      '}, [openSearchEverywhere]);'.length,
+    source.indexOf('}, [currentCodeEditor, openSearchEverywhere]);', source.indexOf('const next = doubleShiftAction')) +
+      '}, [currentCodeEditor, openSearchEverywhere]);'.length,
   );
-  assert.match(doubleShiftEffect, /openSearchEverywhere\('all'\)/);
+  assert.match(doubleShiftEffect, /openSearchEverywhere\('all', selectedEditorFindQuery\(currentCodeEditor\(\)\)\)/);
   assert.doesNotMatch(doubleShiftEffect, /openFindInFilesFromShortcut\(\)/);
 });
 
@@ -59,7 +59,10 @@ test('Search Everywhere exposes IDEA tabs and search/replace command entries', (
   const replaceInFiles = actions.indexOf("label: t('editor.replaceInFilesAction')");
   assert.ok(find > 0 && replace > find && findInFiles > replace && replaceInFiles > findInFiles);
   assert.match(source, /doubleShiftAction\(/);
-  assert.match(source, /next\.open[\s\S]*?openSearchEverywhere\('all'\)/);
+  assert.match(
+    source,
+    /next\.open[\s\S]*?openSearchEverywhere\('all', selectedEditorFindQuery\(currentCodeEditor\(\)\)\)/,
+  );
   assert.match(source, /openFindInFilesFromShortcut\(/);
   assert.match(source, /const openFileAtLocation = React\.useCallback/);
   assert.match(source, /openFileAtLocation\(result\.path, result\.line, result\.column\)/);
@@ -85,10 +88,13 @@ test('host searches workspace text in bounded files and returns line locations',
   await writeFile(join(root, 'b.md'), 'nothing\n', 'utf8');
   const result = await host.searchWorkspaceText(root, 'alpha', { maxMatches: 20 });
   assert.equal(result.matches.length, 2);
-  assert.deepEqual(result.matches.map((match) => [match.path, match.line, match.column]), [
-    ['a.txt', 1, 1],
-    ['a.txt', 2, 6],
-  ]);
+  assert.deepEqual(
+    result.matches.map((match) => [match.path, match.line, match.column]),
+    [
+      ['a.txt', 1, 1],
+      ['a.txt', 2, 6],
+    ],
+  );
   assert.equal(result.truncated, false);
 });
 
@@ -99,9 +105,7 @@ test('host replace-in-files guards mtime and updates only matching text', async 
   const path = join(root, 'a.txt');
   await writeFile(path, 'Alpha beta alpha\n', 'utf8');
   const info = await stat(path);
-  const result = await host.replaceWorkspaceText(root, 'alpha', 'omega', [
-    { path: 'a.txt', mtime: info.mtimeMs },
-  ]);
+  const result = await host.replaceWorkspaceText(root, 'alpha', 'omega', [{ path: 'a.txt', mtime: info.mtimeMs }]);
   assert.equal(result.changedFiles, 1);
   assert.equal(result.replacements, 2);
   assert.equal(await readFile(path, 'utf8'), 'omega beta omega\n');

@@ -61,16 +61,12 @@ test('Scope filtering waits for the new generation instead of hiding retained ro
 });
 
 test('Retained rows cannot be replaced before the new scope generation finishes', () => {
+  assert.match(findTool, /const replaceDisabledReasons = findReplaceDisabledReasons\(\{/u);
+  assert.match(findTool, /loading: state\.loading/u);
   assert.match(
     findTool,
-    /const replaceAllDisabledReason =\s+state\.replaceBusy === true\s+\? t\('editor\.findReplaceBusy'\)\s+: state\.loading === true\s+\? t\('editor\.findReplaceLoading'\)/u,
+    /disabled=\{\s+state\.replaceBusy === true \|\|\s+state\.loading === true \|\|\s+state\.error !== null \|\|\s+scopedMatches\.length === 0 \|\|\s+!findToolResultsAreCurrent\(state\)\s+\}/u,
   );
-  assert.match(
-    findTool,
-    /disabled=\{\s+state\.replaceBusy === true \|\|\s+state\.loading === true \|\|\s+state\.error !== null \|\|\s+scopedMatches\.length === 0\s+\}/u,
-  );
-  assert.match(
-    findTool,
-    /opacity:\s+state\.replaceBusy \|\| state\.loading \|\| state\.error !== null \|\| scopedMatches\.length === 0 \? 0\.45 : 1/u,
-  );
+  assert.match(findTool, /scopedMatches\.length === 0 \|\|\s+!findToolResultsAreCurrent\(state\)/u);
+  assert.match(findTool, /!findToolResultsAreCurrent\(state\)\s+\? 0\.45\s+: 1/u);
 });

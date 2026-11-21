@@ -53,6 +53,8 @@ test('closing a terminal prunes its cwd metadata immediately', async () => {
     writeTerminalColors: () => {},
     setTerminals: () => {},
     setActiveId: () => {},
+    setError: () => {},
+    terminalErrorAfterTabClosed: () => null,
     window: {
       setTimeout(callback) {
         callback();
@@ -99,6 +101,8 @@ test('Close Other Terminals prunes every doomed cwd entry', async () => {
     setActiveId: () => {},
     setSplitId: () => {},
     setFocusedPane: () => {},
+    setError: () => {},
+    terminalErrorAfterTabClosed: () => null,
     window: {
       setTimeout(callback) {
         callback();
@@ -123,6 +127,7 @@ test('host terminal refresh prunes cwd metadata for reaped identities', async ()
   ]);
   const states = {};
   const refresh = loadTypeScriptCallback(source, 'refresh', {
+    refreshRequestRef: { current: 0 },
     callTerminal: async () => ({
       available: true,
       terminals: [{ id: 'alive' }],

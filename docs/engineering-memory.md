@@ -1,5 +1,7589 @@
 # dsh-editor 工程记忆
 
+## 2026-11-21 — 排除搜索目录样式与编译产物默认排除
+
+**作用域**：Project tree 搜索排除目录名称/图标样式、Host files/text/
+replace/Git scope、Project speed search、默认 generated-file 名单。
+
+**症状/证据**：
+
+- “排除到搜索”目录只弱化图标，名称仍被 Git status 或 directory tint 着色；
+- `.o`、`.obj`、`.class` 仍进入文件列表、文本搜索、显式 scope、Replace
+  target 和 Project speed search；
+- 编译产物会占用普通搜索 enumerations 和 traversal budget。
+
+**修复**：
+
+- `ProjectPanel.renderProjectRowName()` 对 excluded directory 使用
+  `var(--dsw-alias-label-tertiary)` 与 `opacity: 0.68`；
+- 选中目录保持白色，不改变 hover、Git strike-through、搜索结果高亮；
+- Host `searchPathIsSystemGenerated()` 增加 `.o`、`.obj`、`.class`；
+- Client `filterProjectSpeedSearchRows()` 使用相同 extension 边界；
+- 判断均基于 basename 且大小写无关，Project tree 空查询仍显示文件。
+
+**回归测试**：
+
+```bash
+node --test tests/search-system-generated-files-excluded-regardless-gitignore.test.mjs \
+  tests/project-speed-search-only-system-files-have-no-local-hits.test.mjs \
+  tests/project-search-excluded-directory-state-announced.test.mjs \
+  tests/project-speed-search-system-files-do-not-consume-traversal-budget.test.mjs \
+  tests/project-speed-search-exclusions-do-not-consume-traversal-budget.test.mjs
+npm test
+```
+
+- RED：excluded directory 名称仍使用普通/Git 颜色；
+- RED：compiled artifacts 出现在 Host search 和 Project speed search；
+- GREEN：excluded directory color `rgb(129,133,140)`、opacity `0.68`；
+- GREEN：`.o/.obj/.class` 不进入 files/text/scope/Replace/speed search；
+- GREEN：compiled artifacts 不消耗遍历预算；
+- GREEN：空查询 Project tree 仍显示这些文件；
+- 系统生成/目录样式定向 **12 pass / 0 fail**；
+- 完整 `npm test` **3561 pass / 0 fail**；
+- ESLint、**135** 个 source imports、TypeScript、Prettier、client build
+  consistency、`node --check`、`git diff --check` 通过；
+- `npm pack --dry-run` 通过，package **146 files**；
+- `lib/client.js` 重建后 **2510.6 KB / 2,570,810 bytes**。
+
+**运行态复验**：
+
+- 原生 Harness excluded directory：
+  - name color `rgb(129,133,140)`；
+  - name opacity `0.68`；
+  - icon opacity `0.55`；
+  - tooltip/description 为“已从搜索范围排除”；
+- Project speed search `main.o` 显示“无匹配”；
+- 普通 `controller.ts` 仍返回 3 个项目；
+- 临时搜索规则已恢复，fixture 已删除。
+
+**长期约束**：
+
+- 搜索排除是过滤能力，不得删除 Project tree 的查看/打开能力；
+- 视觉状态必须在名称和图标上都可区分，且选中态保持可读；
+- Host 与 client speed search 的 generated-file 名单必须同步；
+- 新增默认编译产物扩展名必须先确认范围，避免误伤真实源码文件。
+
+## 2026-11-21 — controller.ts 滚动卡顿
+
+**作用域**：Monaco IDEA Light semantic token collector、TypeScript class
+field/property 正则、`controller.ts` 长文件滚动、semantic viewport refresh。
+
+**症状/证据**：
+
+- 原生 Harness 打开 `controller.ts` 后滚动明显卡顿；
+- 真实文件 semantic collection 基准：
+  - 480 行约 999ms；
+  - 960 行约 2256ms；
+  - 1636 行约 2685ms；
+- Node CPU profile 中约 7.6s / 3 次调用集中在类字段匹配正则；
+- 滚动时 Monaco 会重复刷新 visible semantic token，因此长任务直接阻塞主线程。
+
+**根因**：
+
+- class field 正则使用 `(?:^|\n|[{;,])\s*...`；
+- `\s*` 可跨换行，修饰词组又使用 `\s+` 和 `*` 重复；
+- 长 TypeScript 文件中失败位置会产生灾难性回溯，复杂度远高于线性扫描。
+
+**修复**：
+
+- `editor-theme-model.ts` 中该正则保留相同 token 分类与优先级；
+- 行/符号边界仍为 `^`、换行、`{`、`;`、`,`；
+- 边界后的空白改为 `[ \t]*`，不再吞换行；
+- 修饰词之间与类型冒号前的空白改为 `[ \t]*`；
+- class/interface 字段继续归类为 `ideaProperty`。
+
+**回归测试**：
+
+```bash
+node --test tests/editor-semantic-token-scroll-performance.test.mjs \
+  tests/editor-code-coloring-semantic-tokens.test.mjs \
+  tests/editor-semantic-coloring-refreshes-without-scroll.test.mjs \
+  tests/editor-code-coloring-idea-light-palette.test.mjs
+npm test
+```
+
+- RED：`controller.ts` semantic collection 耗时 2841.6ms；
+- GREEN：同一真实文件耗时 14.3ms；
+- GREEN：修饰词后的 class field 仍得到正确的 `ideaProperty` token；
+- 语义着色、首屏和滚动刷新定向 **59 pass / 0 fail**；
+- 完整 `npm test` **3561 pass / 0 fail**；
+- ESLint、**135** 个 source imports、TypeScript、Prettier、client build
+  consistency、`node --check`、`git diff --check` 通过；
+- `lib/client.js` 重建后 **2509.9 KB / 2,570,185 bytes**。
+
+**运行态复验**：
+
+- 原生 Harness 重载后打开真实 `controller.ts`；
+- 连续滚动 90 帧：
+  - 平均帧间隔 **6.8ms**；
+  - 最大帧间隔 **7.8ms**；
+  - `>32ms` 帧 **0**；
+  - `>50ms` 帧 **0**。
+
+**长期约束**：
+
+- semantic token 正则禁止把跨行 `\s*` 与可变长度重复组合；
+- 长文件失败匹配必须保持近线性；
+- 性能修复必须同时验证 token 分类没有回退；
+- 真实大文件基准和滚动帧间隔应作为性能回归证据。
+
+## 2026-11-21 — Project 写操作绕过 Update 工作树门禁
+
+**作用域**：Update Project、Project create/rename/move、Editor save、
+Project Upload、Repository write guard、Upload hook 提取与 client bundle。
+
+**症状/证据**：
+
+- Update Project 在 `pull` 和重载工作树期间，Project create、rename、
+  move、save、upload 仍可调用 Host 文件 API；
+- create 在 Update 中实际发出两次 Host 文件操作；
+- Project Upload 只有独立 `uploadBusyRef`，只防重复上传，不认识 Update；
+- `repositoryUpdateGuardRef` 仅覆盖 Git/Commit 写入口与 Delete。
+
+**根因**：
+
+- Project 和 Editor 文件写入入口分散，没有统一进入工作树 guard；
+- Upload busy 表示上传反馈，不是跨操作的同步所有权；
+- 新增 guard 入口使 `editor-workspace.tsx` 超出 12600 行可维护性门禁。
+
+**修复**：
+
+- create、rename、move、save 在第一个文件写前调用
+  `beginCommitOperation()`，finally 释放；
+- Project Upload 复用同一 Update guard；
+- Upload 输入装配和 guard 包装提取到
+  `src/client/components/project/use-project-upload-drop.ts`；
+- `uploadProjectDropWithGuard` 保留为可独立执行的回归入口；
+- `scripts/build-client.mjs` 显式打包新模块，bundle closure 继续校验；
+- 提取后 `editor-workspace.tsx` 降回 **12586 行**。
+
+**回归测试**：
+
+```bash
+node --test tests/commit-update-blocks-repository-writes.test.mjs \
+  tests/project-move-to-completion-returns-tree-focus.test.mjs \
+  tests/project-remappathaftermove-handles-exact-files-moved-directory-descendants.test.mjs \
+  tests/project-writebinary-stores-exact-bytes-below-new-destination-directory.test.mjs
+npm test
+```
+
+- RED：Update 在途时 create 发出 2 次 Host 文件操作；
+- RED：rename/move/save/upload 在 Update 中仍进入写路径；
+- GREEN：所有入口在第一个 await 前 claim，Update guard 持有时直接返回；
+- GREEN：Upload 原有 preflight、分块、进度、取消路径保持可执行；
+- Update/Project 写入门禁定向 **11 pass / 0 fail**；
+- 完整 `npm test` **3559 pass / 0 fail**；
+- ESLint、**135** 个 source imports、TypeScript、Prettier、client build
+  consistency、`node --check`、`git diff --check` 通过；
+- `npm pack --dry-run` 通过，package **146 files**；
+- `lib/client.js` 重建后 **2509.9 KB / 2,570,174 bytes**。
+
+**长期约束**：
+
+- 所有会改写工作树的 Project/Editor 路径都必须经过同一个 Update guard；
+- Upload 专用 busy 只负责上传反馈和取消，不能替代工作树互斥；
+- 可执行 guard 回归优先放在单一职责模块中，不再继续膨胀 workspace；
+- `editor-workspace.tsx` 必须保持在 12600 行以下。
+
+## 2026-11-21 — Update Project 与仓库写操作并发
+
+**作用域**：Commit 工具窗口全部 `commitBusy` 写入口、Update Project、
+Commit/Stage/Rollback/Reset/Revert/Cherry-pick/Stash/Shelve/Apply Patch、
+Project 批量与单行 Delete、Commit Panel 禁用态。
+
+**症状/证据**：
+
+- Update Project 调用 `pull` 并重读工作树时，Commit、Stage、Rollback、
+  Delete 等仍可通过异步 React busy 检查进入；
+- `commitBusy` 要等下一次 render 才生效，同帧调用无法被它阻止；
+- Update 开始前不检查已有写 claim，Update 中也没有同步 guard 阻止写操作；
+- Commit Panel 的 Submit/Amend/Stage All/Shelve 在 Update 中仍显示可用。
+
+**根因**：
+
+- 仓库写动作与 Update 没有共享同步所有权；
+- UI busy 同时承担反馈与并发门禁，但 React state 不能提供同步保证；
+- 写入口分散，缺少统一的 begin/end 边界。
+
+**修复**：
+
+- `editor-workspace.tsx` 使用 `beginCommitOperation()` /
+  `endCommitOperation()` 统一管理并发写 claim；
+- 所有原 `commitBusy` 写入口在第一个 await 前同步 claim；
+- Update 开始前要求 `commitOperationCountRef.current === 0`；
+- Update 新增 `repositoryUpdateGuardRef`，在 pull/reload 生命周期内持有；
+- Update 持有时，所有仓库写入口直接返回；
+- Commit Panel 新增 `workingTreeBusy`，Update 中禁用 Commit、Amend、
+  Stage All、Shelve 和快捷提交；
+- Commit Options 中 Apply Patch、Stage All、Stash、Shelve 同步禁用；
+- Project 单行和批量 Delete 都进入同一写入门禁。
+
+**回归测试**：
+
+```bash
+node --test tests/commit-update-blocks-repository-writes.test.mjs \
+  tests/commit-busy-operations-compose.test.mjs \
+  tests/commit-branch-menu-stale-request-does-not-overwrite-new-menu.test.mjs \
+  tests/commit-stash-shelve-menu-stale-request-isolation.test.mjs \
+  tests/search-directory-rules-respect-gitignore-and-project-menu.test.mjs \
+  tests/editor-multi-selection-drops-deleted-rows-falls-back-inside-existing.test.mjs
+npm test
+```
+
+- RED：Commit 写操作在途时 Update 仍发出 Host pull；
+- RED：Update 在途时 Stage 仍发出 Host stage；
+- RED：Update 在途时 Project Delete 仍发出文件删除；
+- GREEN：Update 只在没有 Commit 写 claim 时启动；
+- GREEN：Update guard 在 pull/reload 生命周期内持有，finally 释放；
+- GREEN：更新期间 Stage、Delete 和 Commit 写入口均拒绝进入；
+- Update 门禁定向 **5 pass / 0 fail**；
+- 完整 `npm test` **3558 pass / 0 fail**；
+- ESLint、**134** 个 source imports、TypeScript、Prettier、client build
+  consistency、`node --check`、`git diff --check` 通过；
+- `npm pack --dry-run` 通过，package **145 files**；
+- `lib/client.js` 重建后 **2507.7 KB / 2,567,864 bytes**。
+
+**长期约束**：
+
+- 同一工作树的 Update 与写操作必须共享同步 guard；
+- 所有仓库写入口必须在第一个 await 前 claim，finally 释放；
+- UI busy 只表达反馈，不能替代同步所有权；
+- Update 结束前，Commit、Stage、Rollback、Delete 等写入口必须保持拒绝；
+- Push 不占用 Commit busy，仍不得阻止本地 Commit 输入。
+
+## 2026-11-21 — Push Retry 未加入远程操作 single-flight
+
+**作用域**：Commit 的 Push、Push Retry、Fetch、Update Project、Commit
+Options、共享 Git 网络请求所有权与按钮禁用态。
+
+**症状/证据**：
+
+- Push 使用独立 `pushRetryGuardRef`，Fetch/Update 使用共享
+  `gitNetworkRequestGuardRef`；
+- Fetch 在途后启动 Push，会发出两个 Host 网络请求；
+- Push 在途后启动 Fetch/Update，也会继续发出第二个 Host 请求；
+- `pushBusy` 时 Commit Options 中 Fetch/Update 仍显示可用；
+- Fetch/Update 在途时 Push Retry 仍可进入。
+
+**根因**：
+
+- 三类操作都作用于同一仓库，却没有共享同步网络请求 claim；
+- UI busy 是异步反馈，不能阻止同帧交叉调用；
+- Push Retry 的禁用态只考虑 Commit busy 和仓库状态。
+
+**修复**：
+
+- Push、Fetch、Update 统一使用 `gitNetworkRequestGuardRef`；
+- 三者都在第一个 await 前 claim，成功/失败/取消统一释放；
+- Fetch/Update claim 时同时检查 `pushBusy`；
+- Commit Options 在 `pushBusy` 时禁用 Fetch/Update；
+- CommitPanel 新增 `networkBusy`，Fetch/Update 在途时禁用 Push Retry；
+- Push 仍保留独立 busy，不占用 Commit busy，不阻止本地 Commit 输入。
+
+**回归测试**：
+
+```bash
+node --test tests/commit-remote-network-single-flight.test.mjs \
+  tests/commit-change-group-menu-preserves-modes-current-check-mark.test.mjs \
+  tests/commit-retry-requests-single-flight.test.mjs \
+  tests/commit-retry-pending-preserves-button-focus.test.mjs \
+  tests/commit-non-git-workspace-shows-localized-not-managed-state.test.mjs \
+  tests/commit-committed-message-put-back-one-click.test.mjs \
+  tests/commit-push-retry-restores-tool-window-focus.test.mjs \
+  tests/editor-fetch-moves-behind-count-without-touching-working-tree.test.mjs \
+  tests/commit-git-actions-recover-repository-disappearance.test.mjs
+npm test
+```
+
+- RED：Fetch 在途后 Push 发出 2 个 Host 请求；
+- RED：Push 在途后 Fetch/Update 发出 2 个 Host 请求；
+- RED：Push 忙碌时 Commit Options 未禁用 Fetch/Update；
+- GREEN：三类远程操作共享一个同步 claim；
+- GREEN：失败 finally 释放 claim，后续 retry 可再次进入；
+- 远程网络/Retry/菜单/失败恢复定向 **36 pass / 0 fail**；
+- 完整 `npm test` **3553 pass / 0 fail**；
+- ESLint、**134** 个 source imports、TypeScript、Prettier、client build
+  consistency、`node --check`、`git diff --check` 通过；
+- `npm pack --dry-run` 通过，package **145 files**；
+- `lib/client.js` 重建后 **2506.6 KB / 2,566,791 bytes**。
+
+**长期约束**：
+
+- Push、Fetch、Update 等同一仓库远程操作必须共享同步 single-flight；
+- 任一远程操作在途时，其余远程入口不得再发出 Host 请求；
+- Push busy 不得重新耦合到 Commit busy，本地 Commit 可用性保持不变；
+- 远程操作失败后必须释放 claim，允许用户安全 retry。
+
+## 2026-11-21 — Commit Fetch/Update 可同帧并发
+
+**作用域**：Commit Options 的 Fetch、Update Project、React busy、
+同步 request claim、Git 网络操作互斥。
+
+**症状/证据**：
+
+- `fetchNow()` 与 `updateNow()` 都直接设置自己的 busy 后调用 Host；
+- 在同一 React 提交前连续触发两次，两次都能越过 busy 检查；
+- Fetch 在途时 Update 菜单仍可用，两个 Git 网络操作可同时发出；
+- 重复请求和交叉请求会让返回的 Git status、notice、error 互相覆盖。
+
+**根因**：
+
+- Fetch/Update 没有同步 in-flight claim；
+- `fetchBusy` 与 `updateBusy` 是异步 UI 反馈，不是并发门禁；
+- 两个操作没有共享“同一仓库一次只允许一个网络操作”的所有权。
+
+**修复**：
+
+- `editor-workspace.tsx` 新增共享 `gitNetworkRequestGuardRef`；
+- Fetch/Update 复用 `claimCommitRequestAttempt`，在第一个 await 前同步占有；
+- 任一操作在途时，同类重复和另一个网络操作直接返回；
+- 成功、失败和 finally 只由持有者释放 guard 与自身 busy；
+- Commit Options 中 Fetch/Update 在任一操作忙碌时同时禁用。
+
+**回归测试**：
+
+```bash
+node --test tests/commit-remote-network-single-flight.test.mjs \
+  tests/commit-change-group-menu-preserves-modes-current-check-mark.test.mjs \
+  tests/editor-fetch-moves-behind-count-without-touching-working-tree.test.mjs \
+  tests/commit-git-actions-recover-repository-disappearance.test.mjs \
+  tests/commit-retry-requests-single-flight.test.mjs
+npm test
+```
+
+- RED：同帧两次 Fetch 发出 2 个 Host fetch；
+- RED：同帧两次 Update 发出 2 个 Host pull；
+- RED：Fetch 在途时 Update 仍发出 Host pull；
+- GREEN：共享 guard 只允许一个请求；
+- GREEN：失败 finally 释放 guard，后续 retry 可再次发起；
+- Fetch/Update/菜单/失败重试定向 **20 pass / 0 fail**；
+- 完整 `npm test` **3549 pass / 0 fail**；
+- ESLint、**134** 个 source imports、TypeScript、Prettier、client build
+  consistency、`node --check`、`git diff --check` 通过；
+- `npm pack --dry-run` 通过，package **145 files**；
+- `lib/client.js` 重建后 **2506.4 KB / 2,566,543 bytes**。
+
+**长期约束**：
+
+- 同一仓库的 Fetch/Update 等网络操作必须共享同步 single-flight 所有权；
+- 异步 busy 只能表达反馈，不能替代第一个 await 前的同步 claim；
+- guard 必须在成功、失败和取消路径统一释放，失败后仍可 retry。
+
+## 2026-11-21 — Commit 共享 busy 被较早完成的操作清掉
+
+**作用域**：Commit 工具窗口的 checkout、branch、tag、stash、shelve、
+delete、stage、resolve、revision、reset、revert/cherry-pick、rollback、
+gitignore、Apply Patch 与 commit 共用 busy。
+
+**症状/证据**：
+
+- `commitBusy` 同时服务多个并发的 Git 动作；
+- 任一动作的 `finally` 都直接执行 `setCommitBusy(false)`；
+- 较早完成的动作会提前解锁仍在途的动作；
+- branch/stash/shelve 旧 request 的 `finally` 还以 request id 为条件，
+  旧请求成功/失败返回后可能不释放自己的 busy claim。
+
+**根因**：
+
+- 多个异步操作共同拥有一个视觉 busy 状态，却各自无条件清除；
+- request id 同时承担“响应所有权”和“busy 释放所有权”，把两个职责
+  错误绑定到一起。
+
+**修复**：
+
+- `editor-workspace.tsx` 将 React setter 改名为 `setCommitBusyState`；
+- 新增 `commitOperationCountRef` 与稳定 `setCommitBusy(boolean)`；
+- 每次 `true` 增加 claim，每次 `false` 减少 claim，归零才清除 busy；
+- branch/stash/shelve 的 request id 继续阻止旧响应写菜单/错误；
+- 这些 finally 改为无条件释放自身 claim，避免旧请求泄漏 busy。
+
+**回归测试**：
+
+```bash
+node --test tests/commit-busy-operations-compose.test.mjs \
+  tests/commit-stash-shelve-menu-stale-request-isolation.test.mjs \
+  tests/commit-branch-menu-stale-request-does-not-overwrite-new-menu.test.mjs \
+  tests/commit-committed-message-put-back-one-click.test.mjs \
+  tests/commit-changes-tree-exposes-busy-during-write.test.mjs \
+  tests/commit-git-actions-recover-repository-disappearance.test.mjs
+npm test
+```
+
+- RED：两次 `setCommitBusy(true)` 后一次 `false` 已提前变为 false；
+- RED：branch/stash/shelve 旧 request 的 guarded finally 不释放 claim；
+- GREEN：第二次 `false` 后 busy 才恢复；
+- GREEN：旧 request 仍不覆盖新菜单，但会释放自己的 claim；
+- Commit/分支/Stash/Shelve 定向 **14 pass / 0 fail**；
+- 完整 `npm test` **3545 pass / 0 fail**；
+- ESLint、**134** 个 source imports、TypeScript、Prettier、client build
+  consistency、`node --check`、`git diff --check` 通过；
+- `npm pack --dry-run` 通过，package **145 files**；
+- `lib/client.js` 重建后 **2506.0 KB / 2,566,103 bytes**。
+
+**长期约束**：
+
+- 共享视觉 busy 必须由所有并发操作共同计数，不允许单个 finally 无条件清除；
+- request id 只负责响应归属，不得阻止在途操作释放自己的 busy claim；
+- 计数归零前，所有依赖 Commit busy 的写入口必须保持禁用。
+
+## 2026-11-21 — Terminal 共享 busy 被较早完成的操作清掉
+
+**作用域**：Terminal create、New Predefined Session shell menu、共享 busy、
+New/菜单按钮 disabled 与 aria-busy。
+
+**症状/证据**：
+
+- `createTerminal()` 与 `openShellMenu()` 都直接 `setBusy(true/false)`；
+- 两个操作并发时，任一 finally 都可能把 busy 设回 false；
+- 另一个操作仍在途，但 New 和 Predefined Session 会提前重新启用；
+- 同步 create guard 与 shell request id 只阻止重复/旧响应，没有协调共享
+  busy 状态。
+
+**根因**：
+
+- 多个异步操作共同拥有一个视觉 busy 状态，却各自无条件清除；
+- 没有引用计数或多操作所有权模型。
+
+**修复**：
+
+- `TerminalPanel` 新增 `busyOperationCountRef`；
+- 新增唯一 `beginBusyOperation()` / `endBusyOperation()`；
+- create 在取得 create guard 后 begin，finally end；
+- shell menu 每个请求 begin，finally end；
+- 只有计数归零时才 `setBusy(false)`。
+
+**回归测试**：
+
+```bash
+node --test tests/terminal-busy-operations-compose.test.mjs \
+  tests/terminal-create-single-flight.test.mjs \
+  tests/terminal-shell-menu-stale-response-does-not-overwrite-new-menu.test.mjs \
+  tests/terminal-tablist-exposes-create-busy-state.test.mjs \
+  tests/terminal-host-restart-restores-profile.test.mjs
+npm test
+```
+
+- RED：两次 begin、一次 end 后 busy 已提前变 false；
+- GREEN：第一次 end 后仍 busy，第二次 end 才恢复；
+- GREEN：create 与 shell menu 都使用统一 busy operation helpers；
+- Terminal busy/create/menu 定向 **11 pass / 0 fail**；
+- 完整 `npm test` **3543 pass / 0 fail**；
+- ESLint、TypeScript、134 个 source imports、Prettier、client build
+  consistency、`node --check`、`git diff --check` 通过；
+- `npm pack --dry-run` 通过，package **145 files**；
+- `lib/client.js` 重建后 **2505.7 KB / 2,565,813 bytes**。
+
+**长期约束**：
+
+- 共享视觉 busy 必须由所有并发操作共同计数，不允许单个 finally 无条件清除；
+- 操作级 guard/request id 负责防重复和响应所有权，busy 计数负责反馈组合；
+- 计数归零前，所有依赖 busy 的入口必须保持禁用。
+
+## 2026-11-21 — Terminal create 同帧重复创建
+
+**作用域**：Terminal shell create、New 双击/快捷键、shell menu 创建、
+Duplicate/Open in Terminal、profile restore。
+
+**症状/证据**：
+
+- `busy` 是 React state，按钮 `disabled` 要等下一次 render 才生效；
+- 同一事件帧内多个 `createTerminal()` 调用都能看到旧的 busy=false；
+- 每个调用都会发 Host create，可能创建出非预期的额外 PTY；
+- profile restore 需要串行创建多个 shell，不能被全局单飞错误阻塞。
+
+**根因**：
+
+- create 只有异步 UI busy 状态，没有同步 in-flight guard；
+- 同帧触发的多个入口都越过旧 render 快照。
+
+**修复**：
+
+- `TerminalPanel` 新增 `createInFlightRef`；
+- 在第一个 await 前同步占有 create 权限；
+- 在途时第二次调用直接返回 `null`，不发送 Host create；
+- 成功/失败都在 finally 释放 guard；
+- restore 的 `await createTerminal()` 串行循环仍能逐项创建。
+
+**回归测试**：
+
+```bash
+node --test tests/terminal-create-single-flight.test.mjs \
+  tests/terminal-host-restart-restores-profile.test.mjs \
+  tests/terminal-hitting-shell-cap-says-what-not-what-host-rejected.test.mjs \
+  tests/terminal-duplicate-terminal-opens-same-directory-not-workspace-root.test.mjs \
+  tests/terminal-tablist-exposes-create-busy-state.test.mjs
+npm test
+```
+
+- RED：同帧两次 create 发出两个 Host create；
+- GREEN：第二次在途调用返回 `null`，只发一个 create；
+- GREEN：失败后 guard 释放，retry 可再次创建；
+- Terminal create/restore 定向 **12 pass / 0 fail**；
+- 完整 `npm test` **3541 pass / 0 fail**；
+- ESLint、TypeScript、134 个 source imports、Prettier、client build
+  consistency、`node --check`、`git diff --check` 通过；
+- `npm pack --dry-run` 通过，package **145 files**；
+- `lib/client.js` 重建后 **2505.2 KB / 2,565,345 bytes**。
+
+**长期约束**：
+
+- 防重复提交必须在第一个 await 前完成同步占有；
+- UI busy/disabled 是反馈，不是并发门禁；
+- profile restore 通过 await 串行创建，不能把整个 restore 过程当成一个
+  create intent。
+
+## 2026-11-21 — Terminal rename Enter/Blur 重复提交
+
+**作用域**：Terminal tab inline rename、Enter/Blur 提交、旧响应关闭输入框、
+rename error 状态。
+
+**症状/证据**：
+
+- Enter 和失焦都会调用 `commitRename()`；
+- 请求在 await 期间输入框仍存在，点击其他位置会再次提交同一 rename；
+- 旧请求成功后无条件 `setRenaming(null)`，会关闭用户后来打开的另一个 tab
+  rename；
+- 旧失败也可覆盖较新的 rename 操作。
+
+**根因**：
+
+- rename 没有 in-flight 去重；
+- 成功后没有检查当前 renaming 是否仍是同一 tab 和同一标题；
+- 失败和 finally 没有请求所有权判断。
+
+**修复**：
+
+- `TerminalPanel` 新增 `renameInFlightRef`；
+- 用 id + title 组成 in-flight key，同一 rename 只发一个 Host 请求；
+- 成功后只在当前 renaming 仍是同一 tab、同一值时关闭输入；
+- 旧失败只在它仍拥有最新 rename 操作时写 error；
+- finally 只清理自己拥有的 in-flight key。
+
+**回归测试**：
+
+```bash
+node --test tests/terminal-rename-enter-blur-single-flight.test.mjs \
+  tests/terminal-shell-menu-stale-response-does-not-overwrite-new-menu.test.mjs
+npm test
+```
+
+- RED：Enter 后 awaiting 期间再次 commit，会发出第二个 rename；
+- RED：旧 rename success 会关闭后来打开的另一个 tab rename；
+- GREEN：同一 rename 只发一次，旧成功保留新输入；
+- Terminal rename / shell menu 定向 **4 pass / 0 fail**；
+- 完整 `npm test` **3539 pass / 0 fail**；
+- ESLint、TypeScript、134 个 source imports、Prettier、client build
+  consistency、`node --check`、`git diff --check` 通过；
+- `npm pack --dry-run` 通过，package **145 files**；
+- `lib/client.js` 重建后 **2505.0 KB / 2,565,147 bytes**。
+
+**长期约束**：
+
+- Enter 与 Blur 共享同一 rename intent 时只能有一个在途请求；
+- 旧响应不得关闭新的 inline editor；
+- inline edit 的完成状态必须同时匹配目标 identity 和当前编辑值。
+
+## 2026-11-21 — Terminal refresh 旧响应覆盖最新主机状态
+
+**作用域**：Terminal `refresh()`、自动刷新/不可用 retry/手动刷新、
+terminal dock reconciliation、cwd/README 元数据裁剪、loaded/error 状态。
+
+**症状/证据**：
+
+- `refresh()` 每次直接请求 `callTerminal({op:'list'})`；
+- 成功路径直接写 available、terminals、editorIds、activeId、error；
+- 失败路径直接写 error，finally 直接写 loaded；
+- 两次 refresh 乱序完成时，旧列表可回滚新主机状态，旧失败可污染新成功。
+
+**根因**：
+
+- Terminal refresh 没有 request generation；
+- Host 返回和 UI 写入之间没有所有权校验；
+- loaded 完成信号也由任意请求触发，而不是最新请求。
+
+**修复**：
+
+- `TerminalPanel` 新增 `refreshRequestRef`；
+- `refresh()` 在开始时分配最新 request id；
+- 成功、失败和 finally 只有在 request id 仍为当前值时才写
+  available/terminals/editorIds/activeId/error/loaded；
+- 旧请求仍自然结束，但不回写 UI。
+
+**回归测试**：
+
+```bash
+node --test tests/terminal-refresh-stale-response-does-not-overwrite-latest-host-state.test.mjs \
+  tests/terminal-close-prunes-stale-cwd-metadata.test.mjs \
+  tests/terminal-host-restart-restores-profile.test.mjs \
+  tests/terminal-unavailable-offers-host-refresh.test.mjs
+npm test
+```
+
+- RED：旧成功在较新成功之后回滚 `available/terminals/activeId`；旧失败
+  覆盖当前 success 的 error；
+- GREEN：只有最新 refresh 能写 list、available、loaded 和 error；
+- Terminal refresh 定向 **11 pass / 0 fail**；
+- 完整 `npm test` **3537 pass / 0 fail**；
+- ESLint、TypeScript、134 个 source imports、Prettier、client build
+  consistency、`node --check`、`git diff --check` 通过；
+- `npm pack --dry-run` 通过，package **145 files**；
+- `lib/client.js` 重建后 **2504.5 KB / 2,564,602 bytes**。
+
+**长期约束**：
+
+- Host 列表请求的成功、失败和完成信号必须共享 request generation；
+- 旧响应可以自然结束，但不能重新触发 reconciliation 或元数据裁剪；
+- loaded 完成状态只属于最新刷新请求。
+
+## 2026-11-21 — Terminal shell menu 旧响应覆盖新菜单
+
+**作用域**：Terminal “New Predefined Session” shell 列表菜单、
+`callTerminal({op:'shells'})`、busy/error/menu 状态所有权。
+
+**症状/证据**：
+
+- `openShellMenu()` 每次直接请求 shell 列表，没有 request generation；
+- 连续打开两次菜单时，旧请求晚到的成功可以覆盖新菜单；
+- 旧请求晚到的失败会把 error 写到已经成功的新菜单上；
+- 旧请求的 `finally` 还可提前清除新请求仍在使用的 busy 状态。
+
+**根因**：
+
+- Terminal 的菜单请求没有校验响应是否仍属于最新一次打开操作；
+- 成功、失败和 finally 都直接写 UI 状态；
+- 与 Commit branch/stash 菜单已有的 generation 隔离模式不一致。
+
+**修复**：
+
+- `TerminalPanel` 新增 `shellMenuRequestRef`；
+- `openShellMenu()` 在开始时分配最新 request id；
+- 成功、失败和 finally 只有在 request id 仍为当前值时才更新
+  menu/error/busy；
+- 不改变 Host 协议、shell 排序、菜单文案或创建终端流程。
+
+**回归测试**：
+
+```bash
+node --test tests/terminal-shell-menu-stale-response-does-not-overwrite-new-menu.test.mjs \
+  tests/terminal-tab-menu-unavailable-idea-actions-visible-but-disabled.test.mjs \
+  tests/terminal-tablist-exposes-create-busy-state.test.mjs
+npm test
+```
+
+- RED：两次 shell 请求乱序完成时，旧成功先写菜单，旧失败随后覆盖 error；
+- GREEN：只有最新请求能写 menu/error/busy；
+- Terminal shell menu 定向 **5 pass / 0 fail**；
+- 完整 `npm test` **3535 pass / 0 fail**；
+- ESLint、TypeScript、134 个 source imports、Prettier、client build
+  consistency、`node --check`、`git diff --check` 通过；
+- `npm pack --dry-run` 通过，package **145 files**；
+- `lib/client.js` 重建后 **2504.2 KB / 2,564,327 bytes**。
+
+**复核备注**：
+
+- 上轮怀疑 `closeOtherTerminals()` 重复调用 `rememberClosed()`；重新检查
+  后确认只有一次调用，疑似重复来自两段重叠 `sed` 输出的同一行；
+- 该路径未修改，避免制造无意义变更。
+
+**长期约束**：
+
+- 菜单请求的成功、失败和 busy 清理必须共享同一个 request generation；
+- UI disabled/busy 只是交互提示，晚到响应仍必须由请求所有权隔离；
+- 连续打开菜单不得让旧失败污染新内容或提前结束新请求的 busy 状态。
+
+## 2026-11-21 — Find 文件候选 effect 自我触发重复遍历
+
+**作用域**：Find in Files 的 `files` 范围、workspace 文件候选请求、
+includeExcluded、候选 scope 派生状态。
+
+**症状/证据**：
+
+- 文件候选请求成功后调用
+  `setFindToolFileCandidatesScope(includeExcluded)`；
+- `findToolFileCandidatesScope` 同时位于该 effect 的依赖数组；
+- 首次打开 Files 范围时 scope 从 `null` 变为 `false/true`，effect 会因
+  自己写入的派生状态再次执行；
+- 结果是首次打开可能连续发起两次完整 workspace 文件遍历。
+
+**根因**：
+
+- 请求输入和结果派生状态被放在同一个依赖数组中；
+- 真正决定请求内容的 `findTool?.includeExcluded` 已经是独立依赖；
+- `findToolFileCandidatesScope` 只用于判断旧候选是否属于当前 scope，
+  不应当反向触发候选遍历。
+
+**修复**：
+
+- 从候选请求 effect 的依赖数组移除
+  `findToolFileCandidatesScope`；
+- 保留 `findToolOpen`、`findToolSearchScopeMode`、
+  `findTool?.includeExcluded`、`findTool?.fileMask`、`searchRevision`
+  和 `searchDirectoryRules` 等真实输入；
+- 本地候选过滤 effect 继续使用 scope 状态，保持旧候选不跨 scope 泄漏。
+
+**回归测试**：
+
+```bash
+node --test tests/search-find-file-candidates-effect-does-not-self-trigger.test.mjs \
+  tests/search-find-file-scope-mask-filters-before-cap.test.mjs \
+  tests/search-find-file-scope-filters-file-paths.test.mjs \
+  tests/search-directory-rules-respect-gitignore-and-project-menu.test.mjs \
+  tests/search-gitignore-change-invalidates-project-speed-search.test.mjs
+npm test
+```
+
+- RED：候选请求 effect 的依赖包含派生
+  `findToolFileCandidatesScope`；
+- GREEN：请求 effect 只保留真实输入，派生 scope 不再自我触发；
+- Find / Files / search scope 定向 **25 pass / 0 fail**；
+- 完整 `npm test` **3533 pass / 0 fail**；
+- ESLint、TypeScript、134 个 source imports、Prettier、client build
+  consistency、`node --check`、`git diff --check` 通过；
+- `npm pack --dry-run` 通过，package **145 files**；
+- `lib/client.js` 重建后 **2503.9 KB / 2,564,042 bytes**。
+
+**长期约束**：
+
+- effect 依赖数组只能包含真实请求输入，不得包含该 effect 自己写入的
+  派生状态；
+- “请求结果是否属于当前 scope”是展示过滤条件，不是重新遍历的触发器；
+- 性能回归应优先断言请求依赖和真实行为边界，而不是只看最终列表相等。
+
+## 2026-11-21 — Find 保留结果跨 generation 仍可触发 Replace
+
+**作用域**：Find in Files 的 Replace、Replace All、
+`searchGeneration`/`loadedGeneration`、目录规则、Git ignore revision、
+dirty Monaco 写入。
+
+**症状/证据**：
+
+- 目录规则或 Git ignore revision 变化时，Find 会保留旧结果用于平滑展示；
+- `findToolAfterSearchScopeChange()` 递增 `searchGeneration`，但不立即清空
+  `matches`，也不保证同步设置 `loading`；
+- Replace 按钮只检查 `loading/error/matchCount`，没有检查旧结果是否仍
+  属于当前 generation；
+- dirty Monaco 目标不会经过 Host 的目录规则二次校验，旧结果在 effect
+  启动前仍存在可写入窗口。
+
+**根因**：
+
+- 搜索结果可见性使用 `searchGeneration`，写入门禁却仍依赖
+  `loading/error/matchCount`；
+- `loadedGeneration !== searchGeneration` 的 retained-result 状态只用于
+  展示，没有统一进入 Replace 的可用性判定；
+- 两个替换入口没有对同一代次条件做防御性检查。
+
+**修复**：
+
+- `find-tool.ts` 新增 `findToolResultsAreCurrent()`，统一比较
+  `searchGeneration` 与 `loadedGeneration`；
+- Replace/Replace All 的 disabled、opacity 和 tooltip reason 均接入该
+  判定；generation 不匹配时明确显示“搜索结果仍在加载”；
+- `replaceInFindTool()` 和 `replaceFindToolOccurrence()` 在规划和读取
+  target 前执行同一个防御性 guard；
+- 旧结果仍保持可见，但在新 generation 完成前不可写。
+
+**回归测试**：
+
+```bash
+node --test tests/search-replace-disabled-stale-generation.test.mjs \
+  tests/search-disabled-replace-actions-explain-why-they-run.test.mjs \
+  tests/search-find-scope-edits-retain-visible-result-set-next-search.test.mjs \
+  tests/search-replace-disabled-host-write-new-search-generation-busy.test.mjs \
+  tests/search-directory-rules-respect-gitignore-and-project-menu.test.mjs \
+  tests/search-gitignore-change-invalidates-project-speed-search.test.mjs
+npm test
+```
+
+- RED：`searchGeneration=5`、`loadedGeneration=4` 时结果被判为 current，
+  Replace 仍可用；
+- GREEN：结果判为 stale，Replace disabled reason 为
+  `editor.findReplaceLoading`；
+- GREEN：两个替换入口都存在同一 generation guard；
+- Find / Replace / search scope 定向 **31 pass / 0 fail**；
+- 完整 `npm test` **3532 pass / 0 fail**；
+- ESLint、TypeScript、134 个 source imports、Prettier、client build
+  consistency、`node --check`、`git diff --check` 通过；
+- `npm pack --dry-run` 通过，package **145 files**；
+- `lib/client.js` 重建后 **2504.0 KB / 2,564,077 bytes**。
+
+**长期约束**：
+
+- 所有保留旧结果的交互面都必须把“可见”与“可写”分开；
+- 写入门禁必须绑定产生结果时的 generation，而不是只看 loading/error；
+- UI disabled 只是提示，真实写入入口仍必须保留同一防御性 guard。
+
+## 2026-11-21 — File Mask 变更未立即接管旧 query fallback
+
+**作用域**：Search Everywhere Files、File Mask 防抖、远程 query fallback、
+请求取消和候选缓存。
+
+**症状/证据**：
+
+- `updateFileMask()` 只在 180ms 后调用 `requestFiles()`；
+- `fileMaskRef.current` 也等到这次调用才更新；
+- 用户在防抖窗口内继续修改 query 时，`scheduleHostQuery()` 仍可能使用
+  旧 mask；
+- 已在途的旧 mask fallback 不会立即 abort，既浪费 Host 遍历，也可能在
+  mask 切换后晚到并参与候选合并。
+
+**根因**：
+
+- File Mask 的 UI state、内部 `fileMaskRef` 和 query fallback 生命周期
+  分属三个不同时刻；
+- 防抖只推迟了候选文件请求，没有同步建立新 mask 的请求所有权；
+- 旧 query 的 abort 要等 180ms 后的 `requestFiles()` 才发生。
+
+**修复**：
+
+- `updateFileMask()` 在同一个同步边界内更新 `fileMaskRef.current`；
+- 立即清空 `remoteFilesRef.current` 并调用 `cancelPendingQuery()`；
+- 保留既有 180ms 文件候选刷新防抖；
+- 新 mask 的候选请求完成后仍按既有流程启动当前 query fallback。
+
+**回归测试**：
+
+```bash
+node --test tests/search-everywhere-file-mask-filters-before-cap.test.mjs \
+  tests/search-superseded-search-everywhere-file-list-request-aborted.test.mjs \
+  tests/search-everywhere-file-candidates-preserve-truncation.test.mjs \
+  tests/search-everywhere-find-expose-file-mask-input.test.mjs
+npm test
+```
+
+- RED：mask 改为 `*.ts` 后 `fileMaskRef` 仍为空，旧 query 未取消，
+  `remoteFilesRef` 仍保留旧候选；
+- GREEN：mask 同步生效、旧 query abort、远程候选清空，180ms 后只发起
+  新 mask 候选请求；
+- Search Everywhere / Files / File Mask 定向 **18 pass / 0 fail**；
+- 完整 `npm test` **3529 pass / 0 fail**；
+- ESLint、TypeScript、134 个 source imports、Prettier、client build
+  consistency、`node --check`、`git diff --check` 通过；
+- `npm pack --dry-run` 通过，package **145 files**；
+- `lib/client.js` 重建后 **2503.0 KB / 2,563,070 bytes**。
+
+**运行态证据**：
+
+- Harness 原生 Editor 打开 Find in Files 的“文件”范围；
+- 临时 fixture 含 `mask-switch-target.ts` 与
+  `mask-switch-target.tsx`；
+- 查询 `mask-switch-target`、mask `*.ts` 时命中 `.ts`；
+- 不重开查询直接改为 `*.tsx`，结果立即切换为 `.tsx`；
+- 临时 fixture 已删除。
+
+**长期约束**：
+
+- 防抖只能延迟成本较高的 I/O，不能延迟新过滤条件对请求所有权和缓存
+  的接管；
+- 任何改变搜索过滤条件的同步动作都必须先使旧 in-flight 请求失效；
+- UI state、内部 ref 和取消代次必须在一个边界内保持一致。
+
+## 2026-11-21 — Find 文件范围在候选截断后才应用 File Mask
+
+**作用域**：Find in Files 的“文件”范围、File Mask、Host 文件候选预算、
+本地文件名匹配。
+
+**症状/证据**：
+
+- 工作区中包含 2001 个不匹配的 `.md` 文件和一个目标
+  `zz-visible.ts`；
+- Find 的“文件”范围输入 `zz-visible.ts`、关闭 File Mask 时显示
+  `0 个结果`，并提示文本搜索结果已截断；
+- 同一查询启用 `*.ts` 后立即显示 `1 个结果`，命中
+  `zz-visible.ts`；
+- 说明目标并非真实不存在，而是 Host 先截断候选，客户端本地 mask
+  过滤无法恢复已省略的路径。
+
+**根因**：
+
+- Find 的 `files` 范围请求 Host `op: 'files'` 时没有携带 `fileMask`；
+- Host 先按 2000/5000 文件上限截断，客户端随后才在返回列表中执行
+  `findFilePathMatches(..., { fileMask })`；
+- 大量不匹配文件排在目标之前时，mask 匹配项永久丢失。
+
+**修复**：
+
+- 在 `search-scope.ts` 新增
+  `findToolFileCandidatesRequest()`，统一构造 Find 文件候选请求；
+- `editor-workspace.tsx` 在调用 Host 前传入标准化
+  `normalizeFileExtensionFilter(findTool?.fileMask)`；
+- Host 继续在文件预算前应用 mask，客户端保留现有文件名匹配和预览语义；
+- File Mask 变化成为候选 effect 的显式依赖，切换 mask 会重新加载候选。
+
+**回归测试**：
+
+```bash
+node --test tests/search-find-file-scope-mask-filters-before-cap.test.mjs \
+  tests/search-find-file-scope-filters-file-paths.test.mjs \
+  tests/search-everywhere-file-mask-filters-before-cap.test.mjs \
+  tests/search-everywhere-find-expose-file-mask-input.test.mjs
+npm test
+```
+
+- RED：`findToolFileCandidatesRequest` 缺失，且无 mask 时目标被文件预算
+  截断；
+- GREEN：Find / File Mask 定向 **16 pass / 0 fail**；
+- 完整 `npm test` **3528 pass / 0 fail**；
+- ESLint、TypeScript、134 个 source imports、Prettier、client build
+  consistency、`node --check`、`git diff --check` 通过；
+- `npm pack --dry-run` 通过，package **145 files**；
+- `lib/client.js` 重建后 **2502.8 KB / 2,562,901 bytes**。
+
+**运行态证据**：
+
+- Harness 原生 Editor 打开 Find in Files；
+- 临时 fixture 含 2001 个 `.md` 噪声文件与一个 `zz-visible.ts`；
+- 文件范围查询 `zz-visible.ts`、关闭 File Mask：**0 个结果**，显示
+  “文本搜索结果已截断”；
+- 同一查询启用 `*.ts`：**1 个结果**，命中
+  `tmp-find-mask-cap-hIMNpa/zz-visible.ts`；
+- 临时 fixture 已删除。
+
+**长期约束**：
+
+- 所有会缩小候选集合的过滤条件都必须在 Host 文件预算前应用；
+- 客户端本地过滤只能补充展示语义，不能修复已经被 Host 省略的路径；
+- File Mask、目录规则、Git ignore 和 scope 必须继续走各自唯一的请求模型，
+  不在 UI 层复制路径遍历。
+
+## 2026-11-21 — Harness 原生 ⌘⇧A 抢走 Monaco Find Action
+
+**作用域**：Editor 工作台 Find Action 快捷键、Monaco 编辑器内部焦点、
+Search Everywhere、Harness Desktop 原生菜单。
+
+**症状/证据**：
+
+- Monaco 已聚焦时，按 IDEA 默认 macOS `⌘⇧A` 不打开 Search Everywhere，
+  而是由 Harness 宿主直接归档当前会话；
+- 页面 JavaScript 收不到该按键，无法在插件内 `preventDefault()`；
+- Monaco 的实际焦点在内部隐藏 `textarea`，旧的 child-context 守卫把
+  `textarea` 当成普通输入控件，因此即使换成宿主允许的 chord，Find
+  Action 也会被错误拦截；
+- Harness 原生窗口实测 `⇧⌘P` 能打开 Search Everywhere，并显示 33 个
+  Action 结果。
+
+**根因**：
+
+- Harness 在浏览器页面之前注册了原生 `⌘⇧A` 菜单 accelerator；
+- Find Action 的 child-context 判断只按 `textarea` 标签让位，没有区分
+  Monaco 的隐藏编辑 textarea 与真正的普通输入框。
+
+**修复**：
+
+- `findActionShortcutBlockedByChildContext()` 放行 `.monaco-editor` 内的
+  编辑控件，同时继续让 Terminal、Changes、Log、Project tree 和普通输入框
+  保留自己的按键语义；
+- 新增 `findActionShortcutLabel(macPlatform)`，macOS 可见主快捷键改为
+  IDEA 的等价 `⇧⌘P`，非 macOS 保持 `⌃⇧A`；
+- 全局匹配器仍兼容 `⌘⇧A` 与 `⌘⇧P`，但不再把宿主无法送达的
+  `⌘⇧A` 宣传为 macOS 可用主 chord。
+
+**回归测试**：
+
+```bash
+node --test tests/search-find-action-shortcut-works-inside-monaco.test.mjs \
+  tests/search-find-action-shortcut-follows-idea-default-macos-system-shortcuts.test.mjs
+npm test
+```
+
+- Find Action / foundation / Actions 定向 **15 pass / 0 fail**；
+- 完整 `npm test` **3527 pass / 0 fail**；
+- ESLint、TypeScript、134 个 source imports、Prettier、client build
+  consistency、`node --check`、`git diff --check` 和
+  `npm pack --dry-run` 通过；
+- package **145 files**，`lib/client.js` **2501.8 KB**。
+
+**运行态证据**：
+
+- Harness 重启后 Host PID `71916` 监听 `3081`；
+- 在 Monaco 聚焦状态按 `⇧⌘P`，Search Everywhere 打开并选中“操作”页；
+- “查找操作…”的可见快捷键显示为 `⇧⌘P`；
+- `⌘⇧A` 仍会归档会话，属于不可由页面覆盖的宿主级冲突。
+
+**长期约束**：
+
+- Web 插件不能假设可以拦截 Harness 原生窗口 accelerator；
+- Monaco 的隐藏 textarea 属于编辑器自身，不得套用普通输入框的让位规则；
+- 可见快捷键必须反映宿主真实可送达、可工作的 chord，兼容旧 chord 不等于
+  可以继续宣传它。
+
+## 2026-11-21 — 新建目录中的 .gitignore 复用旧搜索缓存
+
+**作用域**：WorkspaceWatcher、macOS basename-only FSEvents、Git ignore
+revision、Find in Files、Replace All、Search Everywhere 文件候选缓存。
+
+**症状/证据**：
+
+- Find in Files 先建立 ignore 缓存后，再创建
+  `dsh-cache-probe/.gitignore` 和 `ignored/hidden.txt`；
+- 搜索 `DSH_CACHE_NEW` 同时返回 `ignored/hidden.txt` 与
+  `visible.txt`；
+- Git 自身已正确识别 ignore：
+  `git check-ignore -v --no-index` 命中
+  `dsh-cache-probe/.gitignore:1:ignored/`；
+- 直接调用 Host `searchWorkspaceText(..., { respectGitIgnore: true })`
+  只返回 `visible.txt`，证明文件遍历与 Git ignore 语义本身正确；
+- 重新写入 `.gitignore` 后结果立即变为 1 个文件，说明普通文件变更路径
+  能刷新，缺失的是“目录创建可能新增 `.gitignore`”的缓存失效信号。
+
+**根因**：
+
+- macOS FSEvents 可只上报目录 basename，Host 事件只有
+  `paths: ['dsh-cache-probe']`；
+- 客户端 `workspaceChangeInvalidatesSearchScope()` 只识别明确的
+  `.gitignore` / `.git/info/exclude` / `.git/index` 路径；
+- 目录创建事件因此没有递增 search revision，后续搜索继续复用旧 ignore
+  缓存，直到 `.gitignore` 文件本身再次发生变更。
+
+**修复**：
+
+- `WorkspaceWatcher.record()` 增加
+  `searchScopeMayHaveChanged` 聚合状态；
+- recursive watcher 对仅含 basename 的路径先执行轻量 `lstat`；
+- 目录、已删除或无法判定的路径设置该信号，因为路径可能是刚创建且包含
+  `.gitignore` 的目录；普通 basename-only 文件事件不失效缓存；
+- change frame 携带
+  `searchScopeMayHaveChanged: true`；
+- Editor watcher handler 在既有明确 Git 路径判断之外，收到该信号也递增
+  `searchRevision`；
+- 缓存键、Git ignore 扫描和搜索 revision 生命周期保持唯一实现。
+
+**回归测试**：
+
+```bash
+node --test tests/search-gitignore-directory-creation-invalidates-cache.test.mjs \
+  tests/search-gitignore-change-invalidates-project-speed-search.test.mjs \
+  tests/search-directory-rules-respect-gitignore-and-project-menu.test.mjs \
+  tests/project-watcher-prefers-one-recursive-handle-over-per-directory-handles.test.mjs
+npm test
+```
+
+- RED：basename-only 目录事件缺少 `searchScopeMayHaveChanged`；
+- RED：客户端收到该信号时 revision 仍不增加；
+- GREEN：目录创建事件带信号，revision 从 4 增至 5；
+- GREEN：普通 basename-only 文件事件保持 `searchScopeMayHaveChanged=false`；
+- 新增 watch signal 定向 **3 pass / 0 fail**；
+- watcher、目录规则与搜索组合定向 **13 pass / 0 fail**；
+- 搜索、Git ignore、目录规则与 watcher 组合定向 **27 pass / 0 fail**；
+- 完整 `npm test` **3523 pass / 0 fail**；
+- ESLint、134 个 source imports、TypeScript、Prettier、
+  client build consistency、`node --check`、`git diff --check` 通过；
+- `npm pack --dry-run`：**145 files**；
+- `lib/client.js` **2500.6 KB**；
+- `editor-workspace.tsx` **12560 行**。
+
+**运行态验证**：
+
+- Harness 重启为新 Host PID `62916`，监听 `3081`；
+- 先搜索建立缓存，再新建带 `.gitignore` 的目录；
+- Find 自动刷新后只返回 `visible.txt` 的 **1 处匹配 / 1 个文件**；
+- Replace All 只改动 `visible.txt`，ignored 文件保持原内容；
+- Host Undo 恢复后，全部临时 fixture 已清理。
+- `lstat` 收紧后再次重启并重复“先建缓存、后建目录”场景，Find 仍只返回
+  `visible.txt` 的 **1 处匹配 / 1 个文件**。
+
+**长期约束**：
+
+- 目录创建事件也必须是 Git ignore revision 的潜在失效源；
+- FSEvents/平台 watcher 信息不足时，应采用保守失效，而不是复用可能过期
+  的 ignore 缓存；
+- 缓存失效信号必须由 watcher 事件边界统一产生，搜索调用方不得各自轮询
+  或复制 Git ignore 扫描。
+
+## 2026-11-21 — Move to 完成后焦点跌到页面根节点
+
+**作用域**：Project tool window、F6 / Move to…、拖放移动、单文件与批量
+移动、MoveToPicker 卸载、焦点恢复、折叠目标目录。
+
+**症状/证据**：
+
+- 原生 Harness 中多选文件执行 `Move to…` 并成功移动后，文件系统内容与
+  Project 刷新均正确；
+- Accessibility Tree 的 focused element 从移动后的选行变为整个 HTML
+  content，后续树方向键、Shift+F10 和上下文菜单失去键盘归属；
+- IDEA 在 Move Refactoring 完成后保持 Project tree 键盘所有权。
+
+**根因**：
+
+- MoveToPicker 选择目标后立即卸载自身输入框；
+- `moveEntry` 完成 `refreshTree()` 和 `loadGit()` 后没有主动恢复 Project
+  tree 焦点；
+- 原实现的成功分支、冲突拒绝分支和异常分支没有统一焦点收敛出口。
+
+**修复**：
+
+- `moveEntry` 在既有移动逻辑外增加单一 `finally`；
+- 所有移动结果完成后调用 `focusProjectAfterOption()`；
+- 复用 Project Options 已验证的立即加 120ms 二次焦点恢复，不复制焦点
+  策略；
+- F6 与拖放共用同一移动入口，修复保持单一职责。
+
+**回归测试**：
+
+```bash
+node --test tests/project-move-to-completion-returns-tree-focus.test.mjs \
+  tests/project-remappathaftermove-handles-exact-files-moved-directory-descendants.test.mjs
+npm test
+```
+
+- RED：成功移动缺少 `focus`，冲突拒绝时焦点调用数为 0；
+- GREEN：成功顺序为 `rename -> refresh -> git -> focus`；
+- GREEN：冲突拒绝也恢复 Project tree 焦点；
+- 新增定向 **2 pass / 0 fail**；
+- 移动、路径 remap、Project 快捷键相关定向 **29 pass / 0 fail**；
+- 完整 `npm test` **3520 pass / 0 fail**；
+- ESLint、134 个 source imports、TypeScript、Prettier、
+  client build consistency、`node --check`、`git diff --check` 通过；
+- `npm pack --dry-run`：**145 files**；
+- `lib/client.js` **2500.5 KB**；
+- `editor-workspace.tsx` **12554 行**。
+
+**运行态验证**：
+
+- Harness 重启为新 Host PID `38271` 并监听 `3081`；
+- 原生 Editor 中重新打开临时 fixture，键盘执行 `Move to…`；
+- 移动完成后 focused element 为 `Project` outline，不再是 HTML/body；
+- 临时 fixture 已清理。
+
+**长期约束**：
+
+- 关闭键盘发起的模态编辑器后，焦点必须回到发起工作流的业务 surface；
+- 异步文件操作要在共享操作完成边界统一恢复焦点，不能只在单个调用点
+  打补丁；
+- 成功、冲突拒绝和异常路径都必须有同一焦点收敛出口；
+- 移动后的目标路径可能暂未渲染，焦点回落必须支持 Project tree 容器。
+
+## 2026-11-21 — Project Options 选中态只有视觉勾选没有复选框语义
+
+**作用域**：Project Behavior/Appearance 菜单、Sort By、Folders Always on
+Top、`project-options-menu.ts`、ContextMenu accessibility。
+
+**症状/证据**：
+
+- Project toggle 与排序项仅在 shortcut 列放 `✓`；
+- Accessibility Tree 旧状态只暴露普通菜单项文本，没有 checked value；
+- 键盘/读屏用户无法判断当前 Project 选项是否启用。
+
+**根因**：
+
+- `ProjectMenuItem` 没有 `active` 字段；
+- ContextMenu 只在 `typeof item.active === 'boolean'` 时设置
+  `role=menuitemcheckbox` 与 `aria-checked`；
+- 业务菜单用文本勾选绕过了共享菜单语义。
+
+**修复**：
+
+- `ProjectMenuItem` 增加 `active?: boolean`；
+- 为 Preview Tab、Open Files/Open Directories single-click、
+  Show Excluded、Compact Directories、Show Hidden、Sort By 和
+  Folders Always on Top 传入真实布尔状态；
+- 保留 `✓` shortcut 的既有视觉，不复制第二套勾选渲染；
+- ContextMenu 继续作为唯一复选框语义出口。
+
+**回归测试**：
+
+```bash
+node --test tests/project-create-menu-preserves-idea-actions-shortcuts.test.mjs \
+  tests/editor-contextmenu-reusable-tsx-component-backed-typed-menu-models.test.mjs \
+  tests/commit-diff-settings-toggles-expose-boolean-active-state-checkbox-semantics.test.mjs
+npm test
+```
+
+- RED：Project toggles/sort items 的 `active` 全部为 `undefined`；
+- GREEN：每组 true/false 状态与当前持久化设置一致；
+- 相关定向 **7 pass / 0 fail**；
+- 完整 `npm test` **3518 pass / 0 fail**；
+- ESLint、134 个 source imports、TypeScript、Prettier、
+  client build consistency、`node --check`、`git diff --check` 通过；
+- `npm pack --dry-run`：**145 files**；
+- `lib/client.js` **2500.1 KB**；
+- `editor-workspace.tsx` **12547 行**。
+
+**运行态验证**：
+
+- Harness 重启为新 Host PID `25346` 并监听 `3081`；
+- 原生 Project Appearance 菜单中：
+  - 显示排除项 `Value: 1`
+  - 紧凑目录 `Value: 0`
+  - 显示隐藏文件和目录 `Value: 1`
+  - 按名称排序 `Value: 1`
+  - 目录始终置顶 `Value: 1`
+- 隐藏/显示切换后，Project tree 选择收敛到可见行并把焦点返回树。
+
+**长期约束**：
+
+- 菜单选中态必须由 boolean `active` 表达，不能只依赖 `✓` 文本；
+- 共享菜单模型不得为 Project、Diff 或其它业务各造一套 checkbox 语义；
+- 视觉 shortcut 与 accessibility state 可以共存，但状态源必须唯一；
+- 修复选中态语义不得改变命令顺序、执行回调或持久化值。
+
+## 2026-11-21 — Files provider 在 2000 文件候选之外漏搜
+
+**作用域**：Search Everywhere Files provider、基础文件候选、宿主文件名
+搜索、File Mask、Include non-project、query timer、AbortController、
+workspace reset 和搜索 UI。
+
+**症状/证据**：
+
+- Files provider 只加载最多 2000/5000 个基础候选；
+- 查询在客户端做 fuzzy 过滤，截断范围外且不在基础列表中的文件无法命中；
+- 即使界面显示截断，用户也没有办法通过完整文件名找到该文件。
+
+**根因**：
+
+- 基础候选和查询是分离的两层，旧实现没有查询感知的宿主补搜；
+- 只在客户端过滤无法越过 Host 的文件枚举预算；
+- 如果补搜直接按字符串前缀拼接，会绕过 fuzzy 排序或失去取消边界。
+
+**修复**：
+
+- 当基础列表 `truncated=true` 且查询非空时，180ms 去抖请求宿主
+  `search` 文件名搜索；
+- Host `searchWorkspaceEntries()` 新增 File Mask，在遍历预算前过滤；
+- Host `search` API 转发 `body.fileMask`；
+- 远端 entries 只接收 `kind=file`，按 path 去重合并到基础候选，再交给
+  既有客户端 fuzzy 过滤；
+- 查询清空后恢复基础候选；
+- 查询/Scope/File Mask 变化、Search Everywhere 关闭和 workspace reset
+  统一取消旧 timer、request generation 与 in-flight request；
+- 所有生命周期继续由 `use-search-everywhere-file-candidates.ts` 拥有。
+
+**回归测试**：
+
+```bash
+node --test tests/search-everywhere-file-mask-filters-before-cap.test.mjs \
+  tests/search-everywhere-file-candidates-preserve-truncation.test.mjs \
+  tests/search-everywhere-close-aborts-file-enumeration.test.mjs \
+  tests/search-superseded-search-everywhere-file-list-request-aborted.test.mjs \
+  tests/search-options-persist-include-non-project-normalized-boolean.test.mjs \
+  tests/search-gitignore-read-failure-localized.test.mjs \
+  tests/search-find-responses-current-only-request-id-workspace-match.test.mjs \
+  tests/commit-stash-shelve-menu-stale-request-isolation.test.mjs \
+  tests/editor-browser-client-source-split-into-ordered-typescript-business-modules.test.mjs
+npm test
+```
+
+- RED：截断范围外的文件名无法进入 Files 结果；
+- RED：query fallback 的 File Mask 在 traversal budget 后过滤；
+- RED：查询清空后远端兜底候选仍保留；
+- GREEN：远端命中合并并去重，继续复用 fuzzy 排序；
+- GREEN：查询清空恢复基础列表；
+- GREEN：query fallback 的 File Mask 在预算前生效；
+- 相关定向 **34 pass / 0 fail**；
+- 完整 `npm test` **3518 pass / 0 fail**；
+- ESLint、134 个 source imports、TypeScript、Prettier、
+  client build consistency、`node --check`、`git diff --check` 通过；
+- `npm pack --dry-run`：**145 files**；
+- `lib/client.js` **2499.8 KB**；
+- `editor-workspace.tsx` **12547 行**。
+
+**运行态**：
+
+- Harness 重启为新 Host PID `51337` 并监听 `3081`；
+- 原生 Find in Files 查询 `FindSearchOptionsInput` 显示
+  `3 处匹配，1 个文件`；
+- File Mask `*.ts` 继续保持正确结果。
+
+**长期约束**：
+
+- 有界基础候选之外的完整查询必须有宿主查询兜底，不能只显示截断警告；
+- 远端文件名结果必须复用现有 fuzzy 排序与结果身份；
+- 基础列表、mask refresh、query fallback 必须共享同一 cancellation owner；
+- 查询空、scope/mask 变化和 workspace 切换必须恢复或重新计算基础列表；
+- Host query search 的业务过滤必须在遍历预算前完成。
+
+## 2026-11-21 — Search Everywhere Files 的 File Mask 在文件上限之后才生效
+
+**作用域**：Search Everywhere Files provider、Go to File 共用文件 API、
+`listWorkspaceFiles()`、Include non-project、File Mask、scope cache、
+workspace reset 和请求取消。
+
+**症状/证据**：
+
+- 2001 个非 `.ts` 文件先占满宿主文件预算时，`*.ts` 的唯一真实命中
+  返回空结果；
+- Files provider 请求没有 File Mask 字段；
+- 修改 File Mask 只做客户端过滤，不会重新枚举被宿主上限漏掉的文件。
+
+**根因**：
+
+- 宿主 `files` 操作先应用 2000/5000 文件预算，客户端之后才过滤后缀；
+- File Mask 变化没有对应的 candidate refresh 生命周期；
+- 若把 request/timer/abort 状态继续内联，会重新推高
+  `editor-workspace.tsx` 的单文件规模。
+
+**修复**：
+
+- `listWorkspaceFiles()` 新增 `fileMask`，在文件预算前调用共享 mask
+  matcher；
+- Host `files` 操作转发 `body.fileMask`；
+- `requestFiles()` 请求携带规范化 File Mask；
+- File Mask 变化使用 180ms 去抖重新枚举；
+- scope toggle、Search Everywhere close/dismiss 和 workspace reset
+  取消待执行 mask refresh 及 in-flight 文件请求；
+- 新增 `use-search-everywhere-file-candidates.ts`，集中拥有 files cache、
+  request generation、AbortController 和 mask timer；
+- Positional 顶层模块仍为 13 个；新增 hook 已进入生成 bundle。
+
+**回归测试**：
+
+```bash
+node --test tests/search-everywhere-file-mask-filters-before-cap.test.mjs \
+  tests/search-everywhere-file-candidates-preserve-truncation.test.mjs \
+  tests/search-everywhere-close-aborts-file-enumeration.test.mjs \
+  tests/search-superseded-search-everywhere-file-list-request-aborted.test.mjs \
+  tests/search-options-persist-include-non-project-normalized-boolean.test.mjs \
+  tests/search-gitignore-read-failure-localized.test.mjs \
+  tests/search-find-responses-current-only-request-id-workspace-match.test.mjs \
+  tests/commit-stash-shelve-menu-stale-request-isolation.test.mjs \
+  tests/editor-browser-client-source-split-into-ordered-typescript-business-modules.test.mjs
+npm test
+```
+
+- RED：非匹配后缀文件先占满预算，真实 `.ts` 命中漏搜；
+- RED：请求 payload 没有 File Mask；
+- RED：mask 变化不刷新、scope toggle 不取消 pending refresh；
+- GREEN：mask 在预算前生效，真实命中返回且 `truncated=false`；
+- GREEN：请求携带 mask，变化去抖刷新，scope/close/workspace reset 正确取消；
+- 相关定向 **19 pass / 0 fail**；
+- 完整 `npm test` **3514 pass / 0 fail**；
+- ESLint、134 个 source imports、TypeScript、Prettier、
+  client build consistency、`node --check`、`git diff --check` 通过；
+- `npm pack --dry-run`：**145 files**；
+- `lib/client.js` **2494.5 KB**；
+- `editor-workspace.tsx` **12547 行**，低于 12600 门禁。
+
+**IDEA 对照与运行态**：
+
+- Computer Use 对照 IDEA 与 Harness Find in Files；
+- 两边均保留查询、File Mask、Scope、结果列表、预览和底部移交入口；
+- Harness 继续使用浮动窗口，保留编辑器与 Chat 上下文；
+- Harness 重启为新 Host PID `68374` 并监听 `3081`；
+- 原生 Find in Files 查询 `FindSearchOptionsInput` 显示
+  `3 处匹配，1 个文件`；
+- 启用并输入 `*.ts` 后结果保持正确。
+
+**长期约束**：
+
+- File Mask、Scope 和 Git ignore 等业务过滤必须在宿主文件预算前执行；
+- 文件候选变化的异步刷新必须有去抖、request generation 和取消边界；
+- Search Everywhere close、scope toggle、workspace switch 必须取消
+  pending timer 与 in-flight request；
+- 新增文件候选生命周期应放在专用 hook，不把大块逻辑重新内联到
+  `editor-workspace.tsx`。
+
+## 2026-11-21 — Replace All 静默截断到前 200 个文件
+
+**作用域**：`replaceWorkspaceText()`、Replace All target 收集、事务写入、
+dirty/clean 混合替换、Undo/Redo 和搜索范围校验。
+
+**症状/证据**：
+
+- 201 个文件都命中查询时，Replace All 只返回 `changedFiles=200`；
+- 第 201 个文件保持原内容，界面没有错误或截断提示；
+- 文本搜索允许最多 500 处结果，因此正常用户操作可以触发该静默漏写。
+
+**根因**：
+
+- target 校验循环直接使用 `targets.slice(0, 200)`；
+- 200 个之后的路径从未进入范围校验、mtime 预检或事务写入；
+- 代码没有把内部截断反馈给调用方。
+
+**修复**：
+
+- 新增 `REPLACE_TEXT_MAX_TARGETS = 500`，与文本搜索结果上限对齐；
+- 超过 500 个 target 时在 I/O 和写入前显式失败；
+- 校验和写入遍历完整 target 列表，不再 `slice(0, 200)`；
+- 保持事务回滚、dirty-buffer 合并、mtime guard、Git ignore、system file、
+  Scope 和 File Mask 语义不变。
+
+**回归测试**：
+
+```bash
+node --test tests/search-replace-all-does-not-silently-truncate-targets.test.mjs \
+  tests/search-everywhere-find-expose-file-mask-input.test.mjs \
+  tests/search-local-custom-scopes-normalize-names-ids-bounded-include-exclude.test.mjs \
+  tests/search-directory-rules-respect-gitignore-and-project-menu.test.mjs \
+  tests/search-mixed-dirty-clean-replace-waits-clean-host-success-before.test.mjs \
+  tests/search-mixed-replace-host-success-dirty-failure-refreshes-host.test.mjs \
+  tests/search-replace-attempts-claimed-synchronously-released-after-every-path.test.mjs \
+  tests/search-system-generated-files-excluded-regardless-gitignore.test.mjs
+npm test
+```
+
+- RED：201 个目标只替换前 200 个；
+- RED：501 个 target 未在写入前触发上限错误；
+- GREEN：201 个目标全部替换；
+- GREEN：501 个 target 明确拒绝；
+- 相关定向 **47 pass / 0 fail**；
+- 完整 `npm test` **3510 pass / 0 fail**；
+- ESLint、133 个 source imports、TypeScript、Prettier、
+  client build consistency、`node --check`、`git diff --check` 通过；
+- `npm pack --dry-run`：**144 files**。
+
+**运行态**：
+
+- Harness 重启为新 Host PID `56110` 并监听 `3081`；
+- 原生编辑器工作台重新打开成功。
+
+**长期约束**：
+
+- 显式 target 列表不得静默截断；
+- 批量写入上限必须与搜索结果上限一致，并在写入前显式校验；
+- 任何超出上限的请求都必须在范围校验、mtime 预检和文件写入前失败；
+- 修复批次不得扩大到未选择的文件。
+
+## 2026-11-21 — 文本搜索先截断后过滤导致正常文件漏搜
+
+**作用域**：`searchWorkspaceText()`、普通文件枚举、Git
+tracked/non-ignored scope、file mask、custom Scope、shared directory
+rules、Git ignore 和 dirty path 合并。
+
+**症状/证据**：
+
+- 2001 个非 `.ts` 文件先占满普通枚举上限时，`fileMask=*.ts` 的唯一命中
+  返回空结果；
+- 5001 个 Git ignored tracked 文件先占满 Git scope 上限时，正常文件
+  返回空结果；
+- 两处都表现为 `truncated` 或错误空结果，而不是排除项被过滤后继续搜索。
+
+**根因**：
+
+- 普通文件枚举在 file mask 和 custom Scope 过滤前应用 2000/5000 上限；
+- Git 文件枚举在 Git ignore、system file 和 directory rules 过滤前应用
+  5000 上限；
+- dirty-path 候选只复用部分搜索条件；
+- Git dirty-path 成员检查对每个路径线性扫描完整 Git 文件列表。
+
+**修复**：
+
+- 在 `searchWorkspaceText()` 先建立唯一
+  `searchPathMatchesTextScope()` 谓词，覆盖所有文本搜索范围条件；
+- `listWorkspaceFiles()` 增加内部 `includeFile`，在文件预算前过滤；
+- `listGitSearchScopeFiles()` 接收同一谓词，在 Git scope 预算前过滤；
+- allowedPaths、dirtyPaths 和 Git-listing 成员检查复用同一谓词；
+- Git dirty-path 成员检查由数组 `includes()` 改为 `Set.has()`。
+
+**回归测试**：
+
+```bash
+node --test tests/search-text-budget-excludes-before-cap.test.mjs \
+  tests/search-find-scope-accepts-newly-represented-idea-presets-rejects-unknown.test.mjs \
+  tests/project-speed-search-excludes-tracked-files-inside-gitignored-directories.test.mjs \
+  tests/search-gitignore-more-than-2000-individual-files-excluded.test.mjs \
+  tests/search-system-generated-files-excluded-regardless-gitignore.test.mjs
+npm test
+```
+
+- RED：普通枚举被 2001 个非匹配文件耗尽，唯一 `.ts` 命中漏搜；
+- RED：Git scope 被 5001 个 Git ignored tracked 文件耗尽，正常文件漏搜；
+- GREEN：两种场景都返回唯一正常文件且 `truncated=false`；
+- 相关定向 **14 pass / 0 fail**；
+- 完整 `npm test` **3508 pass / 0 fail**；
+- ESLint、133 个 source imports、TypeScript、Prettier、
+  client build consistency、`node --check`、`git diff --check` 通过；
+- `npm pack --dry-run`：**144 files**。
+
+**运行态**：
+
+- Harness 重启为新 Host PID `83033` 并监听 `3081`；
+- 原生编辑器工作台重新打开成功。
+
+**长期约束**：
+
+- 文件预算必须在业务搜索范围过滤之后检查；
+- 普通枚举、Git 枚举、allowedPaths 和 dirtyPaths 必须复用同一范围谓词；
+- 不得用客户端二次过滤掩盖宿主层的错误截断；
+- Git 成员检查使用 Set，避免候选数量与 dirty 数量相乘。
+
+## 2026-11-21 — Project speed search 排除项占用遍历预算
+
+**作用域**：Project speed search、`searchWorkspaceEntries()`、Git ignored
+文件、用户搜索排除目录、heavy directories 与 `maxVisited`。
+
+**症状/证据**：
+
+- 搜索预算在排除判断之前递增；
+- Git ignored 文件和用户排除目录会先消耗 `maxVisited`；
+- 被排除项足够多时，正常可搜索文件尚未处理就返回空结果或 truncation。
+
+**根因**：
+
+- `visited += 1` 位于 system-file 判定之后，但位于 `WALK_IGNORED`、
+  Git ignore 和 shared directory rules 之前；
+- 排除项虽然不会进入结果，却仍被视为搜索候选。
+
+**修复**：
+
+- 系统文件、heavy directory、Git ignored 路径和完全排除目录不再计预算；
+- 只有允许搜索的文件，或需要为 included descendant 继续遍历的目录，
+  才计入 `visited`；
+- `maxMatches`、`maxVisited` 上限、结果顺序和排除语义不变。
+
+**回归测试**：
+
+```bash
+node --test tests/project-speed-search-exclusions-do-not-consume-traversal-budget.test.mjs \
+  tests/project-speed-search-system-files-do-not-consume-traversal-budget.test.mjs \
+  tests/project-speed-search-respects-gitignore-and-search-rules.test.mjs \
+  tests/project-speed-search-exact-cap-not-truncated.test.mjs \
+  tests/search-gitignore-change-invalidates-project-speed-search.test.mjs
+npm test
+```
+
+- RED：`maxVisited=2` 时 `.gitignore` 和 ignored 文件耗尽预算，正常文件
+  返回空结果；
+- RED：`maxVisited=1` 时用户排除目录耗尽预算，正常文件返回空结果；
+- GREEN：两类排除项均不占预算，正常文件被找到且 `truncated=false`；
+- 相关定向 **12 pass / 0 fail**；
+- 完整 `npm test` **3506 pass / 0 fail**；
+- ESLint、133 个 source imports、TypeScript、Prettier、
+  client build consistency、`node --check`、`git diff --check` 通过；
+- `npm pack --dry-run`：**144 files**。
+
+**运行态**：
+
+- Harness 重启为新 Host PID `6633` 并监听 `3081`；
+- 原生编辑器工作台重新打开成功。
+
+**长期约束**：
+
+- 搜索遍历预算只应统计真正参与匹配的候选；
+- hard-excluded 文件、Git ignored 路径和完全排除目录必须先过滤再计数；
+- 为 included descendant 保留遍历的目录仍必须计预算，不能出现无界探索。
+
+## 2026-11-21 — 系统生成文件搜索硬排除最终复验
+
+**作用域**：Search Everywhere、Go to File、Find、Project speed search、
+Git scope、Replace target、workspace file/search API。
+
+**硬排除名单**：
+
+- macOS Finder：`.DS_Store`；
+- Windows 缩略图与目录元数据：`Thumbs.db`、`ehthumbs.db`、
+  `ehthumbs_vista.db`、`desktop.ini`；
+- basename 大小写无关匹配，不依赖 `.gitignore`、Git tracked 状态、
+  `includeExcluded` 或显式 `allowedPaths`。
+
+**长期约束**：
+
+- 系统生成文件不得进入文件候选、文本搜索或 Replace 目标；
+- 排除发生在遍历和结果预算之前，系统文件较多时不能挤掉正常结果或制造
+  truncation；
+- Project tree 与读取 API 不受影响，用户仍可查看、打开和编辑这些文件；
+- 新增系统产物名单必须先得到明确范围，不能凭猜测无限扩展。
+
+**回归测试**：
+
+```bash
+node --test tests/search-system-generated-files-excluded-regardless-gitignore.test.mjs \
+  tests/project-speed-search-only-system-files-have-no-local-hits.test.mjs \
+  tests/project-speed-search-system-files-do-not-consume-traversal-budget.test.mjs
+npm test
+```
+
+- 文件列表、文本搜索、命名搜索、Git tracked scope 和显式
+  `allowedPaths` 都拒绝系统文件；
+- Replace 拒绝系统文件 target；
+- 大量系统文件不消耗文件或文本搜索预算；
+- 普通文件不受影响；
+- 系统文件定向 **7 pass / 0 fail**；
+- 完整 `npm test` **3504 pass / 0 fail**；
+- ESLint、133 个 source imports、TypeScript、Prettier、
+  client build consistency、`node --check`、`git diff --check` 通过；
+- `npm pack --dry-run`：**144 files**。
+
+**运行态复验**：
+
+- Harness Host PID `25346` 监听 `3081`；
+- 原生 Editor 的 Project tree 仍显示 `src/client/.DS_Store`；
+- Project speed search 查询 `.DS_Store` 显示“无匹配”；
+- 临时创建根目录 `Thumbs.db`、`ehthumbs.db`、`ehthumbs_vista.db`、
+  `desktop.ini` 和 `dsh-system-search-visible.txt` 后，Project speed
+  search 查询 `Thumbs.db` 仍显示“无匹配”；
+- 同一 fixture 查询 `dsh-system-search-visible` 显示“找到 1 个项目”，
+  证明普通文件过滤未被收窄；
+- 上述临时文件随后全部删除；
+- 原生 Find in Files 使用 sentinel 和 `*.txt` 掩码只返回普通文件的
+  **1 处匹配 / 1 个文件**；
+- 原生 Go to File 查询 `.DS_Store`、`Thumbs.db`、`desktop.ini`
+  均为“无匹配”，普通文件正常返回 1 行；
+- Ego Lite 本机 Web 实例显示“No sessions yet / Reconnecting”，本轮
+  未在 Web 会话内重复 fixture，也未绕过远端 PIN 或升级浏览器；
+- Harness Web 仍由 DSH Pocket PIN 保护，未猜测凭据；解锁后还需用 Ego
+  Browser 复验 Search Everywhere 的 Files/Text 与 Replace。
+
+## 2026-11-21 — Git ignore 在超多 ignored 文件下重复扫描
+
+**作用域**：workspace file/search API、Search Everywhere、Find、Project
+speed search、Replace、`git ls-files --ignored` 性能。
+
+**症状/证据**：
+
+- 20,000 个 individually ignored 文件时，单次搜索约 **1.6s**；
+- 单独 `git ls-files --ignored` 已占约 **1.4s**；
+- 相同关键词连续搜索重复执行完整 Git ignore 扫描。
+
+**根因**：
+
+- Host 每次搜索、文件和 Replace 请求都重新读取 ignored Set；
+- Git 对大量显式 ignore pattern 的扫描本身成本高；
+- 缺少由 `.gitignore`/index 变化可靠失效的页面级缓存契约。
+
+**修复**：
+
+- client 模块在每个页面实例中生成 `searchSessionId`；
+- mounted Editor 通过 `setCurrentSearchRevision()` 将 watcher revision
+  自动附加到所有 file API 请求；
+- Host 仅缓存
+  `(workspace root, searchSessionId, searchRevision)` 完全一致的 ignored
+  Set；
+- `core.excludesFile` 的路径和 SHA-256 内容指纹也进入 cache key，
+  global excludes 外部修改会自动失效；
+- 同一 key 的 in-flight Promise 合并，失败结果从缓存删除；
+- Map 上限 32，超出后按插入顺序淘汰；
+- 每个 `(workspace root, searchSessionId)` 只保留最新 revision 的
+  entry；旧 revision 的迟到结果不能写回缓存；
+- 缺失 session id/revision 的直接 Host 调用继续无缓存。
+
+**回归测试**：
+
+```bash
+node --test tests/search-gitignore-cache-key-is-page-and-revision-scoped.test.mjs \
+  tests/search-gitignore-global-excludes-invalidate-cache.test.mjs \
+  tests/editor-file-api-requests-forward-optional-abort-signal-fetch.test.mjs \
+  tests/search-gitignore-change-invalidates-project-speed-search.test.mjs \
+  tests/search-gitignore-more-than-2000-individual-files-excluded.test.mjs
+npm test
+```
+
+- 无 cache key：连续两次调用执行 **2** 次 Git ignore 读取；
+- 同 page/revision 串行：**1** 次；
+- 同 page/revision 并发：**1** 次；
+- revision 或 page session 变化：重新读取；
+- global excludes 文件变化：即使 revision 不变也重新读取；
+- global excludes 等长内容且恢复 mtime 时，内容哈希仍能触发失效；
+- 同一 page session 切换到新 revision 后，旧 revision 再请求会重新读取；
+- 旧 revision 的迟到请求不会覆盖新 revision 的缓存；
+- 完整 `npm test` **3504 pass / 0 fail**。
+
+**性能复验**：
+
+- 20,000 个 individually ignored 文件；
+- 首次查询 **1663.1ms**；
+- 同 revision 第二次 **164.7ms**，约 **10.5×**；
+- global excludes 变化后立即使用新规则。
+- Harness 重启为新 Host PID `33305` 并监听 `3081`；
+- 原生 Editor 在新 Host 上打开成功，Project speed search 查询
+  `.DS_Store` 显示“无匹配”；
+- Web 仍要求 DSH Pocket PIN，未猜测凭据。
+
+**验证门禁**：
+
+- ESLint、133 个 source imports、TypeScript、Prettier、client build
+  consistency、`node --check`、`git diff --check`、`npm pack --dry-run`
+  通过；
+- package **144 files**；
+- `lib/client.js` **2491.7 KB**，`editor-workspace.tsx` **12597 行**。
+
+**长期约束**：
+
+- Git ignore 缓存必须包含页面实例与 revision，不得只按 root 缓存；
+- Git ignore 缓存必须包含 global excludes 文件指纹；
+- 页面 reload 必须获得新 session id，避免复用旧页面规则；
+- 每个 page session 只保留最新 revision，旧 entry 与迟到结果必须淘汰；
+- 相同 key 的并发读取必须合并；
+- 无 revision 的直接 Host 调用不得隐式启用缓存；
+- cache 失败不得写入成功值。
+
+## 2026-11-21 — Git ignore 读取失败泄露原始 fatal 文本
+
+**作用域**：Search Everywhere files/text、Go to File、Find 文件范围、
+Project speed search、Replace 失败文案与中英文 locale。
+
+**症状/证据**：
+
+- ignore/index 读取失败已经显式抛出；
+- 文件 provider、Go to File、Find files 和 Project speed search 各自把
+  `failure.message` 直接写入 UI；
+- 损坏 index 时用户看到 `fatal: index file smaller than expected`；
+- Replace 失败路径也绕过了搜索错误格式化。
+
+**根因**：
+
+- 搜索错误格式化只被 text-provider catch 使用；
+- 多个 file-provider catch 复制 `failure instanceof Error ? ...`；
+- Replace 共享 helper 只处理 partial-write 文案，没有先本地化底层错误。
+
+**修复**：
+
+- `searchTextFailureMessage()` 识别 Git index/ignore/maxBuffer 读取失败；
+- 显示当前语言下的“无法读取 Git 忽略规则，搜索已停止”并保留精简 detail；
+- Search Everywhere files、Go to File、Find files、Project speed search
+  统一调用该 formatter；
+- `commit.ts` 新增 `searchReplaceFailureMessage()`，在 partial-write 判断
+  前复用同一本地化；
+- 不重试、不隐藏失败，也不把失败伪装成零结果。
+
+**回归测试**：
+
+```bash
+node --test tests/search-gitignore-read-failure-localized.test.mjs \
+  tests/search-gitignore-read-failure-is-explicit.test.mjs \
+  tests/search-everywhere-file-candidates-preserve-truncation.test.mjs \
+  tests/search-quick-open-reports-loading-and-host-failure.test.mjs \
+  tests/search-mixed-replace-host-success-dirty-failure-refreshes-host.test.mjs \
+  tests/search-replace-confirmation-workspace-switch-cancels-write.test.mjs
+npm test
+```
+
+- RED：Git fatal 原样进入 provider error；
+- GREEN：搜索/provider/Replace 定向批次通过；
+- GREEN：完整 `npm test` **3501 pass / 0 fail**；
+- ESLint、133 个 source imports、TypeScript、Prettier、client build
+  consistency、`node --check`、`git diff --check`、`npm pack --dry-run`
+  通过；
+- package **144 files**；
+- `lib/client.js` **2491.0 KB**，`editor-workspace.tsx` **12595 行**。
+
+**Ego Browser 运行态复验**：
+
+- files provider 注入 `fatal: index file smaller than expected`；
+- alert 为“无法读取 Git 忽略规则，搜索已停止：index file smaller than expected”；
+- alert 文本不含 `fatal:`，Retry 按钮仍在。
+- 使用更长 Git detail 与 720px emulated viewport 复验：
+  - alert/dialog `scrollWidth === clientWidth`；
+  - Retry 保持在 alert 内部；
+  - 无横向溢出或遮挡搜索结果。
+- Harness 重启为新 Host PID `91702` 并监听 `3081`；
+- 原生 Editor 在新 Host 上打开成功；
+- Project speed search 查询 `.DS_Store` 显示“无匹配”，验证 Host
+  ignore/系统文件搜索边界已实际加载；
+- Web 重启后要求 DSH Pocket PIN，未猜测凭据，保留页面给用户。
+
+**长期约束**：
+
+- Git ignore 读取失败必须保留错误，但搜索 UI 不得直接暴露原始 fatal；
+- file/text/Replace provider 必须复用同一底层错误格式化；
+- 本地化后仍要保留 provider-owned Retry 与 partial-write 语义；
+- 长 detail 必须能在窄搜索窗口中换行，不能把 Retry 推出可视区。
+
+## 2026-11-21 — Git ignore 前缀 2000 上限导致搜索泄漏
+
+**作用域**：`.gitignore` 搜索排除、文件候选、Project speed search、
+文本搜索、Replace target、ignored 前缀匹配性能。
+
+**症状/证据**：
+
+- `.gitignore` 逐个忽略超过 2000 个文件、且这些文件没有共同 ignored
+  父目录时，第 2001 个之后的文件重新出现在文件候选和 Find 结果；
+- 2105 个 individually ignored 文件的 fixture 中，第 2105 个文件内容命中
+  同时返回 `ignored-2104.tmp` 和 `visible.txt`；
+- 同一文件也重新进入 `workspaceFileOperations.files()`。
+
+**根因**：
+
+- `listGitIgnoredSearchPrefixes()` 在解析后执行固定
+  `.slice(0, 2000)`，没有任何截断标记；
+- 所有搜索入口把截断后的集合当成完整 ignore 集合；
+- 匹配函数对每个候选路径线性扫描所有前缀，简单放大上限会放大耗时。
+
+**修复**：
+
+- 移除 ignored 前缀的静默数量截断；
+- `listGitIgnoredSearchPrefixes()` 直接返回 `Set<string>`；
+- `searchPathIsGitIgnored()` 只检查路径自身和祖先目录，复杂度与路径深度
+  成正比；
+- 文件枚举、Project speed search、文本搜索和 Replace 共用同一 Set；
+- `git ls-files` 在已确认 Git worktree 内失败时不再伪装成“无 ignore
+  规则”，避免再次静默泄漏。
+
+**回归测试**：
+
+```bash
+node --test tests/search-gitignore-more-than-2000-individual-files-excluded.test.mjs \
+  tests/search-gitignore-read-failure-is-explicit.test.mjs \
+  tests/project-speed-search-respects-gitignore-and-search-rules.test.mjs \
+  tests/search-quick-open-excludes-gitignored-and-user-excluded-paths.test.mjs \
+  tests/search-directory-rules-respect-gitignore-and-project-menu.test.mjs
+npm test
+```
+
+- RED：2005 个 individually ignored 文件中的最后一个进入搜索；
+- GREEN：文件候选、Project speed search、文本搜索和 Replace 均拒绝
+  ignored 文件；
+- 嵌套 `.gitignore`、`!` 否定规则、含空格/Unicode 路径与
+  `git check-ignore` 对照一致；
+- 损坏的 Git index 使搜索显式失败，不会退回空 ignore 集合；
+- GREEN：定向 **23 pass / 0 fail**；
+- GREEN：完整 `npm test` **3497 pass / 0 fail**；
+- ESLint、133 个 source imports、TypeScript、client build consistency、
+  `node --check`、`git diff --check`、`npm pack --dry-run` 通过；
+- package **144 files**。
+
+**长期约束**：
+
+- Git ignore 集合不得因内部预算静默截断后继续宣称完整；
+- 大量 ignored 条目必须使用集合/树索引，不得对每条搜索候选线性扫描
+  全量前缀；
+- 任何 ignore 读取失败必须显式失败或保留可识别的“不完整”状态，不能
+  按空集合继续搜索。
+
+## 2026-11-21 — Search Everywhere provider Retry 同一任务重复请求
+
+**作用域**：Search Everywhere files/text provider 错误、Retry 按钮、同步
+single-flight、焦点恢复与请求计数。
+
+**症状/证据**：
+
+- files provider 返回 HTTP 500 后出现“重试文件搜索”；
+- 同一页面任务连续触发两次 Retry `click()` 时，两次调用都可能启动
+  provider 请求；
+- 原实现只依赖 React 渲染后的错误清理和按钮卸载，不能阻止同一任务中的
+  第二次触发；
+- files 枚举会 abort 上一请求后再次发起，造成多余请求和遍历。
+
+**根因**：
+
+- `retryProvider()` 在两类 provider 上都直接调用回调；
+- 没有 DOM 状态提交前的同步 in-flight claim；
+- 按钮视觉上尚未卸载并不代表 provider 请求还未开始。
+
+**修复**：
+
+- `SearchEverywhere.tsx` 新增 `claimSearchProviderRetry(guard)`；
+- files 与 text Retry 共用同一个 `providerRetryGuardRef`；
+- 首次触发同步占用 guard，同一任务的后续触发直接返回；
+- 现有 `setTimeout(0)` 完成后释放 guard，并把焦点交回搜索输入。
+
+**回归测试**：
+
+```bash
+node --test tests/search-everywhere-provider-retry-single-flight.test.mjs \
+  tests/search-everywhere-error-owns-only-live-announcement.test.mjs \
+  tests/search-leaving-text-providers-clears-stale-text-search-error-loading.test.mjs
+```
+
+- RED：共享 claim helper 不存在；
+- GREEN：provider Retry single-flight、错误归属和文本状态定向
+  **13 pass / 0 fail**；
+- GREEN：完整 `npm test` **3495 pass / 0 fail**；
+- ESLint、133 个 source imports、TypeScript、Prettier、client build
+  consistency、`node --check`、`git diff --check`、`npm pack --dry-run`
+  通过；
+- package **144 files**，`lib/client.js` **2490.3 KB**。
+
+**运行态复验**：
+
+- files provider：1 个初始失败请求后，同一任务连续两次 Retry 点击；
+- 最终 files 请求总数为 **2**，即只新增 **1** 个重试请求；
+- Retry 与 alert 消失，active element 回到搜索输入；
+- text provider：1 个初始失败请求后，同一任务连续两次 Retry 点击；
+- 最终 `searchText` 请求总数为 **2**，查询 `needle` 保留，focus 回到输入；
+- 页面注入仅存在于当前浏览器上下文，没有遗留 fixture。
+
+**长期约束**：
+
+- provider Retry 不得只依赖 React 提交后的按钮卸载做去重；
+- 同步 claim 必须在调用 provider 回调之前完成；
+- files 与 text 可以共享 single-flight 生命周期，但错误归属和 fresh
+  request 路径必须继续保持各自 provider 语义。
+
+## 2026-11-21 — Project Speed Search 零匹配 Enter 卡住搜索框
+
+**作用域**：Project tree 的 IDEA speed search 键盘输入、零匹配、Enter、
+ArrowUp / ArrowDown、Escape、selection 恢复与焦点。
+
+**症状/证据**：
+
+- 查询 `ZZZ_NO_MATCH_20261121` 后 DSH 显示“无匹配”；
+- ArrowUp / ArrowDown 无动作，符合 IDEA；
+- DSH Enter 只执行 `preventDefault()` 后 return，搜索框永久保持打开；
+- IDEA 同一路径按 Enter 会关闭 speed search，原树选择保持不变。
+
+**根因**：
+
+- 原 Enter 分支先计算 hit，`hit === undefined` 时直接 return；
+- Escape、方向键和 Enter 分散成多个内联分支，没有统一表达“零匹配 Enter
+  与 Escape 都是 close”的键盘语义。
+
+**修复**：
+
+- `terminal.ts` 新增 `projectSpeedSearchKeyAction(event, hitCount)`：
+  - Escape → `close`；
+  - Enter + 0 hit → `close`；
+  - Enter + real hit → `open`；
+  - ArrowUp / ArrowDown 仅在 hitCount > 0 时返回 `previous` / `next`；
+  - 其余键 → null。
+- `ProjectPanel` 搜索输入只消费该纯 action；
+- `close` 复用既有 `closeTreeSearch()`：
+  - 恢复 pre-search selection；
+  - 清空 query-owned pending/error/truncated；
+  - 关闭输入并回焦 Project tree；
+- `open` 分支继续打开/展开真实 hit，并 reveal 合成祖先路径。
+
+**回归测试**：
+
+```bash
+node --test tests/project-speed-search-zero-match-keyboard-closes-without-selection.test.mjs \
+  tests/project-speed-search-close-clears-stale-status.test.mjs \
+  tests/search-after-enter-speed-search-tree-takes-keyboard-back.test.mjs \
+  tests/search-speed-search-matches-only-real-hit-rows-not-retained.test.mjs \
+  tests/search-enter-speed-search-opens-hit-not-just-highlights.test.mjs
+npm test
+```
+
+- RED：helper 缺失；
+- RED：0 匹配 Enter 不关闭搜索；
+- GREEN：键盘/selection/关闭定向 **11 pass / 0 fail**；
+- GREEN：完整 `npm test` **3490 pass / 0 fail**；
+- ESLint、133 个 source imports、TypeScript、Prettier、client build
+  consistency、`node --check`、`git diff --check`、`npm pack --dry-run`
+  通过；
+- package **144 files**，`lib/client.js` **2488.3 KB**。
+
+**双端运行态复验**：
+
+- IDEA：无匹配 query 下 ArrowUp/ArrowDown 不改变状态，Enter 关闭搜索，
+  `.bin` 选择不变；
+- Harness Web：选中 `.think_plan.md`，输入无匹配 query；
+- ArrowUp/ArrowDown 后 query 保留且仍为“无匹配”；
+- Enter 后：
+  - 搜索输入消失；
+  - query-owned status 为空；
+  - `.think_plan.md` 恢复为唯一选中行；
+  - `document.activeElement` 为 `role=tree`、name=`Project`。
+
+**长期约束**：
+
+- 零匹配 Enter 必须结束 speed-search 输入，不得成为无操作模态状态；
+- 方向键只在真实 hit 集合内移动，不会落到 retained ancestor 或隐藏行；
+- 关闭/取消必须恢复 pre-search selection，并统一清理 pending/error/truncated；
+- 键盘语义由纯 helper 拥有，不重新散落到多个内联分支。
+
+## 2026-11-21 — Project 本地 Speed Search 泄漏系统文件
+
+**作用域**：Project speed search、Open Files / All Changed Files filtered
+view、Host 请求前本地预览、Finder/Explorer 系统文件硬排除。
+
+**症状/证据**：
+
+- 打开 `.DS_Store` 后切换到 Project 的 Open Files 视图，该文件仍出现在树中；
+- speed search 输入 `.DS_Store` 曾可成为本地命中；
+- 普通 Project Files 视图在 recursive Host 请求返回前也会使用本地过滤，
+  系统文件可能短暂闪现；
+- filtered view 不会启动 Host recursive walk，因此泄漏不是瞬时问题。
+
+**根因**：
+
+- Host `searchWorkspaceEntries()` 已排除系统生成文件；
+- ProjectPanel 的 `localRows` 只调用 `filterTreeRows()`，没有相同 basename
+  边界；
+- filtered view 和请求 pending 阶段都完全依赖本地过滤。
+
+**修复**：
+
+- `terminal.ts` 新增 `filterProjectSpeedSearchRows()`；
+- 空 query 不改 rows，保持 Project tree 对系统文件的查看能力；
+- 非空 query 先按大小写无关 basename 排除：
+  `.ds_store / desktop.ini / ehthumbs.db / ehthumbs_vista.db / thumbs.db`；
+- 过滤后再调用 `filterTreeRows()`，普通命中仍保留祖先目录；
+- ProjectPanel 的 `localRows` 统一使用该 helper。
+
+**回归测试**：
+
+```bash
+node --test tests/project-speed-search-only-system-files-have-no-local-hits.test.mjs \
+  tests/project-speed-search-selection-uses-filtered-row-universe.test.mjs \
+  tests/project-speed-search-announces-result-count.test.mjs \
+  tests/project-speed-search-close-clears-stale-status.test.mjs \
+  tests/project-speed-search-respects-gitignore-and-search-rules.test.mjs
+npm test
+```
+
+- RED：helper 不存在；
+- RED：`.DS_Store`、`Thumbs.db`、`desktop.ini` 可被本地 query 命中；
+- GREEN：联合定向 **12 pass / 0 fail**；
+- GREEN：完整 `npm test` **3487 pass / 0 fail**；
+- ESLint、133 个 source imports、TypeScript、Prettier、client build
+  consistency、`node --check`、`git diff --check`、`npm pack --dry-run`
+  通过；
+- package **144 files**，`lib/client.js` **2487.5 KB**。
+
+**Ego Browser 运行态复验**：
+
+- Open Files 视图仍显示已打开的 `.DS_Store`；
+- 查询 `.DS_Store` 显示“无匹配”，无结果行、无截断，焦点留在搜索框；
+- Esc 清空 query-owned status、关闭搜索并回焦 Project tree；
+- 空查询下 `.DS_Store` 继续显示；
+- 普通 Project Files 中快速从 `client.js` 切到 `.DS_Store`，没有旧计数或
+  截断残留；
+- fixture 已删除。
+
+**长期约束**：
+
+- Host recursive search 与 Project local speed filter 必须使用同一系统文件
+  basename 集合；
+- 排除只作用于非空搜索；Project tree 的空查询展示不能隐藏系统文件；
+- filtered view 的本地命中必须遵守 Host 搜索噪声边界；
+- 祖先目录保留仍由共享 `filterTreeRows()` 负责，不另造第二套树过滤。
+
+## 2026-11-21 — 零匹配 Replace 提示可选择不存在的匹配项
+
+**作用域**：Find 持久工具窗、零结果 Replace 模式、native disabled、
+tooltip/aria-description、live region 和焦点。
+
+**症状/证据**：
+
+- 唯一内容命中位于系统生成文件 `Thumbs.db`，搜索正确返回 0 匹配；
+- Find 空态和 native disabled 正确；
+- Replace All 提示“当前范围没有可替换的匹配项”；
+- Replace 却提示“请先选择一个文本匹配项”，但列表没有任何可选文本行；
+- 真实 Web 中两个按钮的 `aria-description` 与 title 均来自同一旧内联逻辑。
+
+**IDEA 对照**：
+
+- IDEA Replace in Files 空查询时焦点位于 Search；
+- 无匹配 query 下显示 `Nothing found.`；
+- Replace All / Replace 均原生 disabled，Open in Find Window 保持可用；
+- IDEA 不要求用户选择一个不存在的匹配项。
+
+**根因**：
+
+- Replace 的 disabled reason 只检查 `active?.kind !== 'text'`；
+- 该判断没有先区分“存在文本匹配但 active row 是文件”和“根本 0 匹配”；
+- Replace All 与 Replace 的原因判断分别内联，语义边界重复且易漂移。
+
+**修复**：
+
+- `find-tool.ts` 新增 `findReplaceDisabledReasons()`：
+  - `replaceBusy` → busy reason；
+  - `loading` → loading reason；
+  - `error != null` → search-error reason；
+  - `matchCount = 0` → 两个动作都使用
+    `editor.findReplaceAllDisabled`；
+  - 有匹配但 active row 非文本 → Replace 使用
+    `editor.findReplaceCurrentDisabled`；
+  - 文本 occurrence 已选中 → 两个原因都为 null；
+- `FindToolWindow` 仅消费共享 `{ all, current }` 结果。
+
+**回归测试**：
+
+```bash
+node --test tests/search-find-replace-disabled-reasons-distinguish-no-matches-selection.test.mjs \
+  tests/search-disabled-replace-actions-explain-why-they-run.test.mjs \
+  tests/search-failed-find-search-retains-previous-rows-instead-clearing-them.test.mjs \
+  tests/search-find-scope-edits-retain-visible-result-set-next-search.test.mjs \
+  tests/search-find-tool-offers-replace-active-occurrence-only.test.mjs
+npm test
+```
+
+- RED：0 匹配时 Replace 仍提示“请先选择一个文本匹配项”；
+- RED：共享 helper 缺失；
+- GREEN：相关定向 **17 pass / 0 fail**；
+- GREEN：完整 `npm test` **3484 pass / 0 fail**；
+- ESLint、133 个 source imports、TypeScript、Prettier、client build
+  consistency、`node --check`、`git diff --check`、`npm pack --dry-run`
+  通过；
+- package **144 files**，`lib/client.js` **2486.5 KB**。
+
+**Ego Browser 运行态复验**：
+
+- 系统文件 `Thumbs.db` 是唯一内容命中，Search Everywhere 为 0；
+- Open in Find 自动执行搜索，Find 显示“没有匹配结果”；
+- 展开 Replace 后：
+  - 两个按钮 `disabled: true`；
+  - 两个 title/aria-description 都是
+    “当前范围没有可替换的匹配项”；
+  - activeElement 是 `在文件中替换为…` 输入框；
+  - 只有 1 个非空 polite status；
+- fixture 已删除。
+
+**长期约束**：
+
+- Replace disabled reason 必须区分“0 匹配”和“有匹配但未选文本行”；
+- 两个 Replace 动作共享同一个可用性模型，不复制优先级判断；
+- 可见空态不是 live region 所有者，避免与隐藏 polite status 重播；
+- 系统生成文件的搜索硬排除不得改变 Find 的焦点和禁用语义。
+
+## 2026-11-21 — 零结果移交不搜索与系统文件占用遍历预算
+
+**作用域**：Search Everywhere → 持久 Find handoff、系统生成文件硬排除、
+Project speed search 的 `maxVisited` 遍历预算、空结果交互。
+
+**症状/证据**：
+
+- Search Everywhere 文件页查询 `EHTHUMBS_VISTA.DB` 时，唯一同名候选
+  `ehthumbs_vista.db` 被系统文件规则排除，界面正确显示 0 结果；
+- 点击顶部 `Open in Find Tool Window` 后，Find 显示空列表；
+- 手动点击“重新运行搜索”后才出现内容命中；
+- `maxVisited=1` 时，`.DS_Store` 在普通文件之前处理，普通文件尚未搜索
+  就触发遍历上限，结果为空。
+
+**根因**：
+
+- `searchFindHandoff()` 对非空、零结果查询没有生成 `refresh`；
+- `openFindTool()` 看到已有空 provider 快照后把
+  `loadedGeneration` 设为 `searchGeneration`，Search 效果不会触发；
+- Project speed search 在 `visited += 1` 后才过滤系统文件，缓存文件错误
+  消耗了遍历预算。
+
+**修复**：
+
+- 在唯一 handoff 契约中集中处理：
+  - query 去空白后非空且 `files + matches = 0` → `refresh: true`；
+  - query 为空或已有结果 → 保持原生命周期；
+- Project speed search 先调用 `searchPathIsSystemGenerated()`，再计入
+  `maxVisited`；
+- 增加内部 `maxVisited` 测试入口，值钳制为 `1..50000`；浏览器 Host
+  operation 不转发该参数。
+
+**回归测试**：
+
+```bash
+node --test tests/search-everywhere-zero-result-handoff-refreshes-find.test.mjs \
+  tests/search-everywhere-open-find-tool-window-available-non-empty-zero.test.mjs \
+  tests/project-speed-search-system-files-do-not-consume-traversal-budget.test.mjs \
+  tests/project-speed-search-exact-cap-not-truncated.test.mjs \
+  tests/search-system-generated-files-excluded-regardless-gitignore.test.mjs
+npm test
+```
+
+- RED：真实 Web 顶部移交后为空，必须手动重跑；
+- RED：系统文件先占用 `maxVisited=1`，正常文件漏检；
+- GREEN：定向 **10 pass / 0 fail**；
+- GREEN：完整 `npm test` **3481 pass / 0 fail**；
+- ESLint、133 个 source imports、TypeScript、Prettier、client build
+  consistency、`node --check`、`git diff --check`、`npm pack --dry-run`
+  通过；
+- package **144 files**，`lib/client.js` **2485.6 KB**。
+
+**Ego Browser 运行态复验**：
+
+- `visible.txt`、`Thumbs.db`、`ehthumbs_vista.db` 均写入
+  `EHTHUMBS_VISTA.DB`；
+- Search Everywhere 文件页启用 Match Case 后查询
+  `EHTHUMBS_VISTA.DB` 为 0 结果；
+- 点击顶部 Open in Find 后无需手动重跑，Find 立即显示
+  `tmp-search-zero-system-handoff/visible.txt:1:1`；
+- 两个系统缓存文件均未命中，fixture 已删除。
+
+**长期约束**：
+
+- Search Everywhere → Find 的 refresh 决策属于共享 handoff 契约，不由
+  顶部按钮、空状态按钮或调用方分别猜测；
+- 非空零结果不得把“空快照”误当成“已完成搜索”；
+- 搜索硬排除项目必须在预算计数前完成；
+- `maxVisited` 测试覆盖入口必须有上限钳制，且不能成为远程无界遍历参数。
+
+## 2026-11-21 — Shell 首屏缺少函数和变量语义着色
+
+**作用域**：Monaco shell language、semantic provider 注册、shell 函数/变量、
+双引号内变量展开和首屏着色。
+
+**症状/证据**：
+
+- C++、Rust、Python 文件首屏正常着色；
+- Shell `color_variable`、`color_function` 均为普通前景色；
+- Monaco model languageId 确认为 `shell`，但 custom semantic provider 的
+  language 列表没有 shell。
+
+**根因**：
+
+- `IDEA_SEMANTIC_LANGUAGE_IDS` 未注册 `shell/bash/sh`；
+- 通用 string mask 把双引号中的 `$VAR` 一并隐藏；
+- 没有 shell-specific function/variable grammar。
+
+**修复**：
+
+- 增加 shell grammar：
+  - `name() {}` 和后续调用 → `ideaFunction`
+  - 赋值 → `ideaVariable`
+  - `$VAR` / `${VAR}` → `ideaVariable`
+- 扩展 shell 赋值与展开：
+  - `local/export name=...` 和数组赋值 → `ideaVariable`
+  - `${name:-default}`、`${name[0]}` 的展开名仍为变量
+- shell double-quoted mask 保留变量表达式；
+- semantic provider language 列表增加 `shell`、`bash`、`sh`。
+
+**边界问题**：
+
+- `${name:-default}` 同时命中通用 typed-member property 规则；
+- shell 变量引用原先 priority 72，低于 property 73，合并后变量被覆盖；
+- shell 参数展开 priority 提高到 82，并保持在 shell grammar 内修复，
+  不放宽通用语言规则或测试断言。
+
+**回归测试**：
+
+```bash
+node --test tests/editor-code-coloring-semantic-tokens.test.mjs \
+  tests/editor-semantic-coloring-refreshes-without-scroll.test.mjs
+npm test
+```
+
+- RED：真实 shell 首屏变量/函数普通色；
+- GREEN：定向 **46 pass / 0 fail**；
+- GREEN：完整 `npm test` **3478 pass / 0 fail**；
+- ESLint、source imports、TypeScript、Prettier、client build consistency、
+  `node --check`、`git diff --check`、`npm pack --dry-run` 通过；
+- package **144 files**，`lib/client.js` **2485.3 KB**。
+
+**运行态复验**：
+
+- `scrollTop=0`；
+- 变量赋值/引用为 `rgb(69, 131, 131)`；
+- 函数定义/调用为黑色斜体；
+- fixture 已删除。
+
+**长期约束**：
+
+- 新增 heuristic grammar 必须同时注册到 semantic provider；
+- Shell 字符串内的变量展开是代码语义，不是普通字符串；
+- Shell 复用 IDEA Light function/variable 类别，不新增独立主题色。
+
+## 2026-11-21 — Java 首屏语义着色运行态复核
+
+**作用域**：Monaco semantic tokens、Java interface/class/field/method、
+首屏 viewport、字体权重。
+
+**验证样本**：
+
+- `ColorAudit.java` 包含 interface、class、@Override、method 和 field；
+- Ego Browser 打开后 `scrollTop=0`，不执行滚动。
+
+**结果**：
+
+- `ColorContract` / `ColorAudit` 为 class token 色 `rgb(102, 14, 122)`；
+- method `label` 为 method 色 `rgb(145, 76, 7)`；
+- field 声明和引用分别获得属性/字段语义色；
+- 所有代码 token `font-weight:500`、`font-style:normal`；
+- 未复现滑动后才着色。
+
+**长期约束**：
+
+- 首屏 viewport semantic token 必须在打开时生效；
+- Java 复用 TS/IDEA semantic categories，不得等待滚动触发；
+- 代码 token 保持 IDEA Light 的 500 权重且禁止 bold。
+
+## 2026-11-21 — Find Directory scope 非法路径静默 0
+
+**作用域**：Find Directory scope、持久化 scope 归一化、绝对路径、
+`..` 越界、空 path segment、错误本地化。
+
+**症状/证据**：
+
+- Directory scope 输入 `../outside`；
+- 修复前只显示“未找到任何内容”，没有 alert；
+- localStorage 中 scope 被回退为 Project，但 Find UI 仍显示 Directory。
+
+**根因**：
+
+- `normalizeFindSearchScope()` 将非法目录回退 Project，本来是保护历史
+  持久化数据；
+- 同一次用户输入也经过该函数，导致父级状态切回 Project；
+- Host 因此没有收到非法 Directory scope，也就无法返回错误。
+
+**修复**：
+
+- `search-scope.ts`：
+  - `invalidFindDirectoryScopePath()` 校验绝对路径、`..`、空 segment 和
+    512 字符上限；
+  - `directoryScopeRequest()` 在存储使用安全归一化值时，保留本次 UI 的
+    非法目录；
+  - `findScopePreflight()` 优先报告非法路径，其次报告用户排除目录；
+- `findScopePreflight()` 的空查询状态显式 `error:null`，清除旧错误；
+- Host 防御性拒绝 `invalid search directory scope: <path>`；
+- 本地化文案：
+  - `搜索目录路径无效：{path}`
+  - `Invalid search directory path: {path}`；
+- 刷新后存储仍是安全 Project scope。
+
+**回归测试**：
+
+```bash
+node --test tests/search-directory-scope-missing-error.test.mjs \
+  tests/search-directory-scope-excluded-error.test.mjs \
+  tests/plugin-host-text-search-applies-directory-allowed-path-scope-before.test.mjs
+npm test
+```
+
+- RED：真实页面 `../outside` 静默 0 结果；
+- GREEN：定向 **10 pass / 0 fail**；
+- GREEN：完整 `npm test` **3475 pass / 0 fail**；
+- ESLint、source imports、TypeScript、Prettier、client build consistency、
+  `node --check`、`git diff --check`、`npm pack --dry-run` 通过；
+- package **144 files**，`lib/client.js` **2482.2 KB**。
+
+**运行态复验**：
+
+- Host PID `43615`；
+- alert：`搜索失败：搜索目录路径无效：../outside`；
+- result listbox 为空，Directory 输入保持焦点；
+- 清空 query 后 alert 消失并恢复空查询提示；
+- 输入有效目录 `src` 后 alert 消失并恢复正常搜索；
+- Windows 分隔符路径归一化为 `/`；
+- 513 字符路径被拒绝；
+- 排除父目录存在 include 子目录时 preflight 不报错；
+- Replace 模式下错误态：
+  - Replace / Replace All native disabled；
+  - title 与 aria-description 为“搜索失败，请重试后再替换”；
+  - live status 为空；
+  - 仅“在查找窗口中打开”保持可用；
+- 恢复 Project scope 后持久化值安全。
+
+**长期约束**：
+
+- 历史持久化值继续安全回退；
+- 用户当次非法输入必须保留到校验层并明确报错；
+- 非法路径、目录不存在、目录排除、无命中必须是不同状态。
+
+## 2026-11-21 — Find Directory scope 指向排除目录静默 0
+
+**作用域**：Find Directory scope、用户搜索目录规则、子目录 include override、
+错误状态与 empty state。
+
+**症状/证据**：
+
+- 对 `tmp-find-excluded-scope` 执行“排除到搜索”；
+- Directory scope 指向该目录并搜索时，修复前只有 0 结果，没有原因；
+- 用户无法区分“目录无命中”和“目录已排除”。
+
+**根因**：
+
+- Find 文本搜索在发往 Host 前没有应用 Project 搜索目录规则预检；
+- Host 只看到目录存在，不知道用户明确排除了该目录；
+- 现有 helper 已能判断排除状态和子目录 include override，但没有接入 Find。
+
+**修复**：
+
+- `search-scope.ts` 新增 `findToolScopePreflight()`：
+  - 空 query 返回空结果状态；
+  - 目录排除且无包含子目录时返回 error state；
+  - 存在显式包含子目录时继续搜索；
+- `editor-workspace.tsx` 在 Host 请求前调用；
+- 新增 `findToolDirectoryExcluded`：
+  - `搜索目录已排除：{path}`
+  - `Search directory is excluded: {path}`。
+
+**回归测试**：
+
+```bash
+node --test tests/search-directory-scope-excluded-error.test.mjs \
+  tests/search-directory-rules-respect-gitignore-and-project-menu.test.mjs \
+  tests/search-directory-scope-missing-error.test.mjs
+npm test
+```
+
+- RED：真实页面只有静默 0 结果；
+- GREEN：定向 **21 pass / 0 fail**；
+- GREEN：完整 `npm test` **3473 pass / 0 fail**；
+- ESLint、source imports、TypeScript、Prettier、client build consistency、
+  `node --check`、`git diff --check`、`npm pack --dry-run` 通过；
+- package **144 files**，`lib/client.js` **2481.5 KB**。
+
+**运行态复验**：
+
+- alert：`搜索失败：搜索目录已排除：tmp-find-excluded-scope`；
+- 结果列表为空，焦点仍在 Directory 输入；
+- 验证后恢复目录规则为 none，Find scope 恢复 Project。
+
+**长期约束**：
+
+- 用户显式目录排除必须在 Find 请求前生效并说明原因；
+- 排除父目录下的显式 include 子目录必须保留搜索能力；
+- 排除/缺失/无命中是三种不同状态。
+
+## 2026-11-21 — Find Directory scope 不存在目录静默返回 0
+
+**作用域**：Find in Files Directory scope、Host 文本搜索错误、错误本地化、
+empty state 与输入焦点。
+
+**症状/证据**：
+
+- Directory 输入 `definitely-missing-directory`；
+- 修复前页面显示 `0 处匹配，0 个文件` / `未找到任何内容`；
+- 没有 alert，也没有说明目录不存在。
+
+**根因**：
+
+- Host 文件遍历把不可读目录转换为空列表；
+- 搜索层无法区分“目录为空”和“目录不存在”；
+- Find 列表空状态没有排除 `state.error !== null`。
+
+**修复**：
+
+- `searchWorkspaceText()` 对非空 Directory scope 先 `stat`：
+  - 不存在或不是目录时抛出 `search directory does not exist: <path>`；
+- `searchTextFailureMessage()` 映射为
+  `editor.findToolDirectoryMissing`；
+- 中英文文案：
+  - `搜索目录不存在：{path}`
+  - `Search directory does not exist: {path}`
+- `showEmptyFindResult` 要求 `state.error === null`，错误与“无匹配”
+  不再同时显示。
+
+**回归测试**：
+
+```bash
+node --test tests/search-directory-scope-missing-error.test.mjs \
+  tests/search-find-files-accepts-one-character-query-like-idea.test.mjs
+npm test
+```
+
+- RED：修复前真实页面静默 0 结果；
+- GREEN：缺失目录 / 本地化定向 **4 pass / 0 fail**；
+- GREEN：完整 `npm test` **3471 pass / 0 fail**；
+- ESLint、source imports、TypeScript、Prettier、client build consistency、
+  `node --check`、`git diff --check`、`npm pack --dry-run` 通过；
+- package **144 files**，`lib/client.js` **2480.5 KB**。
+
+**运行态复验**：
+
+- Harness Host PID `87336`；
+- 不存在目录显示 alert，结果列表为空；
+- 不再显示“未找到任何内容”；
+- 键焦保持在 Directory 输入框；
+- 验证后 Find scope 恢复 Project。
+
+**长期约束**：
+
+- “目录存在但无命中”和“目录不存在”必须是不同状态；
+- Host 搜索错误要有本地化映射；
+- 错误状态下不得同时渲染 no-result empty state。
+
+## 2026-11-21 — force-tracked ignored 文件重新进入搜索
+
+**作用域**：Git ignore、tracked scope、Project speed search、文件/文本搜索、
+`.gitignore` 目录内的 force-added 文件。
+
+**症状/证据**：
+
+- `.idea/` 在 `.gitignore` 中；
+- `git add -f .idea/tracked-ignore-audit.txt` 后，旧 Host 的 Project speed
+  search 仍找到该文件；
+- `git ls-files --others --ignored` 对已 tracked 文件不再返回 ignore 项。
+
+**根因**：
+
+- `listGitIgnoredSearchPrefixes()` 只枚举 untracked ignored 项；
+- tracked ignored 文件从列表消失后，搜索候选误以为它不再被 ignore。
+
+**修复**：
+
+- Git ignored prefix 命令增加 `--cached`：
+  `git ls-files --cached --others --ignored --exclude-standard --directory`；
+- 所有搜索继续共享 `searchPathIsGitIgnored()` 硬排除；
+- `tracked` scope 仍表示 Git tracked，但最终候选还要通过 Git ignore。
+- watcher 的 Git 元数据分支不再丢弃 changed path：
+  - `.git/index` 的 recursive 事件保留路径；
+  - fallback index watcher 显式记录 `.git/index`；
+  - 否则搜索层无法识别 index 变化并递增 revision。
+
+**回归测试**：
+
+```bash
+node --test tests/project-speed-search-excludes-tracked-files-inside-gitignored-directories.test.mjs \
+  tests/project-speed-search-respects-gitignore-and-search-rules.test.mjs \
+  tests/search-system-generated-files-excluded-regardless-gitignore.test.mjs \
+  tests/search-ignored-open-file-local-find-boundary.test.mjs
+npm test
+```
+
+- RED：旧 Host 真实命中 force-tracked ignored 文件；
+- GREEN：定向 **7 pass / 0 fail**；
+- GREEN：watcher / search invalidation 联合 **14 pass / 0 fail**；
+- GREEN：完整 `npm test` **3469 pass / 0 fail**；
+- ESLint、source imports、TypeScript、Prettier、client build consistency、
+  `node --check`、`git diff --check`、`npm pack --dry-run` 通过；
+- package **144 files**，`lib/client.js` **2480.0 KB**。
+
+**运行态复验**：
+
+- Harness 重启后 Host PID `76345`；
+- 同一文件、同一查询为 `无匹配`；
+- 验证用 index entry 和文件已清理。
+
+**结果收敛补充复验**：
+
+- Search Everywhere 和 Find 各有两条命中时选择第二条；
+- 将第二条加入 `.gitignore` 后两个界面都只剩第一条；
+- 活动行与 `aria-selected` 收敛到唯一有效项；
+- 快速切换 ignore 目标后没有引用旧结果路径。
+
+**Find Git scope 补充复验**：
+
+- Tracked scope 只返回已跟踪文件；
+- Non-Ignored scope 包含 tracked 与 untracked 非 ignored 文件；
+- `.idea` 内 ignored 文件在两个 scope 中都不出现；
+- scope 切换后查询词、预览和结果顺序稳定。
+
+**Directory scope 补充复验**：
+
+- 递归开启：根文件和 nested 文件均命中；
+- 递归关闭：只命中直接子文件；
+- Git ignored `.idea` 目录保持 0 结果；
+- 验证后递归开关恢复开启，Find scope 恢复 Project。
+
+**长期约束**：
+
+- Git ignore 搜索范围必须同时考虑 cached 和 untracked ignored 项；
+- 不能依赖 `.gitignore` 自动移除 tracked 文件来维持搜索排除；
+- tracked scope 与 ignore hard-exclude 是两个正交条件。
+
+## 2026-11-21 — `.gitignore` 变化后 Project speed search 保留旧结果
+
+**作用域**：Project speed search、Search Everywhere、Find、workspace
+watcher、Git ignore、用户搜索目录规则和搜索失效。
+
+**症状/证据**：
+
+- 搜索 `tmp-gitignore-live-needle` 得到 1 个项目；
+- 搜索保持打开时将该目录写入 `.gitignore`；
+- watcher 已刷新 tree 和 Git status，但结果仍显示 1 个项目；
+- 只有重新触发查询才会过滤。
+
+**根因**：
+
+- Host 搜索请求每次都会读取最新 Git ignore；
+- ProjectPanel speed-search effect 没有依赖 Git ignore 状态变化；
+- watcher 帧没有通知搜索层现有结果已过期。
+
+**修复**：
+
+- 新增 `workspaceChangeInvalidatesSearchScope()`：
+  - 任意层级 `.gitignore`；
+  - `.git/info/exclude`；
+  - `.git/index`；
+- watcher 命中这些路径时递增 `searchRevision`；
+- ProjectPanel 将 `searchRevision` 纳入 speed-search effect 依赖；
+- `components/search/search-scope.ts` 提供共享失效 hook：
+  - Search Everywhere 清空旧 files/text 并递增 `textRevision`；
+  - Find 递增 `searchGeneration`，文件 scope 同时重载候选；
+  - hook 同时感知用户搜索目录规则引用变化；
+- 普通源码变化不重跑 Project speed search。
+
+**回归测试**：
+
+```bash
+node --test tests/search-gitignore-change-invalidates-project-speed-search.test.mjs \
+  tests/project-speed-search-respects-gitignore-and-search-rules.test.mjs \
+  tests/search-directory-rules-respect-gitignore-and-project-menu.test.mjs
+npm test
+```
+
+- RED：修复前同页搜索在 `.gitignore` 改变 1.6s 后仍为 1 个项目；
+- GREEN：定向 **21 pass / 0 fail**；
+- GREEN：完整 `npm test` **3468 pass / 0 fail**；
+- ESLint、source imports、TypeScript、Prettier、client build consistency、
+  `node --check`、`git diff --check`、`npm pack --dry-run` 通过；
+- package **144 files**，`lib/client.js` **2480.0 KB**。
+
+**运行态复验**：
+
+- 同一 query 初始为 1 个项目；
+- 写入 ignore rule 后：
+  - Project speed search 自动 `无匹配`；
+  - Search Everywhere 自动 `没有匹配结果`；
+  - Find 自动 `未找到任何内容`；
+- 均无需重输 query；
+- `.gitignore` 已恢复，fixture 已删除。
+
+**长期约束**：
+
+- Git 搜索范围变化必须使现有搜索结果失效；
+- watcher 失效判断应保持纯函数并覆盖嵌套 `.gitignore`、info exclude 和
+  index；
+- 不得让普通文件变化无条件重跑全量搜索，避免输入和文件系统活动互相放大。
+
+## 2026-11-21 — Project 搜索排除目录在树中不可发现
+
+**作用域**：Project tree、“排除到搜索/包含到搜索”、搜索目录规则、
+共享 `FileTreeView` row decoration、辅助技术与 tooltip。
+
+**症状/证据**：
+
+- IntelliJ IDEA 的真实 Project 工具窗口会把排除目录暴露为
+  `excluded directory`；
+- DSH 已实现搜索范围排除，但关闭右键菜单后，tree item 只显示路径；
+- 用户无法从树行判断当前目录是否参与 Find、Search Everywhere 或
+  Project speed search。
+
+**根因**：
+
+- 搜索排除状态只用于构造右键菜单标签；
+- 共享 FileTreeView 的 decoration 只有 `title/class/style`，没有向
+  tree item 传递辅助描述的能力；
+- ProjectPanel 没有把 `searchDirectoryEffectiveState()` 的业务结果接到
+  行语义。
+
+**修复**：
+
+- `FileTreeViewRowDecoration` 新增 `ariaDescription`，由共享 tree item
+  输出 `aria-description`；
+- `FileTreeViewRowDecoration` 新增 `iconClassName`，只有需要视觉修饰的
+  Project 行才增加图标包裹层，普通行保持原 DOM 结构；
+- ProjectPanel 用共享 `searchDirectoryEffectiveState()` 判断目录状态；
+- 新增共享 `searchDirectoryExcludedWithIncludedDescendant()`，区分完整
+  排除与“父目录排除但子目录显式包含”；
+- 排除目录的 tooltip 变为“路径 + 已从搜索范围排除”；
+- 存在包含子目录时，父行文案改为
+  “已从搜索范围排除，部分子目录仍包含”；
+- 排除目录的文件夹图标由共享 CSS 状态类控制：
+  - Light：`opacity: 0.55` + `grayscale(1)`；
+  - Dark：`opacity: 0.72` + `grayscale(1)`；
+  - 两种主题都不增加额外宽度；
+- 新增中英文 `directoryExcludedFromSearch`；
+- 不改变行宽、图标、排序、选择或搜索规则。
+
+**回归测试**：
+
+```bash
+node --test tests/project-search-excluded-directory-state-announced.test.mjs \
+  tests/search-directory-rules-respect-gitignore-and-project-menu.test.mjs \
+  tests/project-speed-search-respects-gitignore-and-search-rules.test.mjs
+npm test
+```
+
+- GREEN：定向 **20 pass / 0 fail**；
+- GREEN：ignored 文件本地 Find/全局搜索边界 **1 pass / 0 fail**；
+- GREEN：完整 `npm test` **3465 pass / 0 fail**；
+- ESLint、source imports、TypeScript、Prettier、client build consistency、
+  `node --check`、`git diff --check`、`npm pack --dry-run` 通过；
+- package **143 files**，`lib/client.js` **2476.3 KB**。
+
+**Ego Browser 运行态复验**：
+
+- 搜索目录执行“排除到搜索”后，当前查询立即 `无匹配`；
+- Project tree 行显示：
+  - `aria-description="已从搜索范围排除"`
+  - tooltip `tmp-search-rule-visual-needle\n已从搜索范围排除`
+  - Light 图标 `opacity=0.55`、`filter=grayscale(1)`、宽 18px
+- Dark theme 强制验证：
+  - 图标 `opacity=0.72`、`filter=grayscale(1)`、宽 18px；
+  - `aria-description` 仍为“已从搜索范围排除”；
+- 选中后名称保持白色，图标尺寸与排除样式不变；
+- 执行“包含到搜索”后规则清空，相同查询恢复 2 个项目；
+- fixture 已删除。
+
+**生命周期补充复验**：
+
+- inline rename 排除目录后，规则从旧路径自动重映射到新路径；
+- 新路径的 `aria-description`、tooltip 和去饱和图标继续生效；
+- 删除目录后规则清空，tree row 消失；
+- Project tree 宽 200px、row 宽 183.05px 时：
+  - 图标仍为 18px；
+  - 名称可用宽度 139.05px；
+  - `nowrap + text-overflow: clip`，无横向占位回归。
+
+**父子覆盖复验**：
+
+- 排除父目录、显式包含子目录后：
+  - 父行 description/tooltip 显示“部分子目录仍包含”；
+  - 子行不显示排除 description；
+  - Project speed search 仍能命中被包含子目录内的文件；
+- 恢复父目录后规则恢复为空，临时目录已删除。
+
+**move-to 生命周期复验**：
+
+- 排除目录通过 Move To 移动到另一个目录后，excluded rule 自动重映射到
+  新父路径；
+- 新 tree row 的 description、tooltip、opacity/grayscale 图标状态同步；
+- 原路径速度搜索无匹配；
+- 恢复包含后规则清空。
+
+**ignored 文件编辑边界复验**：
+
+- 显式打开 `.idea/vcs.xml` 后，编辑器本地 Find 正常命中
+  `VcsDirectoryMappings`；
+- Search Everywhere 文件页与文本页仍不返回 ignored 文件；
+- Host 对显式 `allowedPaths` 与 Replace target 继续应用 Git ignore；
+- 回归：
+  `tests/search-ignored-open-file-local-find-boundary.test.mjs`。
+
+**长期约束**：
+
+- 搜索状态必须通过共享业务 helper 计算，组件不得复制 include/exclude
+  深度比较；
+- 共享 FileTreeView 只负责输出 decoration 语义，不拥有搜索业务；
+- 目录状态增强不得改变树行几何或挤压名称；
+- UI 状态如果会影响搜索结果，必须至少通过 tooltip 或 accessibility
+  description 可发现。
+
+## 2026-11-21 — 系统生成文件绕过所有搜索，且 Project speed search 丢失目录命中
+
+**作用域**：Project speed search、Search Everywhere 文件/文本搜索、Find、
+Git-backed search scope、Replace target 校验、系统生成文件与目录排序。
+
+**症状/证据**：
+
+- `.DS_Store`、`Thumbs.db` 等 Finder/Explorer 元数据文件可能被 Git
+  跟踪，也可能不在 `.gitignore`；
+- 修复 Project speed search 的 Git/目录排除后，完整测试出现两个回归：
+  - `sort-dir` 不再出现在名称/类型/修改时间排序结果；
+  - Folders Always on Top 也不再把 `sort-dir` 放在文件之后；
+- Search Everywhere 文本命中曾只依赖普通文件候选，没有统一的 OS 元数据
+  硬排除集合。
+
+**根因**：
+
+- 各搜索入口分别处理 Git ignore 和 Project 排除目录，没有共享的
+  “系统生成文件”判定；
+- Project speed search 新目录分支只把目录加入 BFS 队列，未在名称匹配时
+  把目录本身加入结果。
+
+**修复**：
+
+- 新增大小写无关的系统文件集合：
+  - `.ds_store`
+  - `desktop.ini`
+  - `ehthumbs.db`
+  - `ehthumbs_vista.db`
+  - `thumbs.db`
+- 文件列表、Git scope、显式 allowed/dirty paths、Project speed search、
+  文本搜索和 Replace target 校验统一应用；
+- 系统文件不消耗结果、文件遍历或文本命中预算；
+- Project tree 的 listing 不应用该搜索硬排除，仍可展示和打开；
+- Project speed search 对允许的目录同时保留自身命中并继续下钻。
+
+**回归测试**：
+
+```bash
+node --test tests/project-recursive-project-search-respects-name-type-modified-ordering.test.mjs \
+  tests/project-speed-search-exact-cap-not-truncated.test.mjs \
+  tests/project-speed-search-respects-gitignore-and-search-rules.test.mjs \
+  tests/search-system-generated-files-excluded-regardless-gitignore.test.mjs
+node --test tests/search-system-generated-files-excluded-regardless-gitignore.test.mjs \
+  tests/search-directory-rules-respect-gitignore-and-project-menu.test.mjs \
+  tests/project-speed-search-respects-gitignore-and-search-rules.test.mjs \
+  tests/search-quick-open-excludes-gitignored-and-user-excluded-paths.test.mjs
+npm test
+```
+
+- RED：目录排序两个用例失败，`sort-dir` 缺失；
+- GREEN：目录/系统文件定向 **8 pass / 0 fail**；
+- GREEN：搜索规则联合定向 **24 pass / 0 fail**；
+- GREEN：完整 `npm test` **3461 pass / 0 fail**；
+- ESLint、source imports、TypeScript、Prettier、client build consistency、
+  `node --check`、`git diff --check`、`npm pack --dry-run` 通过；
+- package **143 files**。
+
+**Ego Browser 运行态复验**：
+
+- Harness 重启后 Host PID `35033` 监听 `3081`，重新输入 DSH Pocket PIN；
+- 临时创建同名内容 sentinel 的 `.DS_Store`、`Thumbs.db` 和可见对照文件，
+  三者均未加入 `.gitignore`；
+- Project tree 仍显示两个系统文件；
+- Project speed search 查询 `Thumbs`、`.DS_Store` 均为 `无匹配`；
+- Search Everywhere 文件页精确查询两个文件名均为“没有匹配结果”；
+- Search Everywhere 文本页与 Find 工具窗口只命中可见对照文件；
+- fixture 已删除。
+
+**本轮最终复核**：
+
+- 系统文件、Git ignore 和目录规则联合定向 **24 pass / 0 fail**；
+- 完整 `npm test` **3478 pass / 0 fail**；
+- Ego Browser 再次确认 Project tree 显示 `.DS_Store`，但 Search
+  Everywhere 文件页查询 `.DS_Store` 无匹配；
+- 同一 fixture 的 Search Everywhere 文本页与 Find 都只有
+  `visible.txt` 的 **1 处匹配 / 1 个文件**；
+- `.DS_Store`、`Thumbs.db`、`ehthumbs_vista.db`、`desktop.ini` 均未进入
+  结果，fixture 已删除；
+- client build consistency、`node --check`、`git diff --check` 与
+  `npm pack --dry-run`（**144 files**）通过。
+
+**长期约束**：
+
+- OS 生成文件不得依赖 `.gitignore` 才被搜索排除；
+- Project tree 展示规则与搜索候选规则必须分离；
+- 搜索改造必须同时验证“排除噪声”和“保留正常的目录/排序命中”；
+- 系统文件过滤必须发生在预算计数之前。
+
+## 2026-11-21 — Commit 多行状态信息挤掉工具窗口内容
+
+**作用域**：Commit 状态栈、长 Git stderr、同时存在 notice/push failure、
+Log/Changes 可用高度。
+
+**症状/证据**：
+
+- Harness Web 中模拟 Push 返回 18 行远端拒绝原因；
+- 修复前状态栈高度 **817px**，工具窗口可用高度仅 **510px**；
+- Commit Log panel 高度被压到 **0px**；
+- 状态栈 `overflowY=visible`，内容越过工具窗口底边覆盖页面；
+- 截图确认 Change/Commit 主要内容完全不可用。
+
+**根因**：
+
+- `commitStatusStack` 使用 `flex: none` 且没有 `maxHeight`；
+- `commitError` 保留 `whiteSpace: pre-wrap`，多行 Git 错误导致状态栈
+  无限增长；
+- 多个状态同时显示时，剩余 flex 内容得到 0 高度。
+
+**修复**：
+
+- 两份运行时样式表统一增加：
+  - `maxHeight: 'min(38vh, 220px)'`
+  - `overflowY: 'auto'`
+  - `overscrollBehavior: 'contain'`
+- 保留 `flex: none`，由 max-height 控制状态栈最大占用；
+- 长消息在状态栈内部滚动，Log/Changes/详情区域保持可用。
+
+**回归测试**：
+
+```bash
+node --test tests/commit-status-stack-bounded-height.test.mjs
+node --test tests/commit-status-strip-live-announcements.test.mjs \
+  tests/commit-status-strip-outside-tab-switch.test.mjs
+npm test
+```
+
+- RED：两份样式表均缺少 bounded-height/scroll 属性；
+- GREEN：状态栈、live region、tab 外状态条定向 **6 pass / 0 fail**；
+- GREEN：完整 `npm test` **3459 pass / 0 fail**；
+- ESLint、source imports、TypeScript、Prettier、client build、bundle
+  consistency、`node --check`、`git diff --check`、`npm pack --dry-run`
+  通过。
+
+**运行态复验**：
+
+- 状态栈高度从 817px 降至 **214.5px**；
+- 内部 `scrollHeight=1041`、`clientHeight=215`、`overflowY=auto`；
+- Log panel 从 0px 恢复到 **263px**；
+- 状态栈底部 291px，保持在 510px 工具窗口内部。
+
+**长期约束**：
+
+- 工具窗口公共状态区必须有视口相关高度上限；
+- 多行外部错误只能在状态区内部滚动，不能挤压主列表；
+- `inline-styles.ts` 与 `ui/styles.ts` 必须保持同一布局语义。
+
+## 2026-11-21 — Commit 状态条缺少 live-region 语义
+
+**作用域**：Commit 工具窗口的 not-managed、成功 notice、status error、
+push failure 和辅助技术播报。
+
+**症状/证据**：
+
+- Commit Log 的 loading/error 已使用 `role=status/alert`；
+- Commit 状态条此前只是普通 `div`；
+- Ego Browser 语义快照只显示 status strip 文本，没有 status/alert 角色；
+- 辅助技术无法可靠区分 polite 成功通知与 assertive 失败告警。
+
+**根因**：
+
+- 状态条在从 Changes 专属错误迁移成工具窗口公共状态时，只迁移了视觉与
+  生命周期，没有迁移 live-region 语义；
+- 测试此前只覆盖“状态条在 tab 外”，没有覆盖 announcement 角色。
+
+**修复**：
+
+- Git not-managed 中性状态：`role='status'`；
+- Commit notice：`role='status'`；
+- 状态读取错误：`role='alert'`；
+- Push failure：`role='alert'`；
+- 四个状态节点都设置 `aria-atomic='true'`；
+- 状态仍只在状态条唯一节点渲染，Retry 按钮不复制 announcement。
+
+**回归测试**：
+
+```bash
+node --test tests/commit-status-strip-live-announcements.test.mjs
+node --test tests/commit-status-strip-outside-tab-switch.test.mjs \
+  tests/commit-non-git-workspace-shows-localized-not-managed-state.test.mjs
+npm test
+```
+
+- RED：状态条内 status/alert 角色数量均为 0；
+- GREEN：状态条、非 Git、tab 外状态条定向 **9 pass / 0 fail**；
+- GREEN：完整 `npm test` **3458 pass / 0 fail**；
+- ESLint、source imports、TypeScript、Prettier、client build、bundle
+  consistency、`node --check`、`git diff --check`、`npm pack --dry-run`
+  通过。
+
+**运行态复验**：
+
+- 模拟 Commit 成功但 Push 失败；
+- Ego Browser 语义快照显示 status `提交完成` 和 alert
+  `Committed, but the push failed: simulated live push rejection`；
+- 两个节点均为 `aria-atomic=true`。
+
+**长期约束**：
+
+- 工具窗口级成功通知使用 polite status，失败与阻断使用 alert；
+- 同一消息不得在状态条和 Retry 控件内重复建立 live region；
+- 状态条视觉迁移必须同时保留 announcement 语义。
+
+## 2026-11-21 — Retry pending 时失败导致焦点跌到 BODY
+
+**作用域**：Commit 状态 Retry、Push Retry、pending ARIA 状态、失败后的
+按钮焦点连续性。
+
+**症状/证据**：
+
+- Harness Web 中制造 Push 失败，聚焦 `Retry Push` 后按 Enter；
+- 延迟 250ms 返回第二个 Push 失败；
+- 失败后 Retry Push 仍存在，但 `document.activeElement === BODY`；
+- DOM 元素身份检查显示请求开始时原 Retry 按钮被卸载，失败后出现新按钮；
+- 状态 Retry 使用 Loading 文案时也存在同类 pending 语义缺口。
+
+**根因**：
+
+- `pushNow()` 请求开始立即执行 `setPushError(null)`，把整个 push failure
+  行连同 Retry 按钮一起卸载；
+- 旧按钮对 `pushing` 使用 native `disabled`，即使行保留也会让浏览器把
+  焦点移出按钮；
+- 状态 Retry 没有 pending 可见文案或 ARIA 状态。
+
+**修复**：
+
+- 新增共享 `commitRetryControlState(unavailable, pending)`：
+  - `unavailable` 才使用 native disabled；
+  - `pending` 使用 `aria-disabled/aria-busy`，保持可聚焦；
+- `CommitPanel` 的状态 Retry 与 Push Retry 都使用该控制状态；
+- 状态 Retry pending 显示 `Loading…`；
+- Push Retry pending 显示 `Pushing…`；
+- Push Retry 开始时不清理 `pushError`，保持失败行和按钮挂载，只有 push
+  成功后才清空；
+- 既有 single-flight guard 继续阻止 pending 期间重复请求。
+
+**回归测试**：
+
+```bash
+node --test tests/commit-retry-pending-preserves-button-focus.test.mjs
+node --test tests/commit-retry-requests-single-flight.test.mjs \
+  tests/commit-push-retry-restores-tool-window-focus.test.mjs \
+  tests/commit-status-retry-restores-tool-window-focus.test.mjs \
+  tests/commit-non-git-workspace-shows-localized-not-managed-state.test.mjs
+npm test
+```
+
+- RED：`commitRetryControlState` 尚不存在；
+- GREEN：完整 `npm test` **3456 pass / 0 fail**；
+- `editor-workspace.tsx` **12583 行**；
+- ESLint、source imports、TypeScript、Prettier、client build、bundle
+  consistency、`node --check`、`git diff --check`、`npm pack --dry-run`
+  通过。
+
+**运行态复验**：
+
+- Push Retry pending：`Pushing…`、`aria-disabled=true`、
+  `aria-busy=true`、native disabled=false，焦点仍在按钮；
+- Push Retry 失败后：Retry Push 保持焦点，`bodyIsActive=false`；
+- 状态 Retry pending：`Loading…` 与相同 ARIA 语义，焦点仍在按钮；
+- 状态 Retry 失败后：Retry 保持焦点，`bodyIsActive=false`。
+
+**长期约束**：
+
+- pending 控件不得用 native disabled 破坏键盘焦点；
+- 失败行在 retry pending 期间必须保持挂载，不能先卸载再重建；
+- pending 可见文案、ARIA 状态和同步 single-flight guard 必须同时存在；
+- Retry 失败后保持原按钮焦点，成功后再交给工具窗口内容焦点策略。
+
+## 2026-11-21 — Commit Retry 同一事件循环产生重复请求
+
+**作用域**：Commit 状态 Retry、Push Retry、异步请求 single-flight 和
+`editor-workspace.tsx` 模块审查上限。
+
+**症状/证据**：
+
+- Harness Web 中先制造 Commit 状态 Refresh 失败，出现 Retry；
+- 将下一次 `status` 延迟 300ms，并在同一页面任务调用两次 Retry `click()`；
+- 修复前运行态计数为 **2 个并发 status 请求**；
+- `setPushBusy(true)` 与原生 disabled 都要等 React 提交后生效，无法覆盖
+  同一事件循环内的第二次触发。
+
+**根因**：
+
+- `retryCommitStatus` 与 `pushNow` 都只依赖 render 后状态；
+- 缺少 DOM 状态提交前的同步 in-flight claim；
+- 首次加入 guard 后 `editor-workspace.tsx` 达到 12610 行，超过源模块
+  12600 行审查上限。
+
+**修复**：
+
+- 在 `commit.ts` 新增 `claimCommitRequestAttempt()`；
+- 状态 Retry 和 Push Retry 各持有独立 ref guard；
+- 两个异步路径都在请求前 claim、在 `finally` 释放；
+- 同一任务第二次触发直接 no-op，不产生第二个 Host 请求；
+- 保留既有成功后的 Commit 内容焦点恢复；
+- 将 Find Host payload 的三个纯归一化函数迁入 `commit.ts`，避免工作区
+  继续膨胀：
+  `completeSearchMatches / completeFindFiles / completeFindMatches`。
+
+**回归测试**：
+
+```bash
+node --test tests/commit-retry-requests-single-flight.test.mjs
+node --test tests/commit-push-retry-restores-tool-window-focus.test.mjs \
+  tests/commit-status-retry-restores-tool-window-focus.test.mjs \
+  tests/commit-status-errors-expose-localised-retry-action.test.mjs
+node --test tests/editor-browser-client-source-split-into-ordered-typescript-business-modules.test.mjs
+npm test
+```
+
+- RED：`claimCommitRequestAttempt` 尚不存在；
+- GREEN：Retry single-flight、焦点和 Push 主路径定向 **12 pass / 0 fail**；
+- GREEN：完整 `npm test` **3453 pass / 0 fail**；
+- `editor-workspace.tsx` 从 12610 行降至 **12579 行**；
+- ESLint、source imports、TypeScript、Prettier、client build、bundle
+  consistency、`node --check`、`git diff --check`、`npm pack --dry-run`
+  通过。
+
+**运行态复验**：
+
+- 状态 Retry 重复触发：并发 `status` 请求从 **2 降为 1**；
+- 完成后焦点回到 `DIV[role=tree][aria-label=Changes]`；
+- Push Retry 重复触发：并发 `push` 请求为 **1**；
+- 完成后焦点回到 `DIV[role=listbox][aria-label=Commit]`；
+- 两个场景 `bodyIsActive=false`。
+
+**长期约束**：
+
+- 任何异步 Retry 都必须在 React busy state 提交前做同步 claim；
+- claim 只由所属请求的 `finally` 释放，成功、失败和异常路径一致；
+- `editor-workspace.tsx` 保持 12600 行审查上限；新增逻辑优先进入纯模型、
+  现有业务模块或共享 hook，不得靠压缩格式绕过。
+
+## 2026-11-21 — Push Retry 成功后焦点落到 BODY
+
+**作用域**：Commit 状态条、`Committed, but the push failed`、Retry Push、
+Log/Changes 焦点恢复。
+
+**症状/证据**：
+
+- Harness Web 中拦截 `inspect` 与 `commit`，制造假的已验证提交和
+  `simulated push rejection verification`；
+- `Retry Push` 明确获得按钮焦点后按 Enter；
+- 延迟返回 push 成功后，错误条和 Retry Push 消失；
+- `document.activeElement === document.body`，键盘焦点跌出工具窗口。
+
+**根因**：
+
+- `pushNow()` 成功后只清空 `pushError`、写入成功 notice；
+- Retry Push 随错误条卸载，但成功路径没有重新取得 Commit 内容焦点；
+- 上一轮的状态 Retry 焦点 helper 仍是 status 专用命名，没有复用于
+  Push Retry。
+
+**修复**：
+
+- 将 `commitStatusRetryFocusTarget()` 泛化为
+  `commitRetryFocusTarget()`；
+- 状态 Retry 与 Push Retry 共用同一条“成功 + Commit 仍活动 + 面板可见”
+  焦点准入规则；
+- `pushNow()` 成功后复用 `focusToolWindowContent('commit')`，Log 模式
+  回到 Commit listbox，Changes 模式回到当前行或 Changes tree；
+- Push 失败、切走工具窗口或刷新失败时保留原焦点，不抢键盘。
+
+**回归测试**：
+
+```bash
+node --test tests/commit-push-retry-restores-tool-window-focus.test.mjs
+node --test tests/commit-status-retry-restores-tool-window-focus.test.mjs \
+  tests/commit-status-errors-expose-localised-retry-action.test.mjs \
+  tests/commit-first-push-publishes-branch-sets-upstream.test.mjs
+npm test
+```
+
+- RED：helper 尚不存在，测试以
+  `ReferenceError: commitRetryFocusTarget is not defined` 失败；
+- GREEN：Push Retry、状态 Retry 与 Push 主路径定向 **10 pass / 0 fail**；
+- GREEN：完整 `npm test` **3451 pass / 0 fail**；
+- ESLint、source imports、TypeScript、Prettier、client build、bundle
+  consistency、`node --check`、`git diff --check`、`npm pack --dry-run`
+  通过。
+
+**运行态复验**：
+
+- Ego Browser 延迟 250ms 返回成功 push；
+- 20ms 焦点采样最终落在
+  `DIV[role=listbox][aria-label=Commit]`；
+- Retry Push 与失败文案均已卸载，`bodyIsActive=false`。
+
+**长期约束**：
+
+- 状态 Retry 和 Push Retry 必须复用同一焦点策略，不得复制分支逻辑；
+- 只有请求成功且目标工具窗口仍可见时才恢复焦点；
+- 任何随成功状态卸载的操作按钮都不能把键盘留在 `BODY`。
+
+## 2026-11-21 — Commit 状态重试成功后的焦点落到 BODY
+
+**作用域**：Commit 工具窗口状态读取失败、Retry、Changes/Log 焦点恢复。
+
+**症状/证据**：
+
+- Harness Web 拦截 `api/dsh-editor/git` 的 `status` 请求并返回
+  `simulated status failure`；
+- Commit Refresh 正确显示错误和 Retry；
+- 恢复真实 Host 响应并点击 Retry 后，Change 计数和树恢复、错误条消失；
+- 但 `document.activeElement === document.body`，键盘焦点跌出工具窗口；
+- 20ms 采样顺序显示 `Refresh → Retry → BODY → Changes tree`。
+
+**根因**：
+
+- `loadGit()` 成功时清空错误并重建 Changes；
+- Retry 入口只是 `() => void loadGit()`，没有在状态提交后重新取得
+  Commit 内容焦点；
+- 错误条与 Retry 随成功状态卸载，浏览器自然把焦点退到 `BODY`。
+
+**修复**：
+
+- `loadGit()` 返回本次刷新是否已得到可展示状态；
+- 普通失败返回 `false`，成功响应或已归一化的非 Git 中性状态返回 `true`；
+- 新增纯函数 `commitRetryFocusTarget()`，只在刷新成功、Commit
+  仍为活动工具窗口且面板可见时返回 `commit`；
+- Retry 包装在成功 settle 后复用 `focusToolWindowContent('commit')`，
+  Changes 模式回到当前行或 Changes tree，Log 模式回到 Log 列表；
+- Retry 失败时保留错误条和按钮焦点；异步期间切走工具窗口时不会抢回焦点。
+
+**回归测试**：
+
+```bash
+node --test tests/commit-status-retry-restores-tool-window-focus.test.mjs
+node --test tests/commit-status-errors-expose-localised-retry-action.test.mjs \
+  tests/commit-failed-status-refresh-reaches-commit-retry-surface.test.mjs \
+  tests/commit-status-strip-outside-tab-switch.test.mjs
+npm test
+```
+
+- RED：helper 尚不存在，测试以
+  `ReferenceError: commitRetryFocusTarget is not defined` 失败；
+- GREEN：Commit 状态重试定向回归 **7 pass / 0 fail**；
+- GREEN：完整 `npm test` **3449 pass / 0 fail**；
+- ESLint、source imports、TypeScript、Prettier、client build、bundle
+  consistency、`node --check`、`git diff --check`、`npm pack --dry-run`
+  通过。
+
+**运行态复验**：
+
+- Ego Browser 恢复真实 Host 响应后点击 Retry；
+- 错误和 Retry 卸载，Changes 树恢复；
+- 焦点采样最终落在
+  `DIV[role=tree][aria-label=Changes]`，不再停留 `BODY`。
+
+**长期约束**：
+
+- 会卸载自身的操作按钮必须在成功 settle 后显式交出键盘所有权；
+- 只有刷新成功且目标工具窗口仍可见时才恢复焦点，失败和已切走的窗口
+  不得抢焦点；
+- 复用已有 `focusToolWindowContent()`，不得新增第二套工具窗口焦点状态。
+
+## 2026-11-21 — Editor 跨文件定义导航回归
+
+**作用域**：TS/TSX import、C/C++ include、HPP 声明/实现、Rust mod/use、
+definition candidate discovery 和 caret 跳转。
+
+**验证目的**：
+
+- 确认定义导航不只在同文件内有效；
+- 确认模块/头文件解析会切换到真实定义文件，而不是仅移动当前文件 caret；
+- 不改实现，使用 Harness 真实 Meta hover + Cmd-click。
+
+**运行态证据**：
+
+- TS：`DshCrossTarget` → `dsh-nav-lib.ts`，caret `1:14`；
+- TSX：`<DshCrossView>` → `dsh-nav-view-lib.tsx`，caret `3:17`；
+- C：`dsh_cross_value` → `dsh-nav-lib.h`，caret `7:5`；
+- C++：`service.Size()` → `dsh-nav-lib.hpp`，caret `5:7`；
+- C++ implementation：`DshCrossService` → header，caret `3:7`；
+- Rust：`dsh_cross_factory()` → `dsh_nav_lib.rs`，caret `5:8`。
+
+每个使用点 hover 都产生 `.dsh-editor-definition-link`；点击后 active path
+和 caret 同时变化。HPP 声明自身点击停在声明 `5:7`，实现文件可反向导航
+到 header，符合 Declaration / Implementation 的边界。
+
+**实现依据**：
+
+- `definitionImportTarget()` / `definitionModuleCandidates()` 解析
+  import 与模块路径；
+- C/C++ include、header sibling、qualified implementation receiver 使用
+  同一候选评分；
+- Rust `mod/use` 由语言候选路径补全；
+- 命中后由 workspace resolver 打开目标文件并设置位置。
+
+**回归测试**：
+
+```bash
+node --test tests/editor-java-go-cpp-language-aware-definition-navigation.test.mjs
+node --test tests/editor-javascript-named-imports-map-local-identifiers-their-source-module.test.mjs
+npm test
+```
+
+- 现有跨语言导航测试和完整 **3445 pass / 0 fail** 通过；
+- 临时 main/lib/header/implementation 文件已删除。
+
+**长期约束**：
+
+- import/module/include 候选必须约束在 workspace 内；
+- 使用点应优先到声明，实现文件应能反向到 header；
+- 跨文件跳转必须同时更新 active path 与 caret，不能只改当前 model 位置。
+
+## 2026-11-21 — Editor 定义 hover 与点击跳转跨语言回归
+
+**作用域**：Monaco definition decoration、Command/Ctrl hover、
+Cmd/Ctrl-click、状态栏 caret 和 TS/TSX、C、C++、HPP、Rust 导航。
+
+**验证目的**：
+
+- 对齐 IDEA 的 Command/Ctrl hover 链接反馈和点击跳转；
+- 确认语义着色正常的符号也具备同名导航目标；
+- 不改实现，只验证真实 Harness 交互。
+
+**运行态证据**：
+
+- TS：`dshNavFactory` 使用行 9 → caret `5:10`；
+- TSX：`DshNavRow` 使用行 12 → caret `7:10`；
+- C：`dsh_nav_value` 使用行 13 → caret `7:12`；
+- C++：`Describe` 使用行 10 → caret `5:15`；
+- HPP：`Size` 使用行 10 → caret `5:7`；
+- Rust：`value` 使用行 13 → caret `6:8`。
+
+所有首次打开后 Meta hover 都产生两个
+`.dsh-editor-definition-link`（标识符和紧随语法字符）；Meta 点击后
+caret 行与首个定义行一致。TS hover 的目标 span class 实测包含
+`goto-definition-link dsh-editor-definition-link`。
+
+**实现依据**：
+
+- Monaco `onMouseMove` 保存鼠标位置，Meta/Ctrl 的 window keydown/keyup
+  触发同一位置的重绘；
+- `editor.createDecorationsCollection()` 给目标 word 添加
+  `inlineClassName: 'dsh-editor-definition-link'`；
+- `onMouseDown` 只在 Meta/Ctrl 下调用 workspace 的 definition resolver，
+  成功后再移动 caret/打开目标文件。
+
+**回归测试**：
+
+```bash
+node --test tests/editor-java-go-cpp-language-aware-definition-navigation.test.mjs
+node --test tests/editor-javascript-named-imports-map-local-identifiers-their-source-module.test.mjs
+npm test
+```
+
+- 现有同文件与语言感知导航测试、完整 **3445 pass / 0 fail** 已通过；
+- 临时导航样例已删除，工作树未保留 fixture。
+
+**长期约束**：
+
+- hover 装饰必须绑定当前指针位置，Meta 按下和松开都要立即更新；
+- 点击导航只能在 Meta/Ctrl 修饰下发生，且不得改变跨行 selection；
+- 着色和导航必须使用同一语言/路径解析边界，不能各自维护一套判断。
+
+## 2026-11-21 — Editor 首次打开即着色跨语言回归
+
+**作用域**：Monaco lexical tokenization、IDEA semantic token、首屏与上下
+多一屏预热，覆盖 TS/TSX、C、C++、HPP、Rust。
+
+**验证目的**：
+
+- 用户曾反馈新文件打开后首屏无色，只有滚动后才出现着色；
+- 本轮使用真实 Harness Web 和临时样例文件确认该缺陷是否仍存在；
+- 不改实现，只验证首次打开、`scrollTop=0` 的可见 token 和语义色。
+
+**运行态证据**：
+
+- TS：23 行、122+ token，`scrollTop=0`；
+  - type/class `rgb(102, 14, 122)`；
+  - method `rgb(145, 76, 7)`；
+  - local variable `rgb(69, 131, 131)`；
+- TSX：23 行、142 token，interface 紫色、组件/变量语义色存在；
+- C：19 行、105 token，struct 紫色、函数棕色、局部变量青色；
+- C++：23 行、128 token，class/type 紫色、method 棕色、字段/变量色存在；
+- HPP：23 行、68 token，template struct/class/field 语义色存在；
+- Rust：23 行、137 token，struct 紫色、impl method 棕色、局部变量青色。
+
+所有首次打开的首个有效采样（约 0.9s，包含文件打开和 Monaco 挂载）都在
+`scrollTop=0` 下出现完整首屏 token 与语义色。3 秒后 token 数只从 122
+补齐到 127，没有重新经历无色的“滚动触发”阶段。
+
+**实现依据**：
+
+- `requestEditorLexicalTokens()` 使用
+  `getVisibleRangesPlusViewportAboveBelow()` 获取上下多一屏范围；
+- `requestEditorSemanticTokensWhenReady()` 在模型/语言服务就绪后显式请求
+  viewport semantic tokens；
+- 滚动事件仍通过 `scheduleEditorSemanticTokens()` 合并刷新。
+
+**回归测试**：
+
+```bash
+node --test tests/editor-semantic-coloring-refreshes-without-scroll.test.mjs
+node --test tests/editor-code-coloring-semantic-tokens.test.mjs
+npm test
+```
+
+- 现有首次 tokenization、range clipping、C/C++/Rust semantic 和完整
+  **3445 pass / 0 fail** 已通过；
+- 临时样例文件已删除，工作树未保留测试 fixture。
+
+**长期约束**：
+
+- 首次打开必须对 visible ranges + viewport above/below 主动 tokenization；
+- semantic provider 就绪后必须再次显式请求，不得依赖第一次滚动；
+- 回归证据必须同时检查 lexical token 数和 IDEA 语义色，而不是只看
+  “有文字”或源码中是否存在调用。
+
+## 2026-11-21 — Terminal 达到标签上限后告警不清理
+
+**作用域**：TerminalPanel 6-tab cap error、关闭标签、Close Other
+Terminals、溢出标签菜单和焦点回收。
+
+**症状/证据**：
+
+- Harness 在 6 个终端时点击“新建终端”，正确显示
+  “终端标签已达上限（6 个），请先关闭一个再新建”；
+- 关闭一个终端后标签数降为 5，但 alert 状态没有包含可清理来源；
+- 原 `closeTerminal()` 和 `closeOtherTerminals()` 没有处理 error，
+  用户已按提示关闭标签后仍可能看到过期 cap alert。
+
+**根因**：
+
+- `error` 仅为字符串，无法区分 terminal-limit 和普通终端错误；
+- 关闭路径只负责 PTY、cwd、README 和焦点清理；
+- 没有“标签关闭后应清除哪类告警”的状态契约。
+
+**修复**：
+
+- 错误状态改为 `TerminalErrorState { message, limitReached }`；
+- 新增 `terminalCreateFailureLimitReached(failure)`；
+- 新增 `terminalErrorAfterTabClosed(current)`：
+  - `limitReached: true` → `null`；
+  - 普通错误保持原对象；
+- 单标签关闭和 Close Other Terminals 都调用该迁移；
+- 刷新、shell 菜单、rename 和 TerminalScreen 输出错误统一标记为
+  `limitReached: false`。
+
+**回归测试**：
+
+```bash
+node --test tests/terminal-cap-alert-clears-after-closing-tab.test.mjs
+node --test tests/terminal-hitting-shell-cap-says-what-not-what-host-rejected.test.mjs
+node --test tests/terminal-close-non-active-tab-restores-active-tab.test.mjs
+npm test
+```
+
+- RED：limit helper/关闭清理缺失，**3 fail**；
+- GREEN：Terminal cap、overflow、close focus、cwd/README 定向
+  **15 pass / 0 fail**；
+- GREEN：完整 `npm test` **3445 pass / 0 fail**；
+- `editor-workspace.tsx` 12,591 行，`lib/client.js` 2468.0 KB；
+  ESLint、TypeScript、source imports、Prettier 和 `git diff --check`
+  通过。
+
+**运行态证据**：
+
+- cap alert 出现：`终端标签已达上限（6 个），请先关闭一个再新建`；
+- 关闭活动标签后 alert=`null`，overflow 文案变为“还有 4 个终端标签”；
+- 300ms 后 activeElement=`Terminal input`；
+- `»` 菜单中的隐藏终端可激活，菜单关闭，焦点落到活动标签；
+- 重新新建终端后恢复 6 标签，alert 仍为空。
+
+**长期约束**：
+
+- 错误状态必须保留来源，不能用单一字符串推断生命周期；
+- 关闭标签只能清理 limit-owned 告警，不能吞掉普通终端错误；
+- cap alert、标签数量、溢出计数和焦点必须在同一次关闭操作后收敛。
+
+## 2026-11-21 — Commit 分支 chip 的无障碍名称丢失当前分支
+
+**作用域**：PanelToolbar badge、Commit 顶部工具栏、窄工具窗和
+辅助技术名称。
+
+**症状/证据**：
+
+- Harness Commit 工具栏在 200px 时可见分支文本为 `main`；
+- 分支按钮的 `aria-label` 固定为 `Checkout branch`，覆盖了可见文本；
+- tooltip 也只报告动作，不报告当前分支；
+- 分支名越长时，可见文本还会截断，辅助技术无法从文案补充上下文。
+
+**根因**：
+
+- PanelToolbar 把 badge 当纯视觉 ReactNode 渲染；
+- badge 的 tooltip 与 aria-label 直接使用固定动作文案；
+- 没有共享 helper 组合“动作 + 当前值”。
+
+**修复**：
+
+- 新增 `toolbarBadgeAccessibleLabel(value, popupLabel)`：
+  - 清理并组合 badge 值；
+  - 空值回退到动作文案；
+  - 空动作回退到 badge 值；
+- PanelToolbar 用同一标签设置 badge button 的 `title` 与 `aria-label`；
+- 普通 badge 的 title 同步使用该标签；
+- `aria-haspopup`、`aria-expanded` 和菜单点击行为保持不变。
+
+**回归测试**：
+
+```bash
+node --test tests/project-toolbar-branch-badge-accessible-name-includes-branch.test.mjs
+node --test tests/project-toolbar-follows-idea-action-order-groups.test.mjs
+npm test
+```
+
+- RED：helper 缺失，**2 fail**；
+- GREEN：Toolbar/Project/Commit 定向 **13 pass / 0 fail**；
+- GREEN：完整 `npm test` **3442 pass / 0 fail**；
+- `editor-workspace.tsx` 12,591 行，`lib/client.js` 2467.0 KB；
+  ESLint、TypeScript、source imports、Prettier、bundle consistency 与
+  `git diff --check` 通过。
+
+**运行态证据**：
+
+- Project 最小 pane 200px，动作全部可达；
+- Commit toolbar 200px，`Change / Commit / main / More` 全部在边界内；
+- Changes 一级动作全部可达，More 仍保留；
+- Terminal 348px、6 个 PTY 时标签溢出和全部二级动作均可达；
+- 分支 chip `text=main`、`title=Checkout branch: main`、
+  `aria-label=Checkout branch: main`。
+
+**长期约束**：
+
+- 可交互 badge 的无障碍名称必须包含其当前可见值；
+- tooltip 与 aria-label 应复用同一组合函数，避免两者漂移；
+- 窄宽度下 More 仍需留在容器边界内，且不能取代固定的分支值。
+
+## 2026-11-21 — Project 扩展选择与普通 hover 视觉混淆
+
+**作用域**：Project 树 primary selection、extended selection、row hover 和
+浅/深色主题 token。
+
+**症状/证据**：
+
+- Harness 中按 Meta 点击形成的扩展选择行使用
+  `var(--dsw-alias-interactive-bg-hover-solid)`；
+- 普通未选中 row hover 的实际混合背景约为 `rgba(38, 49, 72, 0.06)`，
+  与扩展选择的 `rgb(241, 243, 245)` 视觉上几乎同级；
+- IDEA Project tree 的选中目录使用强蓝色 selection，主选择和扩展选择应
+  属于同一 selection 色系。
+
+**根因**：
+
+- `treeRowSelectedSoft` 复用了通用 hover surface；
+- 缺少 extended-selection 自己的 hover 层；
+- selection 语义没有在主选择、扩展选择和普通 hover 之间形成连续层级。
+
+**修复**：
+
+- `treeRowSelectedSoft` 使用
+  `color-mix(in srgb, var(--dsw-alias-state-business-primary) 20%, transparent)`；
+- `.dsh-editor-tree-row-extended:hover` 使用同一 selection 色 32% tint；
+- primary selection 继续使用 100% `state-business-primary` + 白字；
+- `src/client/ui/styles.ts` 与 `src/client/inline-styles.ts` 同步。
+
+**回归测试**：
+
+```bash
+node --test tests/project-tree-extended-selection-has-distinct-idea-fill.test.mjs
+node --test tests/editor-project-selection-terminal-shortcuts-toolbars.test.mjs
+npm test
+```
+
+- RED：extended selection 仍是 neutral hover，**2 fail**；
+- GREEN：相关定向 **13 pass / 0 fail**；
+- GREEN：完整 `npm test` **3440 pass / 0 fail**；
+- `editor-workspace.tsx` 12,591 行，`lib/client.js` 2466.4 KB；
+  ESLint、TypeScript、source imports、Prettier、bundle consistency 与
+  `git diff --check` 通过。
+
+**运行态证据**：
+
+- Harness primary selection：`rgb(65, 118, 230)`，白字；
+- Harness extended selection：
+  `color(srgb 0.254902 0.462745 0.901961 / 0.2)`；
+- extended hover：同一 selection 色 32%；
+- 普通 row hover：`rgba(38, 49, 72, 0.06)`；
+- IDEA Project tree 聚焦选中目录时使用强蓝 selection。
+
+**长期约束**：
+
+- selection 和 hover 必须是两个语义层，不得复用同一个表面 token；
+- 扩展选择应保留 selection 色系，但明显弱于 primary selection；
+- 主题色必须继续来自 Host alias token，不写死浅色主题 RGB。
+
+## 2026-11-21 — Search Everywhere 短文本提示重复渲染
+
+**作用域**：Search Everywhere 文本页 0/1 字符空状态、visible message 和
+polite live status。
+
+**症状/证据**：
+
+- Harness Web 文本页输入 `n` 时，listbox 快照出现两次
+  “输入至少 2 个字符搜索文件内容”；
+- 独立短查询提示块与通用空结果块在相同条件同时渲染；
+- IDEA 2026 Search Everywhere 输入 `n` 会直接返回候选，界面不会重复显示
+  同一个空状态提示。
+
+**根因**：
+
+- 组件同时保留两个负责短查询文案的分支；
+- hidden `role=status`、独立提示块和空结果块各自计算同类文案；
+- 没有单一 helper 描述“当前空结果属于 text-hint 还是 no-matches”。
+
+**修复**：
+
+- 新增 `searchEverywhereEmptyResultKind(tab, queryLength)`；
+- Text 页少于 2 字符统一归为 `text-hint`，其他空结果归为 `no-matches`；
+- 组件只计算一个 `emptyResultLabel`，visible empty state 和隐藏 live
+  status 共用；
+- 删除独立重复的短查询提示块。
+
+**回归测试**：
+
+```bash
+node --test tests/search-everywhere-short-text-hint-rendered-once.test.mjs
+node --test tests/search-everywhere-error-owns-only-live-announcement.test.mjs
+node --test tests/search-find-files-accepts-one-character-query-like-idea.test.mjs
+npm test
+```
+
+- RED：helper 缺失、重复提示存在，**2 fail**；
+- GREEN：相关定向 **14 pass / 0 fail**；
+- GREEN：完整 `npm test` **3438 pass / 0 fail**；
+- `editor-workspace.tsx` 12,591 行，`lib/client.js` 2466.2 KB；
+  ESLint、TypeScript、source imports、Prettier、bundle consistency 与
+  `git diff --check` 通过。
+
+**运行态证据**：
+
+- Harness Web query=`n`：visible listbox 提示计数 `1`、alert 计数 `0`；
+- polite status 仍只有一条“输入至少 2 个字符搜索文件内容”；
+- IntelliJ IDEA 2026 同一查询返回候选且无重复提示；DSH 保留现有 2 字符
+  阈值，但不再重复显示同一状态。
+
+**长期约束**：
+
+- 一个空结果状态只能有一个可见文案来源；
+- hidden live status 可以复用同一文案，但不得产生第二条可见消息；
+- 不因对照 IDEA 就擅自改变 Search Everywhere 的全文搜索阈值。
+
+## 2026-11-21 — Search Everywhere 短查询残留文本搜索错误
+
+**作用域**：Search Everywhere text provider 的 query 边界、错误归属和
+loading/结果清理。
+
+**症状/证据**：
+
+- 通过 Harness Web 注入一次 `searchText` HTTP 500 后，文本页显示错误与
+  “重试文本搜索”；
+- 把 query 从 `needle` 删到 `n` 后，旧 alert 仍保留；
+- 短查询提示被错误状态抑制，用户看到的是过期失败而不是“输入至少 2 个
+  字符搜索文件内容”。
+
+**根因**：
+
+- text search effect 的 `< 2` 字符分支只清理
+  `textMatches/textLoading/textTruncated`；
+- 该分支没有清理 text-owned `error/errorSource`；
+- 文件 provider 与文本 provider 的旧错误需要不同生命周期，不能简单全局
+  清空。
+
+**修复**：
+
+- 新增 `searchEverywhereTextIdleState()`；
+- 短查询时清空文本命中、loading、truncation；
+- 仅当 `errorSource === 'text'` 时清除 error/errorSource；
+- files-provider 错误保持原样；
+- EditorWorkspace 的短查询分支统一调用该 helper。
+
+**回归测试**：
+
+```bash
+node --test tests/search-leaving-text-providers-clears-stale-text-search-error-loading.test.mjs
+npm test
+```
+
+- RED：helper 缺失，短查询收敛 **2 fail**；
+- GREEN：相关定向 **7 pass / 0 fail**；
+- GREEN：完整 `npm test` **3436 pass / 0 fail**；
+- `editor-workspace.tsx` 12,591 行，`lib/client.js` 2466.2 KB；
+  ESLint、TypeScript、source imports、Prettier、bundle consistency 与
+  `git diff --check` 通过。
+
+**运行态证据**：
+
+- Harness Web 注入 `searchText` HTTP 500，alert 为
+  `file API HTTP 500` + “重试文本搜索”；
+- query 改为 `n` 后 alert 节点消失；
+- 可见文案只剩“输入至少 2 个字符搜索文件内容”。
+
+**长期约束**：
+
+- 没有发出搜索请求的短查询状态不得继承上一个 query 的 provider 错误；
+- provider error 只能由 owning provider 的请求生命周期清理；
+- 文件 provider 的 Retry 归属不得被文本短查询清理路径覆盖。
+
+## 2026-11-21 — Search Everywhere 文本搜索失败没有 Retry
+
+**作用域**：Search Everywhere text provider error、`textRevision` 驱动和
+provider 对称恢复。
+
+**症状/证据**：
+
+- text 搜索失败后只显示错误，没有恢复入口；
+- files provider 已有 Retry，但 text provider 不能复用文件枚举；
+- 文本搜索由 effect + `textRevision` 驱动，按钮无法直接重跑原请求。
+
+**根因**：
+
+- `errorSource='text'` 只用于分类，没有生产 retry callback；
+- 组件缺少 text Retry 按钮和状态变化契约；
+- 文件 Retry 与文本搜索使用不同请求链。
+
+**修复**：
+
+- 新增 `searchEverywhereTextRetryState()`；
+- Retry 清除 error/errorSource，递增 `textRevision`，保留 query 和选项；
+- SearchEverywhere 增加 `onRetryText` 与“重试文本搜索”按钮；
+- Files/Text Retry 分别调用各自既有 provider 回调。
+- replacement failure/success 统一清理 `errorSource`，防止无 provider
+  错误继承旧 Retry 分类。
+- 两类 Retry 通过共享 `retryProvider()` 在触发后回焦搜索 query。
+
+**回归测试**：
+
+```bash
+node --test tests/search-leaving-text-providers-clears-stale-text-search-error-loading.test.mjs
+node --test tests/search-everywhere-error-owns-only-live-announcement.test.mjs
+node --test tests/search-everywhere-file-candidates-preserve-truncation.test.mjs
+npm test
+```
+
+- RED：text Retry state helper/button 不存在；
+- GREEN：相关定向 17/0；
+- GREEN：完整 `npm test` 3434/0；
+- `editor-workspace.tsx` 12,598 行，`lib/client.js` 2464.8 KB；
+  ESLint、TypeScript、source imports、Prettier、bundle consistency 与
+  `git diff --check` 通过。
+
+**运行态证据**：
+
+- Harness Web 首次 `searchText` 请求返回 HTTP 500；
+- 文本页显示“重试文本搜索”；
+- 点击后第二次请求成功，`src/needle.ts:1:1` 结果恢复，错误与 Retry
+  消失。
+- Filter 隐藏 Text provider 时 alert/Retry 隐藏，重新启用后恢复。
+- 点击 Text Retry 后焦点回到搜索输入框，query 保持 `needle`，Retry
+  按钮卸载。
+
+**长期约束**：
+
+- files 与 text Retry 必须各自复用 owning provider 的既有请求链；
+- 文本 Retry 只能递增搜索 generation，不能复制一套搜索实现；
+- Retry 后必须保留 query、options、scope 和 provider 状态。
+
+## 2026-11-21 — Search Everywhere Provider 错误跨页签污染
+
+**作用域**：Search Everywhere provider error 可见性、Tab transition 和
+files Retry 生命周期。
+
+**症状/证据**：
+
+- files 枚举失败后切到 Actions，`file API HTTP 500` 仍显示在无关页签；
+- Tab transition 无条件清空 error，切回 Files 后错误和 Retry 又永久丢失。
+
+**根因**：
+
+- 组件把 error 当作全局状态渲染，没有 provider 可见性判断；
+- `searchEverywhereTabTransition()` 对所有错误统一 `error:null`；
+- 缺少 provider-owned error 在暂时隐藏和重新显示之间的生命周期契约。
+
+**修复**：
+
+- 新增 `searchEverywhereErrorIsVisible(source, tab, filters)`；
+- Files error 只在 Files 页或 All 页 Files provider 可见时展示；
+- Text error 只在 Text 页或 All 页 Text provider 可见时展示；
+- provider-owned error 在 Tab 切换时保留，providerless 错误仍按原语义
+  清理；
+- `visibleError` 统一驱动状态行、alert、空状态和 Retry 显示。
+
+**回归测试**：
+
+```bash
+node --test tests/search-everywhere-error-owns-only-live-announcement.test.mjs
+node --test tests/search-leaving-text-providers-clears-stale-text-search-error-loading.test.mjs
+node --test tests/search-everywhere-file-candidates-preserve-truncation.test.mjs
+npm test
+```
+
+- RED：provider visibility helper 缺失，Tab transition 永久清空 files error；
+- GREEN：相关定向 20/0；
+- GREEN：完整 `npm test` 3433/0；
+- `editor-workspace.tsx` 12,599 行，`lib/client.js` 2464.2 KB；
+  ESLint、TypeScript、source imports、Prettier、bundle consistency 与
+  `git diff --check` 通过。
+
+**运行态证据**：
+
+- Files 枚举失败时 Files 页显示错误与 Retry；
+- 切到 Actions 后 alert/Retry 均隐藏；
+- 返回 Files 后同一错误与 Retry 再次显示。
+
+**长期约束**：
+
+- Provider-owned error 不得污染无关 Tab/Filter；
+- 暂时隐藏不是清除，清除只能由 owning provider 的新请求或显式关闭触发；
+- Error alert 仍只由当前可见的 provider error 拥有。
+
+## 2026-11-21 — Search Everywhere 文件枚举失败没有恢复入口
+
+**作用域**：Search Everywhere files provider error、Retry 和错误来源
+归属。
+
+**症状/证据**：
+
+- Files 页文件枚举失败时只显示 `file API HTTP 500`；
+- 用户只能关闭 Search Everywhere 后重新打开；
+- 单一 error 字符串无法区分 files 和 text provider，无法安全绑定 Retry。
+
+**根因**：
+
+- SearchEverywhereState 没有 `errorSource`；
+- files 失败只写 error，没有生产 Retry callback；
+- 组件不知道当前错误是否允许重试文件枚举。
+
+**修复**：
+
+- 增加 `errorSource: 'files' | 'text' | null`；
+- files 请求开始清除旧错误，失败标记 files，text 失败标记 text；
+- SearchEverywhere 新增 `onRetryFiles`；
+- 仅 files error 显示“重试文件搜索”，复用现有文件枚举回调；
+- Error 容器改为 flex 行，alert 仍是唯一错误播报。
+
+**回归测试**：
+
+```bash
+node --test tests/search-everywhere-file-candidates-preserve-truncation.test.mjs
+node --test tests/search-everywhere-error-owns-only-live-announcement.test.mjs
+npm test
+```
+
+- RED：files 请求失败后 `errorSource` 仍为 null；
+- GREEN：Search Everywhere 与客户端模块定向 11/0；
+- GREEN：完整 `npm test` 3431/0；
+- `editor-workspace.tsx` 12,599 行，`lib/client.js` 2463.6 KB；
+  ESLint、TypeScript、source imports、Prettier、bundle consistency 与
+  `git diff --check` 通过。
+
+**运行态证据**：
+
+- Harness Web 首次 Files 请求返回 HTTP 500，错误旁出现 Retry；
+- 点击 Retry 后发出第 2 次枚举，返回 `src/recovered.ts`；
+- 错误与 Retry 消失，Files 页显示 recovered.ts 的 1 个结果。
+
+**长期约束**：
+
+- Retry 必须绑定产生错误的 provider，不能跨 provider 重放；
+- 复用原业务请求函数，不为恢复入口新增第二套枚举实现；
+- 错误来源状态必须与 error 同步写入，避免显示错误类型的 Retry。
+
+## 2026-11-21 — Search Everywhere Scope 失败后仍显示旧文件候选
+
+**作用域**：Search Everywhere File provider 的 scope 归属、缓存恢复和
+请求失败状态。
+
+**症状/证据**：
+
+- Files 页先用 closed scope 缓存 `closed-only.ts`；
+- 切换 Include non-project 后文件枚举返回 HTTP 500；
+- 旧 `closed-only.ts` 仍显示在新 scope 结果中，与错误状态同时出现。
+
+**根因**：
+
+- State 只保存文件数组，没有记录数组所属 `includeNonProject` scope；
+- scope 切换只更新 requested scope，不清除或隐藏旧数组；
+- 请求失败只写 error，文件结果仍从旧数组计算。
+
+**修复**：
+
+- SearchEverywhereState 增加 `filesScope`；
+- 请求成功同时保存 `files / filesScope / filesTruncated`；
+- 缓存恢复保存原候选的真实 scope；
+- 新增 `searchEverywhereFilesForScope()`，scope 不匹配返回空集；
+- File matches 只读取 scope 匹配后的候选。
+
+**回归测试**：
+
+```bash
+node --test tests/search-everywhere-file-candidates-preserve-truncation.test.mjs
+node --test tests/search-quick-open-*.test.mjs
+npm test
+```
+
+- RED：成功响应后 `filesScope` 缺失，scope helper 也不存在；
+- GREEN：Search Everywhere、QuickOpen 与客户端模块定向 14/0；
+- GREEN：完整 `npm test` 3430/0；
+- `editor-workspace.tsx` 12,591 行，`lib/client.js` 2462.7 KB；
+  ESLint、TypeScript、source imports、Prettier、bundle consistency 与
+  `git diff --check` 通过。
+
+**运行态证据**：
+
+- Harness Web 首次 Files 请求显示 `closed-only.ts` 的 1 个结果；
+- 切换 Include non-project 后第二次请求返回 HTTP 500；
+- Files 页只显示 `file API HTTP 500`，旧 scope 文件不再展示。
+
+**长期约束**：
+
+- 缓存结果必须与生成它的 scope 一起保存，不能只缓存数组；
+- 请求失败不得让旧 scope 数据借用新 scope 的语义继续展示；
+- 文件候选与文本结果仍保持各自独立的错误、截断和 scope 状态。
+
+## 2026-11-21 — Search Everywhere 丢弃文件候选截断状态
+
+**作用域**：`requestSearchEverywhereFiles()`、Search Everywhere Files/All
+页文件候选状态、Find handoff，以及 QuickOpen/Search 共用文案。
+
+**症状/证据**：
+
+- Host `files` 返回 `truncated=true` 时 Files/All 页没有提示；
+- 文本结果已有独立截断提示，但文件候选上限被完全隐藏；
+- 移交到 Find Tool Window 时只传递 text provider 的截断状态。
+
+**根因**：
+
+- 文件候选 mapper 只保存 `files`，丢掉 `truncated`；
+- SearchEverywhereState 没有文件候选截断字段；
+- 缓存只保存文件数组，没有保存对应的截断状态；
+- Find handoff 只读取 `textTruncated`。
+
+**修复**：
+
+- 增加 `filesTruncated` 状态和文件候选截断缓存 ref；
+- 首次打开、缓存恢复和请求成功均保留真实值；
+- scope 切换先清除旧值，完成后再写新值；
+- 组件仅在 Files 页或 All 页 File provider 可见时展示提示；
+- Find handoff 使用 `textTruncated || filesTruncated`；
+- QuickOpen 与 Search Everywhere 共用 `searchFilesTruncated` 文案。
+
+**回归测试**：
+
+```bash
+node --test tests/search-everywhere-file-candidates-preserve-truncation.test.mjs
+node --test tests/search-quick-open-*.test.mjs
+npm test
+```
+
+- RED：Host 返回 `truncated=true` 后 `filesTruncated` 仍为 false；
+- GREEN：Search Everywhere、QuickOpen 与客户端模块定向 16/0；
+- GREEN：完整 `npm test` 3429/0；
+- `editor-workspace.tsx` 12,597 行，`lib/client.js` 2462.1 KB；
+  ESLint、TypeScript、source imports、Prettier、bundle consistency 与
+  `git diff --check` 通过。
+
+**运行态证据**：
+
+- Harness Web 的 fetch 替身只让 `op: "files"` 返回 `truncated: true`；
+- Search Everywhere All 页正常显示文件和文本结果；
+- 文件候选显示独立截断提示，文本结果仍显示自己的截断提示；
+- 两种截断来源没有被合并成错误或空结果。
+
+**长期约束**：
+
+- 文件候选和文本结果是两个 bounded providers，必须各自保留截断事实；
+- 缓存文件数组时必须同时缓存对应 scope 与截断状态；
+- 截断提示只在 owning provider 可见时出现，并随 provider 切换收敛。
+
+## 2026-11-21 — Go to File 静默丢弃文件候选截断状态
+
+**作用域**：`openQuickOpen()`、`QuickOpenState` 和 QuickOpen 文件列表
+状态展示。
+
+**症状/证据**：
+
+- Host `files` 操作在候选数达到 2000/5000 上限时返回
+  `truncated=true`；
+- Go to File 只渲染 `files`，列表外观与完整结果完全相同；
+- 用户继续输入前无法知道还有未枚举的文件。
+
+**根因**：
+
+- `FileListResponse` 已有 `truncated`，但 `openQuickOpen()` 没有复制；
+- `QuickOpenState` 与 QuickOpen props 没有截断字段；
+- 组件只覆盖 loading、error 和 no-match，没有独立的容量状态。
+
+**修复**：
+
+- `QuickOpenState` 改为由 `QuickOpen.tsx` 导出的组件状态契约；
+- 打开时 `truncated=false`，成功时采用 Host 值，失败时清零；
+- QuickOpen 列表底部增加 polite status 截断提示；
+- 新增中英文 `searchFilesTruncated` 文案，不将其伪装成错误。
+
+**回归测试**：
+
+```bash
+node --test tests/search-quick-open-excludes-gitignored-and-user-excluded-paths.test.mjs
+node --test tests/search-quick-open-*.test.mjs
+npm test
+```
+
+- RED：Host 返回 `truncated=true` 后 state 仍为 `undefined`；
+- GREEN：Quick Open、客户端模块与关闭焦点组合 16/0；
+- GREEN：完整 `npm test` 3428/0；
+- `editor-workspace.tsx` 12,594 行，`lib/client.js` 2461.4 KB；
+  ESLint、TypeScript、source imports、Prettier、bundle consistency 与
+  `git diff --check` 通过。
+
+**运行态证据**：
+
+- Harness Web 中只替换 `op: "files"` 的 fetch 返回值，使其携带
+  `truncated: true`；
+- Go to File 显示两个候选，并在列表底部显示中文截断提示；
+- 替身只存在于当前验证页面，验证后页面已关闭。
+
+**长期约束**：
+
+- Host 返回的有界状态必须在客户端保持可见，不得在状态映射中丢弃；
+- 截断不是错误，也不是空结果，应使用单独的非阻断 status；
+- 文件候选列表仍然只来自 Host，客户端不得二次扫描或静默扩展上限。
+
+## 2026-11-21 — Go to File 绕过 Git 与目录搜索排除
+
+**作用域**：`src/client/editor-workspace.tsx` 的 Go to File 文件候选
+请求、`.gitignore` 搜索过滤和 Project 文件夹搜索规则。
+
+**症状/证据**：
+
+- Search Everywhere 与 Find 已排除 `.gitignore` 路径和用户排除目录；
+- `⌘⇧O` Go to File 仍会列出 `docs/DSH-better-sidebar/...` 等 ignored
+  文件；
+- Project 的 `tests` 文件夹选择“排除到搜索”后，其中的测试文件仍能
+  被 Go to File 找到。
+
+**根因**：
+
+- `openQuickOpen()` 只发送 `{ op: 'files' }`；
+- Host 的 `files` operation 已支持 `respectGitIgnore` 与
+  `searchDirectoryRules`，但 Go to File 没有转发；
+- 全局快捷键 effect 在 callback 定义前以空依赖注册，更新后的目录规则
+  不会进入后续调用。
+
+**修复**：
+
+- Go to File 请求统一携带 `respectGitIgnore: true` 和当前
+  `searchDirectoryRules`；
+- `⌘⇧O` effect 收敛到 `QuickOpen.tsx` 的共享 hook，并在 callback 之后
+  调用，始终依赖最新 `openQuickOpen`；
+- 复用 Host 系统文件、Git ignored 和用户目录规则的单一过滤链。
+
+**回归测试**：
+
+```bash
+node --test tests/search-quick-open-excludes-gitignored-and-user-excluded-paths.test.mjs
+node --test tests/search-quick-open-*.test.mjs
+npm test
+```
+
+- RED：执行真实 `openQuickOpen` 时 payload 缺少两个搜索范围字段；
+- GREEN：Quick Open、目录规则与 stale response 定向 22/0；
+- GREEN：完整 `npm test` 3427/0；
+- `editor-workspace.tsx` 12,592 行，`lib/client.js` 2460.7 KB；
+  ESLint、TypeScript、source imports、Prettier、bundle consistency 与
+  `git diff --check` 通过。
+
+**运行态证据**：
+
+- Harness Web 的 Go to File 搜索 `.gitignore` 目录中的临时 probe，
+  显示“无匹配”；
+- Project 排除 `tests` 后，Go to File 搜索其真实测试文件显示“无匹配”；
+- 恢复“包含到搜索”后菜单重新显示“排除到搜索”；
+- 临时 probe 和目录已清理。
+
+**长期约束**：
+
+- 所有文件候选入口必须复用 Host 的搜索范围契约，不得只在 UI 层过滤；
+- 动态搜索范围变化必须被快捷键路径看到，不得捕获 stale React 闭包；
+- Project 树和文件读取不应用搜索硬排除。
+
+## 2026-11-21 — 搜索结果恰好达到上限时误报截断
+
+**作用域**：`lib/index.js` 文件候选、Git Scope 文件列表、
+Project speed search、Move To 目录遍历、文本搜索结果上限。
+
+**症状/证据**：
+
+- `listWorkspaceFiles(root, 2)` 恰好返回 2 个普通文件时同时返回
+  `truncated=true`；
+- Project speed search 恰好返回 200 个命中时显示“搜索结果已截断”；
+- 继续输入并不能显示更多结果，说明截断提示是误报。
+
+**根因**：
+
+- 结果数组达到固定上限时立即标记 truncated；
+- 没有继续遍历到“下一条真实命中”来确认是否真的还有结果；
+- 文件列表、Git Scope 和名称搜索重复了相同的有界结果模式。
+
+**修复**：
+
+- 达到上限后继续遍历；
+- 发现额外 eligible file/match 时才设置 `truncated=true`；
+- 目录遍历达到 1000 个目录后继续确认是否存在额外目录；
+- 文本搜索在同一文件内多读取 1 条匹配，以区分“恰好耗尽”与“仍有下一处”；
+- 队列耗尽时保持 `truncated=false`；
+- `maxVisited` 等原有遍历安全上界保持不变。
+
+**回归测试**：
+
+```bash
+node --test tests/search-system-generated-files-excluded-regardless-gitignore.test.mjs
+node --test tests/project-speed-search-exact-cap-not-truncated.test.mjs
+node --test tests/project-move-directory-walk-exact-cap-not-truncated.test.mjs
+node --test tests/search-text-exact-cap-last-file-not-truncated.test.mjs
+node --test tests/project-speed-search-*.test.mjs
+npm test
+```
+
+- GREEN：系统文件 **3 pass / 0 fail**；
+- GREEN：exact-cap 文本/目录/文件组合 **7 pass / 0 fail**；
+- GREEN：Project/search 组合 **34 pass / 0 fail**；
+- GREEN：搜索 **761 pass / 0 fail**；
+- GREEN：完整 **3425 pass / 0 fail**。
+
+**运行态证据**：
+
+- Harness 重启为新 host PID `65803`；
+- 200 个 `cap-needle-*` 文件全部显示；
+- 状态为“找到 200 个项目”；
+- 中英文截断提示均未出现；
+- Directory Scope 的单文件 200 匹配也显示正常摘要且无文本截断提示；
+- fixture 已删除。
+
+**长期约束**：
+
+- 不得把“达到上限”直接等同于“仍有更多结果”；
+- 上限控制输出数量，不替代存在性确认；
+- 下一轮检查仍有未扫描文件时，保守截断提示是否应改为更准确的“达到上限”文案。
+
+## 2026-11-21 — Replace 完成态写入新工作区与空 workspaceId
+
+**作用域**：`src/client/commit.ts`、`src/client/editor-workspace.tsx`
+Replace qualification、Undo 记录与 session-scoped 身份。
+
+**症状/证据**：
+
+- Harness Web 的 session-scoped Editor 中，确认 Replace All 后没有 host 请求；
+- 临时诊断显示 `requestWorkspaceId=""`、`currentWorkspaceId=""`；
+- 旧 helper 把空 workspace id 判为 stale，导致合法替换静默取消；
+- host Replace 发出后若切换 workspace，旧回调仍可能继续 dirty commit、
+  reload 和 loadGit。
+
+**根因**：
+
+- workspace 判定只接受非空 id，没有 session fallback；
+- confirmation 前已知空 id 在确认后被当成非法；
+- host completion 没有再次校验 live workspace；
+- Search/Find 重复构造 Undo 与 operation 状态。
+
+**修复**：
+
+- 非空 workspace id 按 workspace 匹配；
+- session-scoped Editor 以 session id 作为 stable identity；
+- host 返回、refresh 后和 catch 三处均使用 live workspace gate；
+- `dirtyReplaceUndo()`、`replaceOperationState()` 和
+  `replaceFailureMessage()` 收敛共享记录逻辑；
+- 系统文件测试覆盖 tracked Git Scope 和预算竞争。
+
+**回归测试**：
+
+```bash
+node --test tests/search-replace-confirmation-workspace-switch-cancels-write.test.mjs
+node --test tests/search-system-generated-files-excluded-regardless-gitignore.test.mjs
+node --test tests/search-*.test.mjs
+npm test
+```
+
+- GREEN：定向 **15 pass / 0 fail**；
+- GREEN：搜索 **759 pass / 0 fail**；
+- GREEN：完整 **3421 pass / 0 fail**。
+
+**运行态证据**：
+
+- 正向：同 session Replace All 发出 1 次 `replaceText`，fixture 写成 `after`；
+- 负向：挂起旧 session 的 `replaceText`，切到 `pdocr` 后释放；
+- 释放后没有 `/git` 等完成态后续请求，新 workspace 未被污染；
+- `lib/client.js` 2460.5 KB，`editor-workspace.tsx` 12,599 行；
+- fixture 已删除，Harness PID `85444` 监听 `3081`。
+
+**长期约束**：
+
+- 空 workspaceId 不等于非法请求，必须使用 session fallback；
+- destructive request 的确认、完成和失败边界都必须绑定同一 identity；
+- 旧 workspace 的响应不得驱动新 workspace 的 UI、Git 或 Undo；
+- 下一轮检查纯 dirty-buffer Replace 与会话复用边界。
+
+## 2026-11-21 — Replace All 确认期间切换工作区
+
+**作用域**：`src/client/commit.ts`、`src/client/editor-workspace.tsx`
+Replace All 请求身份、确认与 workspace 路由。
+
+**症状/证据**：
+
+- Replace All 确认框打开后，controller 可以销毁旧 Editor host 并切换 workspace；
+- 旧确认 promise 仍可 resolve；
+- `callFs` 发请求时读取全局当前 workspace，而不是请求创建时的 workspace；
+- 旧 targets 因而可能被新 workspace 路由执行。
+
+**根因**：
+
+- confirmation helper 接收的 generation 是打开弹框前的值，不是 dialog resolve 后的 live 值；
+- Search Everywhere 与 Find 都没有将 workspace identity 绑定到 replace request；
+- 原测试只比较两个等值快照，没有覆盖等待期间的外部状态变化。
+
+**修复**：
+
+- Search 请求捕获 `workspaceId + search request id`；
+- Find 请求捕获 `workspaceId + requestGeneration`；
+- confirmation resolve 后通过 live predicate 重新读取当前 workspace 与 Find generation；
+- `searchReplaceAttemptIsCurrent()` 校验 workspace 与 request id；
+- `findReplaceAttemptIsCurrent()` 校验 workspace 与 live generation；
+- 取消或失效统一释放 `replaceWriteBusyRef` 并恢复 replacement 焦点。
+
+**回归测试**：
+
+```bash
+node --test tests/search-replace-confirmation-workspace-switch-cancels-write.test.mjs
+node --test tests/search-*.test.mjs
+npm test
+```
+
+- RED：workspace guard/helper 与 live confirmation check 缺失；
+- GREEN：定向 **21 pass / 0 fail**；
+- GREEN：全部搜索测试 **755 pass / 0 fail**；
+- GREEN：完整测试 **3417 pass / 0 fail**。
+
+**运行态证据**：
+
+- Ego Browser 在 Harness Web 打开 `dsh-editor` Replace All 确认框；
+- 确认框打开后切到 `pdocr`，再触发旧确认按钮；
+- `replaceText` 请求数 **0**，fixture 保持 `before`；
+- 回到 `dsh-editor` 正常 Replace All 发出 **1** 次请求并写成 `after`；
+- 临时 fixture 已删除，Harness PID `85444` 继续监听 `3081`。
+
+**长期约束**：
+
+- dialog/await 前捕获的参数不能当作 await 后的 current state；
+- destructive workspace request 必须绑定创建时的 workspace identity；
+- 跨 workspace 失效必须走同一 busy/focus settlement；
+- 下一轮检查 host 请求已经发出后再切换 workspace 的完成态隔离。
+
+## 2026-11-20 — 外部点击后 Find 焦点所有权残留
+
+**作用域**：`src/client/components/search/FindToolWindow.tsx`
+focus ownership 与 document capture。
+
+**症状/证据**：
+
+- Find 结果行获得焦点；
+- 点击 Project 等非聚焦外部区域后，blur 的 `relatedTarget` 仍可能为 null；
+- 为支持卸载行恢复而保留的 ownership 因而残留；
+- 后续结果刷新可能把焦点错误抢回 Find。
+
+**根因**：
+
+- 卸载结果行与点击外部都可能产生 null relatedTarget；
+- 仅靠 React blur capture 无法区分这两种情况。
+
+**修复**：
+
+- 新增 `findFocusShouldReleaseOutsideSurface()`；
+- FindToolWindow 在 document capture 阶段监听 pointerdown/focusin；
+- target 在 Find root 外时立即释放 ownership；
+- listener 不拦截事件，只清理自身状态；
+- 卸载行触发的结果更新仍可按 ownership 恢复焦点。
+
+**回归测试**：
+
+```bash
+node --test tests/search-directory-rules-respect-gitignore-and-project-menu.test.mjs
+npm test
+```
+
+- RED：外部点击后 ownership 缺少主动释放路径；
+- GREEN：焦点释放、空结果、折叠、watcher、搜索规则与模块门禁
+  **24 pass / 0 fail**；
+- GREEN：完整测试 **3412 pass / 0 fail**。
+
+**运行态证据**：
+
+- 点击 Project `.gitignore` 后再外部删除 Find 目标；
+- Find 重跑后焦点仍留在 Project，不被抢回；
+- 聚焦最后一条 Find 结果并删除后，焦点回到查询框；
+- Host PID `77410` 监听 `3081`，fixture 已删除。
+
+**长期约束**：
+
+- 卸载行恢复与外部点击释放必须由不同信号区分；
+- document capture listener 只释放自身 ownership，不改变外部交互；
+- 空结果必须聚焦查询框；
+- 下一轮检查 Replace All confirmation 与自动重跑 generation guard。
+
+## 2026-11-20 — Find 结果行卸载后键盘焦点落到 BODY
+
+**作用域**：`src/client/components/search/FindToolWindow.tsx`
+结果行焦点与结果集合更新。
+
+**症状/证据**：
+
+- 键盘焦点位于 Find 的某个结果行；
+- 外部删除该文件后 Find 自动重跑并卸载该行；
+- `document.activeElement` 随后落到 HTML/BODY；
+- 继续按 ArrowDown / Enter 时 Find 不再拥有键盘操作语义。
+
+**根因**：
+
+- active index 会 clamp 到新的结果集合；
+- 但浏览器不会自动把焦点交给新的 active option；
+- Find 组件没有记录结果焦点原先是否属于本窗口。
+
+**修复**：
+
+- 新增 `findShouldRestoreFocusAfterResultsChange()`；
+- FindToolWindow 使用 root ref 与 focus ownership ref；
+- focus capture 标记本窗口拥有焦点；
+- blur 到外层可聚焦节点时才释放 ownership；
+- 结果完成更新后，若原焦点已丢失：
+  - 优先聚焦新 active row；
+  - 空结果聚焦查询框；
+- Project 删除等外部焦点流程不会被抢回。
+
+**回归测试**：
+
+```bash
+node --test tests/search-directory-rules-respect-gitignore-and-project-menu.test.mjs
+npm test
+```
+
+- RED：删除当前聚焦结果行后 activeElement 落到页面根节点；
+- GREEN：焦点、折叠、watcher、搜索规则与模块门禁 **23 pass / 0 fail**；
+- GREEN：完整测试 **3411 pass / 0 fail**。
+
+**运行态证据**：
+
+- Harness 中聚焦 `drop-dir/needle.txt` 结果行；
+- shell 删除 `drop-dir` 后自动重跑；
+- 焦点移动到 `visible.txt:1:1` 新 active row；
+- Preview 与该 active row 保持一致；
+- Host PID `76781` 监听 `3081`，fixture 已删除。
+
+**长期约束**：
+
+- 结果集合变化后必须检查焦点是否随 DOM 卸载丢失；
+- 只有本窗口曾拥有焦点时才允许恢复，禁止抢占 Project/Editor；
+- 空结果必须回查询框，而不是不可操作的列表容器；
+- 下一轮覆盖空结果和 Replace All busy 并发。
+
+## 2026-11-20 — Find 结果重跑后残留失效折叠分组
+
+**作用域**：`src/client/commit.ts` Find 结果状态收敛、
+`src/client/editor-workspace.tsx` 文件/文本结果成功更新点。
+
+**症状/证据**：
+
+- Find 中手动折叠某个文件结果分组；
+- 文件被外部删除后 Find 自动刷新并移除该结果；
+- `collapsedFiles` 仍保存旧路径；
+- 同名文件重建后可能继承旧折叠状态，显示为错误收起。
+
+**根因**：
+
+- active index 已在 FindToolWindow 中 clamp；
+- Preview 由 active row 驱动并在无 active 时清空；
+- `collapsedFiles` 是独立 UI 状态，结果替换时没有按新结果集合清理。
+
+**修复**：
+
+- 新增 `pruneFindCollapsedFiles()`；
+- 从当前 `files / matches` 收集现存路径；
+- 只保留仍命中的 collapsed path；
+- 无变化时保持同一 state 引用；
+- 文件搜索和文本搜索两个成功更新点统一调用。
+
+**回归测试**：
+
+```bash
+node --test tests/search-directory-rules-respect-gitignore-and-project-menu.test.mjs
+npm test
+```
+
+- RED：已删除路径仍留在 collapsedFiles；
+- GREEN：折叠、watcher、搜索规则与模块门禁 **25 pass / 0 fail**；
+- GREEN：完整测试 **3410 pass / 0 fail**。
+
+**运行态证据**：
+
+- Harness 中先折叠 `drop-dir` Find 分组；
+- shell 删除 `drop-dir` 后自动重跑并移除分组；
+- 重建同名文件后 Rerun，新分组默认展开；
+- Host PID `75108` 监听 `3081`，fixture 已删除。
+
+**长期约束**：
+
+- 任何结果集合替换都必须同步收敛以 path 为键的 UI 子状态；
+- collapsed 清理无变化时不得制造新 state；
+- 下一轮检查 Preview 滚动/焦点和 Replace target 的集合一致性。
+
+## 2026-11-20 — Project 与 watcher 重复触发 Find 失效
+
+**作用域**：`src/client/commit.ts` Find 删除失效同步、
+`src/client/editor-workspace.tsx` Project 删除与 watcher 回调。
+
+**症状/证据**：
+
+- Project 删除成功后会立即失效一次 Find generation；
+- watcher 120ms 后报告同一路径消失；
+- 同一 mutation 再次失效 generation，导致重复 debounce/request 和 abort。
+
+**根因**：
+
+- Project 删除直接调用 generation 失效函数；
+- watcher 外部删除走另一条调用路径，没有共享 mutation 去重；
+- 两条路径仅凭“路径缺失”无法知道已经消费过同一删除。
+
+**修复**：
+
+- Project 和 watcher 统一调用
+  `invalidateFindAfterExternalDelete()`；
+- Project 的已知删除使用 `knownDeleted=true`，跳过额外 exists；
+- watcher 仍必须 `exists !== true` 才失效；
+- 去重键为 workspace root + 规范相对路径；
+- 去重窗口 1000ms、上限 200，路径仍存在时立即释放；
+- Project 删除走同一过期清理逻辑，不新增第二条搜索通道。
+
+**回归测试**：
+
+```bash
+node --test tests/search-directory-rules-respect-gitignore-and-project-menu.test.mjs
+node --test tests/project-directories-tree-also-watched.test.mjs
+npm test
+```
+
+- RED：同 root/path 连续两次失效，generation 递增两次；
+- GREEN：去重、watcher、搜索规则与模块门禁 **28 pass / 0 fail**；
+- GREEN：完整测试 **3409 pass / 0 fail**。
+
+**运行态证据**：
+
+- Harness 持久 Find 初始 2 个文件；
+- Project 删除 `drop-dir` 后删除回调与 watcher 命中同一路径；
+- Find 最终稳定为 1 个文件；
+- 单次 generation 递增由定向行为测试证明；
+- Host PID `22727` 监听 `3081`，fixture 已删除。
+
+**长期约束**：
+
+- 同一 workspace mutation 的路径失效必须跨入口去重；
+- 去重不能替代 watcher 的 existence 权威确认；
+- 已存在路径不得占用删除去重窗口；
+- 下一轮检查结果重跑后的 collapsedFiles、Preview 与 Replace target。
+
+## 2026-11-20 — 外部文件系统删除不刷新持久 Find
+
+**作用域**：`lib/index.js` `WorkspaceWatcher`、
+`src/client/commit.ts` 外部变更同步、
+`src/client/editor-workspace.tsx` watcher 回调。
+
+**症状/证据**：
+
+- 持久 Find 显示 `drop-dir/needle.txt`；
+- 从 shell 删除 `drop-dir` 后，Project tree 与 Git 会按 watcher 刷新；
+- Find 仍保留旧路径，Preview 和 Replace target 继续指向不存在的文件。
+
+**根因**：
+
+- watcher frame 只有 changed directories，没有具体 changed paths；
+- 客户端无法区分普通修改和删除；
+- Project 删除已有 generation 失效链，但外部 watcher 没有接入。
+
+**修复**：
+
+- `WorkspaceWatcher` 在 debounce frame 中附带 workspace-relative `paths`；
+- `.git` 元数据事件不产生 Find 路径；
+- 新增 `workspaceChangeHasMissingPath()`，只将 `exists !== true`
+  视为删除；
+- 新增 `invalidateFindAfterExternalDelete()`，先调用 host `exists`，
+  确认缺失后再复用 `rerunFindToolAfterWorkspaceDelete()`；
+- 普通文件修改仍存在，因此不触发全文搜索重跑。
+
+**回归测试**：
+
+```bash
+node --test tests/project-watcher-prefers-one-recursive-handle-over-per-directory-handles.test.mjs
+node --test tests/project-directories-tree-also-watched.test.mjs
+node --test tests/search-directory-rules-respect-gitignore-and-project-menu.test.mjs
+npm test
+```
+
+- RED：watcher event 没有 `paths`，Find generation 不变；
+- GREEN：watcher 与外部删除组合 **15 pass / 0 fail**；
+- GREEN：watcher、搜索规则与模块门禁组合 **21 pass / 0 fail**；
+- GREEN：完整测试 **3408 pass / 0 fail**。
+
+**运行态证据**：
+
+- Harness 持久 Find 初始有 2 个文件；
+- shell 直接删除 `drop-dir`；
+- watcher 事件后 Find 自动重跑并降为 1 个文件；
+- 已删除路径从列表和预览选择中消失；
+- Host PID `21451` 监听 `3081`，fixture 已删除。
+
+**长期约束**：
+
+- watcher paths 只表示“可能变化”，删除判定必须依赖权威 existence；
+- 修改事件不得误触发全文搜索；
+- Project 删除与 watcher 并发时后续需要去重，避免两次 generation；
+- 下一轮审计 frame/generation 去重及 Preview/Replace 清理。
+
+## 2026-11-20 — 删除文件后持久 Find 仍展示失效路径
+
+**作用域**：`src/client/commit.ts` Find 状态模型、
+`src/client/editor-workspace.tsx` Project 删除成功回调。
+
+**症状/证据**：
+
+- 持久 Find 工具窗结果包含 `drop-dir/needle.txt`；
+- 在 Project 中删除 `drop-dir` 后，tree 与 Git 已刷新；
+- Find 仍显示旧路径，Preview 和 Replace target 继续指向不存在的文件。
+
+**根因**：
+
+- Find 结果是独立状态，文件系统删除不会自动改变它；
+- 删除回调只清理搜索目录规则，没有递增 Find searchGeneration；
+- Search Everywhere 是模态弹框，不与 Project 删除并发，缺口集中在持久 Find。
+
+**修复**：
+
+- 新增 `rerunFindToolAfterWorkspaceDelete()`；
+- 空查询返回同一引用；非空查询设置 loading、清除错误、
+  `loadedGeneration = -1` 并递增 `searchGeneration`；
+- Project 删除成功后的统一回调触发该状态函数；
+- 复用既有 debounce、取消、代次校验和结果替换，不新增搜索路径。
+
+**回归测试**：
+
+```bash
+node --test tests/search-directory-rules-respect-gitignore-and-project-menu.test.mjs
+npm test
+```
+
+- RED：删除成功后 Find generation 不变；
+- GREEN：删除与 Find 失效组合 **16 pass / 0 fail**；
+- GREEN：完整测试 **3407 pass / 0 fail**。
+
+**运行态证据**：
+
+- Harness 持久 Find 初始为 3 个文件；
+- 保持 Find 打开，从 Project 删除 `drop-dir`；
+- 删除完成后 Find 自动重跑并降为 2 个文件；
+- `drop-dir/needle.txt` 从列表消失；
+- Host PID `68923` 监听 `3081`，fixture 已删除。
+
+**长期约束**：
+
+- 文件系统 mutation 后，依赖路径的可见状态必须失效或同步；
+- 自动重跑要复用既有 searchGeneration，不新建并行搜索通道；
+- 空查询不得触发无意义请求；
+- 下一轮覆盖外部 watcher 删除、并发去重及 Preview/Replace 清理。
+
+## 2026-11-20 — 删除目录后搜索范围规则残留
+
+**作用域**：`src/client/commit.ts` 搜索目录规则、
+`src/client/editor-workspace.tsx` 的单删与批量删除。
+
+**症状/证据**：
+
+- 某目录被排除到搜索后，通过 Project 删除该目录；
+- localStorage 中仍保留旧 exclude/include 规则；
+- 之后重建同名目录时，新目录会继承已经失效的排除状态。
+
+**根因**：
+
+- rename/move 已接入搜索规则迁移，但 delete 没有对应清理；
+- 批量删除会吞掉单个路径失败，不能把所有请求路径都当作已删除。
+
+**修复**：
+
+- 新增 `pruneSearchDirectoryRulesAfterDelete()`，删除路径自身及全部后代
+  搜索规则；
+- 新增 `persistSearchDirectoryRulesAfterDelete()`，仅在规则变化时写存储；
+- 单删成功后才清理；
+- 批量删除逐个记录成功 delete 的路径，失败路径保留规则；
+- 将逻辑收敛到 `commit.ts`，Workspace 仅保留统一状态回调。
+
+**回归测试**：
+
+```bash
+node --test tests/search-directory-rules-respect-gitignore-and-project-menu.test.mjs
+npm test
+```
+
+- RED：删除规则清理函数不存在；
+- GREEN：删除与搜索范围组合 **15 pass / 0 fail**；
+- GREEN：模块体积、删除交互与搜索规则组合 **21 pass / 0 fail**；
+- GREEN：完整测试 **3406 pass / 0 fail**。
+
+**运行态证据**：
+
+- Harness 中排除 `drop-dir` 后 Find 仅命中 `visible.txt`；
+- 通过 Project 删除 `drop-dir` 并确认原生删除对话框；
+- 重建同名目录和 `needle.txt` 后再次搜索得到 2 个文件；
+- 重建目录正常参与搜索，旧 exclude 规则未残留；
+- Host 重启后 PID `59647` 监听 `3081`，临时 fixture 已删除。
+
+**长期约束**：
+
+- 删除清理必须以真实成功的文件系统删除为条件；
+- 批量删除不能先清空全部规则再吞掉失败；
+- 后续路径键控状态都应在 rename/move/delete 三类 mutation 上审计；
+- 下一轮检查搜索结果中的失效路径与 Replace target 清理顺序。
+
+## 2026-11-20 — 搜索目录规则不跟随 Project 重命名与移动
+
+**作用域**：`src/client/commit.ts` 搜索目录规则、
+`src/client/editor-workspace.tsx` 的 `remapEditorPaths()`。
+
+**症状/证据**：
+
+- 某目录被“排除到搜索”后，在 Project 中重命名或移动；
+- 旧 `excludedDirectories` 规则仍指向旧路径；
+- 新路径重新进入 Search Everywhere、Find 和 Replace。
+
+**根因**：
+
+- Project rename/move 已统一迁移模型、标签、预览、Diff、MRU、展开状态和
+  手工顺序；
+- `searchDirectoryRules` 是后加入的路径键控状态，没有接入该迁移入口。
+
+**修复**：
+
+- 新增 `remapSearchDirectoryRulesAfterMove()`，按 move entries 迁移
+  exclude/include 路径；
+- `remapEditorPaths()` 统一调用该函数并通过
+  `writeSearchDirectoryRules()` 持久化；
+- 规则继续经过既有规范化，自动去重并重新计算 include 的有效父级。
+
+**回归测试**：
+
+```bash
+node --test tests/search-directory-rules-respect-gitignore-and-project-menu.test.mjs
+npm test
+```
+
+- RED：迁移函数缺失，旧规则保持不变；
+- GREEN：路径重映射与搜索范围组合 **19 pass / 0 fail**；
+- GREEN：完整测试 **3404 pass / 0 fail**。
+
+**运行态证据**：
+
+- Harness 中排除 `old-dir` 后 Find 仅命中同目录 `visible.txt`；
+- 通过 Project 重命名为 `new-dir` 后，目录菜单仍显示“包含到搜索”；
+- 再次搜索仍只有 `visible.txt`，排除状态成功跟随新路径；
+- 恢复“包含到搜索”后菜单显示“排除到搜索”；
+- Host 重启后 PID `51080` 监听 `3081`，临时 fixture 已删除。
+
+**长期约束**：
+
+- 所有路径键控的持久化状态必须在 Project rename/move 时同步迁移；
+- 搜索规则迁移不得绕开现有规范化，也不得直接拼接未验证路径；
+- 下一轮处理删除目录后的过期规则清理，并审计大小写变化。
+
+## 2026-11-20 — 系统生成缓存文件进入工作区搜索
+
+**作用域**：`lib/index.js` 文件候选、Git scope、Project speed search、
+文本搜索与 Replace。
+
+**症状/证据**：
+
+- `.DS_Store` 仅因项目 `.gitignore` 偶然被排除；
+- 未被 `.gitignore` 覆盖的 `Thumbs.db`、`desktop.ini` 和
+  `ehthumbs_vista.db` 会进入 Find 文本结果；
+- `allowedPaths` 显式包含这些文件时也能绕过普通目录遍历。
+
+**根因**：
+
+- 搜索只硬排除 Git ignored、VCS metadata 和 heavy directories；
+- 没有独立的操作系统生成文件判定；
+- 文件候选、文本搜索、Project speed search 和 Replace 各自缺少同一
+  系统文件边界。
+
+**修复**：
+
+- 新增大小写无关的 basename 硬排除：
+  `.ds_store / thumbs.db / ehthumbs.db / ehthumbs_vista.db /
+  desktop.ini`；
+- `listWorkspaceFiles()`、`listGitSearchScopeFiles()`、
+  `searchWorkspaceEntries()`、`searchWorkspaceText()` 和
+  `replaceWorkspaceText()` 共用该判定；
+- Project tree 与读取路径保持不变，系统文件仍可查看、打开和编辑。
+
+**回归测试**：
+
+```bash
+node --test tests/search-system-generated-files-excluded-regardless-gitignore.test.mjs
+npm test
+```
+
+- RED：文件列表、显式 Scope 和文本搜索均返回系统文件；
+- GREEN：系统文件定向 **2 pass / 0 fail**；
+- GREEN：系统文件与目录范围组合 **7 pass / 0 fail**；
+- GREEN：完整测试 **3402 pass / 0 fail**。
+
+**运行态证据**：
+
+- Harness Host 重启后 PID `3265` 再监听 `3081`；
+- Project tree 仍显示 `.DS_Store`；
+- Find 搜索临时 fixture 的 `SYSTEM_FILE_NEEDLE` 仅命中
+  `tmp-editor-system-file-fixture/visible.txt:1:1`；
+- `.DS_Store`、`Thumbs.db`、`nested/.ds_store`、
+  `ehthumbs_vista.db`、`desktop.ini` 均为 0 命中；
+- 临时 fixture 已删除。
+
+**最终复验（2026-11-20）**：
+
+- 系统文件与目录范围组合定向 **19 pass / 0 fail**；
+- 完整 `npm test` **3414 pass / 0 fail**；
+- Ego Browser 在 Harness Web 的 Find 中只看到普通
+  `visible.txt` 的 1 处匹配，系统文件 0 命中；
+- `lib/client.js` 已重建为 **2456.4 KB**，格式、类型、语法、bundle、
+  diff 与 package 门禁全部通过。
+
+**复验（2026-11-21）**：
+
+- 系统文件定向回归 **3 pass / 0 fail**；
+- 完整 `npm test` **3426 pass / 0 fail**；
+- Search Everywhere 文件页搜索 `.DS_Store`、`Thumbs.db`、
+  `ehthumbs_vista.db`、`desktop.ini` 均为 0 行；
+- 同一 fixture 在 Search Everywhere 文本页和 Find 中均只命中
+  `visible.txt:1:1`；
+- Project tree 仍可看到 `.DS_Store`，搜索硬排除没有收窄查看和编辑
+  能力。
+
+**最终复验（2026-11-21）**：
+
+- `SearchEverywhereProps` 的 `SearchFileResult` 旧类型名已统一为
+  `SearchFile`，ESLint、TypeScript、source imports 和 Prettier 通过；
+- 系统文件与目录规则组合定向 **22 pass / 0 fail**；
+- 完整 `npm test` **3435 pass / 0 fail**；
+- Ego Browser 在 Harness Web 中确认 Project tree 仍显示 `.DS_Store`；
+- Search Everywhere 文件页查询 `.DS_Store` 无匹配；
+- Search Everywhere 文本页和 Find 对同一标记只命中普通
+  `dsh-system-search-visible.txt:1:1`，`Thumbs.db`、`ehthumbs.db`、
+  `desktop.ini` 均为 0 命中；
+- 临时 fixture 已删除，`lib/client.js` 重建为 **2465.5 KB**。
+
+**长期约束**：
+
+- 系统生成文件是搜索硬排除，不依赖 `.gitignore` 或
+  `includeExcluded`；
+- 不把系统文件过滤放进 Project tree 或 read API，避免用户失去查看和
+  编辑能力；
+- 新增系统产物名单必须先得到明确范围，不能凭猜测无限扩展；
+- 下一轮检查 Search Everywhere 文件候选、Git Scope 截断预算和 dirty
+  buffer 组合。
+
+## 2026-11-20 — 搜索目录范围与 Git ignored 目录未统一排除
+
+**作用域**：`lib/index.js` 的文件/文本搜索与替换、`src/client/commit.ts`
+目录规则、`src/client/editor-workspace.tsx` Search Everywhere / Find /
+Project 文件夹菜单。
+
+**症状/证据**：
+
+- `.gitignore` 忽略的目录在 `includeExcluded=true` 时重新进入
+  Search Everywhere 和 Find；
+- Project 文件夹没有“排除到搜索 / 包含到搜索”入口；
+- 无法在排除父目录后显式保留某个子目录。
+
+**根因**：
+
+- `listWorkspaceFiles()` 只过滤固定 heavy directories，不读取 Git ignored；
+- 文件候选、文本命中、dirty buffer 和 Replace 没有共享目录范围；
+- Project tree 的目录操作没有持久化搜索范围语义。
+
+**修复**：
+
+- Host 通过
+  `git ls-files -z --others --ignored --exclude-standard --directory`
+  获取 Git ignored 前缀，并在文件遍历、文本搜索和 Replace 中硬排除；
+- 客户端按 workspace 持久化
+  `excludedDirectories / includedDirectories`，最深匹配路径优先；
+- 父目录排除、子目录重新包含时仍允许遍历该子目录；
+- Search Everywhere、Find 和 Replace 的全部相关请求转发同一规则；
+- Project 文件夹菜单按有效状态切换“排除到搜索 / 包含到搜索”。
+
+**回归测试**：
+
+```bash
+node --test tests/search-directory-rules-respect-gitignore-and-project-menu.test.mjs
+npm test
+```
+
+- 目录规则与 Git ignored 定向：**5 pass / 0 fail**；
+- 搜索范围组合：**15 pass / 0 fail**；
+- 搜索与 bundle 定向：**39 pass / 0 fail**；
+- 完整测试：**3400 pass / 0 fail**。
+
+**运行态证据**：
+
+- Harness Find 搜索 `.gitignore` 中 `docs/` 的“人工裁决”为
+  **0 处匹配，0 个文件**；
+- `README.md` 中“原始面单标注生成训练数据”仍命中
+  `README.md:3:26`；
+- `tests/` 切换到“排除到搜索”后 `NumpyCompatTest` 为 **0 处匹配**；
+- 切回“包含到搜索”后恢复命中
+  `tests/test_numpy_compat.py:12:7`；
+- Harness 继续监听 `3081`，临时 fixture 已删除，`pdocr` 未被编辑。
+
+**长期约束**：
+
+- Git ignored 是搜索硬边界，不能被 `includeExcluded` 覆盖；
+- 用户目录规则必须同时约束文件候选、文本命中、dirty buffer 和 Replace；
+- 父子规则使用最深路径优先，显式 include 必须能覆盖父目录 exclude；
+- 下一轮先审计 negation、workspace 子目录和 tracked ignored file 语义，
+  不凭猜测加入缓存或改变 Git 规则。
+
+## 2026-11-20 — Editor/Terminal Find 导航顺序与 IDEA 不一致
+
+**作用域**：`src/client/components/editor/EditorFindBar.tsx`、
+`src/client/components/terminal/TerminalPanel.tsx` Find 导航按钮。
+
+**症状/证据**：
+
+- Editor 与 Terminal Find 均先显示 Next，再显示 Previous；
+- Previous 使用 `chevronRight`，方向语义错误；
+- Computer Use 实测 IDEA 为 Previous Occurrence 在前、Next 在后，
+  图标为上/下箭头。
+
+**根因**：
+
+- 两个查找栏复制了相同的错误控件顺序和图标；
+- 行为回调本身方向正确，但视觉顺序与 IDEA 相反。
+
+**修复**：
+
+- Editor Find 改为 Previous → Next；
+- Previous 使用 `chevronUp`，Next 使用 `chevronDown`；
+- Terminal Find 同步相同顺序和图标；
+- 搜索行为、快捷键和匹配计算不变。
+
+**RED/GREEN**：
+
+- RED：两个查找栏均为 Next → Previous/right+down；
+- GREEN：两个查找栏均为 Previous → Next/up+down；
+- GREEN：Find 定向 **6 pass / 0 fail**；
+- GREEN：完整 `npm test` **3395 pass / 0 fail**；
+- `lib/client.js` 重建后 **2439.2 KB**；
+- ESLint、TypeScript、source imports、Prettier、bundle consistency、
+  `git diff --check`、`node --check` 与 `npm pack --dry-run` 通过；
+- package **143 files**。
+
+**Computer Use / Ego Browser 证据**：
+
+- IDEA accessibility tree 和截图确认 Previous → Next、up/down；
+- Harness Editor Find 的按钮顺序与 SVG path 已在真实 Web 验证；
+- Terminal Find 同样验证为 Previous → Next；
+- 截图：
+  `/private/tmp/dsh-editor-find-navigation-order/editor-find-idea-order.png`、
+  `/private/tmp/dsh-editor-find-navigation-order/terminal-find-idea-order.png`；
+- Harness 继续在 `3081` 监听。
+
+**长期约束**：
+
+- 搜索导航应保持 IDEA 的 Previous → Next 顺序；
+- 方向必须使用 up/down，不再使用 right 表示 Previous；
+- Editor 与 Terminal 的同类搜索控件应共享相同顺序语义；
+- 下一轮检查 Replace 行布局、计数和窄宽紧凑顺序。
+
+## 2026-11-20 — C/C++ 属性与导出宏 class scope 丢失
+
+**作用域**：`src/client/code-navigation.ts` class/struct header 识别、
+非限定 inline implementation fallback。
+
+**症状/证据**：
+
+- `struct alignas(16) Layer { ... }` 中的 inline `load_param` 无法选中；
+- 同名 `Other::load_param` 位于前面并被错误返回；
+- `__declspec(...)`、`__attribute__((...))` 和导出宏也有同类风险。
+
+**根因**：
+
+- class header 正则只接受普通标识符修饰；
+- 带括号参数的属性使 class header 匹配失败；
+- `Layer` 没有 class range，非限定 fallback 无法证明所属类。
+
+**修复**：
+
+- class header 修饰 token 允许携带括号参数；
+- 支持 `alignas`、`__declspec`、`__attribute__` 和导出宏；
+- 继续取修饰参数后的真实类名，`final` 不当类名；
+- class range 和候选评分逻辑保持不变。
+
+**RED/GREEN**：
+
+- RED：错误返回 `Other::load_param` 的 `layer.h:3:7`；
+- GREEN：返回 `Layer::load_param` 的 `layer.h:7:7`；
+- GREEN：`alignas`、`__declspec`、`__attribute__`、导出宏和普通 class 回归通过；
+- GREEN：navigation 定向 **72 pass / 0 fail**；
+- GREEN：完整 `npm test` **3393 pass / 0 fail**；
+- `lib/client.js` 重建后 **2439.2 KB**；
+- ESLint、TypeScript、source imports、Prettier、bundle consistency、
+  `git diff --check`、`node --check` 与 `npm pack --dry-run` 通过；
+- package **143 files**。
+
+**Ego Browser 证据**：
+
+- fixture 的 `Meta+Alt+B` 打开 `layer.h:9:7` 的 `Layer::load_param`；
+- 真实 `pdocr` 的 `ppocrv5_det.load_param(...)` 保持打开
+  `net.cpp:1721:10`；
+- 截图：
+  `/private/tmp/dsh-editor-attributed-class-scope-verify/attributed-class-scope.png`、
+  `/private/tmp/dsh-editor-attributed-class-scope-verify/pdocr-implementation-regression.png`；
+- 临时 fixture 已删除，Harness 工作区保持为 `pdocr`。
+
+**长期约束**：
+
+- class header 识别必须容忍常见属性、declspec 和导出宏；
+- 修饰括号只能在 `{` 前有界读取，不能吞入 class body；
+- `final` 和修饰宏不能误作 class name；
+- 下一轮回归 anonymous/inline namespace 和 requires/复杂模板 header。
+
+## 2026-11-20 — C/C++ 多行继承头无法建立 class range
+
+**作用域**：`src/client/code-navigation.ts` class/struct scope、非限定 inline
+implementation fallback。
+
+**症状/证据**：
+
+- 头文件包含常见多行继承格式：
+  `class Layer`、`  : public Base`、`{`；
+- 同名 `Other::load_param` inline body 位于前面；
+- 修复前错误打开 `Other::load_param`。
+
+**根因**：
+
+- class range 正则的 base clause 排除了换行；
+- 多行继承 class header 无法形成 `Layer` class range；
+- 正确 inline method 没有所属类而被排除，后续 fallback 命中 `Other`。
+
+**修复**：
+
+- base clause 改为允许跨行；
+- 仍以 `;` 或 `{` 终止，并用平衡花括号确定 class range；
+- `Layer` inline member 重新获得正确 class scope；
+- receiver 和候选评分逻辑保持不变。
+
+**RED/GREEN**：
+
+- RED：错误返回 `Other::load_param` 的 `layer.h:3:7`；
+- GREEN：返回 `Layer::load_param` 的 `layer.h:9:7`；
+- GREEN：单行 class 与错误 class 过滤回归通过；
+- GREEN：navigation 定向 **71 pass / 0 fail**；
+- GREEN：完整 `npm test` **3392 pass / 0 fail**；
+- `lib/client.js` 重建后 **2439.2 KB**；
+- ESLint、TypeScript、source imports、Prettier、bundle consistency、
+  `git diff --check`、`node --check` 与 `npm pack --dry-run` 通过；
+- package **143 files**。
+
+**Ego Browser 证据**：
+
+- fixture 的 `Meta+Alt+B` 打开 `layer.h:11:7` 的 `Layer::load_param`；
+- 真实 `pdocr` 的 `ppocrv5_det.load_param(...)` 保持打开
+  `net.cpp:1721:10`；
+- 截图：
+  `/private/tmp/dsh-editor-multiline-class-scope-verify/multiline-class-scope.png`、
+  `/private/tmp/dsh-editor-multiline-class-scope-verify/pdocr-implementation-regression.png`；
+- 临时 fixture 已删除，Harness 工作区保持为 `pdocr`。
+
+**长期约束**：
+
+- class header 匹配必须允许常见多行 base clause；
+- base clause 只能延伸到 `;` 或 `{`，不得跨到后续声明；
+- class range 继续通过 masked source 和平衡花括号构建；
+- 下一轮回归 anonymous/inline namespace 与复杂 class header。
+
+## 2026-11-20 — C/C++ 非限定 inline 方法跨类误命中
+
+**作用域**：`src/client/code-navigation.ts` implementation fallback、
+class/struct 作用域、receiver 过滤。
+
+**症状/证据**：
+
+- receiver 已知为 `Layer`；
+- 头文件先定义 `Other::load_param` inline body；
+- 后定义正确的 `Layer::load_param` inline body；
+- 修复前错误打开 `Other::load_param`。
+
+**根因**：
+
+- 非限定候选只作为 fallback 排序，没有验证所属 class scope；
+- `Other` 与 `Layer` 的 inline 方法都无 `Class::`；
+- 源码顺序让错误类的方法胜出。
+
+**修复**：
+
+- 对 masked source 一次性建立 class/struct 区间；
+- 候选 offset 通过最内层 class range 得到所属类；
+- receiver 已知且候选无 qualified receiver 时，所属类必须与 receiver leaf 匹配；
+- free function 和其他类的 inline 方法被排除，同类 inline fallback 保留。
+
+**RED/GREEN**：
+
+- RED：错误返回 `Other::load_param` 的 `layer.h:3:7`；
+- GREEN：返回 `Layer::load_param` 的 `layer.h:7:7`；
+- GREEN：同类非限定 inline fallback 回归通过；
+- GREEN：navigation 定向 **70 pass / 0 fail**；
+- GREEN：完整 `npm test` **3391 pass / 0 fail**；
+- `lib/client.js` 重建后 **2439.2 KB**；
+- ESLint、TypeScript、source imports、Prettier、bundle consistency、
+  `git diff --check`、`node --check` 与 `npm pack --dry-run` 通过；
+- package **143 files**。
+
+**Ego Browser 证据**：
+
+- fixture 的 `Meta+Alt+B` 打开 `layer.h:9:7` 的 `Layer::load_param`；
+- 真实 `pdocr` 的 `ppocrv5_det.load_param(...)` 保持打开
+  `net.cpp:1721:10`；
+- 截图：
+  `/private/tmp/dsh-editor-inline-class-scope-verify/member-class-scope.png`、
+  `/private/tmp/dsh-editor-inline-class-scope-verify/pdocr-implementation-regression.png`；
+- 临时 fixture 已删除，Harness 工作区保持为 `pdocr`。
+
+**长期约束**：
+
+- receiver 已知时，非限定 fallback 必须证明属于 matching class；
+- class scope 只用于 implementation fallback，不改变 declaration 导航；
+- class range 解析必须忽略注释/字符串并使用平衡花括号；
+- 下一轮回归 anonymous/inline namespace 和复杂 class header 边界。
+
+## 2026-11-20 — C/C++ 不匹配具体特化仍参与实现排序
+
+**作用域**：`src/client/code-navigation.ts` template implementation 候选过滤、
+generic/specific 评分。
+
+**症状/证据**：
+
+- receiver 为 `alpha::Layer<alpha::Config<int>>`；
+- implementation 先有 `Layer<Pair<int,int>>::load_param(int)`；
+- 后有有效的泛型 `Layer<ElementType>::load_param(ValueType)`；
+- 修复前错误具体特化凭 `int` 形参得分打开 `layer.cpp:3`。
+
+**根因**：
+
+- receiver 模板实参明确不匹配时，候选只被降低 20 分；
+- 错误具体特化仍能凭形参类型得分胜出；
+- 明确不匹配的特化本应不可选，而不是普通降权候选。
+
+**修复**：
+
+- 在 receiver 签名与候选参数均存在且不完全相等时继续判断 generic；
+- 有明确 template 上下文且 receiver 实参未引用模板参数时，视为 concrete；
+- concrete 且签名不匹配时直接排除；
+- 无明确模板上下文时保留保守降权回退。
+
+**RED/GREEN**：
+
+- RED：错误返回具体特化 `layer.cpp:3:41`；
+- GREEN：返回有效泛型实现 `layer.cpp:6:32`；
+- GREEN：exact specialization 和 generic fallback 回归通过；
+- GREEN：navigation 定向 **69 pass / 0 fail**；
+- GREEN：完整 `npm test` **3390 pass / 0 fail**；
+- `lib/client.js` 重建后 **2437.8 KB**；
+- ESLint、TypeScript、source imports、Prettier、bundle consistency、
+  `git diff --check`、`node --check` 与 `npm pack --dry-run` 通过；
+- package **143 files**。
+
+**Ego Browser 证据**：
+
+- fixture 的 `Meta+Alt+B` 打开 `layer.cpp:7:32` 的
+  `alpha::Layer<ElementType>::load_param(ValueType)`；
+- 真实 `pdocr` 的 `ppocrv5_det.load_param(...)` 保持打开
+  `net.cpp:1721:10`；
+- 截图：
+  `/private/tmp/dsh-editor-concrete-specialization-mismatch-verify/generic-member-implementation.png`、
+  `/private/tmp/dsh-editor-concrete-specialization-mismatch-verify/pdocr-implementation-regression.png`；
+- 临时 fixture 已删除，Harness 工作区保持为 `pdocr`。
+
+**长期约束**：
+
+- receiver 明确不匹配的 concrete specialization 不得进入最终候选排序；
+- 只有模板上下文缺失时才允许保守降权而不是排除；
+- exact specialization 优先级保持不变；
+- 下一轮回归 anonymous/inline namespace 与非限定 fallback 边界。
+
+## 2026-11-20 — C/C++ 连续 template 参数列表只保留最后一项
+
+**作用域**：`src/client/code-navigation.ts` 模板参数上下文、generic/specific
+implementation 候选评分。
+
+**症状/证据**：
+
+- 泛型实现前存在连续声明：
+  `template <class ElementType>`、`template <class ValueType>`；
+- receiver 顶层实参引用 `ElementType`；
+- 修复前错误打开源码更早的具体特化 `layer.cpp:3`。
+
+**根因**：
+
+- 模板参数扫描每遇到一个外层 `template <...>` 就覆盖 `parameterBody`；
+- 连续声明最后只剩 `ValueType`；
+- `ElementType` 丢失后泛型实现被当成具体特化；
+- 候选同分时按源码顺序选择。
+
+**修复**：
+
+- 扫描时保留所有外层 template 声明及其区间；
+- 从最后一个声明向前，仅合并中间只有空白的连续声明；
+- 合并后统一拆分参数并生成名称集合；
+- 遇到无关代码时停止合并，不跨函数吸收上下文。
+
+**RED/GREEN**：
+
+- RED：错误返回具体特化 `layer.cpp:3:41`；
+- GREEN：返回泛型实现 `layer.cpp:6:32`；
+- GREEN：单个 template、template-template 与 exact specialization 回归通过；
+- GREEN：navigation 定向 **68 pass / 0 fail**；
+- GREEN：完整 `npm test` **3389 pass / 0 fail**；
+- `lib/client.js` 重建后 **2437.7 KB**；
+- ESLint、TypeScript、source imports、Prettier、bundle consistency、
+  `git diff --check`、`node --check` 与 `npm pack --dry-run` 通过；
+- package **143 files**。
+
+**Ego Browser 证据**：
+
+- fixture 的 `Meta+Alt+B` 打开 `layer.cpp:7:32` 的
+  `alpha::Layer<ElementType>::load_param`；
+- 真实 `pdocr` 的 `ppocrv5_det.load_param(...)` 保持打开
+  `net.cpp:1721:10`；
+- 截图：
+  `/private/tmp/dsh-editor-consecutive-template-verify/consecutive-template-implementation.png`、
+  `/private/tmp/dsh-editor-consecutive-template-verify/pdocr-implementation-regression.png`；
+- 临时 fixture 已删除，Harness 工作区保持为 `pdocr`。
+
+**长期约束**：
+
+- 连续外层 template 参数必须作为同一上下文合并；
+- 只合并相邻声明，不能用整个文件 token 集合替代作用域；
+- nested/template-template 内部声明仍要跳过；
+- 下一轮处理不匹配具体特化的候选排除和非限定 fallback 边界。
+
+## 2026-11-20 — C/C++ 同名自由函数抢先于 member implementation
+
+**作用域**：`src/client/code-navigation.ts` C-family implementation scanner、
+receiver 过滤、qualified/unqualified 候选排序。
+
+**症状/证据**：
+
+- receiver 已知为 `Layer`；
+- implementation 文件先定义
+  `int load_param(const ParamDict&)`；
+- 后定义 `int Layer::load_param(const ParamDict&)`；
+- 修复前 `Meta+Alt+B` 错误打开自由函数 `layer.cpp:2:5`。
+
+**根因**：
+
+- receiver 过滤只排除“有 qualified receiver 但不匹配”的候选；
+- 无 `Class::` 的同名自由函数直接绕过过滤；
+- 两类候选评分相同后按源码顺序返回。
+
+**修复**：
+
+- implementation 候选记录 `receiverQualified`；
+- implementation 排序优先 qualified 分组，再比较原 overload 分数；
+- 非限定候选仍保留为 fallback，支持类内 inline member；
+- declaration 目标不应用该分组，避免影响类内声明。
+
+**RED/GREEN**：
+
+- RED：错误返回自由函数 `layer.cpp:2:5`；
+- GREEN：返回 `Layer::load_param` 的 `layer.cpp:3:12`；
+- GREEN：无 qualified 实现时，非限定 inline member fallback 通过；
+- GREEN：navigation 定向 **67 pass / 0 fail**；
+- GREEN：完整 `npm test` **3388 pass / 0 fail**；
+- `lib/client.js` 重建后 **2437.2 KB**；
+- ESLint、TypeScript、source imports、Prettier、bundle consistency、
+  `git diff --check`、`node --check` 与 `npm pack --dry-run` 通过；
+- package **143 files**。
+
+**Ego Browser 证据**：
+
+- fixture 的 `Meta+Alt+B` 打开 `Layer::load_param` 的 `layer.cpp:4:12`；
+- 真实 `pdocr` 的 `ppocrv5_det.load_param(...)` 保持打开
+  `net.cpp:1721:10`；
+- 截图：
+  `/private/tmp/dsh-editor-implementation-free-function-verify/qualified-member-implementation.png`、
+  `/private/tmp/dsh-editor-implementation-free-function-verify/pdocr-implementation-regression.png`；
+- 临时 fixture 已删除，Harness 工作区保持为 `pdocr`。
+
+**长期约束**：
+
+- receiver 已知时，带限定 receiver 的 implementation 必须先于自由函数；
+- 非限定候选只能作为 fallback，不能因源码顺序压过 member implementation；
+- declaration 导航不得复用 implementation 的 qualified 分组；
+- 下一轮回归 anonymous/inline namespace 组合与非限定候选边界。
+
+## 2026-11-20 — template-template 内层模板覆盖外层参数
+
+**作用域**：`src/client/code-navigation.ts` template implementation scanner、
+模板参数上下文读取、generic/specific 评分。
+
+**症状/证据**：
+
+- receiver 为 `alpha::Layer<alpha::Config<int>>`；
+- 错误具体特化
+  `alpha::Layer<alpha::Pair<int,int>>` 位于泛型实现之前；
+- 泛型实现使用
+  `template <template <class> class Container, class ElementType>`；
+- 修复前错误打开具体特化 `layer.cpp:3`。
+
+**根因**：
+
+- 模板参数上下文读取对窗口内每个 `template <` 单独执行正则匹配；
+- template-template 参数中的内层 `template <class>` 被当作最后声明；
+- 外层 `Container`、`ElementType` 丢失，泛型实现被当成具体特化；
+- 两类候选同分后按源码顺序选择。
+
+**修复**：
+
+- 顺序扫描外层 `template <...>`；
+- 使用平衡尖括号找到完整参数列表后跳过内部范围；
+- 内层 `template <class>` 不再覆盖外层声明；
+- 现有 generic/specific、exact specialization 和 namespace 规则不变。
+
+**RED/GREEN**：
+
+- RED：返回错误具体特化 `layer.cpp:3:41`；
+- GREEN：返回泛型实现 `layer.cpp:5:43`；
+- GREEN：navigation 定向 **65 pass / 0 fail**；
+- GREEN：完整 `npm test` **3386 pass / 0 fail**；
+- `lib/client.js` 重建后 **2436.9 KB**；
+- ESLint、TypeScript、source imports、Prettier、bundle consistency、
+  `git diff --check`、`node --check` 与 `npm pack --dry-run` 通过；
+- package **143 files**。
+
+**Ego Browser 证据**：
+
+- fixture 的 `Meta+Alt+B` 打开 `layer.cpp:6:43` 的
+  `alpha::Layer<Container<ElementType>>::load_param`；
+- 真实 `pdocr` 的 `ppocrv5_det.load_param(...)` 保持打开
+  `net.cpp:1721:10`；
+- 截图：
+  `/private/tmp/dsh-editor-template-template-verify/template-template-implementation.png`、
+  `/private/tmp/dsh-editor-template-template-verify/pdocr-implementation-regression.png`；
+- 临时 fixture 已删除，Harness 工作区保持为 `pdocr`。
+
+**长期约束**：
+
+- 解析模板声明上下文时必须跳过嵌套 template-template 的内部尖括号；
+- 不得把内层 `template <class>` 当作独立外层声明；
+- generic/specific 调整继续服从 exact specialization 和 namespace 过滤；
+- 下一轮回归 anonymous/inline namespace 组合和函数体同名调用排除。
+
+## 2026-11-20 — C/C++ 长泛型模板参数被误判为具体特化
+
+**作用域**：`src/client/code-navigation.ts` template implementation scanner、
+generic/specific 候选评分、nested template 实参提取。
+
+**症状/证据**：
+
+- receiver 为 `alpha::Layer<alpha::Config<int>>`；
+- 候选包含源码更早的错误具体特化
+  `alpha::Layer<alpha::Pair<int,int>>`；
+- 正确候选为 `template <typename ElementType> Layer<ElementType>`；
+- 修复前错误打开具体特化 `layer.cpp:3`，而不是泛型实现。
+
+**根因**：
+
+- generic 判定只接受单个大写参数名，`ElementType` 被判为具体类型；
+- `<Pair<int,int>>` 的扁平正则只提取内部 `int,int`，没有读取 receiver 顶层实参；
+- 两类候选得到相同分数后按源码顺序选择。
+
+**修复**：
+
+- 新增 receiver 顶层模板实参提取；
+- 从候选前的 `template <...>` 声明读取实际模板参数名；
+- 实参引用模板参数时标记为 generic，不再依赖单字母命名；
+- `template <>` 明确表示不再使用单大写字母 fallback；
+- 仅在没有模板声明上下文时保留旧兼容逻辑。
+
+**RED/GREEN**：
+
+- RED：返回错误具体特化 `layer.cpp:3:41`；
+- GREEN：返回泛型实现 `layer.cpp:5:32`；
+- GREEN：navigation 定向 **64 pass / 0 fail**；
+- GREEN：完整 `npm test` **3385 pass / 0 fail**；
+- `lib/client.js` 重建后 **2436.8 KB**；
+- ESLint、TypeScript、source imports、Prettier、bundle consistency、
+  `git diff --check`、`node --check` 与 `npm pack --dry-run` 通过；
+- package **143 files**。
+
+**Ego Browser 证据**：
+
+- fixture 的 `Meta+Alt+B` 打开 `layer.cpp:6:32` 的
+  `alpha::Layer<ElementType>::load_param`；
+- 真实 `pdocr` 的 `ppocrv5_det.load_param(...)` 保持打开
+  `net.cpp:1721:10`；
+- 截图：
+  `/private/tmp/dsh-editor-template-generic-boundary-verify/generic-template-implementation.png`、
+  `/private/tmp/dsh-editor-template-generic-boundary-verify/pdocr-implementation-regression.png`；
+- 临时 fixture 已删除，Harness 工作区保持为 `pdocr`。
+
+**长期约束**：
+
+- 模板参数名不能假设为单个大写字母；
+- nested template 参数必须先按顶层逗号拆分，不能直接扁平匹配尖括号；
+- generic/specific 调整不得绕过 exact specialization 和 namespace 过滤；
+- 下一轮审计 namespace 可见性、函数体同名调用排除和参数包边界。
+
+## 2026-11-20 — C/C++ nested template receiver implementation 截断
+
+**作用域**：`src/client/code-navigation.ts` C-family implementation scanner、
+qualified receiver 捕获、模板实现导航。
+
+**症状/证据**：
+
+- receiver 为 `alpha::Layer<alpha::Config<int>>`；
+- 定义同时存在 `beta::Layer<...>::load_param` 与 `alpha::Layer<...>::load_param`；
+- `Meta+Alt+B` 错误打开源码顺序更早的 beta 实现；
+- 修复前定向测试实际返回 `layer.cpp:2`，而非 alpha 的 `layer.cpp:5`。
+
+**根因**：
+
+- scanner 的 receiver 正则每段只允许 `<[^<>]*>`；
+- nested template 中的 `<alpha::Config<int>>` 无法匹配；
+- qualified receiver 变成空字符串后，namespace 过滤和特化过滤都被跳过。
+
+**修复**：
+
+- 新增 `definitionQualifiedReceiverBefore()` 统一解析方法名前的 receiver；
+- 类型 segment 与平衡模板实参允许交替出现；
+- nested 模板中的 `>`、`>>`、逗号和限定类型保留在 receiver 中；
+- 后续继续使用既有模板实参剥离、namespace 精确比较和特化排序。
+
+**RED/GREEN**：
+
+- RED：nested template receiver 返回 beta 的 `layer.cpp:2`；
+- GREEN：返回 alpha nested template 实现 `layer.cpp:5:39`；
+- GREEN：navigation 定向 **63 pass / 0 fail**；
+- GREEN：完整 `npm test` **3384 pass / 0 fail**；
+- `lib/client.js` 重建后 **2434.7 KB**；
+- ESLint、TypeScript、source imports、Prettier、bundle consistency、
+  `git diff --check`、`node --check` 与 `npm pack --dry-run` 通过；
+- package **143 files**。
+
+**Ego Browser 证据**：
+
+- fixture 的 `Meta+Alt+B` 打开
+  `alpha::Layer<alpha::Config<int>>::load_param` 的 `layer.cpp:4:39`；
+- 真实 `pdocr` 的 `ppocrv5_det.load_param(...)` 正确打开
+  `net.cpp:1721:10`；
+- 截图：
+  `/private/tmp/dsh-editor-nested-template-receiver-verify/nested-template-receiver-implementation.png`、
+  `/private/tmp/dsh-editor-nested-template-receiver-verify/pdocr-implementation-regression.png`；
+- 临时 fixture 已删除，Harness 工作区保持为 `pdocr`。
+
+**长期约束**：
+
+- qualified receiver 捕获必须按平衡模板结构解析，不能逐段禁止 `<`/`>`；
+- nested template receiver 仍需复用 canonical receiver 比较，不新增特判分支；
+- 修复不得绕过 beta/alpha namespace 消歧和声明/实现分离；
+- 下一轮继续审计 nested template 的 generic/specific 候选打分边界。
+
+## 2026-11-20 — bundle UI 子图入口配置分叉
+
+**作用域**：`scripts/build-client.mjs`、esbuild UI 子图入口、
+bundle closure 豁免、发布包构建脚本。
+
+**症状/证据**：
+
+- UI esbuild 入口和 closure 豁免各维护一份 `components/ui/index.tsx` 字符串；
+- 修改入口时可能只更新一处，构建与校验语义分叉；
+- 入口缺失时缺少统一、早期的构建错误；
+- 首次尝试把独立入口要求为主 runtime closure 成员时，生产 UI 入口被误报，
+  因为它是 esbuild 合成根，不是普通 import。
+
+**根因**：
+
+- 独立入口没有单一配置源；
+- 校验误把“独立 bundle 根”与“主图可达 import”混为一谈；
+- 缺失入口没有专门预检。
+
+**修复**：
+
+- 引入 `separateBundleEntryModule` 单一配置；
+- esbuild 与 closure 豁免都读取同一入口；
+- 新增 missing-entry helper，构建前统一检查入口文件；
+- 保留主 runtime import closure 的真实检查；
+- 不要求独立 esbuild 根必须被主图 import。
+
+**RED/GREEN**：
+
+- RED：生产 UI 入口被错误报告为 disconnected；
+- GREEN：缺失 fixture 入口被准确报告；
+- GREEN：生产 UI 与 runtime closure 同时通过；
+- GREEN：bundle/UI 定向 **6 pass / 0 fail**；
+- 完整 `npm test`：**3382 pass / 0 fail**；
+- `lib/client.js` 保持 **2432.3 KB**；
+- ESLint、TypeScript、source imports、Prettier、bundle consistency、
+  `git diff --check`、`node --check` 与 `npm pack --dry-run` 通过。
+
+**Ego Browser 证据**：
+
+- ego-browser 打开真实 Harness Editor；
+- `pdocr` 的 `nanodet.cpp:162` 保持打开 `layer.h:30:17`；
+- 截图：`/private/tmp/dsh-editor-bundle-ui-entry-verify/pdocr-regression.png`；
+- Harness 工作区保持为 `pdocr`，服务继续在 `3081` 监听。
+
+**长期约束**：
+
+- 合成 esbuild 根与主 runtime import 必须区分；
+- 独立入口只允许一个配置源；
+- 入口缺失必须在 esbuild 前用可读错误失败；
+- runtime import closure 校验继续独立执行。
+
+## 2026-11-20 — C/C++ nested template receiver 丢失内部类路径
+
+**作用域**：C-family receiver 类型表达式、模板参数剥离、nested template
+implementation 导航。
+
+**症状/证据**：
+
+- `alpha::Outer<int>::Inner* layer` receiver 推断为空；
+- `alpha::Outer<T>::Inner::load_param` 无法成为实现候选；
+- 同文件 beta/alpha nested template 定义时错误返回 beta。
+
+**根因**：
+
+- receiver 类型表达式只允许模板实参出现在完整类型末尾；
+- normalize 从第一个 `<` 截断，丢失其后的 `::Inner`；
+- scanner qualified receiver 只允许最后一段带模板实参。
+
+**修复**：
+
+- 新增模板实参剥离函数，只移除 `<...>` 但保留全部 `::` segment；
+- receiver 类型表达式允许模板实参出现在任意 class segment；
+- C++ definition regex 和 scanner receiver 支持 nested template path；
+- canonical 后使用 `alpha::Outer::Inner` 做 receiver 精确比较；
+- std 与未限定普通模板的安全降级不变。
+
+**RED/GREEN**：
+
+- RED：receiver 为 `''`，错误打开 beta 实现；
+- GREEN：receiver 为 `alpha::Outer::Inner`；
+- GREEN：打开 `layer.cpp:4` 的 alpha nested template 实现；
+- GREEN：navigation 定向 **61 pass / 0 fail**；
+- 完整 `npm test`：**3382 pass / 0 fail**；
+- `lib/client.js` 重建后 **2432.3 KB**；
+- ESLint、TypeScript、source imports、Prettier、bundle consistency、
+  `git diff --check`、`node --check` 与 `npm pack --dry-run` 通过。
+
+**Ego Browser 证据**：
+
+- fixture 的 `Meta+Alt+B` 打开 `layer.cpp:4:29` 的 alpha nested template 实现；
+- 真实 `pdocr` Implementation 保持打开 `layer.cpp:44:12`；
+- 截图：
+  `/private/tmp/dsh-editor-nested-template-receiver-verify/nested-template-receiver-implementation.png`、
+  `/private/tmp/dsh-editor-nested-template-receiver-verify/pdocr-implementation-regression.png`；
+- 临时 fixture 已删除，Harness 工作区保持为 `pdocr`。
+
+**长期约束**：
+
+- 模板实参剥离必须保留所有 namespace/class segment；
+- receiver 类型表达式不能只支持末尾模板参数；
+- nested template definition 正则要允许各 segment 带模板实参；
+- 仍不做模板实参推导或特化选择。
+
+## 2026-11-20 — C/C++ class template receiver 被安全模板模式清空
+
+**作用域**：C-family receiver 类型推断、safeTemplate 归一化、模板类成员定义。
+
+**症状/证据**：
+
+- `alpha::Layer<int>* layer` 在编辑器路径下 receiver 返回空字符串；
+- `template <class T> int alpha::Layer<T>::load_param(...)` 无法匹配定义正则；
+- 多个 namespace 同名模板类存在时无法按 receiver 选择实现。
+
+**根因**：
+
+- safeTemplate 对所有非智能指针模板一律返回空；
+- C++ qualified definition 正则不接受 receiver 中的 `<T>`；
+- receiver 过滤因此失效。
+
+**修复**：
+
+- safeTemplate 保留已限定、非 `std` 的模板 class base path；
+- `alpha::Layer<int>` 归一化为 `alpha::Layer`；
+- 未限定模板和 `std::` 模板继续安全降级；
+- C++ 定义正则和 overload receiver 捕获允许 `<T>`；
+- 现有 qualified receiver 精确匹配继续生效。
+
+**RED/GREEN**：
+
+- RED：receiver 为 `''`；
+- RED：模板成员实现无法识别；
+- GREEN：receiver 为 `alpha::Layer`；
+- GREEN：`std::vector<int>` 仍返回空的安全模板结果；
+- GREEN：alpha/beta template 同名实现选中 alpha；
+- GREEN：navigation 定向 **60 pass / 0 fail**；
+- 完整 `npm test`：**3381 pass / 0 fail**；
+- `lib/client.js` 重建后 **2431.8 KB**；
+- ESLint、TypeScript、source imports、Prettier、bundle consistency、
+  `git diff --check`、`node --check` 与 `npm pack --dry-run` 通过。
+
+**Ego Browser 证据**：
+
+- fixture 的 `Meta+Alt+B` 打开 `layer.cpp:4:22` 的 alpha template 实现；
+- 真实 `pdocr` Implementation 保持打开 `layer.cpp:44:12`；
+- 截图：
+  `/private/tmp/dsh-editor-template-receiver-verify/template-receiver-implementation.png`、
+  `/private/tmp/dsh-editor-template-receiver-verify/pdocr-implementation-regression.png`；
+- 临时 fixture 已删除，Harness 工作区保持为 `pdocr`。
+
+**长期约束**：
+
+- 已限定用户模板 class base 可用于 receiver 身份；
+- `std::` 与未限定模板继续安全降级；
+- C++ method definition 正则必须接受 receiver 模板实参；
+- 不根据模板实参推断特化选择，只保留 class base path。
+
+## 2026-11-20 — C/C++ 深层继承链被固定 4 层上限截断
+
+**作用域**：C-family hierarchy 回溯、overload 基类参数评分。
+
+**症状/证据**：
+
+- `A -> B -> C -> D -> E -> Root` 的五段继承链在 Root 前停止；
+- `configure(const Root&)` 未进入参数评分；
+- overload 错误选择 `configure(const Wrong&)`。
+
+**根因**：
+
+- `definitionBaseTypes()` 使用固定 `depth < 4`；
+- 深度上限没有按实际图规模分配成本；
+- 常见项目继承层级可能超过 4 层。
+
+**修复**：
+
+- 继承回溯深度上限提升到 16；
+- 同时限制最多 64 个祖先节点；
+- `seen` 集合继续阻止循环、钻石和重复基类；
+- canonical 全局限定处理保持不变。
+
+**RED/GREEN**：
+
+- RED：深层 Root 未命中，返回 `widget.h:4` 的 Wrong overload；
+- GREEN：返回 `widget.h:5` 的 Root overload；
+- GREEN：navigation 定向 **59 pass / 0 fail**；
+- 完整 `npm test`：**3380 pass / 0 fail**；
+- `lib/client.js` 重建后 **2431.5 KB**；
+- ESLint、TypeScript、source imports、Prettier、bundle consistency、
+  `git diff --check`、`node --check` 与 `npm pack --dry-run` 通过。
+
+**Ego Browser 证据**：
+
+- fixture 的五段继承链打开 `widget.h:5:7` 的 Root overload；
+- 真实 `pdocr` 的 `nanodet.cpp:162` 保持打开 `layer.h:30:17`；
+- 截图：
+  `/private/tmp/dsh-editor-deep-inheritance-verify/deep-inheritance-target.png`、
+  `/private/tmp/dsh-editor-deep-inheritance-verify/pdocr-regression.png`；
+- 临时 fixture 已删除，Harness 工作区保持为 `pdocr`。
+
+**长期约束**：
+
+- 继承图遍历必须同时有深度和节点预算；
+- 预算调整不能取消循环与重复基类去重；
+- 固定浅深度不得作为常见 C++ 继承层级的终态；
+- 更深层级需要通过真实样本和回归测试逐步验证。
+
+## 2026-11-20 — C/C++ implementation receiver 丢失 namespace 限定
+
+**作用域**：C-family implementation navigation、sibling source、命名空间同名类、
+overload scanner receiver 比较。
+
+**症状/证据**：
+
+- `layer.cpp` 同时定义 `beta::Layer::load_param` 与 `alpha::Layer::load_param`；
+- receiver 为 `alpha::Layer` 时仍返回源码顺序靠前的 beta 实现；
+- scanner 只比较类名 leaf，namespace 信息被丢弃。
+
+**根因**：
+
+- receiver 捕获正则只保留最后一个类名；
+- 目标 receiver 的 namespace 没有参与 implementation 定义过滤。
+
+**修复**：
+
+- scanner 捕获完整限定 receiver 路径；
+- qualified receiver 与目标 receiver canonical 精确比较；
+- 前导 `::` 比较前统一移除；
+- receiver 本身无 namespace 时保持 leaf 兼容；
+- 单段 `Layer::method` 和自由函数保持兼容；
+- 模板类名前缀允许类型实参后再接 `::method`。
+
+**RED/GREEN**：
+
+- RED：错误返回 `layer.cpp:2` 的 `beta::Layer::load_param`；
+- GREEN：返回 `layer.cpp:3` 的 `alpha::Layer::load_param`；
+- GREEN：`alpha::Layer` 与 `::alpha::Layer` 均正确；
+- GREEN：navigation 定向 **58 pass / 0 fail**；
+- 完整 `npm test`：**3379 pass / 0 fail**；
+- `lib/client.js` 重建后 **2431.3 KB**；
+- ESLint、TypeScript、source imports、Prettier、bundle consistency、
+  `git diff --check`、`node --check` 与 `npm pack --dry-run` 通过。
+
+**Ego Browser 证据**：
+
+- fixture 的 `Meta+Alt+B` 打开 `layer.cpp:3:19` 的 alpha 实现；
+- 真实 `pdocr` Implementation 保持打开 `layer.cpp:44:12`；
+- 截图：
+  `/private/tmp/dsh-editor-namespaced-receiver-verify/namespaced-receiver-implementation.png`、
+  `/private/tmp/dsh-editor-namespaced-receiver-verify/pdocr-implementation-regression.png`；
+- 临时 fixture 已删除，Harness 工作区保持为 `pdocr`。
+
+**长期约束**：
+
+- implementation receiver 比较必须保留 namespace 路径；
+- canonical 全局前缀处理与 alias/base 规则保持一致；
+- unqualified receiver 仍可安全退回 leaf 兼容；
+- 不允许仅因类名相同就把另一个 namespace 的实现视为候选。
+
+## 2026-11-20 — C/C++ sibling implementation 未按 receiver 选择同名方法
+
+**作用域**：C-family implementation 导航、sibling source、overload scanner、
+receiver leaf 匹配。
+
+**症状/证据**：
+
+- `layer.cpp` 同时定义 `Net::load_param` 和 `Layer::load_param`；
+- receiver 为 `Layer` 时仍返回源码中更靠前的 `Net::load_param`；
+- 候选级检查只确认文件里“存在”Layer 方法，没有过滤同名其他 receiver。
+
+**根因**：
+
+- `definitionImplementationReceiverCompatible()` 是文件级布尔检查；
+- overload scanner 没有 receiver 输入；
+- 找到兼容文件后仍按源码顺序返回第一个同名限定方法。
+
+**修复**：
+
+- `findCFamilyOverloadInText()` 接受目标 receiver 集合；
+- 对带 `Class::` 前缀的定义，leaf receiver 必须命中目标类型；
+- 未限定自由函数定义保持兼容；
+- `findDefinitionInText()` 增加可选 receiver 参数；
+- candidate ranking、最终候选和 search fallback 都传入解析后的 receiver；
+- declaration 模式不启用该过滤。
+
+**RED/GREEN**：
+
+- RED：错误返回 `layer.cpp:2` 的 `Net::load_param`；
+- GREEN：跳过 Net，返回 `layer.cpp:3` 的 `Layer::load_param`；
+- GREEN：自由函数 sibling implementation 保持通过；
+- GREEN：navigation 定向 **57 pass / 0 fail**；
+- 完整 `npm test`：**3378 pass / 0 fail**；
+- `lib/client.js` 重建后 **2430.8 KB**；
+- ESLint、TypeScript、source imports、Prettier、bundle consistency、
+  `git diff --check`、`node --check` 与 `npm pack --dry-run` 通过。
+
+**Ego Browser 证据**：
+
+- fixture 的 `Meta+Alt+B` 打开 `layer.cpp:3:12` 的 Layer 实现；
+- 真实 `pdocr` 的 Implementation 保持打开 `layer.cpp:44:12`；
+- 截图：
+  `/private/tmp/dsh-editor-sibling-receiver-verify/sibling-receiver-implementation.png`、
+  `/private/tmp/dsh-editor-sibling-receiver-verify/pdocr-implementation-regression.png`；
+- 临时 fixture 已删除，Harness 工作区保持为 `pdocr`。
+
+**长期约束**：
+
+- 文件级 receiver 兼容只是候选预筛，不能替代定义级 receiver 过滤；
+- 限定类方法必须匹配 receiver leaf；
+- 未限定自由函数不能被 receiver 过滤误伤；
+- declaration 模式不得启用 implementation receiver 约束。
+
+## 2026-11-20 — C/C++ inline namespace 类型丢失继承图可见 key
+
+**作用域**：C-family inline namespace、继承图注册与查询、overload 基类评分。
+
+**症状/证据**：
+
+- 候选评分已能定位 `ncnn::v1::Layer`；
+- receiver `ncnn::Layer` 在继承图中查不到 `ncnn::v1::Layer` 的基类声明；
+- `Layer : Base` 祖先链丢失；
+- overload 错误返回 `configure(const Wrong&)`。
+
+**根因**：
+
+- hierarchy 只按 declared namespace 注册 key；
+- inline namespace 的透明可见名称没有对应 hierarchy entry；
+- 继承查询与候选评分使用了不同的可见性模型。
+
+**修复**：
+
+- hierarchy 同时注册 declared key 与 inline-transparent visible key；
+- 每个 entry 记录 owner；
+- 不同 owner 的同分 visible key 标记 ambiguous 并在结果中排除；
+- 基类 qualification 仍使用 declared scope；
+- ordinary namespace 的 key 不重复注册。
+
+**RED/GREEN**：
+
+- RED：`ncnn::Layer` 丢失 `Base` 继承并返回第 4 行 `Wrong` overload；
+- GREEN：返回第 5 行 `Base` overload；
+- GREEN：可见 key 冲突不会形成猜测继承；
+- GREEN：navigation 定向 **56 pass / 0 fail**；
+- 完整 `npm test`：**3377 pass / 0 fail**；
+- `lib/client.js` 重建后 **2430.2 KB**；
+- ESLint、TypeScript、source imports、Prettier、bundle consistency、
+  `git diff --check`、`node --check` 与 `npm pack --dry-run` 通过。
+
+**Ego Browser 证据**：
+
+- fixture 的 `ncnn::Layer` 打开 `widget.h:5:7` 的 Base overload；
+- 真实 `pdocr` 的 `nanodet.cpp:162` 保持打开 `layer.h:30:17`；
+- 截图：
+  `/private/tmp/dsh-editor-inline-inheritance-verify/inline-inheritance-target.png`、
+  `/private/tmp/dsh-editor-inline-inheritance-verify/pdocr-regression.png`；
+- 临时 fixture 已删除，Harness 工作区保持为 `pdocr`。
+
+**长期约束**：
+
+- 候选可见性、alias 可见性和继承图可见性必须使用同一 inline 语义；
+- declared key 保留显式限定查找；
+- visible key 冲突必须标记歧义，不能合并不同 owner 的基类；
+- 继承查询仍保持深度上限和循环去重。
+
+## 2026-11-20 — C/C++ inline namespace 类型和 alias 丢失透明可见性
+
+**作用域**：C-family namespace scope、类型候选评分、alias scope 过滤、
+include 顺序消歧。
+
+**症状/证据**：
+
+- `namespace ncnn { inline namespace v1 { class Layer ... } }`
+  无法匹配 receiver `ncnn::Layer`；
+- 靠前的 `alpha::Layer` 因同分或被错误选为 fallback；
+- inline namespace 内声明的 alias 也无法通过 enclosing namespace 名称匹配。
+
+**根因**：
+
+- namespace scope 只保存字符串名称，不记录 `inline` 属性；
+- 候选评分把 `v1` 当成必须显式出现的普通 namespace segment；
+- alias scope 校验同样只接受 declared scope。
+
+**修复**：
+
+- scope 扫描保留 `{ name, inline }` frame 元数据；
+- 新增 inline-transparent visible scope；
+- 候选评分同时匹配 declared 与 visible scope；
+- alias 作用域过滤接受 visible scope；
+- alias target 仍按 declared scope 限定，保持词法相对语义；
+- anonymous namespace 空名称继续过滤。
+
+**RED/GREEN**：
+
+- RED：`ncnn::Layer` 错误返回 `alpha.h:4`；
+- GREEN：`ncnn::Layer` 与 `ncnn::v1::Layer` 都返回 `net.h:5`；
+- GREEN：inline namespace alias 通过 enclosing namespace 解析；
+- GREEN：navigation 定向 **55 pass / 0 fail**；
+- 完整 `npm test`：**3376 pass / 0 fail**；
+- `lib/client.js` 重建后 **2429.5 KB**；
+- ESLint、TypeScript、source imports、Prettier、bundle consistency、
+  `git diff --check`、`node --check` 与 `npm pack --dry-run` 通过。
+
+**Ego Browser 证据**：
+
+- fixture 的 `ncnn::Layer` 打开 `net.h:5:7`；
+- 靠前的 `alpha.h` 未抢占；
+- 真实 `pdocr` 的 `nanodet.cpp:162` 保持打开 `layer.h:30:17`；
+- 截图：
+  `/private/tmp/dsh-editor-inline-namespace-verify/inline-namespace-target.png`、
+  `/private/tmp/dsh-editor-inline-namespace-verify/pdocr-regression.png`；
+- 临时 fixture 已删除，Harness 工作区保持为 `pdocr`。
+
+**长期约束**：
+
+- declared scope 用于声明身份和相对 target 限定；
+- visible scope 用于 inline namespace 的公开名称匹配；
+- anonymous namespace 不得成为公开 scope 前缀；
+- 显式 inline namespace 限定名仍必须保持可解析。
+
+## 2026-11-20 — C/C++ 全局限定 receiver 丢失继承链
+
+**作用域**：C-family receiver 类型归一化、继承图查询、overload 基类评分。
+
+**症状/证据**：
+
+- `::detail::Canvas canvas;` 的 receiver 保持全局限定形式；
+- 继承图 key 使用无前导 `::` 的 `detail::Canvas`；
+- `definitionBaseTypes()` 直接查询 `::detail::Canvas` 失败；
+- 祖先 `Surface -> Base` 丢失，overload 错误选择 `configure(const Wrong&)`。
+
+**根因**：
+
+- 前导 `::` 保留修复完成后，继承图查询入口没有做同一 canonical 归一化；
+- hierarchy 存储 key 与 receiver 查询 key 表示不一致；
+- 含 `::` 的查询不会走无限定类型的无歧义回退。
+
+**修复**：
+
+- `definitionBaseTypes()` 在入图前移除前导 `::`；
+- 其余 hierarchy 存储和相对 namespace 逻辑保持不变；
+- 保留 4 层继承上限和 `seen` 循环防护。
+
+**RED/GREEN**：
+
+- RED：全局 receiver 错误返回第 4 行 `configure(const Wrong&)`；
+- GREEN：正确返回第 5 行 `configure(const Base&)`；
+- GREEN：navigation 定向 **53 pass / 0 fail**；
+- 完整 `npm test`：**3374 pass / 0 fail**；
+- `lib/client.js` 重建后 **2428.1 KB**；
+- ESLint、TypeScript、source imports、Prettier、bundle consistency、
+  `git diff --check`、`node --check` 与 `npm pack --dry-run` 通过。
+
+**Ego Browser 证据**：
+
+- fixture 的 `widget.configure(canvas)` 打开 `widget.h:5:7` 的
+  `configure(const Base&)`；
+- 真实 `pdocr` 的 `nanodet.cpp:162` 保持打开 `layer.h:30:17`；
+- 截图：
+  `/private/tmp/dsh-editor-global-inheritance-verify/global-inheritance-target.png`、
+  `/private/tmp/dsh-editor-global-inheritance-verify/pdocr-regression.png`；
+- 临时 fixture 已删除，Harness 工作区保持为 `pdocr`。
+
+**长期约束**：
+
+- 类型名的全局限定表示与 hierarchy canonical key 必须显式对齐；
+- 只移除查询入口的前导 `::`，不得把全局语义传播到错误候选；
+- 继承图查询仍需保持深度上限、去重和循环安全。
+
+## 2026-11-20 — 浏览器 bundle 缺少运行时 import 闭包守卫
+
+**作用域**：`scripts/build-client.mjs`、TypeScript 模块 import 图、esbuild UI
+子图、npm 发布文件清单。
+
+**症状/证据**：
+
+- 构建只硬编码检查 13 个顶层模块和少量组件断言；
+- 新组件被业务源码 import 时，如果漏掉 `moduleSourceForBuild()`，静态检查
+  仍可能通过；
+- 真实 Web 只会在进入对应功能时出现 `ReferenceError`；
+- 首次加入 closure helper 后，`npm pack --dry-run` 只有 142 个文件，
+  发布包缺少 build-client 的新依赖。
+
+**根因**：
+
+- 缺少从入口源码递归收集运行时相对 import 的通用机制；
+- 手工模块清单无法保证与 import 图同步；
+- package `files` 未自动包含 build 脚本的本地依赖。
+
+**修复**：
+
+- 新增 `scripts/client-bundle-closure.mjs`，用 Babel AST 解析相对 import 和
+  runtime re-export；
+- 纯 type import 不进入运行时闭包；
+- 从生成输出提取模块标记，并把 `components/ui/index.tsx` 的 esbuild 子图
+  视为已打包；
+- build 和 `--check` 对缺失运行时模块立即失败；
+- `package.json` 加入 closure helper，发布包同步包含该依赖。
+
+**RED/GREEN**：
+
+- RED：初版闭包判断将 type-only `types.ts` 误报为运行时缺失；
+- RED：发布包遗漏 `scripts/client-bundle-closure.mjs`；
+- GREEN：fixture 只报告真正漏编的 `component.ts`；
+- GREEN：type-only import 和 UI 子图不误报；
+- GREEN：生产源码闭包无缺失；
+- GREEN：bundle closure 定向 **3 pass / 0 fail**；
+- 完整 `npm test`：**3373 pass / 0 fail**；
+- `npm pack --dry-run` 包含 helper，共 **143 files**；
+- `lib/client.js` 保持 **2428.0 KB**；
+- ESLint、TypeScript、source imports、Prettier、bundle consistency、
+  `git diff --check`、`node --check` 与 `npm pack --dry-run` 通过。
+
+**Ego Browser 证据**：
+
+- ego-browser 打开真实 Harness Editor；
+- `pdocr` 的 `nanodet.cpp:162` 保持打开 `layer.h:30:17`；
+- 截图：`/private/tmp/dsh-editor-module-closure-verify/pdocr-regression.png`；
+- Harness 工作区保持为 `pdocr`，服务继续在 `3081` 监听。
+
+**长期约束**：
+
+- 顶层模块清单之外，还必须验证完整运行时 import 闭包；
+- type-only import 不需要独立 bundle 标记；
+- `components/ui/index.tsx` 的 esbuild 子图可覆盖其完整相对依赖；
+- build 脚本新增本地 helper 时必须同步 package `files`，并用 pack dry-run
+  验证发布包完整性。
+
+## 2026-11-20 — C/C++ 全局限定 alias target 丢失 `::`
+
+**作用域**：C-family alias target、receiver 类型归一化、全局 namespace
+候选筛选。
+
+**症状/证据**：
+
+- `namespace ncnn { using Detector = ::detail::Net; }` 的 receiver 退化成
+  `detail::Net`；
+- 全局 `detail::Net`、`alpha::detail::Net`、`ncnn::detail::Net` 无法区分；
+- 候选同分时由 include 顺序决定，全局目标可能被靠前的相对类型抢占。
+
+**根因**：
+
+- `normalizeReceiverType()` 无条件删除前导 `::`；
+- alias 请求和候选评分都只保留相对 qualifier；
+- 后缀 qualifier 匹配无法表达“必须位于全局 namespace”。
+
+**修复**：
+
+- 类型归一化保留前导 `::`；
+- 全局 alias 请求只匹配全局作用域声明；
+- `definitionTypeCandidateScore()` 对全局类型要求 scope 精确相等；
+- 普通相对 alias 继续使用安全后缀匹配；
+- 智能指针和复杂模板降级逻辑保持不变。
+
+**RED/GREEN**：
+
+- RED：receiver 为 `detail::Net`；
+- RED：全局目标未从 alpha/ncnn 同名候选中胜出；
+- GREEN：receiver 为 `::detail::Net`；
+- GREEN：只选择全局头文件；
+- GREEN：navigation 定向 **52 pass / 0 fail**；
+- 完整 `npm test`：**3370 pass / 0 fail**；
+- `lib/client.js` 重建后 **2428.0 KB**；
+- ESLint、TypeScript、source imports、Prettier、bundle consistency、
+  `git diff --check`、`node --check` 与 `npm pack --dry-run` 通过。
+
+**Ego Browser 证据**：
+
+- fixture 的 `detector.load_param` 打开 `global_net.h:4:7`；
+- 靠前的 `alpha_net.h` 和 `ncnn_net.h` 未抢占；
+- 真实 `pdocr` 的 `nanodet.cpp:162` 保持打开 `layer.h:30:17`；
+- 截图：
+  `/private/tmp/dsh-editor-global-alias-verify/global-alias-target.png`、
+  `/private/tmp/dsh-editor-global-alias-verify/pdocr-regression.png`；
+- 临时 fixture 已删除，Harness 工作区保持为 `pdocr`。
+
+**长期约束**：
+
+- 前导 `::` 是全局意图，不得在归一化时静默丢弃；
+- 全局类型候选必须使用 scope 精确匹配，不得使用 namespace 后缀匹配；
+- 相对 alias 仍按声明 scope 补全；
+- 全局标记只影响类型 scope，不应改变模板和智能指针的安全降级。
+
+## 2026-11-20 — C/C++ namespace 相对继承基类丢失作用域
+
+**作用域**：C-family 继承图、namespace 相对限定基类、祖先回溯与 overload
+参数评分。
+
+**症状/证据**：
+
+- `namespace ncnn { class Canvas : detail::Surface {}; }` 的基类只保留
+  `detail::Surface`；
+- `ncnn::detail::Surface` 的继承声明无法被祖先回溯命中；
+- 更深层的 `Base` 丢失，overload 错误选择 `configure(const Wrong&)`。
+
+**根因**：
+
+- `definitionTypeHierarchy()` 把任何包含 `::` 的基类当作绝对 target；
+- 没有按派生类声明的 namespace scope 补全相对 qualified-id；
+- `definitionBaseTypes()` 只能用完整 key 命中嵌套基类的下一条继承声明。
+
+**修复**：
+
+- 继承基类复用 `qualifyRelativeAliasTarget()` 的作用域补全规则；
+- `detail::Surface` 在 `namespace ncnn` 中变成 `ncnn::detail::Surface`；
+- 已限定 target 不重复前缀；
+- 显式 `::` target 保留绝对解释；
+- 基类模板参数仍先剥离，preprocessor 分支选择不变。
+
+**RED/GREEN**：
+
+- RED：返回 `widget.h:4` 的 `configure(const Wrong&)`；
+- GREEN：返回 `widget.h:5` 的 `configure(const Base&)`；
+- GREEN：相对、已限定、全局三种 nested base 写法均通过；
+- GREEN：navigation 定向 **51 pass / 0 fail**；
+- 完整 `npm test`：**3369 pass / 0 fail**；
+- `lib/client.js` 重建后 **2427.7 KB**；
+- ESLint、TypeScript、source imports、Prettier、bundle consistency、
+  `git diff --check`、`node --check` 与 `npm pack --dry-run` 通过。
+
+**Ego Browser 证据**：
+
+- fixture 的 `widget.configure(canvas)` 打开 `widget.h:6:7` 的
+  `configure(const Base&)`；
+- 真实 `pdocr` 的 `nanodet.cpp:162` 保持打开 `layer.h:30:17`；
+- 截图：
+  `/private/tmp/dsh-editor-nested-base-verify/nested-base-target.png`、
+  `/private/tmp/dsh-editor-nested-base-verify/pdocr-regression.png`；
+- 临时 fixture 已删除，Harness 工作区保持为 `pdocr`。
+
+**长期约束**：
+
+- 相对限定基类必须按派生类所在 namespace 解析；
+- 已限定 target 不得重复加 scope；
+- 全局限定 target 不得被错误并入当前 namespace；
+- 继承回溯必须继续有界，并保持循环与重复基类安全。
+
+## 2026-11-20 — C/C++ 嵌套别名 target 丢失声明 namespace
+
+**作用域**：C-family `using` / `typedef` target、namespace 相对限定名、
+receiver 类型推断与候选类型消歧。
+
+**症状/证据**：
+
+- `namespace ncnn { using Detector = detail::Net; }` 的 receiver 得到
+  `detail::Net`，没有带上声明所在 namespace；
+- `alpha::detail::Net` 与 `ncnn::detail::Net` 都满足 `detail` qualifier；
+- 两者候选同分时由 include 顺序决定，靠前的错误头文件会胜出。
+
+**根因**：
+
+- 别名 qualification 的正则只允许 `Net` 这类单段类型；
+- 带 `::` 的 `detail::Net` 被原样保留；
+- 候选评分只能看到不完整 qualifier `detail`。
+
+**修复**：
+
+- `qualifyRelativeAliasTarget()` 接受完整限定类型路径；
+- 无前导 `::`、未包含当前 scope 的相对 target 补上声明 namespace；
+- 已限定与 `std` target 不做二次前缀；
+- 保留 smart pointer alias 的 unwrap 和复杂模板安全降级。
+
+**RED/GREEN**：
+
+- RED：嵌套 alias receiver 返回 `detail::Net`；
+- RED：`alpha::detail::Net` 抢占 `ncnn::detail::Net`；
+- GREEN：嵌套 alias receiver 返回 `ncnn::detail::Net`；
+- GREEN：`ncnn::Net` 不变成 `ncnn::ncnn::Net`，`std::string` 保持原样；
+- GREEN：navigation 定向 **50 pass / 0 fail**；
+- 完整 `npm test`：**3368 pass / 0 fail**；
+- `lib/client.js` 重建后 **2427.8 KB**；
+- ESLint、TypeScript、source imports、Prettier、bundle consistency、
+  `git diff --check`、`node --check` 与 `npm pack --dry-run` 通过。
+
+**Ego Browser 证据**：
+
+- fixture 的 `detector.load_param` 打开 `ncnn_net.h:5:7`，不是靠前的
+  `alpha_net.h`；
+- 真实 `pdocr` 的 `nanodet.cpp:162` 保持打开 `layer.h:30:17`；
+- 截图：
+  `/private/tmp/dsh-editor-nested-namespace-alias-verify/nested-alias-target.png`、
+  `/private/tmp/dsh-editor-nested-namespace-alias-verify/pdocr-regression.png`；
+- 临时 fixture 已删除，Harness 工作区保持为 `pdocr`。
+
+**长期约束**：
+
+- namespace 相对限定 target 的首段必须按声明作用域解析；
+- 已限定 target 不得重复添加当前 namespace；
+- 标准库 target 不做项目 namespace 前缀；
+- 无符号表时只处理明确、低歧义的相对 qualified-id，复杂模板继续降级。
+
+## 2026-11-20 — C/C++ 条件分支继承关系跨分支污染
+
+**作用域**：C-family 继承扫描、preprocessor 分支、receiver overload 筛选、
+Declaration 导航候选排序。
+
+**症状/证据**：
+
+- 同一 class 在 `#if` 与 `#else` 中分别声明不同基类；
+- 调用 `Widget::configure(FastBase)` 时，navigation 错误返回
+  `#else` 分支的 `configure(const SlowBase&)`；
+- fixture 的 RED 结果指向第 6 行，而活动 `FEATURE_FAST` 分支候选位于第 7 行；
+- 继承正则偏移到前一换行，使声明筛选与 namespace scope 使用错误位置；
+- `#if` 首行可能沿用前一分支上下文。
+
+**根因**：
+
+- 继承扫描无条件合并同 class 的所有声明；
+- 没有按调用点 preprocessor context 评估继承声明所在分支；
+- 文本 offset 以 match 起点而不是 `class/struct` 关键字为基准，造成条件
+  分支边界错位。
+
+**修复**：
+
+- `definitionTypeHierarchy()` 接收调用点预处理上下文；
+- 使用 `definitionPreprocessorBranchScore()` 排除禁用分支、降低相反分支；
+- 只合并最佳分支分数的继承声明；
+- 继承正则 match 从声明前换行开始，并分开保存关键字 offset；
+- 声明筛选和 namespace scope 使用真实关键字 offset，修复首行上下文继承。
+
+**RED/GREEN**：
+
+- RED：`Widget : FastBase` 吸收 `SlowBase`，返回第 6 行错误 overload；
+- GREEN：只采纳 `FastBase`，返回第 7 行 `configure(const FastBase&)`；
+- GREEN：navigation 定向 **49 pass / 0 fail**；
+- 完整 `npm test`：**3367 pass / 0 fail**；
+- `lib/client.js` 重建后 **2427.5 KB**；
+- ESLint、TypeScript、source imports、Prettier、bundle consistency、
+  `git diff --check`、`node --check` 与 `npm pack --dry-run` 通过。
+
+**Ego Browser 证据**：
+
+- fixture Declaration 打开 `widget.h:8:7` 的 `FastBase` overload；
+- 真实 `pdocr` 的 `nanodet.cpp:162` 保持打开 `layer.h:30:17`；
+- 截图：
+  `/private/tmp/dsh-editor-conditional-inheritance-verify/fastbase-overload.png`、
+  `/private/tmp/dsh-editor-conditional-inheritance-verify/pdocr-regression.png`；
+- 临时 fixture 已删除，Harness 工作区保持为 `pdocr`。
+
+**长期约束**：
+
+- 继承关系必须依附调用点的活动预处理分支，不能合并互斥分支的基类；
+- 预处理分支评分只允许合并同分声明，不能把相反分支降级后仍当作候选；
+- 条件声明上的 namespace scope 必须使用关键字真实 offset；
+- 间接继承回溯仍需保持有界，并继续验证可见声明边界。
+
+## 2026-11-20 — C/C++ Declaration 与 Implementation 未分离
+
+**作用域**：C-family 跳转目标、Monaco navigation action、include sibling source、
+receiver 限定实现筛选。
+
+**症状/证据**：
+
+- 编辑器只有一个 Go to Declaration action；
+- implementation 语义即使尝试复用 resolver，也会被声明优先级带回头文件；
+- 真实 `pdocr` 的 `nanodet.cpp:162` 可打开 `layer.h:30:17`，但无法打开
+  `layer.cpp:44:12`；
+- 首次 implementation 修复命中了 `net.cpp` 的 `Net::load_param`，说明仅按
+  方法名和 sibling 文件顺序不足；
+- `rustrun/crates/ncnn` 是 gitignored，深目录也超出 host 5000 文件搜索上限。
+
+**根因**：
+
+- resolver 没有 declaration / implementation 目标模式；
+- declaration-only overload 固定加分，全局搜索固定奖励头文件；
+- 传递 include 候选只在 preferred ranking 中使用，fallback 没有保留；
+- 没有从头文件推导同目录实现源文件；
+- 限定方法实现没有按 receiver 类型过滤。
+
+**修复**：
+
+- 增加 `DefinitionTargetKind = declaration | implementation`；
+- overload、通用扫描和搜索排序支持目标模式；
+- implementation 模式排除纯原型，优先源文件；
+- 保留传递 include 候选进入 fallback；
+- 从头文件同目录探测 `cpp/cc/cxx/c` sibling source；
+- 限定定义必须匹配 receiver leaf，例如 Layer 不接受 Net；
+- 注册 `dsh-editor.goToImplementation`，快捷键 `⌥⌘B` / Ctrl+Alt+B；
+- 上下文菜单在 Declaration 后显示 Go to Implementation；
+- 中英文文案区分 declaration / implementation 的失败原因。
+
+**RED/GREEN**：
+
+- RED：implementation 模式返回声明；
+- RED：include 中只剩原型时未继续寻找实现；
+- RED：`net.cpp` 的 `Net::load_param` 抢占 `layer.cpp`；
+- GREEN：navigation 定向 **48 pass / 0 fail**；
+- GREEN：编辑器 action 接线 **9 pass / 0 fail**；
+- 完整 `npm test`：**3366 pass / 0 fail**；
+- `lib/client.js` 重建后 **2426.5 KB**；
+- ESLint、TypeScript、source imports、Prettier、bundle consistency、
+  `git diff --check`、`node --check` 与 `npm pack --dry-run` 通过。
+
+**Ego Browser 证据**：
+
+- 临时 fixture：Declaration → `helper.h`，Implementation → `helper.cpp`；
+- 真实 `pdocr`：
+  - Declaration → `layer.h:30:17`；
+  - Implementation → `layer.cpp:44:12`；
+- 上下文菜单显示“转到声明 ⌘B”和“转到实现 ⌥⌘B”；
+- 截图：
+  `/private/tmp/dsh-editor-declaration-implementation-verify/declaration-target.png`、
+  `/private/tmp/dsh-editor-declaration-implementation-verify/implementation-target.png`、
+  `/private/tmp/dsh-editor-declaration-implementation-verify/pdocr-declaration-target.png`、
+  `/private/tmp/dsh-editor-declaration-implementation-verify/pdocr-implementation-target.png`；
+- 临时 fixture 已删除，Harness 工作区保持为 `pdocr`。
+
+**长期约束**：
+
+- Declaration 必须继续优先头文件/原型，Implementation 只接受函数体；
+- implementation sibling 探测必须有文件数、header 数和 read attempt 上限；
+- receiver 已解析时，限定实现必须匹配 receiver，不可只按方法名；
+- gitignored 深源码不能依赖 host 全量搜索上限保证可发现；
+- 无实现时应明确提示，不得把声明伪装为实现。
+
+## 2026-11-20 — C/C++ 候选路径大小写/symlink 重复读取
+
+**作用域**：C-family include 候选、导航文件身份、host path description、
+browser bundle 模块纳入。
+
+**症状/证据**：
+
+- macOS 大小写别名或 symlink 指向同一文件时，候选路径字符串不同；
+- 同一头文件因此被读取和扫描多次；
+- 原先的纯字符串去重无法识别同一 inode；
+- 新增导航 host 适配模块后，源码检查通过但真实 bundle 未包含该模块，
+  Web 点击声明抛出 `ReferenceError: definitionPathIdentities is not defined`。
+
+**根因**：
+
+- 导航候选身份只使用 `normalizeNavigationPath()` 字符串；
+- `exists` 路径描述没有返回文件系统身份；
+- `editor-workspace.tsx` 的适配代码抽取成新模块后，手工维护的
+  build-client 模块清单没有同步加入；
+- 既有 bundle 测试只检查 13 个顶层业务模块，没有覆盖该适配模块。
+
+**修复**：
+
+- host `describePaths()` 返回不透明 `dev:ino`，`stat` 自然跟随 symlink；
+- 客户端批量查询候选身份，最多 64 路径一批；
+- C include、传递 include、语言候选、Rust re-export 和文本搜索去重
+  统一使用文件身份，缺失时回退字符串路径；
+- 新增 `editor-definition-navigation.ts` 集中 dirty model、path identity
+  和 host 搜索适配；
+- `scripts/build-client.mjs` 显式包含该模块；
+- 新增 bundle 完整性回归，断言适配模块和两个导出函数进入产物。
+
+**RED/GREEN**：
+
+- RED：大小写 alias 与 symlink alias 均读取 2 次；
+- RED：bundle 缺少适配模块，Web 触发 `ReferenceError`；
+- GREEN：navigation 定向 **45 pass / 0 fail**；
+- GREEN：path identity/host 测试 **4 pass / 0 fail**；
+- GREEN：bundle 完整性测试 **6 pass / 0 fail**；
+- 完整 `npm test`：**3363 pass / 0 fail**；
+- `lib/client.js` 重建后 **2420.0 KB**；
+- ESLint、TypeScript、source imports、Prettier、bundle consistency、
+  `git diff --check`、`node --check` 与 `npm pack --dry-run` 通过。
+
+**Ego Browser 证据**：
+
+- 真实 `exists` 批量请求对 symlink 与目标返回相同身份；
+- symlink fixture 的 Go to Declaration 打开 `WidgetHeader.h:4:7`；
+- 真实 `pdocr` 的 `nanodet.cpp:162` 保持打开 `layer.h:30:17`；
+- 截图：
+  `/private/tmp/dsh-editor-file-identity-verify/file-identity-definition.png`、
+  `/private/tmp/dsh-editor-file-identity-verify/pdocr-file-identity-regression.png`；
+- 临时 fixture 已删除，Harness 工作区保持为 `pdocr`。
+
+**长期约束**：
+
+- 文件身份必须使用真实 `dev:ino`，不能按大小写折叠或内容相似度猜测；
+- 不同 inode 的同名大小写文件必须保持独立；
+- 新增被 import 的业务模块必须同步进入 build-client，并增加 bundle 断言；
+- Harness host 变更后必须重启 host；仅重建 client 不足以加载新 host 字段。
+
+## 2026-11-20 — C/C++ namespace 相对 alias 丢失声明作用域
+
+**作用域**：C-family 类型别名、namespace scope、receiver 候选筛选。
+
+**症状/证据**：
+
+- `namespace ncnn { using Detector = Net; Detector d; }` 的 receiver 只得到
+  裸 `Net`；
+- 当 `alpha::Net` 与 `ncnn::Net` 都有 `load_param` 时，两个候选同分；
+- 最终仍由 include 顺序决定，靠前的 `alpha_net.h` 会错误胜出。
+
+**根因**：
+
+- alias target 只保留源码文字，没有结合 alias 声明所在 namespace；
+- 候选类型评分把无限定 `Net` 同时视为任意 namespace 的 `Net`；
+- receiver resolver 已能识别 alias scope，但 target 归一化丢弃了该信息。
+
+**修复**：
+
+- 复用 `definitionNamespaceScopesAtOffsets()` 获取 alias 声明 scope；
+- 新增 `qualifyRelativeAliasTarget()`，仅对单一路径 class-like target 补全
+  namespace；
+- 支持 `const`、指针、引用包装，例如 `Net*`；
+- 已限定、绝对、内置和复杂模板 target 保持原样；
+- 现有有界 alias 链、include 展开和安全降级边界不变。
+
+**RED/GREEN**：
+
+- RED：namespace alias receiver 返回 `Net`；
+- RED：靠前的 `alpha::Net` 抢占 `ncnn::Net`；
+- GREEN：navigation 定向 **43 pass / 0 fail**；
+- 完整 `npm test`：**3359 pass / 0 fail**；
+- `lib/client.js` 重建后 **2415.9 KB**；
+- ESLint、TypeScript、source imports、Prettier、bundle consistency、
+  `git diff --check`、`node --check` 与 `npm pack --dry-run` 继续通过。
+
+**Ego Browser 证据**：
+
+- namespace alias fixture 正确打开 `ncnn_net.h:5:7`；
+- 真实 `pdocr` 的 `nanodet.cpp:162` 保持打开 `layer.h:30:17`；
+- 截图：
+  `/private/tmp/dsh-editor-cpp-namespace-alias-verify/namespace-alias-ncnn-definition.png`、
+  `/private/tmp/dsh-editor-cpp-namespace-alias-verify/pdocr-namespace-alias-regression.png`；
+- 临时 fixture 已删除，Harness 工作区保持为 `pdocr`。
+
+**长期约束**：
+
+- alias target 的 namespace 补全必须只处理明确相对、class-like 的类型；
+- 不把内置类型、绝对路径或已经限定的 target 再次加前缀；
+- 嵌套限定 target 与模板实参的 namespace 相对解析仍需后续收紧；
+- 候选消歧不能依赖 include 顺序代替真实类型 scope。
+
+## 2026-11-20 — C/C++ `using` / `typedef` receiver 别名丢失
+
+**作用域**：C-family receiver 类型推断、include 头别名、候选类型筛选。
+
+**症状/证据**：
+
+- `using Detector = ncnn::Net; Detector detector; detector.load_param(pd);`
+  只推断到 `Detector`；
+- 无关 `layer.h` 若有同名 `load_param`，会在候选排序中抢占 `net.h`；
+- 别名只出现在 include 头、或 alias 再指向另一个 alias 时同样失效。
+
+**根因**：
+
+- receiver 推断止于声明中的别名名，没有解析类型别名目标；
+- 候选筛选只认识真实 class/struct 声明，不知道 alias 对应的具体类型；
+- 初次 include 候选阶段没有把别名头纳入 receiver 解析。
+
+**修复**：
+
+- `definitionTypeAliasTargets()` 解析活动前置处理分支中的简单 `using` /
+  `typedef`，并校验 alias 的 namespace scope；
+- `definitionReceiverAliasResolution()` 在同文件、初次 include 和传递 include
+  间串联别名，最多 6 层；
+- 只有唯一目标才解析；冲突、循环、函数指针、`typename` 依赖别名和普通
+  模板 alias 安全降级；
+- `unique_ptr` / `shared_ptr` / `weak_ptr` alias 继续解包元素类型；
+- receiver 与重载实参类型推断复用同一别名解析；
+- 候选筛选使用解析后的具体类型，别名本身不再作为错误类型过滤器。
+
+**RED/GREEN**：
+
+- RED：别名 receiver 返回 `Detector`；
+- RED：无关 `layer.h` 抢占 `net.h`；
+- GREEN：navigation 定向 **42 pass / 0 fail**；
+- 完整 `npm test`：**3358 pass / 0 fail**；
+- `lib/client.js` 重建后 **2415.5 KB**；
+- ESLint、TypeScript、source imports、Prettier、bundle consistency、
+  `git diff --check`、`node --check` 与 `npm pack --dry-run` 通过。
+
+**Ego Browser 证据**：
+
+- 临时 alias fixture 的 `load_param` 打开 `net.h:5:7`；
+- 真实 `pdocr` 的 `nanodet.cpp:162` 保持打开 `layer.h:30:17`；
+- 截图：
+  `/private/tmp/dsh-editor-cpp-alias-verify/alias-fixture-net-definition.png`、
+  `/private/tmp/dsh-editor-cpp-alias-verify/pdocr-layar-definition.png`；
+- 临时 fixture 已删除，Harness 工作区已恢复为 `pdocr`。
+
+**长期约束**：
+
+- 别名解析必须有深度上限且只接受唯一目标；
+- 不解析函数指针、依赖模板和无法确定目标的复杂 alias；
+- 别名名本身不能替代真实 class/struct 参与 preferred candidate 过滤；
+- namespace 相对 target 的限定名补全仍需后续收紧。
+
+## 2026-11-20 — C/C++ 模板 receiver 丢失元素类型
+
+**作用域**：C-family receiver 类型归一化、智能指针、普通模板安全降级。
+
+**症状/证据**：
+
+- 归一化直接删除 `<...>`，`unique_ptr<ncnn::Net>` 只剩 `unique_ptr`；
+- receiver 因此丢失真实元素类型；
+- `std::vector<float>` 在内部模式被当作名为 vector 的具体类；
+- 多个头文件都有同名方法时可能错误过滤或选择目标。
+
+**根因**：
+
+- 模板参数没有参与 receiver 类型身份；
+- 无法区分智能指针容器语义与普通模板实例；
+- 公开 API 和导航内部模式共用同一归一化结果。
+
+**修复**：
+
+- `normalizeReceiverType()` 增加安全模板模式；
+- `unique_ptr`、`shared_ptr`、`weak_ptr` 解包首个模板参数；
+- 普通模板在内部安全模式下返回空类型，不再伪装成具体类；
+- 三参数公开 API 继续返回原有模板基类型；
+- 智能指针元素类型继续保留 namespace 限定。
+
+**RED/GREEN**：
+
+- RED：vector 内部模式返回 `std::vector`；unique_ptr 错误选择 Layer；
+- GREEN：navigation 定向 **38 pass / 0 fail**；
+- 完整 `npm test`：**3354 pass / 0 fail**；
+- `lib/client.js` 重建后 **2410.4 KB**。
+
+**Ego Browser 证据**：
+
+- `unique_ptr<ncnn::Net>` 的 `load_param` 打开 `net.h:4:7`；
+- 真实 `pdocr` 的 `softmax->load_param` 保持 `layer.h:30:17`；
+- 截图：
+  `/private/tmp/dsh-editor-cpp-template-receiver-final.png`、
+  `/private/tmp/dsh-editor-cpp-template-receiver-ncnn-final.png`；
+- fixture 已删除，工作区切回 `pdocr`。
+
+**长期约束**：
+
+- 仅已知智能指针允许模板参数提升为 receiver；
+- 普通模板不得自动假设元素类型或基类；
+- 三参数公开 API 兼容既有模板基类型返回；
+- 模板默认参数和逗号解析需继续覆盖。
+
+## 2026-11-20 — C/C++ 条件 namespace 候选仍按 opposite 分支匹配
+
+**作用域**：C-family namespace 类型候选、条件 include、候选 branch score。
+
+**症状/证据**：
+
+- 条件头文件只在 `#if` 分支声明 `alpha::Canvas`；
+- 调用位于相同宏的 `#else` 分支；
+- 旧逻辑只确认 namespace 匹配，没有比较类型声明所在分支；
+- 条件头文件因此仍成为 preferred candidate，并返回 `beta` 分支的方法。
+
+**根因**：
+
+- `definitionDeclaresType()` 返回 boolean，没有分支信息；
+- 候选过滤无法排序同 namespace 类型的条件分支归属；
+- include 顺序仍能决定最终文件。
+
+**修复**：
+
+- 类型候选改为 `definitionTypeCandidateScore()`；
+- 同时校验 active 状态、namespace 和预处理分支 score；
+- preferred candidates 按类型分支 score 降序、原顺序稳定排序；
+- 禁用分支类型继续完全排除；
+- 无条件或同分支头文件优先于相反分支头文件。
+
+**RED/GREEN**：
+
+- RED：`#else` 调用错误打开 `conditional_canvas.h` 的 beta 类型；
+- GREEN：navigation 定向 **37 pass / 0 fail**；
+- 完整 `npm test`：**3353 pass / 0 fail**；
+- `lib/client.js` 重建后 **2409.7 KB**。
+
+**Ego Browser 证据**：
+
+- `#else` 中的 `alpha::Canvas` 打开 `alpha_canvas.h:4:7`；
+- 真实 `pdocr` 的 `softmax->load_param` 保持 `layer.h:30:17`；
+- 截图：
+  `/private/tmp/dsh-editor-cpp-conditional-candidate-final.png`、
+  `/private/tmp/dsh-editor-cpp-conditional-candidate-ncnn-final.png`；
+- fixture 已删除，工作区切回 `pdocr`。
+
+**长期约束**：
+
+- namespace 类型候选必须同时带 branch score；
+- opposite unknown branch 可回退但必须低于同分支或无条件候选；
+- disabled branch 仍直接排除；
+- 排序只作为候选文件优先级，不改变 overload 参数评分。
+
+## 2026-11-20 — C/C++ Go to Declaration 被实现抢占
+
+**作用域**：C-family overload tie-break、全局搜索结果排序。
+
+**症状/证据**：
+
+- 同文件定义在声明之前时，两者同分，offset 让定义先返回；
+- Cmd/Ctrl+Click 应执行 IDEA 的 Go to Declaration；
+- 全局搜索结果优先同目录 `.cpp`，头文件声明优先级不足；
+- 实现文件可能抢先于头文件声明。
+
+**根因**：
+
+- overload 没有 declaration-only tie-break；
+- 文件排序只奖励同目录和同扩展，不区分 header/implementation。
+
+**修复**：
+
+- 函数原型候选增加 `+5` 的 declaration-only tie-break；
+- 精确参数、默认参数、变参、分支和 namespace 分值保持不变；
+- C-family 全局搜索为头文件增加 `+8`；
+- 只有实现时仍按原有逻辑返回实现。
+
+**RED/GREEN**：
+
+- RED：定义在前返回第 1 行；搜索优先 `src/helper.cpp`；
+- GREEN：navigation 定向 **36 pass / 0 fail**；
+- 完整 `npm test`：**3352 pass / 0 fail**；
+- `lib/client.js` 重建后 **2409.1 KB**。
+
+**Ego Browser 证据**：
+
+- 调用 `helper(1)` 打开声明 `run.cpp:2:5`；
+- 真实 `pdocr` 的 `softmax->load_param` 保持 `layer.h:30:17`；
+- 截图：
+  `/private/tmp/dsh-editor-cpp-declaration-priority-final.png`、
+  `/private/tmp/dsh-editor-cpp-declaration-priority-ncnn-final.png`；
+- fixture 已删除，工作区切回 `pdocr`。
+
+**长期约束**：
+
+- Go to Declaration 默认优先原型而非函数体；
+- 头文件声明优先于实现文件，但不可压制实参类型差异；
+- 没有声明时实现仍是有效回退；
+- 独立 Implementation 快捷键必须作为后续能力，不混入本路径。
+
+## 2026-11-20 — C/C++ include alias 重复读取头文件
+
+**作用域**：C/C++ 初次 include 候选收集、路径归一化、候选去重。
+
+**症状/证据**：
+
+- `./widget.h` 与 `widget.h` 被归一化到同一路径，却来自不同 include group；
+- `resolveWorkspaceDefinition()` 按 group 重复读取并加入候选；
+- 回归实测同一路径 `readFile` 执行 **2 次**；
+- 重复读取增加 I/O，也重复扫描同一头文件声明。
+
+**根因**：
+
+- 去重只发生在单个 include group 内部；
+- 初次候选收集没有共享 visited/attempted 路径集合；
+- 传递 include 的 seen 集合在初次读取完成后才建立。
+
+**修复**：
+
+- 初次 include 收集以 `normalizeNavigationPath()` 为唯一路径身份；
+- 共享 `attemptedPaths`，失败路径也视为已尝试；
+- 成功候选保存归一化路径；
+- 保持现有 quoted、条件分支和源码顺序排序；
+- 不同归一化路径不会被误合并。
+
+**RED/GREEN**：
+
+- RED：同一头文件 `readFile` 两次；
+- GREEN：navigation 定向 **34 pass / 0 fail**；
+- 完整 `npm test`：**3350 pass / 0 fail**；
+- `lib/client.js` 重建后 **2408.7 KB**。
+
+**Ego Browser 证据**：
+
+- 重复 include alias 下 `configure` 正确打开 `widget.h:3:7`；
+- 真实 `pdocr` 的 `softmax->load_param` 保持 `layer.h:30:17`；
+- 截图：
+  `/private/tmp/dsh-editor-cpp-include-dedup-final.png`、
+  `/private/tmp/dsh-editor-cpp-include-dedup-ncnn-final.png`；
+- fixture 已删除，工作区切回 `pdocr`。
+
+**长期约束**：
+
+- 候选身份必须使用归一化工作区路径；
+- 读取失败也应记录为 attempted，避免后续 group 重复请求；
+- 去重不得改变条件分支和 quoted 优先级；
+- case、symlink 等更复杂路径身份需作为独立规则处理。
+
+## 2026-11-20 — C/C++ 限定 receiver 仍按裸类型选头文件
+
+**作用域**：C/C++ receiver 命名空间身份、namespace scope 解析、
+头文件候选过滤。
+
+**症状/证据**：
+
+- 导航前 receiver 类型被统一归一成裸类型 `Canvas`；
+- `definitionDeclaresType()` 只识别裸类型；
+- `beta_canvas.h` 与 `alpha_canvas.h` 都声明同名 `Canvas` 时，
+  include 顺序决定目标；
+- 头文件位于 `#pragma` / `#include` 之后时，namespace scope 解析也会失败。
+
+**根因**：
+
+- 缺少保留 namespace 的内部 receiver 入口；
+- 类型匹配没有比较 namespace；
+- namespace 识别正则错误地要求紧邻 statement boundary。
+
+**修复**：
+
+- 四参数 `definitionReceiverTypeAt(..., true)` 保留 `alpha::Canvas`；
+- 编辑器导航使用限定 receiver，三参数公开 API 继续返回裸类型；
+- `definitionDeclaresType()` 解析 leaf type 并匹配所在 namespace；
+- namespace 识别允许声明前存在空白、预处理器行和 include；
+- 未知 namespace 仍回退普通候选。
+
+**RED/GREEN**：
+
+- RED：`beta_canvas.h` 抢占 `alpha::Canvas`，四参数推断仍返回 `Canvas`；
+- GREEN：navigation 定向 **33 pass / 0 fail**；
+- 完整 `npm test`：**3349 pass / 0 fail**；
+- `lib/client.js` 重建后 **2408.4 KB**。
+
+**Ego Browser 证据**：
+
+- `alpha::Canvas` 的 `configure` 打开 `alpha_canvas.h:6:7`；
+- 真实 `pdocr` 的 `softmax->load_param` 保持 `layer.h:30:17`；
+- 截图：
+  `/private/tmp/dsh-editor-cpp-qualified-receiver-final.png`、
+  `/private/tmp/dsh-editor-cpp-qualified-receiver-ncnn-final.png`；
+- fixture 已删除，工作区切回 `pdocr`。
+
+**长期约束**：
+
+- 限定 receiver 的文件匹配必须比较 namespace；
+- 三参数公开 API 不得改变裸类型契约；
+- namespace 识别必须容忍预处理器和 include 行；
+- 未知限定名不得误命中其他 namespace 的同名类型。
+
+## 2026-11-20 — C/C++ auto 多行初始化与已知工厂返回类型缺失
+
+**作用域**：C/C++ `auto` receiver 推断、直接初始化、同文件函数返回类型。
+
+**症状/证据**：
+
+- auto 解析逐行运行，`auto detector =` 与下一行 `ncnn::Net();` 被拆开；
+- 第一行没有 initializer，第二行没有 receiver 声明，最终类型为空；
+- `auto detector = create_detector();` 会把小写函数名当类型并因首字母规则拒绝；
+- 前文已有 `static Net create_detector();` 时也没有复用返回类型。
+
+**根因**：
+
+- auto 正则只允许同一行 `[^;]+`；
+- 没有跨行声明窗口；
+- 函数返回值未进入安全类型来源。
+
+**修复**：
+
+- 在符号前的完整源码窗口中查找最后一个 auto 声明；
+- initializer 允许换行并归一化空白；
+- 保留 `new`、`static_cast`、直接构造和 `make_unique/shared`；
+- 对函数调用先查同文件、调用点之前的函数返回类型；
+- 未知函数和后置声明不推断；
+- 普通声明与 auto 声明按源码位置选择更近者。
+
+**RED/GREEN**：
+
+- RED：多行直接初始化和已知工厂均返回空类型；
+- GREEN：navigation 定向 **32 pass / 0 fail**；
+- 完整 `npm test`：**3348 pass / 0 fail**；
+- `lib/client.js` 重建后 **2407.6 KB**。
+
+**Ego Browser 证据**：
+
+- 跨行 `auto direct = SlowWidget();` 打开 `slow_widget.h:3:7`；
+- 已知工厂 `make_slow()` 的 `auto factory` 打开 `slow_widget.h:3:7`；
+- 真实 `pdocr` 的 `softmax->load_param` 保持 `layer.h:30:17`；
+- 截图：
+  `/private/tmp/dsh-editor-cpp-auto-multiline-final.png`、
+  `/private/tmp/dsh-editor-cpp-auto-factory-final.png`、
+  `/private/tmp/dsh-editor-cpp-auto-ncnn-final.png`；
+- fixture 已删除，工作区切回 `pdocr`。
+
+**长期约束**：
+
+- 不得根据未知函数名猜测返回类型；
+- 工厂声明必须早于 auto 使用点；
+- 不用 include 搜索补猜同文件之外的函数返回值；
+- 多行解析不得跨越分号吞掉后续语句。
+
+## 2026-11-20 — C/C++ 变参重载在同分时抢占普通函数
+
+**作用域**：C-family overload 评分、默认参数和可变参数组合。
+
+**症状/证据**：
+
+- 普通函数与变参函数都可能进入 `arityCompatible`；
+- 普通函数仅在实参数量完全等于声明参数数时获得 `+20`；
+- 普通函数通过默认参数补齐时没有非变参偏好；
+- 变参声明在前时，`trace("value")` 同分并错误打开变参重载。
+
+**根因**：
+
+- 评分只奖励精确参数数量，没有表达 C++ 对非变参候选的偏好；
+- 默认参数兼容场景不再触发精确数量奖励，导致同分；
+- tie-break 回退到源码顺序。
+
+**修复**：
+
+- 所有可用的非变参候选增加 `+10` 确定性偏好；
+- 精确参数数量的非变参奖励 `+20` 保持不变；
+- 变量参数本身不加分；
+- 普通函数无法接受额外实参时仍由变参函数接管。
+
+**RED/GREEN**：
+
+- RED：`trace.h:1` 的变参候选抢走普通候选；
+- GREEN：navigation 定向 **30 pass / 0 fail**；
+- 完整 `npm test`：**3346 pass / 0 fail**；
+- `lib/client.js` 重建后 **2404.9 KB**。
+
+**Ego Browser 证据**：
+
+- `trace("value")` 打开普通重载 `trace.h:2:6`；
+- `trace("value", 1, 2, 3)` 打开变参重载 `trace.h:1:6`；
+- 真实 `pdocr` 的 `softmax->load_param` 保持 `layer.h:30:17`；
+- 截图：
+  `/private/tmp/dsh-editor-cpp-nonvariadic-overload-final.png`、
+  `/private/tmp/dsh-editor-cpp-variadic-overload-final.png`、
+  `/private/tmp/dsh-editor-cpp-variadic-ncnn-final.png`；
+- fixture 已删除，工作区切回 `pdocr`。
+
+**长期约束**：
+
+- 非变参偏好必须小于实参类型差异，不能覆盖明确类型匹配；
+- 变参函数只在普通候选参数数量不兼容时接管；
+- 精确参数数量仍比仅靠默认参数更优先；
+- 同分时保持源码顺序作为最终稳定 tie-break。
+
+## 2026-11-20 — C/C++ 条件 include 污染头文件候选
+
+**作用域**：C/C++ `#include` 候选、search scope、transitive include 展开。
+
+**症状/证据**：
+
+- `cIncludePaths()` 只提取路径，不保存 include 指令所在条件分支；
+- `#if 0` 中的 include 仍会被读取并参与定义跳转；
+- 调用点位于未知宏 `#else` 分支时，候选仍按 include 源码顺序选择；
+- 同名类型在两个互斥头文件中声明时，错误头文件会抢先返回。
+
+**根因**：
+
+- include 列表缺少源码 offset 和预处理上下文；
+- 候选组只按 quoted 与源码顺序排序；
+- 调用点条件上下文没有传入 include 展开和传递 include。
+
+**修复**：
+
+- `cIncludePaths()` 保留 include 的 `#` 指令 offset；
+- 复用预处理上下文索引，确定禁用分支和未知分支归属；
+- 禁用 include 从候选和 search scope 中过滤；
+- include 候选按调用点同分支评分、quoted 和源码顺序排序；
+- 初始 include 与传递 include 都携带同一调用点条件上下文。
+
+**RED/GREEN**：
+
+- RED：
+  - `#if 0` 的 `fast_widget.h` 抢先返回；
+  - 未知宏 `#else` 调用错误选择 `fast_widget.h`；
+- GREEN：navigation 定向 **29 pass / 0 fail**；
+- 完整 `npm test`：**3345 pass / 0 fail**；
+- `lib/client.js` 重建后 **2404.9 KB**。
+
+**Ego Browser 证据**：
+
+- 临时 fixture 中的 `#else` 调用打开 `slow_widget.h`，状态栏 `3:7`；
+- 真实 `pdocr` 的 `softmax->load_param` 保持 `layer.h:30:17`；
+- 截图：
+  `/private/tmp/dsh-editor-cpp-conditional-include-final.png`、
+  `/private/tmp/dsh-editor-cpp-conditional-include-ncnn-final.png`；
+- fixture 已删除，工作区切回 `pdocr`。
+
+**长期约束**：
+
+- 未知宏不得按 false 处理；
+- 禁用 include 不得进入候选或搜索作用域；
+- include 路径解析和祖先目录规则保持不变；
+- 条件上下文必须穿透初始 include 与传递 include。
+
+## 2026-11-20 — C/C++ 互斥预处理分支同时参与定义跳转
+
+**作用域**：C/C++ `#if` / `#elif` / `#else` 条件声明、
+findDefinitionInText、C-family overload 评分。
+
+**症状/证据**：
+
+- 定义扫描直接遍历全部源码文本，`#if` 与 `#else` 两侧声明同时入候选；
+- `#if 0` 中先出现的同名函数会错误压过 `#else` 中的有效声明；
+- 调用点位于未知宏的 `#else` 分支时，仍会返回 `#if` 分支的声明；
+- 结果是声明顺序而不是调用点条件决定跳转目标。
+
+**根因**：
+
+- 没有维护预处理条件栈；
+- 调用点条件上下文没有传给定义候选；
+- overload 评分看不到声明与调用是否在同一条互斥分支。
+
+**修复**：
+
+- 为 C/C++ 源码建立轻量预处理上下文索引；
+- 支持 `#if 0`、`#if 1`、简单数字宏、`#define` / `#undef`；
+- 未知宏保持 `undefined`，不猜测其真实编译值；
+- 定义位于确定禁用分支时直接跳过；
+- 调用点和声明共享同一条件 key 时，同分支 `+80`、相反分支 `-80`；
+- 非 C/C++ 语言保持原有定义扫描路径。
+
+**RED/GREEN**：
+
+- RED：
+  - `#if 0` 返回禁用声明 `widget.h:4`；
+  - 未知宏 `#else` 调用错误返回 `#if` 声明；
+- GREEN：navigation 定向 **27 pass / 0 fail**；
+- 完整 `npm test`：**3343 pass / 0 fail**；
+- `lib/client.js` 重建后 **2403.5 KB**。
+
+**Ego Browser 证据**：
+
+- 在 Harness Web 创建临时 C++ fixture 并从真实编辑器触发定义跳转；
+- `run.cpp` 的 `#else` 分支点击 `configure` 后打开
+  `widget.h` 的 `#else` 声明，状态栏 `6:7`；
+- 真实 `pdocr` 的 `softmax->load_param` 保持 `layer.h:30:17`；
+- 截图：`/private/tmp/dsh-editor-cpp-preprocessor-branch-final.png`；
+- 回归截图：
+  `/private/tmp/dsh-editor-cpp-preprocessor-ncnn-regression-final.png`；
+- fixture 验证后已删除，工作区切回 `pdocr`。
+
+**长期约束**：
+
+- 未知宏不得当成 `false`；
+- 确定禁用分支不得进入候选；
+- 条件分支只作为评分/过滤证据，不替代 C++ 语义；
+- 非 C/C++ 文件不得承担预处理扫描成本。
+
+## 2026-11-20 — C/C++ 命名空间同名类型合并继承表
+
+**作用域**：C/C++ class/struct 继承表、namespace 类型身份、
+overload 参数兼容评分。
+
+**症状/证据**：
+
+- `definitionTypeHierarchy()` 只以裸类型名作为 key；
+- `alpha::Canvas : Surface` 与 `beta::Canvas : Wrong` 会被合并成
+  `Canvas -> [Surface, Wrong]`；
+- `alpha::Canvas` 实参调用 `configure(const Wrong&)` /
+  `configure(const Surface&)` 时，两个候选同分；
+- 参数列表中先出现的 `Wrong&` 错误抢走定义跳转。
+
+**根因**：
+
+- 继承表没有保存声明所在 namespace；
+- 实参类型内部推断被归一为裸类型名，丢失 `alpha::Canvas` 身份；
+- 参数评分只看到合并后的 base 集合。
+
+**修复**：
+
+- 按源码 brace scope 识别 class/struct 所在 namespace；
+- 继承表以 `alpha::Canvas` 等完整类型身份保存，base 也补当前 namespace；
+- 实参内部类型推断保留显式限定符，同时公开
+  `definitionReceiverTypeAt()` 继续返回原有裸类型；
+- base 评分用完整身份查继承关系，只在参数匹配时比较末尾类型名；
+- 裸类型若对应多个 namespace，继承表不再把多个候选合并。
+
+**RED/GREEN**：
+
+- RED：`Wrong` 声明在前时错误返回 `widget.h:3`；
+- GREEN：navigation 定向 **24 pass / 0 fail**；
+- 完整 `npm test`：**3340 pass / 0 fail**；
+- `lib/client.js` 重建后 **2395.7 KB**。
+
+**Ego Browser 只读证据**：
+
+- 重新加载 Harness Web，新 `lib/client.js` 生效且编辑器无加载异常；
+- `pdocr` 的 `nanodet.cpp` 中 `softmax->load_param` 仍跳转到
+  `layer.h:30:17`；
+- 截图：`/private/tmp/dsh-editor-cpp-namespace-regression-final.png`。
+
+**长期约束**：
+
+- 继承表 key 不得只保留裸类型名；
+- 显式 namespace 类型不能被参数评分降级成裸类型；
+- 同名裸类型存在多个 namespace 候选时必须拒绝错误合并；
+- 不改变 `definitionReceiverTypeAt()` 现有调用方依赖的裸类型契约。
+
+## 2026-11-20 — C++ auto 初始化 receiver 类型缺失
+
+**作用域**：C/C++ receiver 声明推断、`auto` 明确初始化表达式。
+
+**症状/证据**：
+
+- `auto detector = ncnn::Net();` 被通用声明模板先识别为 `auto detector`；
+- `auto` 属于非法 receiver 类型，逻辑直接返回空值；
+- 后续 `detector.method` / `detector->method` 无法进入类型消歧。
+
+**修复**：
+
+- 当通用声明推断得到 `auto` 等非法类型时，继续进入 auto 初始化分析；
+- 支持 `new Type(...)`、`static_cast<Type>(...)`、`Type(...)`、
+  `std::make_unique<Type>`、`std::make_shared<Type>`；
+- 只接受首字母大写的明确类型名；
+- 普通函数返回值和模板依赖表达式保持不猜。
+
+**RED/GREEN**：
+
+- RED：`auto detector = ncnn::Net()` 的 receiver 类型为空；
+- GREEN：navigation 定向 **23 pass / 0 fail**；
+- 完整 `npm test`：**3339 pass / 0 fail**；
+- `lib/client.js` 重建后约 **2393.1 KB**。
+
+**Ego Browser 只读证据**：
+
+- workspace：`pdocr`，打开 `rustrun/crates/ncnn/examples/nanodet.cpp`；
+- `softmax->load_param` 跳转到 `rustrun/crates/ncnn/src/layer.h`，
+  状态栏 `30:17`；
+- `ex.extract("792", cls_pred)` 跳转到
+  `rustrun/crates/ncnn/src/net.h`，状态栏 `209:9`；
+- 截图：`/private/tmp/dsh-editor-cpp-auto-load-param-layer-h.png`、
+  `/private/tmp/dsh-editor-cpp-auto-extract-net-h.png`。
+
+**长期约束**：
+
+- `auto` 不是有效 receiver 类型，必须继续尝试初始化表达式；
+- 只允许同一行、直接可证明的初始化；
+- 类型名首字母大写限制用于避免把普通函数调用猜成构造器；
+- 跨行或函数返回值推断必须作为独立受限扩展。
+
+## 2026-11-20 — C++ 继承表被注释伪声明污染
+
+**作用域**：C/C++ class/struct 继承表提取、overload 参数兼容评分。
+
+**症状/证据**：
+
+- 继承表直接对原文运行 class/struct inheritance 正则；
+- 块注释中以 `class Canvas : public Wrong {` 开头的文本会被误识别；
+- 字符串中的伪继承也可能影响其他排版场景；
+- 伪 base type 会获得 overload 兼容分并抢占真实 base。
+
+**修复**：
+
+- 在继承解析前遮蔽行注释、块注释、单引号和双引号字符串；
+- 遮蔽保持原始长度、偏移和换行；
+- 真实 class/struct 声明仍原样参与继承表；
+- `Canvas : Surface` 回归加入块注释伪 `Canvas : Wrong`。
+
+**RED/GREEN**：
+
+- RED：注释伪继承让 `Wrong&` 与 `Surface&` 同分并抢先生效；
+- GREEN：navigation 定向 **22 pass / 0 fail**；
+- 完整 `npm test`：**3338 pass / 0 fail**；
+- 真实 `load_param(dr)` 保持 `net.cpp:1037:10`；
+- `lib/client.js` 重建后约 **2392.0 KB**。
+
+**Ego Browser 只读证据**：
+
+- workspace：`pdocr`；
+- `net.cpp` 搜索 `return load_param(dr);` 后定位 `load_param`；
+- 目标为 `Net::load_param(const DataReader&)`，状态栏 `1037:10`；
+- 截图：`/private/tmp/pdocr-cpp-inheritance-mask-final.png`。
+
+**长期约束**：
+
+- 遮蔽必须保持字符偏移和换行；
+- 注释/字符串内容不能进入继承表；
+- 原始字符串等复杂字面量仍按字符遮蔽处理，不能泄漏关键字；
+- 继承表仍只读取当前源码和已读取候选。
+
+## 2026-11-20 — C++ NULL 实参偏向泛化 void 指针
+
+**作用域**：C/C++ overload 中 `nullptr` / `NULL` 实参的指针类型评分。
+
+**症状/证据**：
+
+- `bind(void*)` 与 `bind(Layer*)` 均接受空指针，旧评分给两者相同分数；
+- 声明顺序在前的 `void*` 因此获胜，但信息量更低；
+- 真实 ncnn `clone(... NULL)` 调用可用于验证无回归。
+
+**修复**：
+
+- 具体类型指针保持正常空指针兼容分；
+- `void*` 参数降低优先级；
+- 仅存在 `void*` 候选时仍可回退；
+- 真实 `clone(NULL)` → `mat.h:137`。
+
+**RED/GREEN**：
+
+- RED：`void*` 在 `Layer*` 前时错误获胜；
+- GREEN：navigation 定向 **22 pass / 0 fail**；
+- 完整 `npm test`：**3338 pass / 0 fail**；
+- `lib/client.js` 重建后约 **2390.1 KB**。
+
+**Ego Browser 只读证据**：
+
+- workspace：`pdocr`；
+- `c_api.cpp` 中 `clone(... NULL)` 调用搜索定位后点击 `clone`；
+- 目标为 `mat.h` 的 `Mat clone(Allocator* allocator = 0) const`；
+- 状态栏 `137:9`；
+- 截图：`/private/tmp/pdocr-cpp-null-overload-final.png`。
+
+**长期约束**：
+
+- `void*` 降权不能使候选完全不可用；
+- 空指针评分只作用于 `nullptr` / `NULL`；
+- 类型化指针之间仍保持声明顺序稳定性；
+- 不能把 `0` 当作空指针并改变其他数值重载评分。
+
+## 2026-11-20 — C++ 变参函数被 arity 惩罚
+
+**作用域**：C/C++ overload 参数数量评分与 `...` variadic 参数。
+
+**症状/证据**：
+
+- `stb_image_write.h` 声明
+  `stbiw__writef(stbi__write_context*, const char*, ...)`；
+- 同文件以十余个实参调用；
+- 旧评分把 `...` 当普通参数，额外实参会产生数量惩罚；
+- 当前真实样本仅因唯一候选而碰巧正确。
+
+**修复**：
+
+- 识别参数列表末尾的 `...`；
+- 必填参数满足后接受任意额外实参；
+- 变参候选不获得“数量完全相等”加分；
+- 精确非变参候选仍保留轻微优先；
+- 真实 `stbiw__writef` 调用 → `378:13`。
+
+**RED/GREEN**：
+
+- RED：同数量但首参类型不匹配的普通函数压过变参函数；
+- GREEN：navigation 定向 **21 pass / 0 fail**；
+- 完整 `npm test`：**3337 pass / 0 fail**；
+- `lib/client.js` 重建后约 **2390.1 KB**。
+
+**Ego Browser 只读证据**：
+
+- workspace：`pdocr`；
+- `stb_image_write.h` 搜索 `stbiw__writef(s, "111 221 2222 11"` 后点击函数；
+- 目标为同文件 variadic 定义，状态栏 `378:13`；
+- 截图：`/private/tmp/pdocr-cpp-variadic-final.png`。
+
+**长期约束**：
+
+- 只有独立 `...` 参数才触发变参兼容；
+- 变参前的普通参数仍必须全部覆盖；
+- 变参候选不能无条件压过精确数量且类型匹配的候选；
+- 默认参数和变参可同时出现在声明尾部。
+
+## 2026-11-20 — C++ overload 缺少显式继承关系
+
+**作用域**：C/C++ overload 参数匹配、class/struct direct inheritance。
+
+**症状/证据**：
+
+- 现有兼容评分只依赖类型名前缀，`DataReaderFromStdio` 能碰巧匹配
+  `DataReader`；
+- 无命名相似性的 `Canvas : public Surface` 无法匹配 `const Surface&`；
+- 这种关系已经存在于当前源码或直接读取的头文件中，却被忽略。
+
+**修复**：
+
+- 从当前源码和已读取候选构建 class/struct direct-base 表；
+- 支持最多四层继承遍历，限制在现有读取预算内；
+- 显式 base type 评分高于类型名前缀启发式；
+- 不新增全库搜索。
+
+**RED/GREEN**：
+
+- RED：`Canvas` 与 `Surface` 无命名相似时 `void*` 重载错误获胜；
+- GREEN：navigation 定向 **20 pass / 0 fail**；
+- 完整 `npm test`：**3336 pass / 0 fail**；
+- 真实 `DataReaderFromStdio` 调用保持 `net.cpp:1037:10`；
+- `lib/client.js` 重建后约 **2389.7 KB**。
+
+**Ego Browser 只读证据**：
+
+- workspace：`pdocr`；
+- `net.cpp` 搜索 `return load_param(dr);` 后点击 `load_param`；
+- 目标为 `Net::load_param(const DataReader&)`，状态栏 `1037:10`；
+- 截图：`/private/tmp/pdocr-cpp-explicit-inheritance-final.png`。
+
+**长期约束**：
+
+- 继承表只读取当前源码和已读取候选；
+- 最多遍历四层，必须有循环保护；
+- 不支持多重命名空间同名类型的跨域猜测；
+- 前缀规则只在显式继承信息缺失时作为保守回退。
+
+## 2026-11-20 — C++ 派生实参未识别基类参数
+
+**作用域**：C/C++ overload 中已推断实参类型与参数类型的继承式兼容评分。
+
+**症状/证据**：
+
+- `DataReaderFromStdio dr(fp);` 随后调用 `load_param(dr)`；
+- 正确目标是 `load_param(const DataReader&)`；
+- 旧评分只做完全类型相等或无约束包含匹配，`FILE*` 先出现时可能抢走候选；
+- `net.cpp` 中存在真实 `return load_param(dr);` 调用链。
+
+**修复**：
+
+- 参数中的大写类型 token 若为推断实参类型的前缀，给予受限兼容加分；
+- 完全匹配仍高于前缀兼容；
+- 无命名关系的指针类型保持零分；
+- 真实 `load_param(dr)` 保持 `net.cpp:1037:10`。
+
+**RED/GREEN**：
+
+- RED：`FILE*` 在前、`DataReader&` 在后时错误选前者；
+- GREEN：navigation 定向 **19 pass / 0 fail**；
+- 完整 `npm test`：**3335 pass / 0 fail**；
+- `lib/client.js` 重建后约 **2386.0 KB**。
+
+**Ego Browser 只读证据**：
+
+- workspace：`pdocr`；
+- `net.cpp` 搜索 `return load_param(dr);` 后点击 `load_param`；
+- 目标为 `Net::load_param(const DataReader&)`，状态栏 `1037:10`；
+- 截图：`/private/tmp/pdocr-cpp-derived-argument-final.png`。
+
+**长期约束**：
+
+- 前缀兼容只接受长度至少 4 的大写类型 token；
+- 完全类型匹配优先于前缀兼容；
+- 前缀规则必须限制在 C/C++ overload 评分内；
+- 后续若引入真实继承图，前缀规则仍作为缺失继承信息时的保守回退。
+
+## 2026-11-20 — C++ 默认参数候选被错误扣分
+
+**作用域**：C/C++ overload 的参数数量评分、默认参数和可选参数。
+
+**症状/证据**：
+
+- 调用 `configure("fast")` 时，数量刚好的一参 `configure(int)` 会压过
+  `configure(const char*, int mode = 0)`；
+- 旧评分只比较调用实参数和声明参数总数，默认参数候选被施加固定数量惩罚；
+- 真实 `ex.extract("792", cls_pred)` 虽有字符串权重兜底，但 arity 评分仍错误。
+
+**修复**：
+
+- 扫描每个参数顶层 `=`，统计必填参数；
+- 实参数位于必填数与声明数之间时视为兼容；
+- 精确数量保留轻微加分，类型匹配仍可胜出；
+- 默认值中的嵌套括号、字符串和模板尖括号不会误判。
+
+**RED/GREEN**：
+
+- RED：一参 `int` overload 错误胜出；
+- GREEN：navigation 定向 **18 pass / 0 fail**；
+- 真实 `extract("...", out)` → `net.h:209`；
+- `lib/client.js` 重建后约 **2385.8 KB**。
+
+**Ego Browser 只读证据**：
+
+- workspace：`pdocr`；
+- `nanodet.cpp` 搜索 `ex.extract("792", cls_pred)` 后点击 `extract`；
+- 目标为 `net.h` 的 `extract(const char*, Mat&, int type = 0)`；
+- 状态栏 `209:9`；
+- 截图：`/private/tmp/pdocr-cpp-default-overload-final.png`。
+
+**长期约束**：
+
+- 默认参数只按顶层 `=` 识别；
+- 默认参数候选不能压过参数类型更准确的候选；
+- 实参数量超出总参数数仍然判为不兼容；
+- overload 评分仍仅应用于 C/C++。
+
+## 2026-11-20 — C++ overload 的标识符实参未参与类型匹配
+
+**作用域**：C/C++ overload 调用实参为普通标识符，参数类型来自本地声明。
+
+**症状/证据**：
+
+- `pdocr/rustrun/crates/ncnn/src/net.cpp` 的
+  `int ret = load_param(fp);` 错误跳到 `net.cpp:1037` 的
+  `load_param(const DataReader&)`；
+- 正确目标是同文件 line 1708 的 `Net::load_param(FILE* fp)`；
+- 调用点前的本地声明 `FILE* fp = fopen(...)` 未被 overload 评分使用。
+
+**修复**：
+
+- 对纯标识符实参解析调用点前的本地声明；
+- 复用 receiver declaration scanner，支持指针、引用、const 和多 declarator；
+- 推断类型完全匹配参数类型时优先，兼容包含关系次之；
+- 字符串字面量和数值字面量原有评分保持不变。
+
+**RED/GREEN**：
+
+- RED：`FILE* fp` overload 仍被 `DataReader` 首条声明压过；
+- GREEN：navigation 定向 **17 pass / 0 fail**；
+- 完整 `npm test`：**3333 pass / 0 fail**；
+- 真实 `net.cpp` `load_param(fp)` → line `1708:10`；
+- `lib/client.js` 重建后约 **2384.8 KB**。
+
+**Ego Browser 只读证据**：
+
+- workspace：`pdocr`；
+- `net.cpp` 搜索 `int ret = load_param(fp);` 后点击 `load_param`；
+- 目标为同文件 `Net::load_param(FILE* fp)`，状态栏 `1708:10`；
+- 截图：`/private/tmp/pdocr-cpp-overload-identifier-final.png`。
+
+**长期约束**：
+
+- 类型推断只读取调用点之前的本地声明；
+- 只有纯标识符实参参与本地声明推断；
+- 推断失败时保持稳定顺序，不使用模糊猜测；
+- overload 评分仍仅应用于 C/C++。
+
+## 2026-11-20 — C++ overload 固定取首条声明
+
+**作用域**：C/C++ 同名函数的调用点定义跳转，参数数量与字面量形态排序。
+
+**症状/证据**：
+
+- `pdocr/rustrun/crates/ncnn/examples/ppocrv5.cpp` 中
+  `ppocrv5_det.load_param("...")` 跳到 `net.h:60` 的
+  `load_param(const DataReader&)`；
+- 正确目标是 `net.h:72` 的 `load_param(const char* protopath)`；
+- resolver 只有 symbol，没有当前调用参数，`findDefinitionInText` 固定返回
+  第一条同名声明。
+
+**修复**：
+
+- Editor 将 Monaco 当前 offset 作为 `callOffset` 传入 resolver；
+- 从 `symbol(...)` 解析顶层实参，正确处理字符串、嵌套括号和模板尖括号；
+- C/C++ 候选按参数数量及字面量形态评分；
+- 字符串字面量优先 `const char*` / `std::string`，并降低 `DataReader`、
+  `FILE*`、`unsigned char*` 的权重；
+- 无 `callOffset` 时保持原解析路径。
+
+**RED/GREEN**：
+
+- RED：`DataReader` 重载先于 `const char*` 返回；
+- GREEN：navigation 定向 **16 pass / 0 fail**；
+- 完整 `npm test`：**3332 pass / 0 fail**；
+- `lib/client.js` 重建后约 **2383.2 KB**；
+- 真实 `ppocrv5_det.load_param("...")` → `net.h:72:9`。
+
+**Ego Browser 只读证据**：
+
+- workspace：`pdocr`；
+- `ppocrv5.cpp` 搜索 `ppocrv5_det.load_param` 后执行 `Meta+F12`；
+- 打开 `net.h`，状态栏为 `72:9`；
+- 截图：`/private/tmp/pdocr-cpp-overload-string-final.png`。
+
+**长期约束**：
+
+- 只有 C/C++ 使用当前 overload 评分；
+- 参数切分必须识别引号与嵌套结构；
+- 信息不足时保持稳定顺序，不猜测实参类型；
+- 新增类型推断必须受调用点作用域限制。
+
+## 2026-11-20 — C++ 多 declarator receiver 与字段定义
+
+**作用域**：C/C++ 同一声明语句的多个变量、class/struct 字段，以及 include
+候选读取顺序。
+
+**症状/证据**：
+
+- `pdocr/rustrun/crates/ncnn/examples/p2pnet.cpp` 中
+  `ncnn::Mat score, points;` 只能识别 `score`；
+- 后一个 `points.h` 的 receiver 类型为空；
+- `std::vector<float> x_, y_;` 的后一个 `y_` 同样丢失类型；
+- `mat.h` 的 `int h;` 字段无法通过现有定义模板定位；
+- 旧的 include 候选会为每个 include 读取大量祖先变体，阻塞真正的传递
+  header。
+
+**修复**：
+
+- 解析声明语句的顶层逗号 declarator 列表，后续变量继承首个类型；
+- 增加 C/C++ 字段声明模板，函数模板仍先执行；
+- include 候选按 quoted 优先并分组，每组找到首个真实文件即停止；
+- receiver 类型候选必须同时声明该类型并包含请求符号，避免同名类型误优先；
+- `points.h` → `rustrun/crates/ncnn/src/mat.h:331:9`；
+- `score.row` → `rustrun/crates/ncnn/src/mat.h:191:12`。
+
+**RED/GREEN**：
+
+- RED：`points` / `y_` receiver 为空，字段 `h` 无结果；
+- GREEN：navigation 定向 **15 pass / 0 fail**；
+- 完整 `npm test`：**3331 pass / 0 fail**；
+- 真实样本 receiver 消歧读取保持 60 次以内；
+- `lib/client.js` 重建后约 **2377.4 KB**。
+
+**Ego Browser 只读证据**：
+
+- workspace：`pdocr`；
+- `p2pnet.cpp` 搜索 `points.h` 后执行 `Meta+F12`；
+- 打开 `mat.h`，状态栏为 `331:9`；
+- 截图：`/private/tmp/pdocr-cpp-multi-declarator-field-final.png`。
+
+**长期约束**：
+
+- 后续 declarator 只能继承同一顶层声明语句的类型；
+- 字段模板不得覆盖先执行的函数声明模板；
+- include 每组读到首个真实文件即停止，不能重新退化为祖先路径全排列；
+- receiver 类型文件还必须包含目标符号，不能只凭同名类型命中。
+
+## 2026-11-20 — C++ 指针/引用 receiver 与传递 include 误跳
+
+**作用域**：C++ `receiver.method` / `receiver->method` 类型推断，
+`Type*`、`Type&`、`const Type&`、类成员声明，以及传递 include 下的同名方法。
+
+**症状/证据**：
+
+- `pdocr/rustrun/crates/ncnn/examples/nanodet.cpp` 中
+  `ncnn::Layer* softmax = ...; softmax->load_param(pd);`
+  的 receiver 类型为空；
+- `const ncnn::Net& detector` 同样无法命中声明；
+- `nanodet.cpp` 只直接 include `net.h`，`layer.h` 由 `net.h` 传递包含；
+- 旧逻辑会把 `net.h` 的 `Net::load_param` 当成成功结果，无法到达真正的
+  `Layer::load_param`。
+
+**根因**：
+
+- receiver 声明模板只识别 `Type receiver`，不识别指针/引用 declarator；
+- 类型候选只检查直接 include，没有沿传递 include 展开；
+- forward declaration 与完整类型声明没有区分。
+
+**修复**：
+
+- receiver declaration 支持指针、引用、`const`/成员前缀和初始化/声明终止符；
+- `definitionDeclaresType` 只接受带 `{...}` 类型体的 class/struct/enum 等，
+  或显式 `type Name`；
+- receiver 类型不在直接候选中时，沿最多两层 C/C++ include 展开；直接候选
+  上限 32，传递 include 上限 48 次读取/24 个成功文件，并保持去重与确定性顺序；
+- 真实样本 `nanodet.cpp` 的 `softmax->load_param` 跳转到
+  `rustrun/crates/ncnn/src/layer.h:30:17`；
+- `ppocrv5_det.load_param` 仍跳转到 `net.h:60:9`。
+
+**RED/GREEN**：
+
+- RED：pointer/`const Type&` receiver 返回空；传递 include 错误命中
+  `Net::load_param`；
+- GREEN：navigation 定向 **13 pass / 0 fail**；
+- `lib/client.js` 重建后约 **2373.9 KB**；
+- 真实样本读取预算从 409 次降到 `nanodet.cpp` 80 次、`ppocrv5.cpp`
+  19 次；
+- Prettier、bundle consistency 和 source split 测试通过。
+
+**Ego Browser 只读证据**：
+
+- workspace：`pdocr`；
+- `nanodet.cpp` 搜索 `softmax->load_param` 后执行 `Meta+F12`；
+- 打开 `layer.h`，状态栏为 `30:17`；
+- 截图：`/private/tmp/pdocr-cpp-pointer-receiver-layer-definition-final.png`。
+
+**长期约束**：
+
+- forward declaration 不能让包含它的头文件获得 receiver 类型优先权；
+- 传递 include 展开只允许 C/C++、最多两层且必须有硬上限；
+- receiver 类型消歧失败时才允许回退普通 include 顺序；
+- `pdocr` 继续只读验证，不写入任何项目文件。
+
+## 2026-11-20 — 双 Shift 打开 Search Everywhere 时继承编辑器选区
+
+**作用域**：Editor 全局双 Shift 手势、Search Everywhere 初始查询、Monaco
+活动编辑器选区。
+
+**症状 / 证据**：
+
+- 编辑器中已有非空选区时，双 Shift 打开的 Search Everywhere 输入框仍为空；
+- Find / Find in Files 已通过 `selectedEditorFindQuery()` 正确继承精确选区；
+- 双 Shift handler 原先只调用 `openSearchEverywhere('all')`，没有读取选区。
+
+**修复**：
+
+- 双 Shift 确认触发后调用现有 `selectedEditorFindQuery(currentCodeEditor())`；
+- 将结果作为 `openSearchEverywhere('all', selectedQuery)` 的初始 query；
+- 折叠选区返回空字符串，Search Everywhere 保持空查询，不使用光标词 fallback；
+- 保留选中文本的前后空白、换行与大小写，不做 `trim()`。
+
+**RED/GREEN**：
+
+- RED：执行真实双 Shift effect 时实际参数为 `['all']`，缺少选区文本；
+- GREEN：定向 **29 pass / 0 fail**；完整 `npm test` **3329 pass / 0 fail**；
+- `lib/client.js` 重建后约 **2373.4 KB**，`check:client-build` 通过；
+- 回归：`node --test tests/search-live-editor-selection-becomes-exact-find-files-query.test.mjs tests/search-double-shift-opens-search-everywhere.test.mjs tests/editor-cmd-ctrl-shift-f-visible-editor-not-focused-editor.test.mjs tests/plugin-extension-entries-normalize-into-host-compatible-file-masks.test.mjs`。
+
+**适用边界**：
+
+- 只改变双 Shift 的初始 query；Action / Find Action 等其他 Search Everywhere
+  显式入口仍按各自参数初始化；
+- 活动编辑器由现有 `currentCodeEditor()` 决定，左右分栏行为与 Find 一致。
+
+## 2026-11-20 — pdocr 真实源码跨语言定义跳转缺陷
+
+**作用域**：C/C++/Rust/Python/Shell 定义跳转，ignored-but-visible workspace
+文件，Rust re-export，Shell source，Python package root。
+
+**真实样本**：
+
+- `pdocr/rustrun/runner/macos/pdocr.c`
+- `pdocr/rustrun/crates/ncnn/src/net.cpp`
+- `pdocr/rustrun/crates/ncnn/examples/ppocrv5.cpp`
+- `pdocr/rustrun/crates/ncnnrs/src/net.rs`
+- `pdocr/PaddleOCR/ppocr/data/simple_dataset.py`
+- `pdocr/PaddleOCR/ppocr/data/__init__.py`
+- `pdocr/deploy.sh`、`pdocr/lib_config.sh`
+
+**症状/证据**：
+
+- Rust `use crate::Extractor` 被猜成 `src/Extractor.rs`。macOS 大小写不敏感
+  会打开伪路径，Linux 会直接失败；
+- `lib.rs` 的 `pub use extractor::*` 未被跟踪，无法解析到真实定义；
+- Shell `source "$ROOT_DIR/lib_config.sh"` 没有 direct candidate；
+- Python `from ppocr.data.simple_dataset import ...` 没有识别
+  `PaddleOCR` 包根；
+- `PaddleOCR` 与 `rustrun/crates/ncnn` 在 `.gitignore` 中，而 Project 可见；
+  默认定义搜索排除 ignored 路径，跨文件跳转失败。
+- C++ `ppocrv5_det.load_param(...)` 会先进入同名的 `Layer::load_param`，
+  没有根据 receiver 声明类型 `ncnn::Net` 选择 `net.h`；
+- `#include "net.h"` 对应祖先目录下的 `src/net.h`，原候选未覆盖这种布局。
+
+**修复**：
+
+- Rust 单段 crate import 不再猜测 `Symbol.rs`；
+- 解析 crate 根 `lib.rs/main.rs` 的 public re-export，生成真实模块候选；
+- Shell source directive 生成同目录/literal path candidate 与 scope；
+- Python absolute import 同时尝试 workspace root 和检测到的 package root；
+- 定义搜索在存在语言 scope 时传递 `includeExcluded: true`；
+- 无语言 scope 时仍默认排除 ignored 路径，避免全库扫描。
+- C/C++ include candidate 从源码目录逐级向祖先展开，并尝试
+  `<ancestor>/`、`<ancestor>/src/`、`<ancestor>/include/`；
+- 解析 `receiver.method` 前的 receiver 声明类型，在包含该类型声明的头文件中
+  优先查找方法，再把其余 candidate 作为 fallback。
+
+**RED/GREEN**：
+
+- RED：Rust 报未找到定义或打开 `Extractor.rs` 伪路径；
+- GREEN：navigation/language 定向 **11 pass / 0 fail**；
+- 完整 `npm test`：**3326 pass / 0 fail**；
+- `lib/client.js` 重建后约 **2370.7 KB**；
+- lint、TypeScript、source imports、source reviewability 通过。
+
+**Ego Browser 只读证据**：
+
+- C++：`/private/tmp/pdocr-netcpp-initial.png`；
+- Rust：`/private/tmp/pdocr-netrs-initial.png`；
+- C 跳转：`/private/tmp/pdocr-c-definition-jump.png`；
+- C++ `load_param` → line 1037；
+- `ppocrv5.cpp` 的 `ppocrv5_det.load_param` →
+  `src/net.h:60:9`，未误跳 `layer.h`；
+- C++ receiver 消歧截图：
+  `/private/tmp/pdocr-cpp-load-param-definition.png`；
+- C `platform_file_exists` → line 12；
+- Rust `Extractor` → 真实 `extractor.rs` line 4；
+- Python absolute import → `simple_dataset.py` line 26；
+- Shell `read_config` → `lib_config.sh` line 33；
+- 五种语言打开后均立即着色，不依赖滚动。
+
+**长期约束**：
+
+- ignored 搜索只在语言 scope 内启用；
+- Rust 不能用符号名推模块文件名；
+- Python import root 不等于 workspace root；
+- Shell source 只能解析 workspace 内路径；
+- C/C++ receiver 类型消歧必须先限定声明该类型的头文件，再回退普通候选；
+- ignored 目录下的祖先 `src/include` include root 仍必须处于语言 scope 内；
+- `pdocr` 只读验证，禁止写入。
+
+## 2026-11-20 — 多行宏参数误标与 `.h` 语法边界
+
+**作用域**：C/C++ 多行 `\` 宏、`#` stringification、`##` token pasting，
+以及 `.h` Monaco language id。
+
+**症状/证据**：
+
+- `TRACE_CALL(fn, value)` 的 body `fn(value)` 中 `fn` 被 call fallback
+  标成 `ideaMethod`；
+- `PASTE(a, b) a##b` 与 `STRINGIFY(x) #x` 的 body 参数没有 token；
+- macro parameter scanner 只处理 `#define` 声明头，没有读取 continuation
+  body；
+- `.h` 固定映射到 `c`，C++ 头文件无法获得 C++ grammar。
+
+**修复**：
+
+- 识别反斜杠续行宏的 physical-line 范围；
+- 在 function-like macro body 中把声明参数引用输出为
+  `ideaParameter`，priority 95 覆盖 call fallback；
+- stringification 与 token pasting 保持参数语义；
+- `.h` 与 `.hpp` 统一映射到 `cpp`，`.c` 继续映射到 `c`；
+- C++ grammar 作为 C 语法超集同时覆盖普通 C 头文件。
+
+**RED/GREEN**：
+
+- RED：多行 body `fn` 为 method，`a##b`/`#x` 参数无 token，
+  `MAIN.H` language id 为 `c`；
+- GREEN：C/C++ 着色、navigation、language 定向 **35 pass / 0 fail**；
+- 完整 `npm test`：**3321 pass / 0 fail**；
+- `lib/client.js` 重建后约 **2363.5 KB**；
+- ESLint、TypeScript、source imports 通过；完整收尾门禁在最终审计执行。
+
+**运行态证据**：
+
+- IDEA：`/private/tmp/idea-cpp-macro-advanced.png`；
+- DSH：`/private/tmp/dsh-cpp-macro-advanced-final.png`；
+- `TRACE_CALL/PASTE/STRINGIFY/MAX` 为方法棕 `rgb(145, 76, 7)`；
+- body 参数 `fn/value/a/b/x` 为参数黑 `rgb(0, 0, 0)`；
+- `.h` 中 `Widget` 为类型紫 `rgb(102, 14, 122)`；
+- `render` 为方法棕 `rgb(145, 76, 7)`，文字权重 500。
+
+**适用边界**：
+
+- IDEA 当前无 C/C++ 插件，宏与 `.h` 只能做词法级对照；
+- `.h → cpp` 是基于 C++ grammar 覆盖 C 子集的兼容选择，后续仍需用真实
+  C-only 头文件回归。
+
+**长期约束**：
+
+- continuation 只能在当前 directive 范围里识别参数；
+- token pasting / stringification 不改变宏参数身份；
+- `.c` 不得误用 `.h` 的 language mapping；
+- 宏参数 token 必须覆盖通用 call fallback。
+
+## 2026-11-20 — C++ 预处理宏与高级参数漏色
+
+**作用域**：`#define` function-like/object-like macro、条件编译宏标识符、
+数组参数、成员函数指针、unnamed function pointer、默认参数。
+
+**症状/证据**：
+
+- `#define MAX(a, b)` 的 `MAX` 只有通用 call fallback 的方法 token，
+  `a/b` 没有 parameter token；
+- `#define HANDLE_NAME "sample"` 完全没有 macro token；
+- `#if defined(ENABLE_TRACE)` 等条件宏标识符没有 token；
+- 数组参数、`Widget::*callback`、默认参数和 unnamed function pointer
+  已能被专用参数解析正确处理，但缺少回归保护。
+
+**修复**：
+
+- 新增 C/C++ preprocessor scanner：
+  - function-like macro 名称输出 `ideaMethod`；
+  - macro 参数复用 C/C++ 参数解析，输出 `ideaParameter`；
+  - object-like macro 输出 `ideaConstant`；
+  - `ifdef/ifndef/undef/if/elif` 中宏标识符输出 `ideaConstant`；
+  - 跳过 `defined/true/false` 与内建类型词。
+- 增加高级参数回归：
+  - `void (Widget::*callback)(int value)` 只标 `callback`；
+  - `int numbers[4]` 标 `numbers`；
+  - `int timeout = 10` 标 `timeout`；
+  - unnamed `int (*)(int)` 不产生伪参数。
+
+**RED/GREEN**：
+
+- RED：macro 参数缺失，对象宏和条件宏标识符无 token；
+- GREEN：C/C++ 着色与 navigation 定向 **32 pass / 0 fail**；
+- 完整 `npm test`：**3320 pass / 0 fail**；
+- `lib/client.js` 重建后约 **2362.5 KB**；
+- ESLint、TypeScript、source imports 通过；完整收尾门禁在最终审计执行。
+
+**运行态证据**：
+
+- IDEA：`/private/tmp/idea-cpp-macro-sample.png`；
+- DSH：`/private/tmp/dsh-cpp-macro-final.png`；
+- `MAX/CALLBACK` 为方法棕 `rgb(145, 76, 7)`；
+- `HANDLE_NAME/ENABLE_TRACE/DISABLE_TRACE` 为常量紫
+  `rgb(102, 14, 122)`；
+- `callback/numbers/timeout/message` 为参数黑 `rgb(0, 0, 0)`；
+- 所有采样字重为 500。
+
+**适用边界**：
+
+- IDEA 当前无 C/C++ 插件，宏名对照仅到词法层；
+- DSH 仅在 `#define` 和条件指令锚点内识别宏，不在正文全局猜宏名。
+
+**长期约束**：
+
+- function-like macro 参数不得产生伪 token；
+- unnamed function pointer 不得生成 parameter；
+- macro 与普通函数共用现有 IDEA token 配色；
+- macro scanner 必须保持行首预处理指令语义。
+
+## 2026-11-20 — C++ operator、函数指针参数与初始化列表漏色
+
+**作用域**：C++ operator overload、function pointer 参数、constructor
+initializer list，以及共享 C/C++ 语义 token fallback。
+
+**症状/证据**：
+
+- `operator==(const Point& other)` 没有任何 method token；
+- `bool operator==` 的 `operator` 被 typed-language variable 模板标成变量；
+- `void register_callback(int (*callback)(int value), ...)` 中真正参数
+  `callback` 漏色，内部 `value` 反而被标成参数；
+- function pointer 的嵌套括号导致外层函数参数组完全不命中；
+- `Widget::Widget(...) : origin_(origin)` 的 `origin_` 被 call fallback
+  标成 method；
+- `using Callback = int (*)(...)` 中的 `int` 被 call fallback 标成 method。
+
+**根因**：
+
+- 通用参数解析只取 segment 的最后一个 identifier，不理解 C/C++ 函数指针
+  declarator；
+- 通用函数签名regex不接受嵌套括号参数；
+- operator overload 不在 identifier-only function scanner 的语法范围内；
+- call fallback 没有识别 C/C++ 类型 declarator 和 initializer member。
+
+**修复**：
+
+- 新增 `addCFamilyParameterGroup`：
+  - 支持一层嵌套 `(...)`；
+  - 识别 `(*callback)` 和 `(Type::*callback)`；
+  - unnamed function pointer 不产生 token；
+  - 默认参数在顶层 `=` 截断；
+  - C 内建类型关键字不进入 parameter/method fallback。
+- 新增 C++ operator scanner：
+  - 覆盖符号 operator、`operator()`、`operator[]`、new/delete、
+    conversion operator；
+  - operator 整体输出 `ideaMethod`，参数输出 `ideaParameter`；
+  - 类外 operator 的 `Point::` 输出 `ideaClass`。
+- constructor initializer scanner 将 `origin_(origin)` 的成员输出
+  `ideaProperty`，并跳过 base-class initializer。
+- C/C++ 通用 call fallback 跳过 primitive type 与 function pointer
+  declarator 形状。
+
+**RED/GREEN**：
+
+- RED：operator 缺失、`operator` 为 variable、`callback` 缺失、
+  `value` 误为 parameter、`origin_` 为 method；
+- GREEN：C/C++ 着色与 navigation 定向 **31 pass / 0 fail**；
+- 完整 `npm test`：**3319 pass / 0 fail**；
+- `lib/client.js` 重建后约 **2360.7 KB**；
+- ESLint、TypeScript、source imports 通过；完整收尾门禁在最终审计执行。
+
+**运行态证据**：
+
+- IDEA：`/private/tmp/idea-cpp-operator-sample.png`；
+- DSH：`/private/tmp/dsh-cpp-operator-final.png`；
+- DSH `operator` 为方法棕 `rgb(145, 76, 7)`；
+- `callback/point` 为参数黑 `rgb(0, 0, 0)`；
+- initializer `origin_` 为字段紫 `rgb(102, 14, 122)`；
+- 所有采样字重为 500。
+
+**适用边界**：
+
+- IntelliJ IDEA 当前没有 C/C++ 插件，operator 对照仅到词法层；
+- DSH 按用户要求复用现有 JS/TS/Rust IDEA token，不复制 IDEA 的缺失
+  semantic state。
+
+**长期约束**：
+
+- function pointer 内部形参名不能冒充外层参数；
+- operator overload 不能被 variable/property fallback 消费；
+- initializer member 与普通 method call 必须分清；
+- C/C++ scanner 只输出共享 IDEA token 类型，不新增独立颜色表。
+
+## 2026-11-20 — C/C++ 着色模板与新文件骨架
+
+**作用域**：`.c`、`.h`、`.cpp`、`.hpp` 的语言映射、模板、找色和 include 跳转。
+
+**现状/证据**：
+
+- 四种扩展名已映射到 `c/cpp`，include navigation 也已有候选路径实现；
+- 但 namespace、带返回类型函数参数、class/struct 字段、constructor
+  没有 semantic token；
+- template 类型参数、inheritance base type、out-of-line member qualifier
+  也缺少声明色；
+- `public:/private:` 被 property-key 规则误标；
+- `Widget::render` 的 `::` 会被通用 property key 规则误当字段冒号；
+- 新建 C/C++ 文件没有 skeleton。
+
+**修复**：
+
+- `.c` 与 `.cpp` 增加 main 文件骨架，`.h/.hpp` 增加 `#pragma once`；
+- C/C++ namespace 输出 `ideaModule`；
+- 函数 scanner 解析返回类型、qualified name 和参数组；
+- class/struct/union scanner 输出 constructor 参数与字段 property；
+- template scanner 将 `typename/class T` 输出 `ideaTypeParameter`；
+- inheritance scanner 将 `public Base<T>` 的 Base 输出 `ideaClass`；
+- 类外 constructor/destructor scanner 输出 qualifier class 与 method token；
+- property-key scanner 使用 `:(?!:)`，不再消费 C++ scope operator；
+- access label 从 property 规则中排除；
+- C/C++ 下停用 JS `const/let/var` 模板，避免类型引用误标变量。
+
+**运行态证据**：
+
+- DSH `.cpp` 中 namespace 深紫、template `T` 为 type-parameter 色、
+  base/qualifier 为 class 色、`main/paint/render` 方法棕；
+- `Meta+F12` 从 `paint(1)` 打开同名 `.hpp`；
+- `.hpp` 中 `paint` 方法棕、`value` 参数黑、`Pair/x/y` 深紫；
+- `.c` 到 `.h` 的 `Meta+F12` 跳转也已实测；
+- 截图：`/private/tmp/dsh-cpp-final-coloring.png`、
+  `/private/tmp/dsh-cpp-header-final.png`、
+  `/private/tmp/dsh-cpp-definition-jump-final.png`、
+  `/private/tmp/dsh-c-coloring-final.png`、
+  `/private/tmp/dsh-c-definition-jump-final.png`；
+- 代码字重保持 500。
+
+**IDEA 对照限制**：
+
+- IntelliJ IDEA 当前未安装 C/C++ 插件，只完成了词法级人工对照；
+- 用户明确要求 C/C++ 与 JS/TS/TSX/Rust 共用同一套 IDEA token 配色，
+  因此没有新增 C/C++ 独立颜色表。
+
+**回归**：
+
+- C/C++ 模板、找色、navigation 定向 **44 pass / 0 fail**；
+- 完整 `npm test`：**3318 pass / 0 fail**；
+- `lib/client.js` 重建后约 **2354.1 KB**；
+- ESLint、TypeScript、source imports、Prettier、bundle consistency、
+  `git diff --check`、`npm pack --dry-run` 通过。
+
+**长期约束**：
+
+- access label 不等于字段；
+- C++ `::` 不能进入 property-key 模板；
+- C/C++ 类型声明不能被 JS `const` 模板消费；
+- C/C++ include navigation 必须继续在全局文本搜索前直接命中 header；
+- C/C++ 必须复用现有 IDEA token 配色；
+- 临时 C/C++ 样例验证后必须删除。
+
 ## 2026-11-20 — Rust impl Trait for Type 缺少类型 token
 
 **作用域**：Rust inherent impl、trait impl、qualified type path、associated type。

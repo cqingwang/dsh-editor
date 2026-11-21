@@ -9,18 +9,12 @@ const replaceInFiles = source.slice(
 );
 
 test('Search Everywhere records dirty before/after content for unified Undo', () => {
-  assert.match(replaceInFiles, /const dirtyUndo = dirtyPlans\.map/u);
-  assert.match(replaceInFiles, /beforeContent: plan\.model\.getValue\(\)/u);
-  assert.match(replaceInFiles, /afterContent: plan\.text/u);
+  assert.match(replaceInFiles, /const dirtyUndo = dirtyReplaceUndo\(dirtyPlans\)/u);
 });
 
 test('Search Everywhere Replace All publishes a bounded Find undo operation', () => {
-  assert.match(replaceInFiles, /const operationId = typeof value\?\.operationId === 'string'/u);
-  assert.match(replaceInFiles, /const operation = \{/u);
-  assert.match(replaceInFiles, /clean: operationId !== '' && hostChanged\.length > 0/u);
-  assert.match(replaceInFiles, /dirty: dirtyUndo/u);
-  assert.match(replaceInFiles, /files: changed/u);
-  assert.match(replaceInFiles, /replacements: replacedCount/u);
+  assert.match(replaceInFiles, /replaceOperationState\(/u);
+  assert.match(replaceInFiles, /const \{ changed, operation, replacedCount \} = replaceOperationState/u);
   assert.match(replaceInFiles, /setFindReplaceRedoStack\(\[\]\)/u);
   assert.match(replaceInFiles, /setFindReplaceUndoStack\(\(current\) => boundedReplaceHistory\(current, operation\)\)/u);
 });
@@ -35,6 +29,7 @@ test('Search Everywhere keeps dirty Monaco undo independent from host history', 
 
 test('Replace attempt is released exactly once on every terminal path', () => {
   const releases = replaceInFiles.match(/releaseReplaceAttempt\(replaceWriteBusyRef\)/gu) ?? [];
-  assert.equal(releases.length, 2);
+  assert.equal(releases.length, 1);
+  assert.match(replaceInFiles, /confirmFindReplaceAndGeneration\(/u);
   assert.match(replaceInFiles, /finally \{\s+releaseReplaceAttempt\(replaceWriteBusyRef\);\s+\}/u);
 });

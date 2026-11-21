@@ -32,13 +32,6 @@ test('Esc, the close button and Enter share the same state cleanup', () => {
     ),
   );
   assert.match(close, /clearTreeSearchState\(\);/u);
-
-  const enter = panelSource.slice(
-    panelSource.indexOf("} else if (event.key === 'Enter') {"),
-    panelSource.indexOf(
-      'window.setTimeout(() => treeRef.current?.focus(), 0);',
-      panelSource.indexOf("} else if (event.key === 'Enter') {"),
-    ),
-  );
-  assert.match(enter, /clearTreeSearchState\(\);/u);
+  assert.match(panelSource, /if \(keyAction === 'close'\) \{\s+closeTreeSearch\(\);/u);
+  assert.match(panelSource, /clearTreeSearchState\(\);\s+setSearchOpen\(false\);/u);
 });

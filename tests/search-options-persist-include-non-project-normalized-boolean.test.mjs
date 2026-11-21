@@ -27,8 +27,11 @@ test('Search Everywhere restores its scope from persisted options', () => {
   assert.match(open, /const includeNonProject = savedOptions\.includeExcluded === true/);
   assert.match(open, /includeNonProject,/);
   assert.match(open, /const cachedFilesMatchScope = searchEverywhereFilesScopeRef\.current === includeNonProject/);
-  assert.match(source, /requestSearchEverywhereFiles\(includeNonProject\)/);
-  assert.match(source, /op: 'files', includeExcluded: includeNonProject === true/);
+  assert.match(open, /requestSearchEverywhereFiles\(includeNonProject,\s*typeof initial\.fileMask === 'string'/u);
+  assert.match(
+    source,
+    /op: 'files',\s*includeExcluded: includeNonProject === true,\s*respectGitIgnore: true,\s*fileMask: normalizedFileMask,\s*searchDirectoryRules/u,
+  );
   assert.match(source, /writeSearchOptions\(searchEverywhere\)/);
   assert.match(source, /searchEverywhere\?\.includeNonProject/);
 });

@@ -10,9 +10,9 @@ const source = (readFileSync(join(root, 'src/client/components/project/ProjectPa
 test('Enter in speed search opens the hit, not just highlights it', () => {
   /* IDEA's speed search is a navigation tool: typing then Enter must take you to
      the file. Selecting the row and stopping there leaves the editor unchanged. */
-  const start = source.indexOf("else if (event.key === 'Enter')");
+  const start = source.indexOf('const keyAction = projectSpeedSearchKeyAction(event, hits.length)');
   assert.notEqual(start, -1);
-  const block = source.slice(start, start + 2500);
+  const block = source.slice(start, start + 3000);
   assert.match(block, /const hit = hits\.find\(\(row\) => row\.path === selectedPath\) \?\? hits\[0\]/);
   assert.match(block, /selectVisibleRow\(hit, \{\}\);/);
   assert.match(block, /setSearchOpen\(false\);/);
@@ -24,9 +24,9 @@ test('Enter in speed search opens the hit, not just highlights it', () => {
 test('Enter in speed search leaves a folded file hit selected with its ancestors expanded', () => {
   const workspace = readFileSync(join(root, 'src/client/editor-workspace.tsx'), 'utf8');
   const panel = readFileSync(join(root, 'src/client/components/project/ProjectPanel.tsx'), 'utf8');
-  const start = panel.indexOf("else if (event.key === 'Enter')");
+  const start = panel.indexOf('const keyAction = projectSpeedSearchKeyAction(event, hits.length)');
   assert.notEqual(start, -1);
-  const block = panel.slice(start, start + 2500);
+  const block = panel.slice(start, start + 3000);
 
   const openAt = block.indexOf('onOpen(hit.path);');
   const revealAt = block.indexOf('onRevealPath?.(hit.path);');

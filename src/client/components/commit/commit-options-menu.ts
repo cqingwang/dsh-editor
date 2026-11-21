@@ -40,6 +40,7 @@ interface CommitOptionsMenuOptions {
   gitNotManaged?: boolean;
   fetchBusy: boolean;
   updateBusy: boolean;
+  pushBusy?: boolean;
   commitBusy: boolean;
   stageAllAvailable: boolean;
   groupBy: string;
@@ -109,6 +110,7 @@ export function commitOptionsMenu({
   gitNotManaged = false,
   fetchBusy,
   updateBusy,
+  pushBusy = false,
   commitBusy,
   stageAllAvailable,
   groupBy,
@@ -136,46 +138,46 @@ export function commitOptionsMenu({
       {
         id: 'fetch',
         label: fetchBusy ? t('editor.fetchBusy') : t('editor.fetchRemote'),
-        disabled: gitNotManaged || fetchBusy,
+        disabled: gitNotManaged || fetchBusy || updateBusy || pushBusy,
         run: onFetch,
       },
       {
         id: 'update',
         label: updateBusy ? t('editor.updateBusy') : t('editor.updateProject'),
-        disabled: gitNotManaged || updateBusy,
+        disabled: gitNotManaged || fetchBusy || updateBusy || pushBusy,
         run: onUpdate,
       },
       null,
       {
         id: 'applyPatchFile',
         label: t('editor.applyPatch'),
-        disabled: gitNotManaged || commitBusy,
+        disabled: gitNotManaged || commitBusy || updateBusy,
         run: onApplyPatchFile,
       },
       {
         id: 'applyPatchClipboard',
         label: t('editor.applyPatchFromClipboard'),
-        disabled: gitNotManaged || commitBusy,
+        disabled: gitNotManaged || commitBusy || updateBusy,
         run: onApplyPatchClipboard,
       },
       null,
       {
         id: 'stageAll',
         label: t('editor.stageAll'),
-        disabled: gitNotManaged || commitBusy || !stageAllAvailable,
+        disabled: gitNotManaged || commitBusy || updateBusy || !stageAllAvailable,
         run: onStageAll,
       },
       null,
       {
         id: 'stash',
         label: t('editor.stash'),
-        disabled: gitNotManaged,
+        disabled: gitNotManaged || commitBusy || updateBusy,
         run: onStash,
       },
       {
         id: 'shelve',
         label: t('editor.shelve'),
-        disabled: gitNotManaged,
+        disabled: gitNotManaged || commitBusy || updateBusy,
         run: onShelve,
       },
       null,

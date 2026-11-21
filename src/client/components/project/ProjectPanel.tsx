@@ -13,8 +13,13 @@ import {
   projectSelectionAfterDirectoryCollapse,
   type ProjectTreeSelectionModifiers,
 } from './project-selection-model';
-import { copySearchResultText } from '../../commit';
-import { basename, callFs, splitRootLabel } from '../../editor-core';
+import {
+  copySearchResultText,
+  searchDirectoryEffectiveState,
+  searchDirectoryExcludedWithIncludedDescendant,
+  type SearchDirectoryRules,
+} from '../../commit';
+import { basename, callFs, searchTextFailureMessage, splitRootLabel } from '../../editor-core';
 import { bindShiftWheelScroll, shouldShowTreeLoading } from '../../injected-css';
 import {
   captureDroppedWorkspaceHandles,
@@ -30,9 +35,10 @@ import {
 import {
   branchLabel,
   directoryTint,
-  filterTreeRows,
+  filterProjectSpeedSearchRows,
   highlightParts,
   indexChangesByDirectory,
+  projectSpeedSearchKeyAction,
   projectTreePositions,
   projectViewDefinitions,
   revealInTree,
@@ -132,6 +138,8 @@ export interface ProjectPanelProps {
   uploadBusy: boolean;
   uploadProgress: UploadProgress | null;
   showHidden: boolean;
+  searchDirectoryRules: SearchDirectoryRules;
+  searchRevision: number;
   sortMode: string;
   manualOrder: Record<string, string[]>;
   onManualReorder: (sources: string[], destination: string, edge: 'before' | 'after') => void;
@@ -201,6 +209,8 @@ function ProjectPanel({
   uploadBusy,
   uploadProgress,
   showHidden,
+  searchDirectoryRules,
+  searchRevision,
   sortMode,
   manualOrder,
   onManualReorder,
@@ -315,7 +325,7 @@ function ProjectPanel({
     const timer = window.setTimeout(() => searchRef.current?.focus(), 160);
     return () => window.clearTimeout(timer);
   }, [compactDirectories, searchOpen, showExcludedFiles, showHidden, sortMode]);
-  const localRows = React.useMemo(() => filterTreeRows(rows, search), [rows, search]);
+  const localRows = React.useMemo(() => filterProjectSpeedSearchRows(rows, search), [rows, search]);
   const visibleRows = React.useMemo(
     () =>
       search.trim() === '' || searchEntries === null
@@ -357,6 +367,8 @@ function ProjectPanel({
           showExcluded: showExcludedFiles,
           sort: sortMode,
           foldersFirst,
+          respectGitIgnore: true,
+          searchDirectoryRules,
         },
         { signal: controller.signal },
       )
@@ -373,7 +385,7 @@ function ProjectPanel({
            transient host error must not blank a tree that is still usable. */
           setSearchEntries(null);
           setSearchPending(false);
-          setSearchError(failure instanceof Error ? failure.message : String(failure));
+          setSearchError(searchTextFailureMessage(failure, t));
           setSearchTruncated(false);
         });
     }, 160);
@@ -381,7 +393,17 @@ function ProjectPanel({
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [filteredView, foldersFirst, search, showExcludedFiles, showHidden, sortMode]);
+  }, [
+    filteredView,
+    foldersFirst,
+    search,
+    searchDirectoryRules,
+    searchRevision,
+    showExcludedFiles,
+    showHidden,
+    sortMode,
+    t,
+  ]);
   const hits = React.useMemo(() => speedSearchHitRows(visibleRows, search), [search, visibleRows]);
   const selectVisibleRow = React.useCallback(
     (row: ProjectRow, event: ProjectTreeSelectionModifiers): void => {
@@ -566,6 +588,17 @@ function ProjectPanel({
     projectRowPresentationByPath.get(row.path)?.open ?? (row.searchOpen === true || expanded.has(row.path));
   const decorateProjectRow = (state: FileTreeViewRowState<ProjectRow>): FileTreeViewRowDecoration => {
     const { row } = state;
+    const searchExcluded =
+      state.isDirectory && searchDirectoryEffectiveState(row.path, searchDirectoryRules) === 'excluded';
+    const searchExcludedWithIncludedDescendant =
+      searchExcluded && searchDirectoryExcludedWithIncludedDescendant(row.path, searchDirectoryRules);
+    const searchExcludedDescription = searchExcluded
+      ? t(
+          searchExcludedWithIncludedDescendant
+            ? 'editor.directoryExcludedFromSearchWithIncludedChildren'
+            : 'editor.directoryExcludedFromSearch',
+        )
+      : '';
     return {
       style: {
         ...(externalDropPath === row.path
@@ -583,7 +616,14 @@ function ProjectPanel({
               }
           : null),
       },
-      title: row.path === '' ? root : row.path,
+      iconClassName: searchExcluded ? 'dsh-editor-tree-icon-search-excluded' : undefined,
+      title:
+        row.path === ''
+          ? root
+          : searchExcludedDescription === ''
+            ? row.path
+            : `${row.path}\n${searchExcludedDescription}`,
+      ariaDescription: searchExcludedDescription === '' ? undefined : searchExcludedDescription,
       draggable: !row.root,
       onDragStart: (event) => {
         const payload =
@@ -664,6 +704,8 @@ function ProjectPanel({
     const projectRowPresentation = projectRowPresentationByPath.get(row.path);
     if (projectRowPresentation === undefined) return null;
     const { directoryTintState, statusColor } = projectRowPresentation;
+    const searchExcluded =
+      state.isDirectory && searchDirectoryEffectiveState(row.path, searchDirectoryRules) === 'excluded';
     return (
       <span
         style={{
@@ -673,6 +715,7 @@ function ProjectPanel({
           ...(selected ? { color: '#fff' } : null),
           ...(!selected && statusColor !== null ? { color: statusColor } : null),
           ...(!selected && directoryTintState !== null ? { color: directoryTintState.color } : null),
+          ...(!selected && searchExcluded ? { color: 'var(--dsw-alias-label-tertiary)', opacity: 0.68 } : null),
           ...(deletedPaths?.has?.(row.path)
             ? {
                 textDecoration: 'line-through',
@@ -1074,19 +1117,19 @@ function ProjectPanel({
             onChange={(event) => setSearch(event.target.value)}
             onKeyDown={(event) => {
               if (event.nativeEvent.isComposing === true) return;
-              if (event.key === 'Escape') {
-                event.preventDefault();
+              const keyAction = projectSpeedSearchKeyAction(event, hits.length);
+              if (keyAction === null) return;
+              event.preventDefault();
+              if (keyAction === 'close') {
                 closeTreeSearch();
-              } else if (hits.length > 0 && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
-                event.preventDefault();
-                const direction = event.key === 'ArrowDown' ? 'next' : 'previous';
+              } else if (keyAction === 'next' || keyAction === 'previous') {
+                const direction = keyAction;
                 const targetPath = speedSearchTarget(visibleRows, search, selectedPath, direction);
                 selectSearchHit(hits.find((row) => row.path === targetPath));
-              } else if (event.key === 'Enter') {
+              } else {
                 /* Enter opens the current hit, IDEA's speed-search behaviour —
              and "jumps" means opens it: selecting a row leaves the
              editor showing the previous file. */
-                event.preventDefault();
                 const hit = hits.find((row) => row.path === selectedPath) ?? hits[0];
                 if (hit === undefined) return;
                 selectVisibleRow(hit, {});

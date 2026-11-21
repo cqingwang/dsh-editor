@@ -32,4 +32,5 @@ test('recursive watcher ignores Git lock churn but keeps real index changes', as
   await settle();
   assert.equal(changes().length, 1);
   assert.equal(changes()[0].dirs, null);
+  assert.deepEqual(changes()[0].paths, ['.git/index']);
 });

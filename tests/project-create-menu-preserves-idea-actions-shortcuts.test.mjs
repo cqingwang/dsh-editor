@@ -96,6 +96,15 @@ test('Project options menu preserves toggles, sort state and disabled actions', 
   assert.equal(childById(menu, 'sort:modified-asc')?.shortcut, '✓');
   assert.equal(childById(menu, 'resetManualOrder')?.disabled, true);
   assert.equal(childById(menu, 'foldersFirst')?.shortcut, '');
+  assert.equal(childById(menu, 'previewTab')?.active, true);
+  assert.equal(childById(menu, 'singleClickOpen')?.active, false);
+  assert.equal(childById(menu, 'openDirectoriesSingleClick')?.active, true);
+  assert.equal(childById(menu, 'showExcludedFiles')?.active, false);
+  assert.equal(childById(menu, 'compactDirectories')?.active, true);
+  assert.equal(childById(menu, 'hidden')?.active, true);
+  assert.equal(childById(menu, 'sort:name')?.active, false);
+  assert.equal(childById(menu, 'sort:modified-asc')?.active, true);
+  assert.equal(childById(menu, 'foldersFirst')?.active, false);
 
   for (const id of [
     'refresh',

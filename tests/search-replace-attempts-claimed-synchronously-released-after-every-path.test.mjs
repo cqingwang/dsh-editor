@@ -53,25 +53,34 @@ test('Search Everywhere and both Find replace paths share one immediate write gu
   assert.match(replaceInFiles, /claimReplaceAttempt\(replaceWriteBusyRef, searchEverywhere\?\.replaceBusy === true\)/);
   assert.match(replaceInFindTool, /claimReplaceAttempt\(replaceWriteBusyRef, findTool\?\.replaceBusy === true\)/);
   assert.match(replaceOccurrence, /claimReplaceAttempt\(replaceWriteBusyRef, findTool\?\.replaceBusy === true\)/);
-  assert.equal((replaceInFiles.match(/releaseReplaceAttempt\(replaceWriteBusyRef\)/gu) ?? []).length, 2);
-  assert.equal((replaceInFindTool.match(/releaseReplaceAttempt\(replaceWriteBusyRef\)/gu) ?? []).length, 2);
+  assert.equal((replaceInFiles.match(/releaseReplaceAttempt\(replaceWriteBusyRef\)/gu) ?? []).length, 1);
+  assert.equal((replaceInFindTool.match(/releaseReplaceAttempt\(replaceWriteBusyRef\)/gu) ?? []).length, 1);
   assert.equal((replaceOccurrence.match(/releaseReplaceAttempt\(replaceWriteBusyRef\)/gu) ?? []).length, 1);
 });
 
 test('confirmation cancel and host failures explicitly release the write guard', () => {
-  for (const block of [replaceInFiles, replaceInFindTool]) {
-    const claimAt = block.indexOf('claimReplaceAttempt(replaceWriteBusyRef');
-    const confirmAt = block.indexOf('confirmSearchReplace');
-    const callAt = block.indexOf('await callFs({');
-    const writeTryAt = block.indexOf('try {', confirmAt);
-    const finallyAt = block.indexOf('finally {');
-    const cancelBranch = block.slice(confirmAt, callAt);
-    assert.ok(claimAt >= 0 && confirmAt > claimAt, 'claim must precede confirmation');
-    assert.match(cancelBranch, /releaseReplaceAttempt\(replaceWriteBusyRef\)[\s\S]*?return;/);
-    assert.ok(writeTryAt > confirmAt && writeTryAt < callAt, 'the write must stay inside a try block');
-    assert.ok(finallyAt > callAt, 'write failures must release the guard in finally');
-    assert.match(block.slice(finallyAt), /releaseReplaceAttempt\(replaceWriteBusyRef\)/);
-  }
+  const filesClaimAt = replaceInFiles.indexOf('claimReplaceAttempt(replaceWriteBusyRef');
+  const filesConfirmAt = replaceInFiles.indexOf('const confirmedReplace = await confirmFindReplaceAndGeneration');
+  const filesCallAt = replaceInFiles.indexOf('await callFs({');
+  const filesWriteTryAt = replaceInFiles.indexOf('try {', filesConfirmAt);
+  const filesFinallyAt = replaceInFiles.indexOf('finally {');
+  const filesCancelBranch = replaceInFiles.slice(filesConfirmAt, filesCallAt);
+  assert.ok(filesClaimAt >= 0 && filesConfirmAt > filesClaimAt, 'claim must precede confirmation');
+  assert.match(filesCancelBranch, /confirmFindReplaceAndGeneration/u);
+  assert.match(filesCancelBranch, /if \(!confirmedReplace\) return;/);
+  assert.ok(filesWriteTryAt > filesConfirmAt && filesWriteTryAt < filesCallAt, 'the write must stay inside a try block');
+  assert.ok(filesFinallyAt > filesCallAt, 'write failures must release the guard in finally');
+  assert.match(replaceInFiles.slice(filesFinallyAt), /releaseReplaceAttempt\(replaceWriteBusyRef\)/);
+
+  const findConfirmAt = replaceInFindTool.indexOf('confirmFindReplaceAndGeneration');
+  const findCallAt = replaceInFindTool.indexOf('await callFs({');
+  const findCancelBranch = replaceInFindTool.slice(findConfirmAt, findCallAt);
+  assert.match(findCancelBranch, /confirmFindReplaceAndGeneration/u);
+  assert.match(findCancelBranch, /replaceWriteBusyRef/u);
+  assert.match(findCancelBranch, /setFindTool/u);
+  assert.match(replaceInFindTool, /finally \{[\s\S]*?releaseReplaceAttempt\(replaceWriteBusyRef\)/);
+
+  assert.match(source, /function confirmFindReplaceAndGeneration[\s\S]*?releaseReplaceAttempt\(guard\)[\s\S]*?findToolReplaceAbortState/u);
   assert.match(replaceOccurrence, /finally \{[\s\S]*?releaseReplaceAttempt\(replaceWriteBusyRef\)/);
 });
 

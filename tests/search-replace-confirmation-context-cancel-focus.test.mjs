@@ -32,10 +32,13 @@ test('Replace confirmation names the exact query and replacement like IDEA', () 
 });
 
 test('both workspace Replace All paths await the in-app replacement confirmation', () => {
-  assert.match(workspace, /await confirmSearchReplace\(t, query, replacement, matches\.length, operationFileCount\)/u);
   assert.match(
     workspace,
-    /await confirmSearchReplace\(t, query, findTool\.replace, matches\.length, operationFileCount\)/u,
+    /\(\) => confirmSearchReplace\(t, query, replacement, matches\.length, operationFileCount\)/u,
+  );
+  assert.match(
+    workspace,
+    /\(\) => confirmSearchReplace\(t, query, findTool\.replace, matches\.length, operationFileCount\)/u,
   );
 });
 

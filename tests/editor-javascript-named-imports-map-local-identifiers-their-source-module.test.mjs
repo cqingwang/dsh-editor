@@ -30,9 +30,7 @@ const names = [
 const moduleStart = source.indexOf('/* ─────────────────────── code-navigation.ts');
 const moduleEnd = source.indexOf('/* ─────────────────────── inline-styles.ts', moduleStart);
 assert.ok(moduleStart >= 0 && moduleEnd > moduleStart, 'code-navigation module should be generated');
-const navigation = new Function(
-  `${source.slice(moduleStart, moduleEnd)}\nreturn { ${names.join(', ')} };`,
-)();
+const navigation = new Function(`${source.slice(moduleStart, moduleEnd)}\nreturn { ${names.join(', ')} };`)();
 
 test('JavaScript named imports map local identifiers to their source module', () => {
   const content = "import { TerminalHub, encodeSse as encode } from './terminal.js';\n";
@@ -51,31 +49,24 @@ test('JavaScript named imports map local identifiers to their source module', ()
 });
 
 test('Default, namespace and Python imports resolve to their target modules', () => {
-  assert.equal(
-    navigation.definitionImportTarget("import Hub from './hub';", 'Hub')?.kind,
-    'default',
-  );
+  assert.equal(navigation.definitionImportTarget("import Hub from './hub';", 'Hub')?.kind, 'default');
   assert.equal(
     navigation.definitionImportTarget("import * as runtime from './runtime.js';", 'runtime')?.kind,
     'namespace',
   );
-  assert.deepEqual(
-    navigation.definitionImportTarget("from .terminal import TerminalHub\n", 'TerminalHub'),
-    {
-      kind: 'named',
-      importedName: 'TerminalHub',
-      specifier: './terminal',
-      relative: true,
-      language: 'python',
-    },
-  );
+  assert.deepEqual(navigation.definitionImportTarget('from .terminal import TerminalHub\n', 'TerminalHub'), {
+    kind: 'named',
+    importedName: 'TerminalHub',
+    specifier: './terminal',
+    relative: true,
+    language: 'python',
+  });
 });
 
 test('Relative module candidates respect explicit and extensionless imports', () => {
-  assert.deepEqual(
-    navigation.definitionModuleCandidates('lib/index.js', './terminal.js', 'javascript'),
-    ['lib/terminal.js'],
-  );
+  assert.deepEqual(navigation.definitionModuleCandidates('lib/index.js', './terminal.js', 'javascript'), [
+    'lib/terminal.js',
+  ]);
   const extensionless = navigation.definitionModuleCandidates('src/main.ts', './util', 'javascript');
   assert.ok(extensionless.includes('src/util.ts'));
   assert.ok(extensionless.includes('src/util.js'));
@@ -91,39 +82,44 @@ test('Monaco file URIs become decoded workspace paths', () => {
 
 test('Declarations resolve across common languages', () => {
   assert.deepEqual(
-    navigation.findDefinitionInText('export class TerminalHub {}\nexport function encodeSse() {}\n', 'encodeSse', 'terminal.js'),
+    navigation.findDefinitionInText(
+      'export class TerminalHub {}\nexport function encodeSse() {}\n',
+      'encodeSse',
+      'terminal.js',
+    ),
     { path: 'terminal.js', line: 2, column: 17, endColumn: 26 },
   );
-  assert.equal(
-    navigation.findDefinitionInText('class Hub:\n    pass\n', 'Hub', 'hub.py')?.line,
-    1,
-  );
-  assert.equal(
-    navigation.findDefinitionInText('pub fn encode_sse() {}\n', 'encode_sse', 'lib.rs')?.column,
-    8,
-  );
-  assert.equal(
-    navigation.findDefinitionInText('func TerminalHub() {}\n', 'TerminalHub', 'hub.go')?.line,
-    1,
-  );
+  assert.equal(navigation.findDefinitionInText('class Hub:\n    pass\n', 'Hub', 'hub.py')?.line, 1);
+  assert.equal(navigation.findDefinitionInText('pub fn encode_sse() {}\n', 'encode_sse', 'lib.rs')?.column, 8);
+  assert.equal(navigation.findDefinitionInText('func TerminalHub() {}\n', 'TerminalHub', 'hub.go')?.line, 1);
   assert.equal(
     navigation.findDefinitionInText('public class TerminalHub {}\n', 'TerminalHub', 'TerminalHub.java')?.line,
     1,
   );
   assert.equal(
-    navigation.findDefinitionInText('public String encodeSse(String input) { return input; }\n', 'encodeSse', 'TerminalHub.java')?.column,
+    navigation.findDefinitionInText(
+      'public String encodeSse(String input) { return input; }\n',
+      'encodeSse',
+      'TerminalHub.java',
+    )?.column,
     15,
   );
   assert.equal(
-    navigation.findDefinitionInText('export class TerminalHub {\n  encodeSse() {}\n}\n', 'encodeSse', 'terminal.ts')?.line,
+    navigation.findDefinitionInText('export class TerminalHub {\n  encodeSse() {}\n}\n', 'encodeSse', 'terminal.ts')
+      ?.line,
     2,
   );
   assert.equal(
-    navigation.findDefinitionInText('int encode_sse(const char *input) { return 0; }\n', 'encode_sse', 'terminal.c')?.column,
+    navigation.findDefinitionInText('int encode_sse(const char *input) { return 0; }\n', 'encode_sse', 'terminal.c')
+      ?.column,
     5,
   );
   assert.equal(
-    navigation.findDefinitionInText('func encodeSse(input: String) -> String { return input }\n', 'encodeSse', 'terminal.swift')?.column,
+    navigation.findDefinitionInText(
+      'func encodeSse(input: String) -> String { return input }\n',
+      'encodeSse',
+      'terminal.swift',
+    )?.column,
     6,
   );
 });
@@ -160,7 +156,8 @@ test('Unresolved imported symbols fall back to workspace declaration search', as
     path: 'src/main.rs',
     content: 'fn main() { helper(); }\n',
     symbol: 'helper',
-    readFile: async (path) => path === 'src/helper.rs' ? 'pub fn helper() {}\n' : Promise.reject(new Error('missing')),
+    readFile: async (path) =>
+      path === 'src/helper.rs' ? 'pub fn helper() {}\n' : Promise.reject(new Error('missing')),
     searchText: async () => [{ path: 'src/helper.rs', line: 1, column: 1, preview: 'pub fn helper' }],
   });
   assert.deepEqual(result, {
@@ -177,9 +174,10 @@ test('Custom return-type methods are searchable, then confirmed as declarations'
     path: 'src/Api.cs',
     content: 'public class Api { public void Run() { Build(); } }\n',
     symbol: 'Build',
-    readFile: async (path) => path === 'src/Payload.cs'
-      ? 'public class Payload { public Payload Build() { return this; } }\n'
-      : Promise.reject(new Error('missing')),
+    readFile: async (path) =>
+      path === 'src/Payload.cs'
+        ? 'public class Payload { public Payload Build() { return this; } }\n'
+        : Promise.reject(new Error('missing')),
     searchText: async (query) => {
       queries.push(query);
       return [{ path: 'src/Payload.cs', line: 1, column: 1, preview: 'public Payload Build()' }];
@@ -194,13 +192,22 @@ test('Custom return-type methods are searchable, then confirmed as declarations'
   });
 });
 
-test('The editor wires Cmd/Ctrl-click, Cmd/Ctrl+B and F12 to declaration navigation', () => {
+test('The editor wires declaration and implementation navigation actions', () => {
   assert.match(source, /id: 'dsh-editor\.goToDefinition'/u);
   assert.match(source, /monaco\.KeyMod\.CtrlCmd \| monaco\.KeyCode\.F12/u);
   assert.match(source, /monaco\.KeyMod\.CtrlCmd \| monaco\.KeyCode\.KeyB/u);
+  assert.match(source, /id: 'dsh-editor\.goToImplementation'/u);
+  assert.match(source, /monaco\.KeyMod\.CtrlCmd \| monaco\.KeyMod\.Alt \| monaco\.KeyCode\.KeyB/u);
   assert.match(source, /editor\.onMouseDown\?\.\(\(event\) =>/u);
   assert.match(source, /browserEvent\?\.metaKey !== true && browserEvent\?\.ctrlKey !== true/u);
   assert.match(source, /onGoToDefinition: goToDefinitionAt/u);
+  assert.match(source, /goToDefinitionAt\(editor, position, 'implementation'\)/u);
+  assert.match(
+    source,
+    /onGoToImplementation: \(editor, position\) => goToDefinitionAt\(editor, position, 'implementation'\)/u,
+  );
   assert.match(source, /goToDefinitionAction: '转到声明'/u);
+  assert.match(source, /goToImplementationAction: '转到实现'/u);
   assert.match(source, /goToDefinitionAction: 'Go to Declaration'/u);
+  assert.match(source, /goToImplementationAction: 'Go to Implementation'/u);
 });

@@ -52,7 +52,11 @@ test('Find scope replaces the disabled Module mode with an actionable File mode'
 });
 
 test('Find file scope loads file candidates and keeps click-to-preview semantics', () => {
-  assert.match(workspace, /findToolSearchScopeMode !== 'files'[\s\S]*?op: 'files'/u);
+  assert.match(workspace, /findToolSearchScopeMode !== 'files'[\s\S]*?findToolFileCandidatesRequest\(/u);
+  assert.match(
+    workspace,
+    /findToolFileCandidatesRequest\([\s\S]*?normalizeFileExtensionFilter\(findTool\?\.fileMask\)/u,
+  );
   assert.match(workspace, /findFilePathMatches\([\s\S]*?current\.query/u);
   assert.match(workspace, /matches: \[\][\s\S]*?loadedGeneration: generation/u);
   assert.doesNotMatch(windowSource, /onClick=\{[^}]*openFindResult/u);

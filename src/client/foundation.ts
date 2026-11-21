@@ -330,6 +330,19 @@ export function findActionShortcutMatches(
 }
 
 /**
+ * Display the working Find Action chord.
+ *
+ * Harness reserves Cmd+Shift+A for archive at the native host layer, so the
+ * macOS surface advertises IDEA's equivalent Cmd+Shift+P chord. The global
+ * matcher still accepts both chords when the host delivers them.
+ * @param {boolean} macPlatform - whether the macOS keymap applies.
+ * @returns {string} localized display shortcut.
+ */
+export function findActionShortcutLabel(macPlatform: boolean): string {
+  return macPlatform ? '⇧⌘P' : '⌃⇧A';
+}
+
+/**
  * Leave Find Action chords to controls that already own the same context.
  * @param {EventTarget|null} target - event target.
  * @param {Element|null} active - current focused element.
@@ -339,10 +352,17 @@ export function findActionShortcutBlockedByChildContext(
   target: { closest?: (selector: string) => Element | null } | null | undefined,
   active: { closest?: (selector: string) => Element | null } | null | undefined,
 ): boolean {
-  const selector =
-    'input, textarea, [contenteditable="true"], .monaco-editor, ' +
-    '[data-dsh-editor-terminal], [data-dsh-changes-panel], [data-dsh-log-panel], [role="tree"]';
-  return target?.closest?.(selector) != null || active?.closest?.(selector) != null;
+  const blocks = (element: typeof target): boolean => {
+    if (element == null) return false;
+    const editable = element.closest?.('input, textarea, [contenteditable="true"]');
+    const monaco = element.closest?.('.monaco-editor');
+    if (editable != null && monaco == null) return true;
+    return (
+      element.closest?.('[data-dsh-editor-terminal], [data-dsh-changes-panel], [data-dsh-log-panel], [role="tree"]') !=
+      null
+    );
+  };
+  return blocks(target) || blocks(active);
 }
 
 /**

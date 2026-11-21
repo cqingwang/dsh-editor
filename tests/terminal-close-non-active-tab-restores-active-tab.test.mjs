@@ -58,6 +58,8 @@ function closeTerminalHarness({ activeElement, tabs }) {
     writeTerminalColors: () => {},
     setTerminals: () => {},
     setActiveId: () => {},
+    setError: () => {},
+    terminalErrorAfterTabClosed: () => null,
     window: {
       setTimeout(callback) {
         callback();

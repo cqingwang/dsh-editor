@@ -89,7 +89,7 @@ test('Search Everywhere dirty search invalidates stale requests on file changes'
   assert.match(source, /if \(searchTextRequestRef\.current !== requestId\) return;/gu);
   assert.match(
     source,
-    /searchEverywhere\?\.fileMask,\s+openFiles,\s+t,/u,
+    /searchEverywhere\?\.fileMask,\s+searchDirectoryRules,\s+openFiles,\s+t,/u,
   );
 });
 

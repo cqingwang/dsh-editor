@@ -56,6 +56,10 @@ test('compareText flags a binary clipboard as binary', async (t) => {
 
 test('the tree offers clipboard compare and directory staging', () => {
   const client = read('src/client/editor-workspace.tsx');
+  const { searchDirectoryToggleDisabledReason } = loadTypeScriptModule(
+    read('src/client/commit.ts'),
+    ['searchDirectoryToggleDisabledReason'],
+  );
   const { projectFileComparisonActions } = loadTypeScriptModule(
     read('src/client/components/project/project-selection-model.ts'),
     ['projectFileComparisonActions'],
@@ -98,6 +102,10 @@ test('the tree offers clipboard compare and directory staging', () => {
     removeEntry: () => {},
     revealPath: () => {},
     toggleDirectory: () => {},
+    searchDirectoryRules: { excludedDirectories: [], includedDirectories: [] },
+    searchDirectoryEffectiveState: () => 'included',
+    searchDirectoryToggleDisabledReason,
+    toggleSearchDirectory: () => {},
     buildHarnessPathAction: () => null,
     rowRefs: { current: new Map() },
   });

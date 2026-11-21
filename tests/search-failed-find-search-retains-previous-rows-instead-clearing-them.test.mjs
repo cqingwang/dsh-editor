@@ -39,14 +39,14 @@ test('Find error state owns the live status and retained-result rendering', () =
 });
 
 test('Replace actions stay disabled while the search result is in error', () => {
-  assert.match(findTool, /: state\.error !== null\s+\? t\('editor\.findReplaceSearchError'\)/u);
+  assert.match(findTool, /error: state\.error/u);
   assert.match(
     findTool,
-    /disabled=\{\s+state\.replaceBusy === true \|\|\s+state\.loading === true \|\|\s+state\.error !== null \|\|\s+scopedMatches\.length === 0\s+\}/u,
+    /disabled=\{\s+state\.replaceBusy === true \|\|\s+state\.loading === true \|\|\s+state\.error !== null \|\|\s+scopedMatches\.length === 0 \|\|\s+!findToolResultsAreCurrent\(state\)\s+\}/u,
   );
   assert.match(
     findTool,
-    /disabled=\{\s+state\.replaceBusy === true \|\|\s+state\.loading === true \|\|\s+state\.error !== null \|\|\s+activeTextOccurrence === null\s+\}/u,
+    /disabled=\{\s+state\.replaceBusy === true \|\|\s+state\.loading === true \|\|\s+state\.error !== null \|\|\s+activeTextOccurrence === null \|\|\s+!findToolResultsAreCurrent\(state\)\s+\}/u,
   );
   assert.match(source, /findReplaceSearchError: '搜索失败，请重试后再替换'/u);
   assert.match(source, /findReplaceSearchError: 'Search failed; retry before replacing'/u);

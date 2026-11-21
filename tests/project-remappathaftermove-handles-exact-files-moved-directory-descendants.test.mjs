@@ -22,6 +22,8 @@ test('rename and move share one editor-path remap callback', async () => {
   const remaps = [];
   const remapEditorPaths = (entries) => remaps.push(entries);
   const commitRename = loadTypeScriptCallback(source, 'commitRename', {
+    beginCommitOperation: () => true,
+    endCommitOperation: () => {},
     renameState: { path: 'src/a.ts', value: 'renamed.ts' },
     t: (key) => key,
     setTreeError: () => {},
@@ -39,6 +41,8 @@ test('rename and move share one editor-path remap callback', async () => {
   assert.deepEqual(remaps, [[['src/a.ts', 'src/renamed.ts']]]);
 
   const moveEntry = loadTypeScriptCallback(source, 'moveEntry', {
+    beginCommitOperation: () => true,
+    endCommitOperation: () => {},
     rows: [],
     callFs: async () => [],
     planMoves: () => ({ moves: [{ from: 'src/a.ts', to: 'lib/a.ts' }], conflicts: [], intoSelf: [] }),
@@ -51,6 +55,7 @@ test('rename and move share one editor-path remap callback', async () => {
     remapProjectExpandedPathsForMoves: () => {},
     remapProjectManualOrderForMoves: () => {},
     applyTreeSelection: () => {},
+    focusProjectAfterOption: () => {},
     refreshTree: async () => {},
     loadGit: async () => {},
     setTreeError: () => {},

@@ -144,14 +144,14 @@ function EditorFindBar({
         </span>
       )}
       <ToolbarButton
+        icon='chevronUp'
+        label={t('editor.findPrevious')}
+        onClick={() => onJump(-1)}
+      />
+      <ToolbarButton
         icon='chevronDown'
         label={t('editor.findNext')}
         onClick={() => onJump(1)}
-      />
-      <ToolbarButton
-        icon='chevronRight'
-        label={t('editor.findPrevious')}
-        onClick={() => onJump(-1)}
       />
       {state.withReplace === true ? (
         <ToolbarButton

@@ -64,7 +64,7 @@ export const LANGUAGE_BY_EXTENSION: Readonly<Record<string, string>> = {
   rs: 'rust',
   java: 'java',
   c: 'c',
-  h: 'c',
+  h: 'cpp',
   cc: 'cpp',
   cpp: 'cpp',
   cxx: 'cpp',

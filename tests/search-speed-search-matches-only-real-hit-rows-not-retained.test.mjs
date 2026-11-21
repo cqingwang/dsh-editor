@@ -80,8 +80,8 @@ test('typing selects the first hit and arrow keys move within the search box', (
   const panel = source.slice(source.indexOf('function ProjectPanel({'), source.indexOf('/**\n     * IDEA-style context menu'));
   assert.match(panel, /speedSearchHitRows\(visibleRows, search\)/);
   assert.match(panel, /speedSearchTarget\(visibleRows, search, selectedPath/);
-  assert.match(panel, /event\.key === 'ArrowDown'/);
-  assert.match(panel, /event\.key === 'ArrowUp'/);
+  assert.match(panel, /projectSpeedSearchKeyAction\(event, hits\.length\)/);
+  assert.match(panel, /keyAction === 'next' \|\| keyAction === 'previous'/);
   assert.match(panel, /selectSearchHit\(/);
 });
 
