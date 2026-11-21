@@ -19,6 +19,16 @@ export function isGitRepositoryMissingMessage(message: string): boolean {
   return /not a git repository/iu.test(message);
 }
 
+/**
+ * Keep a newer commit draft typed while the previous commit was still writing.
+ *
+ * The success callback carries the submitted text, not the current textarea
+ * value. Only the exact submitted draft may be cleared.
+ */
+export function commitDraftAfterSuccess(currentMessage: string, submittedMessage: string): string {
+  return currentMessage === submittedMessage ? '' : currentMessage;
+}
+
 interface SearchPreviewWindow {
   start: number;
   end: number;

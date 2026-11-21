@@ -178,7 +178,7 @@ test('TerminalScreen and restore path wire the bounded buffer through the existi
   assert.match(panelSource, /const snapshots = readTerminalRestoreSnapshots\(\)/);
   assert.match(
     panelSource,
-    /createTerminal\(exists \? entry\.shell : undefined, undefined, snapshots\[index\] \?\? ''\)/,
+    /createTerminal\(exists \? entry\.shell : undefined, entry\.cwd, snapshots\[index\] \?\? ''\)/,
   );
   assert.match(panelSource, /clearTerminalLiveBuffer\(terminal\.id\)/);
   assert.match(panelSource, /forgetTerminalLiveBuffer\(id\)/);

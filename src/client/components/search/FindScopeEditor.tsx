@@ -28,6 +28,7 @@ export interface FindScopeEditorProps {
   scopes: unknown[];
   initialId?: string | null;
   onSave: (scopes: FindScope[], selectedId: string | null) => void;
+  onWriteScopeXml: (path: string, content: string) => Promise<void>;
   onClose: () => void;
 }
 
@@ -44,7 +45,7 @@ interface ScopeTransferState {
   xml: string;
 }
 
-function FindScopeEditor({ t, scopes, initialId, onSave, onClose }: FindScopeEditorProps) {
+function FindScopeEditor({ t, scopes, initialId, onSave, onWriteScopeXml, onClose }: FindScopeEditorProps) {
   const initialDrafts: FindScope[] = React.useMemo(() => {
     const normalized = normalizeCustomFindScopes(scopes);
     return normalized.length === 0
@@ -238,7 +239,7 @@ function FindScopeEditor({ t, scopes, initialId, onSave, onClose }: FindScopeEdi
       current === null ? current : { ...current, loading: true, error: null },
     );
     try {
-      await callFs({ op: 'write', path, content: transfer.xml, force: true, create: true });
+      await onWriteScopeXml(path, transfer.xml);
       setTransfer(null);
     } catch (failure) {
       setTransfer((current: ScopeTransferState | null) =>

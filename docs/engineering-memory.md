@@ -1,5 +1,1904 @@
 # dsh-editor 工程记忆
 
+## 2026-11-21 — Scope XML 并发写入可乱序覆盖
+
+**作用域**：shared Find Scope auto-save、manual XML export、Host write
+ordering、repository guard、rollback revision。
+
+**症状/证据**：
+
+- 多个 Scope 保存/export 可以在前一个 Host write 未完成时并发开始；
+- 文件系统请求完成顺序没有保证；
+- 旧内容可能在新内容之后完成，最终 `.idea/scopes/dsh-editor.xml`
+  回到旧 Scope；
+- guard 和 rollback 只能控制是否写/失败恢复，不能保证写入顺序。
+
+**根因**：
+
+- `writeFindScopeFile()` 每次直接调用 Host；
+- 同一路径没有 in-flight chain 或队列；
+- UI 快速连续保存时自然形成并发写。
+
+**修复**：
+
+- 增加 `createSerializedFindScopeWriter()`；
+- 以 path 为 key 保存最后一个 Promise；
+- 新写入先等待 previous settle，再提交自己的 write；
+- previous rejection 被吞掉，仅影响它自己的调用者，不阻断 later write；
+- 当前 chain 完成后仅删除仍指向自己的 Map entry；
+- guarded auto-save、manual export 继续共用该串行 writer。
+
+**回归测试**：
+
+```bash
+node --test tests/search-scope-file-write-respects-repository-update-guard.test.mjs \
+  tests/search-local-custom-scopes-normalize-names-ids-bounded-include-exclude.test.mjs \
+  tests/commit-update-blocks-repository-writes.test.mjs
+npm test
+```
+
+- RED：第二次 write 在第一次未完成前就发出；
+- GREEN：第一次完成前只有 1 个 Host write；
+- GREEN：第一次完成后才发出 second，last-write-wins 正确；
+- GREEN：Search/Commit 定向 **20 pass / 0 fail**；
+- GREEN：完整 `npm test` **3584 pass / 0 fail**；
+- GREEN：ESLint、TypeScript、**135** 个 source imports、Prettier、
+  client build consistency、`node --check`、`git diff --check` 通过；
+- GREEN：`lib/client.js` **2,585,005 bytes**；
+- GREEN：`editor-workspace.tsx` **12591 行**。
+
+**运行态**：
+
+- Harness 重启后 Host PID `75769` 监听 `3081`；
+- Web `3081` 仍由 DSH Pocket PIN 保护，未猜测凭据。
+
+**长期约束**：
+
+- 同一 workspace file 的写入必须保持调用顺序；
+- 前置失败只能 reject 自己的 Promise，不能阻断后续内容；
+- 串行 Map 必须清理已完成 chain，防止无界增长；
+- guard、rollback、ordering 是三个独立但必须共同成立的约束。
+
+## 2026-11-21 — Scope 异步写入失败不回滚本地状态
+
+**作用域**：shared Find Scope auto-save、Host write rejection、revision、
+local persistence、sharedFindScopesRef、Finder preset rollback。
+
+**症状/证据**：
+
+- 同步 guard 已通过后，调用方立即更新 local scope state；
+- Host write Promise 可在之后失败；
+- 原实现只显示错误，不恢复 previous scopes/shared ref/selection；
+- 结果 UI 保留新 Scope，而磁盘 XML 仍是旧版本。
+
+**根因**：
+
+- auto-save 只有同步成功/拒绝，没有异步失败回调；
+- 本地提交先于 Host write 完成；
+- 多个连续编辑之间没有 attempt revision 防旧失败覆盖新状态。
+
+**修复**：
+
+- auto-save callback 支持 per-attempt `onFailure`；
+- `changeCustomFindScopes()` 在每次调用开始时增加同步 revision；
+- 保存前捕获 previous local scopes 与 shared scopes；
+- write rejection 时仅当 revision 仍为最新才回滚；
+- 回滚覆盖 persisted local scopes、React state、shared ref 和 Finder
+  custom preset；
+- 抽取 `findToolAfterCustomScopesChange()` 统一 preset 失效逻辑；
+- 成功路径和 synchronous guard 拒绝路径保持不变。
+
+**回归测试**：
+
+```bash
+node --test tests/search-scope-file-write-respects-repository-update-guard.test.mjs \
+  tests/search-local-custom-scopes-normalize-names-ids-bounded-include-exclude.test.mjs \
+  tests/commit-update-blocks-repository-writes.test.mjs
+npm test
+```
+
+- RED：异步失败后最后一次 state update 仍为新 Scope；
+- GREEN：state、local storage、shared ref 均回到 previous；
+- GREEN：blocked guard 路径不更新 state；
+- GREEN：Search/Commit 定向 **13 pass / 0 fail**；
+- GREEN：完整 `npm test` **3583 pass / 0 fail**；
+- GREEN：ESLint、TypeScript、**135** 个 source imports、Prettier、
+  client build consistency、`node --check`、`git diff --check` 通过；
+- GREEN：`lib/client.js` **2,584,544 bytes**；
+- GREEN：`editor-workspace.tsx` **12591 行**。
+
+**运行态**：
+
+- Harness 重启后 Host PID `23450` 监听 `3081`；
+- 真实 Zygisksdk 的 `npm:typescript@5.9.3` 仍无红字；
+- Web `3081` 仍由 DSH Pocket PIN 保护，未猜测凭据。
+
+**长期约束**：
+
+- 异步写失败必须回滚磁盘相关本地镜像，而不只是显示错误；
+- rollback 必须带 revision guard，禁止旧失败覆盖新编辑；
+- local storage、React state、shared ref、selection 必须成组恢复；
+- synchronous guard 与 asynchronous failure 共用同一保存 owner。
+
+## 2026-11-21 — Scope 门禁拒绝后仍更新本地状态
+
+**作用域**：shared Find Scope 自动保存、repository update guard、local
+scope state、sharedFindScopesRef、selection preset。
+
+**症状/证据**：
+
+- guard 已阻止 Host write，但 `changeCustomFindScopes()` 随后仍调用
+  `setCustomFindScopes()`；
+- `sharedFindScopesRef` 也已换成新 shared scopes；
+- UI 和选择器显示新 Scope，磁盘 XML 仍为旧版本；
+- blocked writer 只异步报错，无法阻止调用方继续更新状态。
+
+**根因**：
+
+- repository claim 在异步 writer 内，调用方无法同步知道是否写入成功；
+- 本地状态更新发生在 writer 之前；
+- shared ref、local scopes 与 selection 缺少同一个成功门禁。
+
+**修复**：
+
+- `search-scope.ts` 拆分 `writeFindScopeFile()` 和 guarded writer；
+- 增加 synchronous claim + async write 的
+  `useFindScopeFileAutoSave()`；
+- blocked 时当场设置 `editor.updateBusy` 并返回 false；
+- 只有 writer 返回 true 后才更新 `sharedFindScopesRef`；
+- blocked 分支返回当前 `customFindScopes`，不更新 state/selection；
+- XML export 的 guarded callback 仍复用同一底层 writer。
+
+**回归测试**：
+
+```bash
+node --test tests/search-scope-file-write-respects-repository-update-guard.test.mjs \
+  tests/search-local-custom-scopes-normalize-names-ids-bounded-include-exclude.test.mjs \
+  tests/commit-update-blocks-repository-writes.test.mjs
+npm test
+```
+
+- RED：blocked 时 local state update 仍为 1；
+- GREEN：blocked 时 local state update 为 0；
+- GREEN：返回当前 scopes，并显示 `editor.updateBusy`；
+- GREEN：guarded helper 的 claim/write/release 语义保持；
+- GREEN：Search/Commit 定向 **18 pass / 0 fail**；
+- GREEN：完整 `npm test` **3582 pass / 0 fail**；
+- GREEN：ESLint、TypeScript、**135** 个 source imports、Prettier、
+  client build consistency、`node --check`、`git diff --check` 通过；
+- GREEN：`lib/client.js` **2,583,782 bytes**；
+- GREEN：`editor-workspace.tsx` **12599 行**。
+
+**运行态**：
+
+- Harness 重启后 Host PID `70740` 监听 `3081`；
+- 真实 Zygisksdk 的 `npm:typescript@5.9.3` 仍无红字；
+- Web `3081` 仍由 DSH Pocket PIN 保护，未猜测凭据。
+
+**长期约束**：
+
+- 需要同步知道 guard 结果的 auto-save 必须在第一个 await 前 claim；
+- 本地状态、共享 ref 和 selection 只能在 writer 成功后一起提交；
+- blocked early return 不得改变 UI state 或磁盘；
+- guarded auto-save 与 manual export 必须复用同一 Host write owner。
+
+## 2026-11-21 — Find Scope 文件写入绕过仓库写入门禁
+
+**作用域**：自定义 Find Scope、shared scope 自动保存、XML export、
+`.idea/scopes/dsh-editor.xml`、Update Project 写入门禁。
+
+**症状/证据**：
+
+- `changeCustomFindScopes()` 直接调用 Host `write`；
+- `FindScopeEditor` 的 XML export 也直接调用 Host `write`；
+- Update Project 持有 `repositoryUpdateGuardRef` 时，这两条路径仍可写；
+- guard 拒绝时没有统一错误，UI 状态还可能先于磁盘写入更新。
+
+**根因**：
+
+- Find Scope 写入早于共享 repository write claim；
+- UI component 直接依赖 callFs，绕过 workspace 的写入门禁；
+- 自动保存与 export 各自实现文件写入，缺少单一 owner。
+
+**修复**：
+
+- `search-scope.ts` 增加 `writeFindScopeFileWithGuard()`；
+- 同一模块增加 `useFindScopeFileWrite()`，统一 begin/end、Host write 和
+  update-busy 错误；
+- `changeCustomFindScopes()` 与 XML export 共用同一个 guarded callback；
+- `FindToolWindow` 和 `FindScopeEditor` 显式传递 `onWriteScopeXml`；
+- Scope editor 不再直接依赖写文件 callFs；
+- guard 拒绝时不调用 Host write，也不释放未获得的 claim。
+
+**回归测试**：
+
+```bash
+node --test tests/search-scope-file-write-respects-repository-update-guard.test.mjs \
+  tests/search-local-custom-scopes-normalize-names-ids-bounded-include-exclude.test.mjs \
+  tests/commit-update-blocks-repository-writes.test.mjs
+npm test
+```
+
+- RED：guard 拒绝时没有统一 write owner；
+- GREEN：guard 拒绝时 write=0、release=0；
+- GREEN：guard 允许时 write=1、release=1；
+- GREEN：Scope editor export 走 `onWriteScopeXml(path, transfer.xml)`；
+- GREEN：Search/Commit 定向 **11 pass / 0 fail**；
+- GREEN：完整 `npm test` **3581 pass / 0 fail**；
+- GREEN：ESLint、TypeScript、**135** 个 source imports、Prettier、
+  client build consistency、`node --check`、`git diff --check` 通过；
+- GREEN：`lib/client.js` **2,583,100 bytes**；
+- GREEN：`editor-workspace.tsx` **12597 行**。
+
+**运行态**：
+
+- Harness 重启后 Host PID `17938` 监听 `3081`；
+- 真实 Zygisksdk 的 `npm:typescript@5.9.3` 仍无红字；
+- Web `3081` 仍由 DSH Pocket PIN 保护，未猜测凭据。
+
+**长期约束**：
+
+- Search/Find 组件不得直接写 workspace 文件；
+- Scope 文件写必须通过 workspace-owned guarded callback；
+- guard 失败时不得更新磁盘或执行 release；
+- 同一文件写入入口必须复用同一 claim 和错误语义。
+
+## 2026-11-21 — 连续 Save All 没有 single-flight
+
+**作用域**：Save All、same-turn repeated shortcut、repository operation
+count、dirty tab snapshot、mtime conflict、applyPatch nested save。
+
+**症状/证据**：
+
+- 两次同一事件帧 Save All 都通过 `beginCommitOperation()`；
+- operation count 只组合 claim，不是批量保存的排他锁；
+- 两次调用各读取相同 dirty tabs，并发出 **2** 次 Host write；
+- 第二批可能携带相同旧 mtime，产生自诱发的 changed-on-disk 冲突。
+
+**根因**：
+
+- Save All 没有独立的同步 in-flight ref；
+- repository write claim 被设计为可组合，不应承担同类操作去重；
+- React dirty state/UI 尚未刷新时，快捷键和菜单可重复触发。
+
+**修复**：
+
+- 新增 `saveAllInFlightRef`；
+- Save All 在 dirty snapshot 和第一个 await 前检查并设置；
+- 第二个调用立即返回 0，不占 repository claim、不读 dirty files；
+- 首批 `finally` 同时清除 in-flight ref 和 operation claim；
+- applyPatch 内嵌套调用继续保持 operation count 可组合；
+- Update Project 门禁仍在最前面生效。
+
+**回归测试**：
+
+```bash
+node --test tests/editor-saving-dirty-model-writes-live-content-clears-dirty-new.test.mjs \
+  tests/commit-update-blocks-repository-writes.test.mjs \
+  tests/commit-busy-operations-compose.test.mjs \
+  tests/commit-success-preserves-new-message-draft.test.mjs \
+  tests/editor-ensureeditormodel-reuses-one-model-per-workspace-path.test.mjs \
+  tests/commit-remote-network-single-flight.test.mjs
+npm test
+```
+
+- RED：同帧两次 Save All 发出 **2** 次 write；
+- GREEN：只发出 **1** 次 write，第二次返回 0；
+- GREEN：首批完成后 in-flight ref=false，operation release 恰好 1 次；
+- GREEN：保存/Commit 定向 **13 pass / 0 fail**；
+- GREEN：完整 `npm test` **3579 pass / 0 fail**；
+- GREEN：ESLint、TypeScript、**135** 个 source imports、Prettier、
+  client build consistency、`node --check`、`git diff --check` 通过；
+- GREEN：`lib/client.js` **2,581,973 bytes**；
+- GREEN：`editor-workspace.tsx` **12595 行**。
+
+**运行态**：
+
+- Harness 重启后 Host PID `64404` 监听 `3081`；
+- 真实 Zygisksdk 的 `npm:typescript@5.9.3` 仍无红字；
+- Web `3081` 仍由 DSH Pocket PIN 保护，未猜测凭据。
+
+**长期约束**：
+
+- repository claim 保证共享 busy，不替代同一批量命令的 single-flight；
+- in-flight ref 必须在 dirty snapshot 前同步设置；
+- 任何 early return 都不得泄漏 in-flight ref 或 operation claim；
+- 批量保存重试必须等待上一批完整释放后才能进入。
+
+## 2026-11-21 — Save All 绕过 Update Project 写入门禁
+
+**作用域**：Save All、单文件保存、Update Project、shared repository write
+claim、dirty Monaco model、保存后 mtime、applyPatch 嵌套保存。
+
+**症状/证据**：
+
+- `savePath()` 已通过 `beginCommitOperation()` 阻止 Update 期间写入；
+- `saveAll()` 直接遍历 dirty tabs 并逐个调用 Host `write`；
+- Update Project 持有 `repositoryUpdateGuardRef` 时，Save All 的
+  write 调用仍为 1；
+- pull/checkout 与批量保存因此可能并发改写同一工作树文件。
+
+**根因**：
+
+- dirty-buffer 保存存在两个入口，但只有单文件保存接入共享仓库门禁；
+- 批量保存没有 claim/release 生命周期；
+- 保存后文件状态更新逻辑在两个入口重复，增加了再次漏改的概率。
+
+**修复**：
+
+- `saveAll()` 在第一个 await 前调用 `beginCommitOperation()`；
+- 无 claim 时立即返回 0，不读取或写入任何文件；
+- 写入门禁覆盖整个批量保存、状态更新和 Git 刷新；
+- `finally` 始终 `endCommitOperation()`；
+- 嵌套 applyPatch -> Save All 由 operation count 正确组合；
+- 新增 `workspaceFileAfterSave()`，单文件保存与 Save All 复用；
+- `editor-workspace.tsx` 从 12604 行降至 **12591 行**。
+
+**回归测试**：
+
+```bash
+node --test tests/commit-update-blocks-repository-writes.test.mjs \
+  tests/commit-busy-operations-compose.test.mjs \
+  tests/commit-success-preserves-new-message-draft.test.mjs \
+  tests/editor-ensureeditormodel-reuses-one-model-per-workspace-path.test.mjs \
+  tests/commit-remote-network-single-flight.test.mjs \
+  tests/editor-saving-dirty-model-writes-live-content-clears-dirty-new.test.mjs
+npm test
+```
+
+- RED：Update guard 持有时 Save All 仍发出 1 次 `write`；
+- GREEN：Update guard 持有时 Save All 返回 0，write 调用为 0；
+- GREEN：保存 helper 使用 live model content，并在 mtime 有效时替换；
+- GREEN：Commit/Update/保存定向 **22 pass / 0 fail**；
+- GREEN：完整 `npm test` **3578 pass / 0 fail**；
+- GREEN：ESLint、TypeScript、**135** 个 source imports、Prettier、
+  client build consistency、`node --check`、`git diff --check` 通过；
+- GREEN：`lib/client.js` **2,581,780 bytes**；
+- GREEN：`editor-workspace.tsx` **12591 行**。
+
+**运行态**：
+
+- Harness 重启后 Host PID `12262` 监听 `3081`；
+- 真实 Zygisksdk 的 `npm:typescript@5.9.3` 仍无红字；
+- Web `3081` 仍由 DSH Pocket PIN 保护，未猜测凭据。
+
+**长期约束**：
+
+- 所有 dirty-buffer 磁盘写入口必须使用同一 repository write claim；
+- claim 必须在第一个 await 前同步获得，不能依赖 React busy state；
+- Save All 的任何提前返回都必须经过 `finally` 释放 claim；
+- 保存后状态模型必须由共享 helper 维护，避免入口间漂移。
+
+## 2026-11-21 — package wildcard exports 无虚拟类型入口
+
+**作用域**：package `exports['./*']`、conditions target、真实声明文件反推、
+virtual proxy、NodeJs resolver、typeLibraries 预算。
+
+**症状/证据**：
+
+- package 声明：
+  - `exports['./*'].types = './dist/*.d.mts'`；
+  - 实际文件 `dist/wild-feature.d.mts`；
+- `@scope/package/wild-feature` 的 `resolveModuleName()` 仍返回
+  `undefined`；
+- 上一轮只处理精确 exports key，wildcard key 被跳过。
+
+**根因**：
+
+- Monaco NodeJs resolver 不读取 package exports；
+- wildcard key 不能直接成为固定 path；
+- 没有从已加载声明 target pattern 反推 concrete subpath。
+
+**修复**：
+
+- 对单一 `*` 的 exports key 提取 conditions 下的类型 target pattern；
+- 将 target pattern 转换为 `.d.ts/.d.mts/.d.cts` virtual pattern；
+- 只匹配 typeLibraries state 中真实存在的 declaration files；
+- 从 target prefix/suffix 提取 wildcard capture，生成 concrete export key；
+- 创建对应虚拟 re-export proxy；
+- 跳过多 wildcard、空 capture 和 `..` segment；
+- 每个 pattern 最多 100 个 concrete proxy，并继续受总会话预算限制。
+
+**回归测试**：
+
+```bash
+node --test tests/editor-workspace-type-libraries-node-deno.test.mjs \
+  tests/project-directories-tree-also-watched.test.mjs \
+  tests/search-gitignore-directory-creation-invalidates-cache.test.mjs \
+  tests/editor-typescript-editor-core-preserves-path-patch-api-helpers.test.mjs \
+  tests/editor-typescript-module-not-found-false-positives-targeted-without-disabling.test.mjs
+npm test
+```
+
+- RED：`@scope/exports-only/wild-feature` 解析为 `undefined`；
+- GREEN：生成 `node_modules/@scope/exports-only/wild-feature.d.ts`；
+- GREEN：proxy 指向真实 `.d.mts` 声明；
+- GREEN：真实 Zygisksdk 为 **226 files / 4,632,908 bytes**；
+- GREEN：连续扫描约 **129/89/89 ms**；
+- GREEN：类型/watcher 定向 **24 pass / 0 fail**；
+- GREEN：完整 `npm test` **3578 pass / 0 fail**；
+- GREEN：ESLint、TypeScript、**135** 个 source imports、Prettier、
+  client build consistency、`node --check`、`git diff --check` 通过。
+
+**运行态**：
+
+- Harness 重启后 Host PID `8709` 监听 `3081`；
+- 真实 Zygisksdk 的 `npm:typescript@5.9.3` 仍无红字；
+- Web `3081` 仍由 DSH Pocket PIN 保护，未猜测凭据。
+
+**长期约束**：
+
+- wildcard 只能从真实 declaration target 反推，不得枚举或伪造空模块；
+- exact exports 与 import-map alias 必须保持优先级；
+- 多 wildcard/多 capture 不得静默猜测；
+- wildcard proxy 展开必须受每-pattern 和全 workspace 双层预算约束。
+
+## 2026-11-21 — package exports 精确 subpath 无虚拟类型入口
+
+**作用域**：package `exports` 精确 subpath、NodeJs resolver、virtual
+`node_modules`、`.d.mts/.d.cts` proxy、typeLibraries 预算。
+
+**症状/证据**：
+
+- package 已有：
+  - `exports['./cjs-only'].types = './dist/cjs-only.d.cts'`；
+  - 实际 `dist/cjs-only.d.cts` 文件；
+- 未通过 Deno import map 引用时 `@scope/package/cjs-only` 的
+  `resolveModuleName()` 仍返回 `undefined`；
+- 原有 proxy 只为 package root 与 import-map alias 生成，没有枚举普通
+  exports subpath。
+
+**根因**：
+
+- Monaco 固定 NodeJs module resolution，不读取 package `exports`；
+- typeLibraries 因此必须显式生成虚拟入口；
+- 当前枚举只覆盖 root 和用户 import alias，漏掉包自身的精确 subpath。
+
+**修复**：
+
+- 遍历 package `exports` 的精确 `./subpath` key；
+- 映射为 `<package-name>/<subpath-relative>`；
+- 仅当 target 声明实际存在于 state 时生成 re-export proxy；
+- Deno import-map alias 后写入，保持自定义 alias 优先；
+- 跳过 root、wildcard、query 和含 `..` 的 key；
+- 继续受 1200 files / 2MB per file / 12MB total 预算约束。
+
+**回归测试**：
+
+```bash
+node --test tests/editor-workspace-type-libraries-node-deno.test.mjs \
+  tests/project-directories-tree-also-watched.test.mjs \
+  tests/search-gitignore-directory-creation-invalidates-cache.test.mjs \
+  tests/editor-typescript-editor-core-preserves-path-patch-api-helpers.test.mjs \
+  tests/editor-typescript-module-not-found-false-positives-targeted-without-disabling.test.mjs
+npm test
+```
+
+- RED：`@scope/exports-only/cjs-only` 解析为 `undefined`；
+- GREEN：生成 `node_modules/@scope/exports-only/cjs-only.d.ts`；
+- GREEN：proxy 正确 re-export `dist/cjs-only.d.cts`；
+- GREEN：真实 Zygisksdk 为 **196 files / 4,631,274 bytes**；
+- GREEN：类型/watcher 定向 **24 pass / 0 fail**；
+- GREEN：完整 `npm test` **3578 pass / 0 fail**；
+- GREEN：ESLint、TypeScript、**135** 个 source imports、Prettier、
+  client build consistency、`node --check`、`git diff --check` 通过。
+
+**运行态**：
+
+- Harness 重启后 Host PID `55280` 监听 `3081`；
+- 真实 Zygisksdk 的 `npm:typescript@5.9.3` 仍无红字；
+- Web `3081` 仍由 DSH Pocket PIN 保护，未猜测凭据。
+
+**长期约束**：
+
+- package exports 精确 key 必须与真实声明 target 成对生成 proxy；
+- import-map 自定义 alias 优先于自动 subpath alias；
+- wildcard export 不得用猜测或空模块伪装为已解析；
+- proxy 枚举与写入必须继续受 typeLibraries 总预算限制。
+
+## 2026-11-21 — .d.mts/.d.cts 声明未进入类型库
+
+**作用域**：TypeScript declaration suffixes、dependency/workspace package
+扫描、workspace local declarations、watcher invalidation、Monaco extra libs。
+
+**症状/证据**：
+
+- TypeScript proxy 代码已经能映射 `.d.mts` / `.d.cts` target；
+- 但 collectTypeDeclarationFiles 只接受 `.d.ts`；
+- workspace local declarations 只有 `*.d.ts` fileMask；
+- client watcher invalidation 只用 `endsWith('.d.ts')`；
+- 结果：现代 ESM/CJS 声明无法进入 typeLibraries，也无法自动刷新。
+
+**根因**：
+
+- 声明后缀判断分散在多处，且实现只覆盖 `.d.ts`；
+- 文件 mask 和 client invalidation 与 Host 支持的 target mapper 不一致。
+
+**修复**：
+
+- Host 增加 `isTypeLibraryDeclarationFile()`，覆盖
+  `.d.ts`、`.d.mts`、`.d.cts`；
+- dependency/workspace package 扫描使用统一判断；
+- local declarations 使用 `*.d.ts,*.d.mts,*.d.cts` mask；
+- `workspaceChangeInvalidatesTypeLibraries()` 同步三种后缀；
+- typeLibraries 文件、单文件和总字节预算不变。
+
+**回归测试**：
+
+```bash
+node --test tests/editor-workspace-type-libraries-node-deno.test.mjs \
+  tests/project-directories-tree-also-watched.test.mjs \
+  tests/search-gitignore-directory-creation-invalidates-cache.test.mjs \
+  tests/editor-typescript-editor-core-preserves-path-patch-api-helpers.test.mjs \
+  tests/editor-typescript-module-not-found-false-positives-targeted-without-disabling.test.mjs
+npm test
+```
+
+- RED：dependency `.d.mts`、local `.d.mts/.d.cts` 不在 files；
+- RED：`.d.mts/.d.cts` 变化不触发 invalidation；
+- GREEN：三种声明格式均进入 typeLibraries；
+- GREEN：真实 Zygisksdk 仍为 **193 files / 4,631,156 bytes**；
+- GREEN：类型/watcher 定向 **24 pass / 0 fail**；
+- GREEN：完整 `npm test` **3578 pass / 0 fail**；
+- GREEN：ESLint、TypeScript、**135** 个 source imports、Prettier、
+  client build consistency、`node --check`、`git diff --check` 通过；
+- GREEN：`lib/client.js` **2,581,657 bytes**；
+- GREEN：`editor-workspace.tsx` **12599 行**。
+
+**运行态**：
+
+- Harness 重启后 Host PID `2040` 监听 `3081`；
+- 真实 Zygisksdk 的 `npm:typescript@5.9.3` 仍无红字；
+- Web `3081` 仍由 DSH Pocket PIN 保护，未猜测凭据。
+
+**长期约束**：
+
+- `.d.ts` / `.d.mts` / `.d.cts` 必须由同一判断和 watcher 边界覆盖；
+- local mask、package scan、proxy target 三处后缀集合必须一致；
+- 新增声明格式不得绕过 typeLibraries 文件与字节预算；
+- 声明格式变化必须触发同一 trailing refresh 队列，不得并行扫描。
+
+## 2026-11-21 — Deno 本地 import map alias 未进入 Monaco paths
+
+**作用域**：Deno import map `./` target、本地 prefix/exact alias、Monaco
+`paths`、package candidate 判定、TypeScript module resolution。
+
+**症状/证据**：
+
+- `deno.json` imports 中的 `"@local/": "./types/"` 没有被转换成
+  Monaco path；
+- `resolveModuleName('@local/local-probe')` 返回 `undefined`；
+- `typeLibraryPackageName('./types/')` 返回 `"."`，让本地 target 被误当
+  成 npm package candidate；
+- 本地 import map alias 因而既不能解析，也可能触发无效 candidate。
+
+**根因**：
+
+- package 名推导只按 `/` 和 `@` 切分，没有先区分相对/绝对/file URL；
+- 正则允许纯 `.` 通过；
+- Host 只收集可识别为 npm target 的 Deno imports，没有为本地 target
+  生成 TypeScript path。
+
+**修复**：
+
+- `typeLibraryPackageName()` 显式拒绝 `.`、相对路径、绝对路径和
+  `file:` target，并要求包名至少含字母或数字；
+- 新增 `denoLocalImportMapPaths()`：
+  - 接受 `./` 本地 target；
+  - prefix alias 转为 `alias/*`；
+  - target 按 `compilerOptions.baseUrl` 转为相对 path；
+  - 拒绝空 target、`..` segment、`*`/`?` alias 和绝对 URL；
+- 本地 paths 与 compiler paths、npm alias、JSR paths 合并；
+- 没有向 typeLibraries 注入任何伪造源文件或声明。
+
+**回归测试**：
+
+```bash
+node --test tests/editor-workspace-type-libraries-node-deno.test.mjs \
+  tests/project-directories-tree-also-watched.test.mjs \
+  tests/search-gitignore-directory-creation-invalidates-cache.test.mjs \
+  tests/editor-typescript-editor-core-preserves-path-patch-api-helpers.test.mjs \
+  tests/editor-typescript-module-not-found-false-positives-targeted-without-disabling.test.mjs
+npm test
+```
+
+- RED：`@local/*` 不在 paths，模块解析为 `undefined`；
+- RED：`./types/` 被错误识别为 package `"."`；
+- GREEN：baseUrl=`src` 时得到 `@local/* -> ../types/*`；
+- GREEN：TypeScript 解析到真实 `types/local-probe.d.ts`；
+- GREEN：真实 Zygisksdk 仍为 **193 files / 4,631,156 bytes**；
+- GREEN：类型/watcher 定向 **24 pass / 0 fail**；
+- GREEN：完整 `npm test` **3578 pass / 0 fail**；
+- GREEN：ESLint、TypeScript、**135** 个 source imports、Prettier、
+  client build consistency、`node --check`、`git diff --check` 通过。
+
+**运行态**：
+
+- Harness 重启后 Host PID `49067` 监听 `3081`；
+- 真实 Zygisksdk 的 `npm:typescript@5.9.3` 仍无红字；
+- Web `3081` 仍由 DSH Pocket PIN 保护，未猜测凭据。
+
+**长期约束**：
+
+- 相对路径/file URL 永远不能进入 npm package candidate；
+- local import-map path 必须相对于 TypeScript baseUrl 正确归一；
+- prefix alias 的 `*` 展开不能被精确 alias 或 npm alias 覆盖；
+- 没有真实文件/模型时不得生成空声明或 `any` 模块伪装成功。
+
+## 2026-11-21 — Deno jsonc 与 jsconfig 类型配置未读取
+
+**作用域**：`deno.jsonc`、`jsconfig.json`、typeLibraries 配置优先级、
+Deno imports/types、baseUrl/paths、watcher 失效规则。
+
+**症状/证据**：
+
+- 刷新规则已声明 `jsconfig.json` 可改变类型库，但 Host 仅读取
+  `tsconfig.json`；
+- Deno 支持 `deno.jsonc`，但 Host 仅读取 `deno.json`；
+- 隔离 fixture 只提供 `deno.jsonc + jsconfig.json` 时，
+  `baseUrl` 返回空，zod 和 Deno runtime 类型也没有加载；
+- 因此这些合法配置下的依赖/devDependency 类型不会自动感知。
+
+**根因**：
+
+- 配置读取入口把文件名硬编码为单一 variant；
+- client invalidation 与 Host 实际读取集合不一致；
+- 没有测试覆盖 JSONC Deno 配置与 JS config fallback。
+
+**修复**：
+
+- 新增 `readFirstTypeConfig(root, names)`，按明确优先级读取第一个有效配置；
+- TypeScript 配置优先 `tsconfig.json`，回退 `jsconfig.json`；
+- Deno 配置优先 `deno.json`，回退 `deno.jsonc`；
+- `workspaceChangeInvalidatesTypeLibraries()` 增加 `deno.jsonc`；
+- 继续复用同一 JSONC parser、typeLibraries 预算和路径限制。
+
+**回归测试**：
+
+```bash
+node --test tests/editor-workspace-type-libraries-node-deno.test.mjs \
+  tests/project-directories-tree-also-watched.test.mjs \
+  tests/search-gitignore-directory-creation-invalidates-cache.test.mjs \
+  tests/editor-typescript-editor-core-preserves-path-patch-api-helpers.test.mjs \
+  tests/editor-typescript-module-not-found-false-positives-targeted-without-disabling.test.mjs
+npm test
+```
+
+- RED：`deno.jsonc + jsconfig.json` fixture 的 `baseUrl` 为空，类型未加载；
+- GREEN：Deno imports/types、`deno.ns.d.ts`、zod 与 jsconfig baseUrl/paths
+  均进入 typeLibraries；
+- GREEN：`deno.jsonc` 命中 watcher invalidation；
+- GREEN：类型/watcher 定向 **24 pass / 0 fail**；
+- GREEN：完整 `npm test` **3578 pass / 0 fail**；
+- GREEN：ESLint、TypeScript、**135** 个 source imports、Prettier、
+  client build consistency、`node --check`、`git diff --check` 通过；
+- GREEN：`npm pack --dry-run` **149 files**；
+- GREEN：`lib/client.js` **2,581,603 bytes**；
+- GREEN：`editor-workspace.tsx` **12599 行**。
+
+**运行态**：
+
+- Harness 重启后 Host PID `94922` 监听 `3081`；
+- 真实 Zygisksdk 的 `deno.json` 项目保持正常；
+- `scripts/generate-devtool-completion.ts` 无 `npm:typescript` 红字；
+- Web `3081` 仍由 DSH Pocket PIN 保护，未猜测凭据。
+
+**未修复边界**：
+
+- Zygisksdk 未安装 `@types/node`，当前也没有 Deno 权威 Node 声明；
+- `http`、`url` 和 `src/optional/mod_load_skips` 仍 unresolved；
+- 不得用空 module、`any` proxy 或忽略 TS2307/TS2304 伪装类型成功。
+
+**长期约束**：
+
+- client invalidation 文件集合必须与 Host 实际读取集合一致；
+- 多 variant 配置必须有固定优先级和 JSONC 解析；
+- 配置 fallback 不得放宽路径 containment、文件数和字节预算；
+- 只有存在权威声明来源时才为 Deno 内置 Node 模块接入类型。
+
+## 2026-11-21 — Deno lock 内联 npm 依赖未进入类型索引
+
+**作用域**：Deno `npm:` 直接导入、`deno.lock.specifiers`、typeLibraries
+候选包、npm alias proxy、TypeScript package 默认 libs、Monaco extra libs。
+
+**症状/证据**：
+
+- `Zygisksdk/scripts/generate-devtool-completion.ts` 使用
+  `import * as ts from "npm:typescript@5.9.3"`；
+- `node_modules/typescript` 已由 Deno 安装，但该 specifier 在虚拟
+  module resolution 中返回 `undefined`；
+- UI 因忽略 TS2307 看起来无红字，实际 `ts` 命名空间可能退化为缺失类型；
+- 直接递归 TypeScript package 的所有 `.d.ts` 会把 Monaco 已内置的
+  `lib.es5.d.ts`、`lib.dom.d.ts` 等再次注入。
+
+**根因**：
+
+- Host 只看 `package.json` dependencies/devDependencies、`deno.json`
+  imports 和 `node_modules/@types`；
+- Deno 内联 `npm:` specifier 只记录在 `deno.lock.specifiers`，没有进入
+  package candidate 或 virtual import alias；
+- TypeScript 包同时包含包入口声明与编译器默认 libs，文件扫描无法区分。
+
+**修复**：
+
+- 将 `deno.lock.specifiers` 中的 `npm:` 包加入候选，数量继续受 100
+  package 上限约束；
+- 为 raw `npm:` specifier 生成安全、有界的虚拟 proxy 路径；
+- package `exports` 无目标时，根 specifier 使用 `types` / `typings`；
+- raw specifier 通过 Monaco `paths` 指向 proxy，subpath 继续走 exports；
+- `node_modules/typescript/lib/lib.*.d.ts` 不再作为 extra lib；
+- package metadata、`typescript.d.ts` 和原有 proxy 预算保持不变。
+
+**回归测试**：
+
+```bash
+node --test tests/editor-workspace-type-libraries-node-deno.test.mjs \
+  tests/project-directories-tree-also-watched.test.mjs \
+  tests/search-gitignore-directory-creation-invalidates-cache.test.mjs \
+  tests/editor-typescript-editor-core-preserves-path-patch-api-helpers.test.mjs \
+  tests/editor-typescript-module-not-found-false-positives-targeted-without-disabling.test.mjs
+npm test
+```
+
+- RED：`npm:typescript@5.9.3` 不在 files/paths，模块解析为 `undefined`；
+- RED：`node_modules/typescript/lib/lib.es5.d.ts` 被注入；
+- GREEN：raw specifier 经 proxy 解析到 `typescript.d.ts`；
+- GREEN：默认 `lib.*.d.ts` 被过滤；
+- GREEN：类型/watcher 定向 **23 pass / 0 fail**；
+- GREEN：完整 `npm test` **3577 pass / 0 fail**；
+- GREEN：ESLint、TypeScript、**135** 个 source imports、Prettier、
+  client build consistency、`node --check`、`git diff --check` 通过。
+
+**真实性能/解析证据**：
+
+- 修复前误把 TypeScript 默认 libs 全量注入：**293 files / 7,772,991 bytes**；
+- 修复后：**193 files / 4,631,156 bytes**；
+- 连续 5 次真实扫描约 **129/92/90/88/89 ms**；
+- `Zygisksdk` 184 个源码文件的 import 审计中，
+  `npm:typescript@5.9.3` 已不再 unresolved。
+
+**运行态**：
+
+- Harness 重启后 Host PID `42014` 监听 `3081`；
+- 真实 `generate-devtool-completion.ts` 无 `npm:typescript` 红字；
+- TypeScript service 识别 `ts` 命名空间并列出 **51** 个引用；
+- Web `3081` 仍由 DSH Pocket PIN 保护，未猜测凭据。
+
+**长期约束**：
+
+- Deno 内联 `npm:` 与 import-map alias 都必须进入虚拟模块解析；
+- raw specifier proxy 必须经过路径清理、文件数和字节预算；
+- 不得把 TypeScript 编译器默认 lib 当作项目 extra lib 重复注入；
+- 不得用忽略 TS2307/TS2304 代替真实模块解析；
+- 新增包入口解析必须优先使用 `exports`，其次才是 `types` / `typings`。
+
+## 2026-11-21 — Terminal profile 恢复失败中断后续 tab 且错误被覆盖
+
+**作用域**：Terminal profile 批量恢复、shell/cwd fallback、tab 上限、
+restore snapshot、部分失败错误反馈。
+
+**症状/证据**：
+
+- `restoreTerminals()` 对每个 profile entry 调用 `createTerminal()`；
+- 第一个 `created === null` 时直接 `break`；
+- 一个 shell/cwd 失败会阻止后续仍然有效的 profile entry；
+- 函数注释声明每一项应独立尝试，与实现不一致。
+- 改为 `continue` 后，后续成功项的 `setError(null)` 又会静默覆盖首个
+  失败，面板看不到部分恢复失败。
+
+**修复**：
+
+- 单项创建失败后改为 `continue`；
+- profile 仍最多处理 4 项；
+- shell fallback、cwd、snapshot 顺序和 create 接口保持不变；
+- 后续成功项继续进入 dock 并成为 active terminal；
+- `createTerminal()` 将失败对象保存到 `createFailureRef`；
+- 批量恢复仅在该项返回 `null` 时读取 ref，结束后重新显示最近失败。
+
+**回归测试**：
+
+```bash
+node --test tests/terminal-profile-restore-preserves-cwd.test.mjs \
+  tests/terminal-host-restart-restores-profile.test.mjs \
+  tests/terminal-restore-buffers-bounded-per-tab-per-browser-session.test.mjs
+npm test
+```
+
+- RED：第一个 create 返回 null 后第二个 profile entry 未调用；
+- RED：第一个失败、第二个成功时最终 error 被清空；
+- GREEN：失败项跳过，第二个 entry 继续恢复；
+- GREEN：`a partial profile restore keeps the failed entry visible` 覆盖
+  部分失败仍保留错误；
+- GREEN：Terminal create/恢复定向 **14 pass / 0 fail**；
+- GREEN：完整 `npm test` **3577 pass / 0 fail**；
+- GREEN：ESLint、TypeScript、135 个 source imports、Prettier、client
+  build consistency、`node --check`、`git diff --check` 通过；
+- GREEN：`npm pack --dry-run` **149 files**；
+- GREEN：`lib/client.js` **2,581,570 bytes**；
+- GREEN：`editor-workspace.tsx` **12599 行**。
+
+**运行态**：
+
+- Harness Host PID `83933` 监听 `3081`；
+- Terminal 恢复已有本地 shell，输入区域正常；
+- Zygisksdk `src/optional/patch.ts` 的 `Process` /
+  `Process.enumerateRanges` 在 Editor 中无 `2304` 诊断；
+- 未发送 shell 命令；
+- Web `3081` 仍由 DSH Pocket PIN 保护，未猜测凭据。
+
+**长期约束**：
+
+- profile entry 恢复必须逐项独立；
+- 单项失败不得阻断后续 tab；
+- 部分失败不得被后续成功项清空；
+- 仍须保持 4-tab 上限，防止 host 不可用时无限尝试；
+- snapshot 与 shell/cwd 的索引不能因跳过逻辑错位。
+
+## 2026-11-21 — Terminal profile 恢复丢失工作目录
+
+**作用域**：Terminal profile、Host 重启恢复、shell+cwd、restore snapshot、
+tab reopen。
+
+**症状/证据**：
+
+- `rememberTerminals()` 正确保存 `{shell, cwd, title}`；
+- `restoreTerminals()` 恢复时调用
+  `createTerminal(shell, undefined, snapshot)`；
+- 保存的 `entry.cwd` 被丢弃；
+- Host 重启后 shell 和 scrollback snapshot 恢复，但所有 tab 回到默认目录。
+
+**修复**：
+
+- 恢复调用改为
+  `createTerminal(exists ? entry.shell : undefined, entry.cwd, snapshot)`；
+- shell 不存在时继续 fallback 默认 shell，但保留保存目录；
+- snapshot 仍严格按 profile 索引传入第三参数；
+- 不改变 profile 格式、tab 上限或 host create 接口。
+
+**回归测试**：
+
+```bash
+node --test tests/terminal-profile-restore-preserves-cwd.test.mjs \
+  tests/terminal-host-restart-restores-profile.test.mjs \
+  tests/terminal-restore-buffers-bounded-per-tab-per-browser-session.test.mjs \
+  tests/terminal-reopening-closed-terminal-restores-saved-working-directory.test.mjs
+npm test
+```
+
+- RED：restore create 调用第二参数为 undefined；
+- GREEN：两个 profile entry 的 cwd 原样传入 create；
+- GREEN：对应 restore snapshot 仍按索引传入；
+- GREEN：Terminal 恢复定向 **13 pass / 0 fail**；
+- GREEN：完整 `npm test` **3575 pass / 0 fail**；
+- GREEN：ESLint、TypeScript、135 个 source imports、Prettier、client
+  build consistency、`node --check`、`git diff --check` 通过；
+- GREEN：`lib/client.js` **2,581,184 bytes**；
+- GREEN：`editor-workspace.tsx` **12599 行**。
+
+**运行态**：
+
+- Harness Host PID `67251` 监听 `3081`；
+- 重启后 Terminal 面板恢复本地 zsh tab，输入区域正常；
+- 本轮不主动重启 PTY，cwd 参数映射由可执行恢复 harness 验证；
+- Web `3081` 仍由 DSH Pocket PIN 保护，未猜测凭据。
+
+**长期约束**：
+
+- profile 中持久化的 shell、cwd、title 必须成组恢复；
+- snapshot 与 shell/cwd 是两个独立参数，索引不能错位；
+- shell 存在性检查失败只能回退 shell，不能丢弃 cwd；
+- 恢复 tab 数继续受现有 4-tab profile 上限约束。
+
+## 2026-11-21 — Terminal 连续 OSC 标题乱序
+
+**作用域**：Terminal OSC title、Host auto rename、per-tab 请求顺序、
+本地标题同步、手工 rename 优先级。
+
+**症状/证据**：
+
+- `syncTerminalTitle()` 对每个 OSC 事件直接调用 Host
+  `rename(auto:true)`；
+- 连续标题会同时发出多个同源请求；
+- 浏览器和 Host 完成顺序不保证，旧标题可能最后写入 Host；
+- 本地显示最新标题，但重挂载/恢复时可能回退到旧标题；
+- 下一次相同 OSC title 会被本地 equality guard 跳过，错误持续。
+
+**修复**：
+
+- 新增 per-terminal `autoTitleRequestChainRef`；
+- 同一 tab 的 auto-title Host 写入串行执行；
+- 请求真正发出前检查本地最新标题，已被新事件替代则跳过；
+- 错误被隔离，不阻断后续标题链；
+- 手工 rename 的在途/成功所有权继续优先；
+- chain 完成后删除对应 tab 项，避免泄漏。
+
+**回归测试**：
+
+```bash
+node --test tests/terminal-auto-title-writes-serialize-latest.test.mjs \
+  tests/terminal-rename-enter-blur-single-flight.test.mjs
+npm test
+```
+
+- RED：连续 OSC 标题立即发出两个 Host rename；
+- GREEN：首请求未派发前快速连续标题合并为最新值；
+- GREEN：首请求在途时，后续标题等待其完成后才发出；
+- GREEN：最终 Host 写入为最新标题；
+- GREEN：失败/完成均清理 chain；
+- GREEN：Terminal 定向 **6 pass / 0 fail**；
+- GREEN：完整 `npm test` **3574 pass / 0 fail**；
+- GREEN：ESLint、TypeScript、135 个 source imports、Prettier、client
+  build consistency、`node --check`、`git diff --check` 通过；
+- GREEN：`lib/client.js` **2,581,184 bytes**；
+- GREEN：`editor-workspace.tsx` **12599 行**。
+
+**运行态**：
+
+- Harness Host PID `58768` 监听 `3081`；
+- 重启后 Terminal 恢复已有 zsh tab，输入区域可用；
+- 本轮未发送 shell 命令；
+- Web `3081` 仍由 DSH Pocket PIN 保护，未猜测凭据。
+
+**长期约束**：
+
+- 同一 tab 的自动标题写必须保序；
+- 队列执行前必须重新检查当前本地标题；
+- 自动标题失败不得卡死后续链；
+- 手工 rename 所有权始终优先于 OSC 标题。
+
+## 2026-11-21 — Terminal rename 失败永久屏蔽自动标题
+
+**作用域**：Terminal tab inline rename、OSC 自动标题、失败恢复、焦点与
+single-flight。
+
+**症状/证据**：
+
+- `commitRename()` 在调用 Host 前立即执行
+  `renamedRef.current.add(targetId)`；
+- 请求失败时没有移除该标记；
+- 后续 shell 的 OSC title 被永久当作“用户已手工命名”而忽略；
+- 用户看到 rename 失败错误，但该 tab 已无法再跟随 shell 标题。
+
+**修复**：
+
+- `renamedRef` 只在 Host rename 成功后写入；
+- OSC title guard 使用
+  `terminalManualRenameOwnsTitle(id, renamedIds, requestKey)`；
+- request in-flight 时仍由手工名称拥有标题，避免 OSC 覆盖；
+- 失败后 request key 被释放，自动标题恢复；
+- Enter/Blur single-flight 和旧请求隔离保持原行为。
+
+**回归测试**：
+
+```bash
+node --test tests/terminal-rename-enter-blur-single-flight.test.mjs \
+  tests/editor-project-selection-terminal-shortcuts-toolbars.test.mjs \
+  tests/terminal-tab-rename-focus-and-name.test.mjs
+npm test
+```
+
+- RED：rename reject 后 `renamedRef` 仍包含目标 tab；
+- GREEN：rename 成功后写入永久手工标题标记；
+- GREEN：rename 失败后标记为空，OSC 标题可再次同步；
+- GREEN：rename 在途时同 tab 的 OSC title 被阻塞；
+- GREEN：Terminal 定向 **11 pass / 0 fail**；
+- GREEN：完整 `npm test` **3572 pass / 0 fail**；
+- GREEN：ESLint、TypeScript、135 个 source imports、Prettier、client
+  build consistency、`node --check`、`git diff --check` 通过；
+- GREEN：`lib/client.js` **2,580,459 bytes**；
+- GREEN：`editor-workspace.tsx` **12599 行**。
+
+**运行态**：
+
+- Harness Host PID `98465` 监听 `3081`；
+- 重启后 Terminal 面板正常恢复并加载已有本地 shell；
+- 本轮未发送 shell 命令，也未修改外部终端状态；
+- Web `3081` 仍由 DSH Pocket PIN 保护，未猜测凭据。
+
+**长期约束**：
+
+- “用户手工命名”只能在 rename 成功后永久生效；
+- request in-flight 所有权必须与永久所有权分开；
+- OSC title 失败/取消不能留下永久屏蔽状态；
+- rename 的 Enter/Blur single-flight 和旧请求所有权不能被破坏。
+
+## 2026-11-21 — Commit 成功回调覆盖新草稿
+
+**作用域**：Commit 消息框、提交成功清理、per-workspace draft、
+“撤销清空消息”、并发写操作。
+
+**症状/证据**：
+
+- Commit busy 只禁用按钮，textarea 仍可输入；
+- `commit()` await Git 后无条件执行 `setCommitMessage('')` 和
+  `writeCommitDraft(root, '')`；
+- 用户等待提交时输入下一条消息，旧请求成功后会覆盖新草稿；
+- 现有测试只覆盖“提交后清空”和“一键恢复”，没有覆盖在途编辑。
+
+**修复**：
+
+- 新增 `commitDraftAfterSuccess(currentMessage, submittedMessage)`；
+- 成功时比较最新 textarea 值与本次提交快照；
+- 仅当两者相同才清空消息并写入空 draft；
+- 若用户已经输入新内容，则保留新内容并写入最新 draft；
+- 仅在实际清空时提供“撤销清空消息”；
+- 增加 `commitMessageValueRef`，render 和 onChange 都同步最新值，
+  避免等待中的旧回调读取过期 React state。
+
+**回归测试**：
+
+```bash
+node --test tests/commit-success-preserves-new-message-draft.test.mjs \
+  tests/commit-readcommitdraft-per-workspace-survives-junk.test.mjs \
+  tests/commit-committed-message-put-back-one-click.test.mjs
+npm test
+```
+
+- RED：helper/成功路径不存在，无法区分旧消息与新草稿；
+- GREEN：`current === submitted` 时返回空字符串；
+- GREEN：`current !== submitted` 时保留当前新草稿；
+- GREEN：Commit 成功路径使用最新 ref 值和条件清空；
+- GREEN：Commit 定向 **11 pass / 0 fail**；
+- GREEN：完整 `npm test` **3570 pass / 0 fail**；
+- GREEN：ESLint、TypeScript、135 个 source imports、Prettier、
+  client build consistency、`node --check`、`git diff --check` 通过；
+- GREEN：`editor-workspace.tsx` **12599 行**，低于 12600 门禁；
+- GREEN：`lib/client.js` **2,580,129 bytes**。
+
+**运行态**：
+
+- Harness Host PID `42047` 监听 `3081`；
+- 重启后真实 dsh-editor Commit 面板正常加载 **18** 个变更；
+- 本轮没有执行真实 Git Commit，避免改写工作树；
+- Web `3081` 仍由 DSH Pocket PIN 保护，未猜测凭据。
+
+**长期约束**：
+
+- 异步成功回调不得无条件覆盖用户之后输入的表单状态；
+- “清空表单”必须携带提交时快照并检查当前值；
+- 用户编辑期间保持 textarea 可用，不用禁用控件掩盖竞态；
+- 撤销操作只服务于本次确实清空的内容。
+
+## 2026-11-21 — Project 目录搜索范围菜单运行态
+
+**作用域**：Project 文件夹右键菜单、排除目录淡灰样式、Find in Files
+目录规则、规则恢复。
+
+**运行态证据**：
+
+- 在 `Zygisksdk/src/lang` 右键打开菜单；
+- included 状态下菜单显示 **排除到搜索**；
+- 点击后目录行呈淡灰，`src/lang` 不再属于搜索范围；
+- Find in Files 查询 `DSH_DIRECTORY_SCOPE_PROBE`：
+  - 排除前 **1 处匹配 / 1 个文件**；
+  - 排除后 **0 处匹配 / 0 个文件**；
+- 再次右键，菜单变为 **包含到搜索**；
+- 点击恢复后同一查询重新显示 **1 处匹配 / 1 个文件**；
+- 探测文件已移出 workspace，目录最终恢复为 included。
+
+**结论**：
+
+- 文件夹菜单 label 与当前状态相反操作正确；
+- 淡灰样式、Find 搜索范围和应用/解除规则均正常；
+- CUA 使用 `super+shift+f` 打开 Find in Files，`*.ts` mask 与查询值
+  在上下游均正确传递。
+
+## 2026-11-21 — 嵌套 Git 仓库的 ignore 搜索排除
+
+**作用域**：Quick Open、Search Everywhere Files、Find/Replace、Project speed
+search、nested Git worktree、`.gitignore` 搜索前缀缓存。
+
+**症状/证据**：
+
+- 真实 `Zygisksdk` 的 `packages/multiapp/.gradle`、`.idea` 等内容仍进入
+  `files({ respectGitIgnore: true })` 结果；
+- `packages/multiapp`、`packages/app/oskit`、`packages/app/injectkit`、
+  `packages/patch_os/os_ppkit` 是独立 Git worktree；
+- 根仓库 `git ls-files --ignored` 不会包含嵌套仓库自己的 ignored paths；
+- 修复前真实 workspace 文件列表 **1873** 项，其中 96 项来自嵌套仓库
+  ignored directories。
+
+**根因**：
+
+- `readGitIgnoredSearchPrefixes()` 只在 workspace root 执行一次 Git；
+- 嵌套仓库里的 `.gitignore` 与 `core.excludesFile` 没有被读取；
+- 后续所有搜索 provider 正确消费了不完整的 ignore 前缀集合。
+
+**修复**：
+
+- 新增有界嵌套 Git root 发现：
+  - 最多 32 个仓库；
+  - 最多 2000 个目录；
+  - 跳过 node_modules/build/dist 等 WALK_IGNORED 和 VCS 元数据；
+  - 发现 `.git` 后停止深入该仓库；
+- 对根仓库和每个嵌套仓库分别执行
+  `git ls-files --ignored --exclude-standard --directory`；
+- 将嵌套 ignored path 加上 workspace-relative 前缀后合并；
+- 保持 page/revision-scoped Git ignore 缓存和现有搜索预算；
+- 所有 Quick Open、Find、Project speed search 共用修正后的前缀集合。
+
+**回归测试**：
+
+```bash
+node --test tests/search-directory-rules-respect-gitignore-and-project-menu.test.mjs \
+  tests/search-quick-open-excludes-gitignored-and-user-excluded-paths.test.mjs \
+  tests/project-speed-search-respects-gitignore-and-search-rules.test.mjs
+npm test
+```
+
+- RED：fixture 嵌套仓库 `.gradle/cache.bin` 与 ignored file 仍进入 files；
+- GREEN：嵌套 ignored directory/file 在 files 与 text search 中均排除；
+- GREEN：嵌套 repo 中未 ignored 的 `nested-visible.txt` 保留；
+- GREEN：真实 `Zygisksdk` 文件列表从 **1873** 降至 **1777**，
+  泄漏项为 **0**；
+- GREEN：搜索定向 **21 pass / 0 fail**；
+- GREEN：完整 `npm test` **3568 pass / 0 fail**；
+- GREEN：ESLint、TypeScript、135 个 source imports、Prettier、client
+  build consistency、`node --check`、`git diff --check` 通过。
+
+**运行态**：
+
+- Harness Host PID `28072` 监听 `3081`；
+- 实际 Host 文件搜索结果无 `.gradle`、`.idea`、`node_modules`、`target`
+  泄漏；
+- 临时 visible/excluded 探针已移出 workspace；
+- CUA 使用 `super+shift+f` 打开 “在文件中查找”；
+- 文件掩码设为 `*.ts`，查询 `DSH_UI_SEARCH_PROBE` 后 UI 显示
+  **1 处匹配，1 个文件**；
+- 唯一命中为 `DshSearchExclusionProbe.ts` 的 visible 副本；
+  `packages/multiapp/.gradle` 下相同内容的 ignored 探针未出现；
+- 搜索面板关闭后 Editor 正常，临时探针已清理。
+
+**长期约束**：
+
+- Git ignore 搜索集合必须覆盖 workspace 内嵌套 worktree；
+- 嵌套仓库发现必须有仓库/目录上限并跳过 heavy directories；
+- ignored path 合并必须保持 workspace-relative；
+- 不能让 ignore 扫描绕过现有 page/revision cache。
+
+## 2026-11-21 — Editor 工作台 open/close/open 往返
+
+**作用域**：Harness View 行独立 Editor 开关、工作台显示/隐藏、打开文件与
+Project 工具窗口恢复。
+
+**历史缺口**：
+
+- 2026-11-13 记录“尚未闭环：前景 UI 中点击按钮的 open/close 往返仍需
+  下一轮实测”；
+- 此前只验证了 View 行不再出现 Editor tab，没有验证完整往返后的状态。
+
+**运行态证据**：
+
+- Harness Desktop 中按钮状态为 `关闭编辑器工作台`；
+- 点击后按钮变为 `打开编辑器工作台`，Editor/Project/Commit/Terminal 面板
+  全部退出前景；
+- 再次点击后按钮恢复 `关闭编辑器工作台`；
+- `patch-frida.ts`、`persister.ts`、`mcp_server.ts`、`patch.ts` 四个 tab
+  和 Project 工具窗口完整恢复；
+- 当前活动编辑器仍为 `patch-frida.ts`，无空白或状态丢失。
+
+**结论**：
+
+- 无需源码修改；现有实现已完成 open/close/open 往返；
+- 历史未闭环项现由真实 Harness Desktop 验证关闭；
+- Web `3081` 仍由 DSH Pocket PIN 保护，未猜测凭据。
+
+## 2026-11-21 — JSR subpath 与 import-map alias
+
+**作用域**：JSR package exports、subpath imports、Deno import map alias、
+Monaco paths、@std/path module graph。
+
+**症状/证据**：
+
+- catalog 最初只按完整 specifier 精确命中
+  `jsr:@std/path@1.0.8`；
+- `jsr:@std/path@1.0.8/join` 和 import-map alias
+  `"@std/path/join"` 没有对应 paths；
+- bundle 最初也没有携带 JSR `exports` mapping；
+- TypeScript 对这些 subpath/alias 的 `resolveModuleName` 返回 undefined。
+
+**为什么需要 subpath**：
+
+- 一个 JSR package 的 root 和 subpath 共享同一 module graph；
+- 为每个 subpath 重新打包会重复内容并扩大发行包；
+- 正确方式是 catalog 保存 exports，加载时只映射不同入口文件。
+
+**修复**：
+
+- JSR bundle 增加官方 `exports` mapping；
+- 按最长 catalog package specifier 前缀匹配 requested specifier；
+- 将剩余部分转换为 `./join` 等 exports key；
+- 使用现有 condition resolver 取得真实 entry（如 `./join.ts`）；
+- 同一 package 文件只注入一次，paths 可指向不同 entry；
+- `jsr:@std/path@1.0.8/join` 与 `@std/path/join` 均支持；
+- 继续拒绝未在 catalog 中出现的 package/version，运行时仍不联网。
+
+**回归测试**：
+
+```bash
+node --test tests/editor-workspace-type-libraries-node-deno.test.mjs \
+  tests/plugin-monaco-xterm-declared-runtime-dependencies.test.mjs
+npm test
+```
+
+- RED：subpath 与 alias 的 paths 缺失；
+- GREEN：`jsr:@std/path@1.0.8/join` →
+  `node_modules/.dsh-editor/jsr/@std/path/1.0.8/join.ts`；
+- GREEN：`@std/path/join` 映射到同一 entry；
+- GREEN：TypeScript `resolveModuleName` 对 alias 成功；
+- GREEN：类型库/package 定向 **17 pass / 0 fail**；
+- GREEN：完整 `npm test` **3568 pass / 0 fail**；
+- GREEN：ESLint、TypeScript、135 个 source imports、Prettier、bundle
+  consistency、`node --check`、`git diff --check` 通过；
+- GREEN：`npm pack --dry-run` 保持 **149 files**。
+
+**运行态**：
+
+- Harness Host PID `73128` 监听 `3081`；
+- 真实 `scripts/patch-frida.ts` 的
+  `jsr:@std/path@1.0.8` import 继续无红色诊断；
+- `Deno.Command`、`Deno.readFileSync`、`Deno.writeFileSync` 正常；
+- Web `3081` 仍由 DSH Pocket PIN 保护，未猜测凭据。
+
+**长期约束**：
+
+- subpath entry 必须来自官方 exports，不得按文件名猜测；
+- 同一 JSR package/version 的文件只注入一次；
+- alias 只映射到 catalog 已存在的精确 JSR specifier；
+- 新增 JSR package 仍必须使用单文件 bundle，保持 npm pack 文件门禁。
+
+## 2026-11-21 — JSR 依赖类型入口
+
+**作用域**：Deno `jsr:` imports、`deno.lock` specifiers、Monaco `paths`、
+typeLibraries、@std/path、插件 package 文件预算。
+
+**症状/证据**：
+
+- 真实 `Zygisksdk/scripts/patch-frida.ts` 导入
+  `jsr:@std/path@1.0.8`；
+- `dirname`、`fromFileUrl`、`join` 显示红色诊断；
+- `deno.lock` 已记录该 JSR 依赖，但 typeLibraryPackageName 直接忽略
+  `jsr:`；
+- 当前机器没有 Deno 全局 cache 或 CLI，无法从本机依赖缓存补类型。
+
+**修复**：
+
+- 从官方 JSR registry 获取 `@std/path@1.0.8` 的入口和 bounded module
+  graph；
+- 将 71 个 TypeScript 模块打成单个只读
+  `lib/jsr-runtime-types.json`，避免发行包文件数爆炸；
+- `catalog` 内含 specifier、root、entry、source、MIT metadata 和文件内容；
+- Host 只读取 `deno.lock` / `deno.json` 中引用的精确 JSR specifier；
+- 将模块展开到虚拟
+  `node_modules/.dsh-editor/jsr/@std/path/1.0.8/...`；
+- 通过 Monaco `paths` 把原 `jsr:@std/path@1.0.8` 精确映射到 `mod.ts`；
+- 同时支持 deno imports 中 alias → JSR specifier 的映射；
+- 不在 Host 运行时联网；
+- 加入统一 third-party license 文件和文件数/字节预算。
+
+**回归测试**：
+
+```bash
+node --test tests/editor-workspace-type-libraries-node-deno.test.mjs \
+  tests/plugin-monaco-xterm-declared-runtime-dependencies.test.mjs
+npm test
+```
+
+- RED：fixture 的 JSR specifier 没有 paths/files；
+- GREEN：TypeScript `resolveModuleName` 解析到 vendored
+  `node_modules/.dsh-editor/jsr/@std/path/1.0.8/mod.ts`；
+- GREEN：真实 `Zygisksdk` payload 170 files / 3.90MB，71 个 JSR 模块；
+- GREEN：类型库/package 定向 **14 pass / 0 fail**；
+- GREEN：完整 `npm test` **3568 pass / 0 fail**；
+- GREEN：ESLint、TypeScript、135 个 source imports、Prettier、bundle
+  consistency、`node --check`、`git diff --check` 通过；
+- GREEN：`npm pack --dry-run` **149 files**，低于 150 文件门禁；
+- GREEN：`editor-workspace.tsx` 仍为 **12599 行**。
+
+**运行态**：
+
+- Harness 重启后 Host PID `20763` 监听 `3081`；
+- 重新打开 `scripts/patch-frida.ts` 后 JSR import 红色诊断消失；
+- 同文件中的 `Deno.statSync`、`Deno.readFileSync`、
+  `Deno.writeFileSync`、`Deno.Command` 仍正常识别；
+- Web `3081` 仍由 DSH Pocket PIN 保护，未猜测凭据。
+
+**长期约束**：
+
+- JSR snapshot 必须按精确 specifier/version 加载；
+- 运行时不得联网抓取 JSR；
+- 大量模块必须打包成少数发行文件，避免 npm pack 膨胀；
+- 只展开 catalog 中已存在的文件，并继续受 typeLibraries 预算限制；
+- 升级 @std/path 快照需同步版本、source、license 和 module graph。
+
+## 2026-11-21 — 无 Deno CLI 时的官方 runtime 类型 fallback
+
+**作用域**：Deno runtime globals、`deno.json`、typeLibraries、Monaco extra
+libs、`Deno.Command` / `Deno.env` / `Deno.readTextFileSync`。
+
+**症状/证据**：
+
+- Harness Desktop 打开真实
+  `Zygisksdk/scripts/persister.ts`；
+- `Deno.Command`、`Deno.readTextFileSync`、`Deno.env` 均出现红色诊断；
+- 当前机器没有 `deno` 可执行文件；
+- Host 只尝试 `execFileAsync('deno', ['types'])`，失败后静默跳过，导致
+  `deno.json` 的 `lib: ["deno.ns"]` 只有名称、没有实际声明。
+
+**修复**：
+
+- 使用官方 Deno `v2.2.15` 执行 `deno types` 生成只读快照；
+- 清除 Monaco 无法识别的 `no-default-lib` / `reference lib` 指令；
+- 将快照、MIT license、来源和生成命令放在 `lib/deno-types/`；
+- Host 优先执行本机 `deno types`；
+- CLI 不可用或输出为空时读取 vendored 快照；
+- 仍使用虚拟路径 `node_modules/.dsh-editor/deno.ns.d.ts`，并受
+  1200 files / 2MB per file / 12MB total 预算限制。
+
+**回归测试**：
+
+```bash
+node --test tests/editor-workspace-type-libraries-node-deno.test.mjs
+npm test
+```
+
+- RED：fixture 无 Deno CLI 时 payload 中没有 deno.ns.d.ts；
+- GREEN：fallback 文件包含 `declare namespace Deno` 和
+  `export class Command`；
+- GREEN：快照内不再包含 `/// <reference`；
+- GREEN：真实 `Zygisksdk` payload 为 99 files / 3.78MB，
+  `truncated=false`，Deno 声明约 639KB；
+- GREEN：类型库定向 **14 pass / 0 fail**；
+- GREEN：完整 `npm test` **3568 pass / 0 fail**；
+- GREEN：ESLint、TypeScript、135 个 source imports、Prettier、client
+  build consistency、`node --check`、`git diff --check` 通过。
+
+**运行态**：
+
+- Harness 重启后 Host PID `16051` 监听 `3081`；
+- 重新打开 `scripts/persister.ts` 后 `Deno.Command`、
+  `Deno.readTextFileSync`、`Deno.env` 红色诊断全部消失；
+- Web `3081` 仍由 DSH Pocket PIN 保护，未猜测凭据。
+
+**长期约束**：
+
+- 运行时不得联网抓取类型；
+- 有本地 Deno CLI 时必须优先使用本机生成结果；
+- vendored 快照升级需保留版本、license 和生成命令；
+- 移除 reference directives 时不得删除 Deno namespace 声明；
+- 快照继续受 typeLibraries 总预算限制。
+
+## 2026-11-21 — Deno 自定义 alias 类型代理
+
+**作用域**：Deno import map、非 package 名前缀 alias、npm subpath、Monaco
+虚拟 node_modules、exports proxy。
+
+**症状/证据**：
+
+- import map 支持 `"@custom/exports-feature":
+  "npm:@scope/exports-only@1.0.0/feature"`；
+- 原有 proxy 只接受 alias 文本以真实 package 名开头；
+- 自定义 alias 不生成虚拟模块，编辑器无法解析其类型；
+- 目标 subpath 必须来自 `npm:` target，不能从 alias 文本猜测。
+
+**根因**：
+
+- importSpecifiers 按 package 收集时丢失了 target subpath；
+- proxy 路径从 package 名推导，未按 alias specifier 的真实 Node 模块路径
+  创建；
+- 相对路径、`node:`/JSR/HTTP alias 与 npm bare alias 未区分。
+
+**修复**：
+
+- 为每条 Deno import 记录 `{alias, subpath}`；
+- Deno npm target 子路径独立解析；
+- alias 按 Node bare-specifier 布局生成虚拟入口：
+  - scoped package：`node_modules/@scope/name/index.d.ts`；
+  - 非 scoped subpath：`node_modules/name/feature.d.ts`；
+- proxy 通过相对路径 re-export 真实 package 声明；
+- 拒绝相对路径、绝对路径、`node:`、`jsr:`、HTTP alias；
+- 沿用 exports condition、路径 containment 和 typeLibraries 预算。
+
+**回归测试**：
+
+```bash
+node --test tests/editor-workspace-type-libraries-node-deno.test.mjs
+npm test
+```
+
+- RED：`@custom/exports-feature` 无虚拟 proxy，TypeScript 解析为空；
+- GREEN：生成 `node_modules/@custom/exports-feature/index.d.ts`；
+- GREEN：proxy 正确 re-export
+  `../../@scope/exports-only/dist/feature.js`；
+- GREEN：TypeScript 解析到 alias proxy；
+- GREEN：类型库定向 **14 pass / 0 fail**；
+- GREEN：完整 `npm test` **3568 pass / 0 fail**；
+- GREEN：ESLint、TypeScript、135 个 source imports、Prettier、client
+  build consistency、`node --check`、`git diff --check` 通过。
+
+**运行态**：
+
+- Harness 重启后 Host PID `62419` 监听 `3081`；
+- 真实 `Zygisksdk` 的 `Process`、MCP SDK、`zod` 导入无红色诊断；
+- Web `3081` 仍由 DSH Pocket PIN 保护，未猜测凭据。
+
+**长期约束**：
+
+- Deno alias 的模块路径与 npm target subpath 必须分开建模；
+- 不得把相对/URL/builtin alias 注入 `node_modules`；
+- alias proxy 仍只能指向已存在的 `.d.ts`；
+- alias 数量与 proxy 字节必须继续受总预算限制。
+
+## 2026-11-21 — exports-only 包与 Deno 子路径类型代理
+
+**作用域**：`package.json exports` conditions、Deno import map
+`npm:` 子路径、Monaco 虚拟 node_modules、依赖/devDependencies 类型入口。
+
+**症状/证据**：
+
+- 对 dsh-editor 全部 dependencies/devDependencies 做 TypeScript
+  `resolveModuleName` 审计；
+- `@typescript-eslint/parser` 的 `.d.ts` 已进入 typeLibraries，但包只声明
+  `exports["."].types = "./dist/index.d.ts"`，Monaco NodeJs 解析仍返回
+  undefined；
+- `@babel/core` 等包本身没有 TypeScript 声明，属于正确未解析，不应伪造
+  type；
+- Deno `npm:` 子路径即使包内存在声明，也可能需要与包名不同的解析入口。
+
+**根因**：
+
+- Monaco 只能选择 `ModuleResolutionKind.NodeJs`；
+- 虚拟 `package.json` 可让 TypeScript 读取 `typesVersions`，但
+  `exports`-only 包没有 NodeJs 可用的根入口；
+- 仅传输声明文件不等于重建包导出映射。
+
+**修复**：
+
+- 解析 package `exports`：
+  - exact subpath；
+  - `./*` pattern；
+  - `types` / `import` / `require` / `default` / `node` / `browser`
+    conditions；
+- 仅在目标 `.d.ts` 已存在时生成小型 re-export proxy；
+- package root 使用 `node_modules/<pkg>/index.d.ts`；
+- Deno import map 中与 package 名一致的子路径使用对应虚拟 `.d.ts`；
+- proxy 保留 named exports，并在目标声明含 default export 时补 default；
+- target 拒绝 `..`，继续受 1200 files / 2MB/file / 12MB total 预算约束；
+- 没有声明文件的目标不生成 proxy，避免把纯 JS 包伪装成有类型。
+
+**回归测试**：
+
+```bash
+node --test tests/editor-workspace-type-libraries-node-deno.test.mjs
+npm test
+```
+
+- RED：exports-only package 与 Deno feature 子路径均无法解析；
+- GREEN：生成 root/feature 虚拟入口并解析到对应 proxy；
+- GREEN：真实 dsh-editor 依赖审计中 `@typescript-eslint/parser`
+  从 unresolved 变为 resolved；
+- GREEN：没有 `.d.ts` 的 Babel 包仍保持 unresolved，不产生伪类型；
+- GREEN：类型库定向 **14 pass / 0 fail**；
+- GREEN：完整 `npm test` **3568 pass / 0 fail**；
+- GREEN：ESLint、TypeScript、135 个 source imports、Prettier、client
+  build consistency、`node --check`、`git diff --check` 通过。
+
+**运行态**：
+
+- Harness 重启后 Host PID `9688` 监听 `3081`；
+- 真实 `Zygisksdk` 的 `patch.ts`、MCP SDK 与 `zod` 导入无红色诊断；
+- Web `3081` 仍由 DSH Pocket PIN 保护，未猜测凭据。
+
+**长期约束**：
+
+- 不得把所有 `exports` 目标都当成 TypeScript 类型；
+- 只对已存在的 `.d.ts` 生成 proxy；
+- proxy target 必须留在 package 内；
+- proxy 计数必须受 typeLibraries 总预算约束；
+- 保持 NodeJs resolver，不为单个 packages 关闭 diagnostics。
+
+## 2026-11-21 — TypeLibraries watcher 刷新合并
+
+**作用域**：workspace watcher、`refreshWorkspaceTypesForChange`、Monaco
+Node/Deno 类型刷新、依赖安装 burst、workspace 清理。
+
+**症状/证据**：
+
+- watcher 对每个命中事件直接请求 `typeLibraries`；
+- 相同根目录连续调用耗时约 79–110ms，`Zygisksdk` 返回 96 files /
+  3.14MB，dsh-editor 返回 664 files / 8.23MB；
+- request serial 只阻止旧响应覆盖新 UI，不能阻止多个 Host 扫描并行读取
+  全部声明；
+- 在途扫描开始后到达的事件不能被当前请求包含。
+
+**根因**：
+
+- watcher burst 没有 debounce/coalescing；
+- 在途请求没有 pending/trailing 语义；
+- 单纯复用在途 Promise 会漏掉扫描开始后的最后一次文件变化。
+
+**修复**：
+
+- 新增 `createWorkspaceTypeLibraryRefreshQueue()`；
+- 120ms 合并同一 burst；
+- 在途时只保留一个 pending 标志，当前请求完成后立即补发一次；
+- 取消时清理 timer，并通过 AbortController 中止当前队列请求；
+- `configureMonacoWorkspaceTypes(monaco, null)` 自动取消队列，保持
+  workspace 切换/卸载清理内聚；
+- `refreshWorkspaceTypesForChange()` 保持原名称，仅改为同步调度，不改变
+  watcher 调用形状。
+
+**回归测试**：
+
+```bash
+node --test tests/editor-workspace-type-libraries-node-deno.test.mjs \
+  tests/project-directories-tree-also-watched.test.mjs \
+  tests/search-gitignore-directory-creation-invalidates-cache.test.mjs
+npm test
+```
+
+- RED：helper 尚不存在，burst 测试无法只发起一次请求；
+- GREEN：连续 3 次 schedule 只发起 1 次请求；
+- GREEN：请求在途时的新事件在完成后恰好补发 1 次；
+- GREEN：cancel 后待执行 callback 不发起请求；
+- GREEN：类型/watcher/search 定向 **22 pass / 0 fail**；
+- GREEN：完整 `npm test` **3568 pass / 0 fail**；
+- GREEN：ESLint、TypeScript、135 个 source imports、Prettier、client
+  build consistency、`node --check`、`git diff --check` 通过；
+- GREEN：`editor-workspace.tsx` **12599 行**，低于 12600 门禁；
+- GREEN：`lib/client.js` 重建后 **2,579,424 bytes**。
+
+**运行态**：
+
+- Harness 重启后 Host PID `55821` 监听 `3081`；
+- Desktop 打开真实 `Zygisksdk`，`patch.ts` 的 `Process` 与
+  `mcp_server.ts` 的 MCP SDK/`zod` 导入均无红色诊断；
+- Web `3081` 仍由 DSH Pocket PIN 保护，未猜测凭据。
+
+**长期约束**：
+
+- 并发隔离不能只丢弃旧响应，还必须减少无效 Host 扫描；
+- 在途刷新必须保留 trailing change，禁止简单返回同一 Promise；
+- 清理 workspace 时必须同时取消 timer、pending 和 in-flight 请求；
+- burst 合并延迟不得用于普通源码编辑或搜索请求。
+
+## 2026-11-21 — Node/Deno 包入口类型元数据
+
+**作用域**：`package.json` dependencies/devDependencies、Deno `npm:` 子路径、
+`exports`、`typesVersions`、Monaco 虚拟 `node_modules`、typeLibraries。
+
+**症状/证据**：
+
+- 依赖包的所有 `.d.ts` 已作为 Monaco extra libs 注入，`Process` 等全局声明
+  可以识别；
+- 但 Deno import map 中的
+  `@modelcontextprotocol/sdk/server/index.js`、`.../types.js` 仍无法解析到
+  包内 `dist/esm/*.d.ts`；
+- 当前诊断配置忽略 TS2307 后，界面看起来无错误，实际导入类型会退化为
+  `any`；
+- 用 TypeScript `resolveModuleName` 复现：缺少虚拟 `package.json` 时 MCP
+  子路径返回 undefined，加入后解析到 `dist/esm/types.d.ts`。
+
+**根因**：
+
+- typeLibraries 只传输 `.d.ts`，没有传输 package 入口元数据；
+- 子路径类型需要 package `exports` / `typesVersions`，单靠扫描文件无法
+  重建真实解析规则。
+
+**修复**：
+
+- 对每个已加载的 npm/@types/workspace package，额外注入有界
+  `package.json`；
+- 保持原有 1200 files、2MB/file、12MB total 预算；
+- workspace 本地包继续使用 `node_modules/<package-name>/...` 虚拟路径；
+- 不新增 any 降级，不通过忽略 TS2304 掩盖缺失声明。
+
+**回归测试**：
+
+```bash
+node --test tests/editor-workspace-type-libraries-node-deno.test.mjs
+npm test
+```
+
+- RED：从 payload 移除 MCP `package.json` 后，`types.js` 子路径解析失败；
+- GREEN：带 `package.json` 时解析到
+  `node_modules/@modelcontextprotocol/sdk/dist/esm/types.d.ts`；
+- GREEN：真实 `Zygisksdk` 的 MCP 两个子路径、`zod`、
+  `frida-java-bridge` 均解析到具体声明入口；
+- GREEN：类型库定向 **5 pass / 0 fail**；
+- GREEN：完整 `npm test` **3566 pass / 0 fail**；
+- GREEN：ESLint、TypeScript、135 个 source imports、client build
+  consistency、`node --check`、`git diff --check` 通过；
+- GREEN：Harness Host PID `51140` 重启后，Desktop 中 `patch.ts` 的
+  `Process` 和 `mcp_server.ts` 的 npm 导入均无红色诊断。
+
+**长期约束**：
+
+- 包入口元数据必须与声明文件一起进入虚拟文件系统；
+- 不得用忽略 TS2307/TS2304 代替真实模块解析；
+- 新增元数据读取必须继续经过宿主路径 containment 和大小预算。
+
+## 2026-11-21 — Monorepo Workspace Package 类型入口
+
+**作用域**：package.json workspaces、`workspace:*` 本地包、虚拟
+node_modules package paths、typeLibraries、local `.d.ts` 去重。
+
+**症状/证据**：
+
+- workspace package 只存在于 `packages/core`，没有安装到顶层
+  node_modules；
+- 包内 `.d.ts` 即使被本地声明扫描发现，也无法通过 `@probe/core` package
+  import 解析；
+- 直接同时加入本地路径和 package 路径会产生重复 extra libs 与字节占用。
+
+**修复**：
+
+- Host 读取 `workspaces` 数组或 `{packages: []}`；
+- 支持 `*` / `**` pattern，复用有界 workspace directory walk；
+- 从匹配目录 package.json 读取合法 package name；
+- 将包内 `.d.ts` 注入虚拟 `node_modules/<package-name>/...`；
+- 本地 `.d.ts` scan 跳过已收集的 workspace package 目录；
+- 保持 100 packages、1200 files、2MB/file、12MB total 预算。
+
+**回归测试**：
+
+```bash
+node --test tests/editor-workspace-type-libraries-node-deno.test.mjs \
+  tests/project-directories-tree-also-watched.test.mjs
+npm test
+```
+
+- GREEN：`@probe/core` 声明位于
+  `node_modules/@probe/core/src/index.d.ts`；
+- GREEN：同一文件不再以 `packages/core/src/index.d.ts` 重复出现；
+- GREEN：npm/@types/local declarations 和 watcher 行为保持；
+- 类型库/watcher 定向 **10 pass / 0 fail**；
+- 完整 `npm test` **3565 pass / 0 fail**；
+- ESLint、**135** 个 source imports、TypeScript、Prettier、client build
+  consistency、`node --check`、`git diff --check` 通过；
+- `npm pack --dry-run` 通过，package **146 files**；
+- `lib/client.js` 重建后 **2516.4 KB / 2,576,743 bytes**。
+
+**长期约束**：
+
+- workspace package 类型必须使用 package-name 虚拟路径，而不是单一 workspace
+  相对路径；
+- 本地声明与 workspace package 注入必须去重；
+- pattern expansion 和 directory walk 必须有上限；
+- 新增 resolve 方式不得绕过 Host path containment。
+
+## 2026-11-21 — TypeScript baseUrl/paths 类型别名
+
+**作用域**：tsconfig/deno compilerOptions、baseUrl、paths alias、Monaco
+compilerOptions、workspace virtual `file:///`、typeLibraries payload。
+
+**症状/证据**：
+
+- 类型声明 extra libs 已加载，但项目使用 `@app/*` 等 paths alias 时无法从
+  alias 解析到声明；
+- 2307 被忽略后界面不再报模块缺失，但 TypeScript 类型会退化为缺失/any；
+- Host payload 没有携带 baseUrl/paths。
+
+**修复**：
+
+- Host 合并 deno/tsconfig compilerOptions，提取 baseUrl 和 paths；
+- baseUrl 拒绝 `..` 越界，`.` 归一到 workspace root；
+- paths 上限 100 个 alias、每项 20 个 target；
+- Client 将 baseUrl 映射到 Monaco `file:///` 虚拟根；
+- paths 原样传给 TypeScript resolver。
+
+**回归测试**：
+
+```bash
+node --test tests/editor-workspace-type-libraries-node-deno.test.mjs \
+  tests/editor-typescript-editor-core-preserves-path-patch-api-helpers.test.mjs \
+  tests/editor-typescript-module-not-found-false-positives-targeted-without-disabling.test.mjs
+npm test
+```
+
+- GREEN：Host 返回 `baseUrl=src` 和 `@app/*`、`@types/*`；
+- GREEN：Monaco 得到 `file:///src` 与相同 paths；
+- 类型库/配置定向 **11 pass / 0 fail**；
+- 完整 `npm test` **3565 pass / 0 fail**；
+- ESLint、**135** 个 source imports、TypeScript、Prettier、client build
+  consistency、`node --check`、`git diff --check` 通过；
+- `npm pack --dry-run` 通过，package **146 files**；
+- `lib/client.js` 重建后 **2516.4 KB / 2,576,743 bytes**。
+
+**长期约束**：
+
+- 类型声明和模块映射必须成对提供，不能只注入 extra libs；
+- baseUrl 必须是 workspace 内的虚拟路径；
+- alias 数量/target 数必须保持预算；
+- 新增 resolver 语义时不得关闭 TypeScript semantic diagnostics。
+
+## 2026-11-21 — Workspace 本地声明自动发现
+
+**作用域**：workspace local `.d.ts`、Host typeLibraries、WALK_IGNORED 预算、
+Monaco extra libs、`.d.ts` watcher invalidation。
+
+**症状/证据**：
+
+- 已安装 npm/@types 类型可以加载，但项目自己的 `types/*.d.ts`、
+  `src/**/*.d.ts` 不会自动出现；
+- 未打开的 `.d.ts` 没有 model，因此 TypeScript service 看不到其中的全局
+  或模块声明；
+- watcher 对 `.d.ts` 的新增/修改不会刷新类型库。
+
+**根因**：
+
+- typeLibraries 首版只扫描 node_modules 与配置指定的类型包；
+- 本地文件枚举和 watcher 失效边界尚未覆盖 `.d.ts`。
+
+**修复**：
+
+- Host 在依赖类型之后调用有界 `listWorkspaceFiles(..., fileMask: '*.d.ts')`；
+- 沿用 WALK_IGNORED 跳过 node_modules/target/build 等目录；
+- 本地声明继续使用 1200 files、2MB/file、12MB total 预算；
+- workspace-relative 路径直接作为 Monaco extra lib；
+- Client invalidation 规则增加任意 `*.d.ts` 路径。
+
+**回归测试**：
+
+```bash
+node --test tests/editor-workspace-type-libraries-node-deno.test.mjs \
+  tests/project-directories-tree-also-watched.test.mjs \
+  tests/editor-typescript-editor-core-preserves-path-patch-api-helpers.test.mjs
+npm test
+```
+
+- GREEN：fixture 的 `types/local-probe.d.ts` 出现在 typeLibraries files；
+- GREEN：`.d.ts` 路径触发类型库 refresh；
+- GREEN：现有 npm/@types、显式 types、Deno imports 和 watcher 顺序保持；
+- 类型库与 watcher 定向 **13 pass / 0 fail**；
+- 完整 `npm test` **3565 pass / 0 fail**；
+- ESLint、**135** 个 source imports、TypeScript、Prettier、client build
+  consistency、`node --check`、`git diff --check` 通过；
+- `npm pack --dry-run` 通过，package **146 files**；
+- `lib/client.js` 重建后 **2515.6 KB / 2,575,981 bytes**。
+
+**长期约束**：
+
+- 本地声明扫描必须复用现有 workspace walk 排除与预算；
+- `.d.ts` 变更必须自动刷新类型库；
+- 本地声明的虚拟路径必须保持 workspace-relative；
+- 不得为了找声明而递归进入 node_modules/target/build。
+
+## 2026-11-21 — Node/Deno 类型库变更自动刷新
+
+**作用域**：workspace watcher、package/deno/tsconfig/lockfile、node_modules
+安装变化、Monaco extra libs、type-library request 隔离和自动 markers 刷新。
+
+**症状/证据**：
+
+- 初次打开 workspace 时 Frida/zod/MCP 类型已经生效；
+- 新增 `node_modules/@types/dsh-type-refresh-probe/index.d.ts` 后，已打开
+  `type-refresh-probe.ts` 仍保留 `Cannot find name ... (2304)`；
+- 只有重开 workspace 才会重新请求 `typeLibraries`。
+
+**根因**：
+
+- 类型库 effect 只依赖 `monacoReady/root`；
+- 文件 watcher 只刷新树、Git、外部文件和搜索 revision，没有类型 revision；
+- 并发 watcher 刷新若各自请求 typeLibraries，旧响应可能覆盖新响应。
+
+**修复**：
+
+- `editor-core` 新增 type-library 变化判定：
+  - `package.json`、`tsconfig.json`、`jsconfig.json`、`deno.json`；
+  - npm/pnpm/yarn/bun lockfile；
+  - `node_modules` 与子路径；
+- watcher 命中时调用 `refreshWorkspaceTypesForChange()`；
+- `requestWorkspaceTypeLibraries()` 增加单调 serial，只允许最新响应安装；
+- 保持初始加载、workspace 切换 dispose 和所有扫描预算不变。
+
+**回归测试**：
+
+```bash
+node --test tests/editor-workspace-type-libraries-node-deno.test.mjs \
+  tests/project-directories-tree-also-watched.test.mjs \
+  tests/editor-typescript-editor-core-preserves-path-patch-api-helpers.test.mjs \
+  tests/editor-typescript-module-not-found-false-positives-targeted-without-disabling.test.mjs
+npm test
+```
+
+- GREEN：package/deno/lock/node_modules 路径触发刷新；
+- GREEN：普通源码路径不触发；
+- GREEN：watcher 原有 parent refresh 顺序保持不变；
+- 类型库与 watcher 定向 **11 pass / 0 fail**；
+- 完整 `npm test` **3565 pass / 0 fail**；
+- ESLint、**135** 个 source imports、TypeScript、Prettier、client build
+  consistency、`node --check`、`git diff --check` 通过；
+- `npm pack --dry-run` 通过，package **146 files**；
+- `lib/client.js` 重建后 **2515.6 KB / 2,575,932 bytes**。
+
+**运行态复验**：
+
+- probe 初始 markers 为 `2304 Cannot find name 'DshTypeRefreshProbe'`；
+- 新增类型声明后，watcher 自动刷新 extra libs；
+- 同一 workspace、同一标签页 markers 自动变为 `[]`；
+- 临时源码、类型包和标签均已清理。
+
+**长期约束**：
+
+- 类型配置/依赖变化必须自动失效，不要求重开 workspace；
+- 同一类型请求必须用 serial/abort 防止旧响应覆盖；
+- watcher 只在类型根可能变化时刷新，普通文件编辑不得触发类型扫描；
+- 新增失效路径时必须沿用 Host 扫描预算和虚拟 node_modules 布局。
+
+## 2026-11-21 — Workspace Node/Deno 类型自动感知
+
+**作用域**：Monaco TypeScript worker、workspace type libraries、
+`package.json` dependencies/devDependencies、`tsconfig.json`、
+`deno.json` imports/types、node_modules `@types`、Frida/zod/MCP SDK、
+extra libs 生命周期与预算。
+
+**症状/证据**：
+
+- `Zygisksdk` 已安装 `node_modules/@types/frida-gum`，`patch.ts` 仍报
+  `Cannot find name 'Process'. (2304)`；
+- `mcp_server.ts` 的 `@modelcontextprotocol/sdk` 与 `zod` 类型不能由
+  Monaco 自动发现；
+- Monaco worker 没有 workspace filesystem，只知道已创建的 model 和
+  `addExtraLib()` 提供的虚拟文件。
+
+**根因**：
+
+- Client 只配置 compilerOptions 和 diagnostics，没有枚举/注入 workspace
+  `.d.ts`；
+- TypeScript 默认的 node_modules 解析并不存在，因为虚拟文件系统为空；
+- 关闭 TS2304 会掩盖真实错误，因此不能用 diagnostic suppression 解决。
+
+**修复**：
+
+- Host 新增 `workspaceFileOperations.typeLibraries(root)` 与 fs
+  `typeLibraries` 路由；
+- 解析 package dependencies/devDependencies、tsconfig/deno compilerOptions
+  types 和 Deno npm imports；
+- 收集显式 type packages、所有已安装 `@types/*`、直接依赖的 `.d.ts`；
+- 返回虚拟 `node_modules/...` 路径，扫描时使用 realpath 防越界/symlink 环；
+- 上限：1200 files、2MB/file、12MB total、2000 dirs、100 packages；
+- Deno CLI 存在时额外执行 `deno types` 获取 runtime globals；
+- Client 通过 TypeScript/JavaScript `addExtraLib()` 注入声明，设置
+  `baseUrl: file:///`、`typeRoots`、`types`；
+- workspace 切换/卸载时 dispose 旧 extra libs，避免跨项目污染。
+
+**回归测试**：
+
+```bash
+node --test tests/editor-workspace-type-libraries-node-deno.test.mjs \
+  tests/editor-typescript-editor-core-preserves-path-patch-api-helpers.test.mjs \
+  tests/editor-typescript-module-not-found-false-positives-targeted-without-disabling.test.mjs
+npm test
+```
+
+- GREEN：Host 从 fixture 加载 Frida、zod、MCP SDK 和 @types；
+- GREEN：Monaco 安装虚拟 `file:///node_modules/...` extra libs；
+- GREEN：重新配置会 dispose 上一代类型库；
+- workspace 类型和 Monaco 配置定向 **10 pass / 0 fail**；
+- 完整 `npm test` **3564 pass / 0 fail**；
+- ESLint、**135** 个 source imports、TypeScript、Prettier、client build
+  consistency、`node --check`、`git diff --check` 通过；
+- `npm pack --dry-run` 通过，package **146 files**；
+- `lib/client.js` 重建后 **2513.8 KB / 2,574,177 bytes**。
+
+**运行态复验**：
+
+- 真实 `Zygisksdk` Host 类型库 3.1MB，`truncated=false`；
+- `src/optional/patch.ts` Monaco markers `[]`，`Process` 有真实类型；
+- `src/lang/debug/devtools/mcp_server.ts` Monaco markers `[]`，
+  zod 与 MCP SDK 导入可解析；
+- 当前环境没有 `deno` CLI，因此 Deno runtime globals 的 `deno types`
+  分支未在本机执行；npm 类型与 Deno import 映射已生效。
+
+**长期约束**：
+
+- 不得通过忽略 TS2304/TS2307 掩盖类型库缺失；
+- workspace 类型必须按预算传输，禁止无界读取 node_modules；
+- 虚拟路径必须对应真实 Node/Deno 模块布局；
+- workspace 切换必须清理旧 extra libs；
+- 新增类型来源时需同时更新 Host 预算、Client 生命周期和真实 markers 验证。
+
 ## 2026-11-21 — 排除搜索目录样式与编译产物默认排除
 
 **作用域**：Project tree 搜索排除目录名称/图标样式、Host files/text/

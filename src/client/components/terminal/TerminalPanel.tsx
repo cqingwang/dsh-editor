@@ -53,6 +53,7 @@ import {
   terminalAutoOpenAction,
   terminalFindPaneEmulator,
   terminalFontSize,
+  terminalManualRenameOwnsTitle,
   type TerminalDescription,
   writeEditorTerminals,
   writeTerminalColors,
@@ -215,8 +216,10 @@ function TerminalPanel({
   const closingTerminalIdsRef = React.useRef(new Set<string>());
   const busyOperationCountRef = React.useRef(0);
   const createInFlightRef = React.useRef(false);
+  const createFailureRef = React.useRef<TerminalErrorState | null>(null);
   const refreshRequestRef = React.useRef(0);
   const renameInFlightRef = React.useRef<string | null>(null);
+  const autoTitleRequestChainRef = React.useRef(new Map<string, Promise<void>>());
   const terminalReorderRequestRef = React.useRef(0);
   const shellMenuRequestRef = React.useRef(0);
   const [available, setAvailable] = React.useState(true);
@@ -624,7 +627,7 @@ function TerminalPanel({
   }, [refresh]);
 
   /* Renaming a tab clears the auto-title flag, so a later OSC title cannot undo it. */
-  const renamedRef = React.useRef(new Set());
+  const renamedRef = React.useRef(new Set<string>());
   /**
    * Adopt a shell-published title, unless the user renamed that tab by hand.
    *
@@ -633,8 +636,8 @@ function TerminalPanel({
    * @param {string} id - terminal identity.
    * @param {string} title - title the shell published.
    */
-  const syncTerminalTitle = React.useCallback(async (id: string, title: string): Promise<void> => {
-    if (renamedRef.current.has(id)) return;
+  const syncTerminalTitle = React.useCallback((id: string, title: string): void => {
+    if (terminalManualRenameOwnsTitle(id, renamedRef.current, renameInFlightRef.current)) return;
     const current = terminalsRef.current.find((terminal) => terminal.id === id);
     if (current === undefined || current.title === title) return;
     setTerminals((list) =>
@@ -647,12 +650,24 @@ function TerminalPanel({
           : terminal,
       ),
     );
-    void callTerminal({
-      op: 'rename',
-      id,
-      title,
-      auto: true,
-    }).catch(() => {});
+    const previous = autoTitleRequestChainRef.current.get(id) ?? Promise.resolve();
+    const request = previous
+      .catch(() => {})
+      .then(async () => {
+        if (terminalManualRenameOwnsTitle(id, renamedRef.current, renameInFlightRef.current)) return;
+        const latest = terminalsRef.current.find((terminal) => terminal.id === id);
+        if (latest === undefined || latest.title !== title) return;
+        await callTerminal({
+          op: 'rename',
+          id,
+          title,
+          auto: true,
+        }).catch(() => {});
+      })
+      .finally(() => {
+        if (autoTitleRequestChainRef.current.get(id) === request) autoTitleRequestChainRef.current.delete(id);
+      });
+    autoTitleRequestChainRef.current.set(id, request);
   }, []);
 
   /**
@@ -776,6 +791,7 @@ function TerminalPanel({
     ) => {
       if (createInFlightRef.current) return null;
       createInFlightRef.current = true;
+      createFailureRef.current = null;
       beginBusyOperation();
       setError(null);
       try {
@@ -805,10 +821,12 @@ function TerminalPanel({
           onStartDirectoryUsed?.();
         return created;
       } catch (failure) {
-        setError({
+        const createError = {
           message: describeCreateFailure(failure),
           limitReached: terminalCreateFailureLimitReached(failure),
-        });
+        };
+        createFailureRef.current = createError;
+        setError(createError);
         return null;
       } finally {
         createInFlightRef.current = false;
@@ -863,15 +881,20 @@ function TerminalPanel({
   const restoreTerminals = React.useCallback(
     async (profile: TerminalRestoreEntry[]): Promise<void> => {
       const snapshots = readTerminalRestoreSnapshots();
+      let lastFailure: TerminalErrorState | null = null;
       for (const [index, entry] of profile.slice(0, 4).entries()) {
         const exists = await callTerminal({
           op: 'shells',
         })
           .then((value) => (value.shells ?? []).some((shell) => shell.path === entry.shell))
           .catch(() => false);
-        const created = await createTerminal(exists ? entry.shell : undefined, undefined, snapshots[index] ?? '');
-        if (created === null) break;
+        const created = await createTerminal(exists ? entry.shell : undefined, entry.cwd, snapshots[index] ?? '');
+        if (created === null) {
+          lastFailure = createFailureRef.current ?? lastFailure;
+          continue;
+        }
       }
+      if (lastFailure !== null) setError(lastFailure);
     },
     [createTerminal],
   );
@@ -999,13 +1022,13 @@ function TerminalPanel({
     if (renameInFlightRef.current === requestKey) return;
     renameInFlightRef.current = requestKey;
     try {
-      renamedRef.current.add(targetId);
       const value = await callTerminal({
         op: 'rename',
         id: targetId,
         title,
       });
       setTerminals((current) => current.map((terminal) => (terminal.id === targetId ? value.terminal : terminal)));
+      renamedRef.current.add(targetId);
       setRenaming((current) =>
         current !== null && current.id === targetId && current.value.trim() === title ? null : current,
       );

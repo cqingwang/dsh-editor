@@ -25,6 +25,15 @@ export interface TerminalShell {
   name: string;
 }
 
+/** Whether an in-flight or completed manual rename owns this tab's title. */
+export function terminalManualRenameOwnsTitle(
+  id: string,
+  renamedIds: ReadonlySet<string>,
+  requestKey: string | null,
+): boolean {
+  return renamedIds.has(id) || (requestKey !== null && requestKey.startsWith(`${id}\u0000`));
+}
+
 /**
  * Resolve the emulator owned by the terminal Find session.
  *

@@ -103,7 +103,7 @@ test('terminal tabs are remembered per session and rebuilt after a host restart'
   /* A shell that no longer exists falls back to the default instead of aborting. */
   assert.match(
     client,
-    /const created = await createTerminal\(exists \? entry\.shell : undefined, undefined, snapshots\[index\] \?\? ''\);/,
+    /const created = await createTerminal\(exists \? entry\.shell : undefined, entry\.cwd, snapshots\[index\] \?\? ''\);/,
   );
   assert.match(client, /const action = terminalAutoOpenAction\(\{/);
   assert.match(client, /if \(action === 'restore'\) \{[\s\S]*?void restoreTerminals\(remembered\);/);

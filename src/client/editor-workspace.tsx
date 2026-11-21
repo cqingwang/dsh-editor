@@ -14,6 +14,7 @@ import { markdownScrollRatio, markdownScrollTopForRatio } from './components/edi
 import { workspaceImagePreviewElement } from './components/editor/workspace-image-preview';
 import {
   workspaceFileAfterReload,
+  workspaceFileAfterSave,
   workspaceFileFromResponse,
   workspaceReloadOperation,
 } from './components/editor/workspace-file-model';
@@ -61,6 +62,7 @@ import {
   boundedReplaceHistory,
   claimCommitRequestAttempt,
   claimReplaceAttempt,
+  commitDraftAfterSuccess,
   commitFindToolDirtyPlans,
   commitRetryFocusTarget,
   completeFindFiles,
@@ -174,8 +176,11 @@ import { SearchEverywhere, type SearchEverywhereState } from './components/searc
 import { ShowUsagesPopup } from './components/search/ShowUsagesPopup';
 import {
   directoryScopeRequest,
+  findToolAfterCustomScopesChange,
   findScopePreflight,
   findToolFileCandidatesRequest,
+  useFindScopeFileAutoSave,
+  useFindScopeFileWrite,
   useSearchInvalidation,
 } from './components/search/search-scope';
 import { useSearchEverywhereFileCandidates } from './components/search/use-search-everywhere-file-candidates';
@@ -204,6 +209,7 @@ import {
   callFs,
   callGit,
   commitPatchDownloadName,
+  configureMonacoWorkspaceTypes,
   createCodeEditorGroup,
   currentEditorWorkspaceId,
   downloadPatchBlob,
@@ -215,7 +221,9 @@ import {
   PROJECT_PREFETCH_DEPTH,
   PROJECT_PREFETCH_VISIT_LIMIT,
   remapPathAfterMove,
+  requestWorkspaceTypeLibraries,
   requestEditorSemanticTokensWhenReady,
+  refreshWorkspaceTypesForChange,
   searchTextFailureMessage,
   selectedEditorFindQuery,
   setCurrentSearchRevision,
@@ -748,17 +756,12 @@ function EditorWorkspace({
   const [editorError, setEditorError] = React.useState<string | null>(null);
   /* IDEA's editor status bar: caret position, indentation and line-ending mode. */ const [caret, setCaret] =
     React.useState({ line: 1, column: 1 });
-  /* Line count and selection size for IDEA's status bar. */ const [lineStats, setLineStats] = React.useState({
-    lines: 0,
-    selected: 0,
-  });
-  const [fileMode, setFileMode] = React.useState({
-    tabSize: 2,
-    insertSpaces: true,
-    eol: 'LF',
-    encoding: 'UTF-8',
-  });
+  /* Line count and selection size for IDEA's status bar. */
+  const [lineStats, setLineStats] = React.useState({ lines: 0, selected: 0 });
+  const [fileMode, setFileMode] = React.useState({ tabSize: 2, insertSpaces: true, eol: 'LF', encoding: 'UTF-8' });
   const [commitMessage, setCommitMessage] = React.useState('');
+  const commitMessageValueRef = React.useRef('');
+  commitMessageValueRef.current = commitMessage;
   /* Recently used commit messages, recalled with ↑/↓ like IDEA's message box. */ const [
     messageHistory,
     setMessageHistory,
@@ -769,6 +772,7 @@ function EditorWorkspace({
   const commitSelectionLoadedRef = React.useRef(false);
   const [commitBusy, setCommitBusyState] = React.useState(false);
   const commitOperationCountRef = React.useRef(0);
+  const saveAllInFlightRef = React.useRef(false);
   const repositoryUpdateGuardRef = React.useRef(false);
   const beginCommitOperation = React.useCallback(() => {
     if (repositoryUpdateGuardRef.current) return false;
@@ -1826,6 +1830,15 @@ function EditorWorkspace({
       cancelled = true;
     };
   }, []);
+  React.useEffect(() => {
+    if (!monacoReady || root === '' || window.monaco === undefined) return undefined;
+    const controller = new AbortController();
+    void requestWorkspaceTypeLibraries(window.monaco, controller.signal).catch(() => {});
+    return () => {
+      controller.abort();
+      configureMonacoWorkspaceTypes(window.monaco, null);
+    };
+  }, [monacoReady, root]);
   /* File tabs overflow like the terminal dock's: measure the strip, not the tabs. */ React.useLayoutEffect(() => {
     const node = fileTabStripRef.current;
     if (node === null) return undefined;
@@ -3058,14 +3071,7 @@ function EditorWorkspace({
         });
         setOpenFiles((current) =>
           current.map((entry) =>
-            entry.path === path
-              ? {
-                  ...entry,
-                  content: model.getValue(),
-                  dirty: false,
-                  mtime: typeof value.mtime === 'number' ? value.mtime : entry.mtime,
-                }
-              : entry,
+            entry.path === path ? workspaceFileAfterSave(entry, model.getValue(), value.mtime) : entry,
           ),
         );
         setEditorError(null);
@@ -3392,50 +3398,46 @@ function EditorWorkspace({
     },
     [flashStatus, openFileAtLocation, t],
   );
-  /**
-   * Save every dirty tab, IDEA's "Save All" (⌥⌘S / Ctrl+Alt+S).
-   *
-   * A tab whose file changed on disk is left alone: it keeps its conflict
-   * banner instead of being force-written behind the user's back.
-   * @returns {Promise<number>} how many files were written.
-   */ const saveAll = React.useCallback(async () => {
-    const dirty = openFilesRef.current.filter((file) => file.dirty);
-    let written = 0;
-    for (const file of dirty) {
-      const model = modelsRef.current.get(file.path);
-      if (model === undefined) continue;
+  /** Save every dirty tab; changed-on-disk files keep their conflict banner. */ const saveAll =
+    React.useCallback(async () => {
+      if (saveAllInFlightRef.current) return 0;
+      if (!beginCommitOperation()) return 0;
+      const dirty = openFilesRef.current.filter((file) => file.dirty);
+      let written = 0;
+      saveAllInFlightRef.current = true;
       try {
-        const value = await callFs<{ mtime?: number | null }>({
-          op: 'write',
-          path: file.path,
-          content: model.getValue(),
-          mtime: file.mtime ?? undefined,
-        });
-        setOpenFiles((current) =>
-          current.map((entry) =>
-            entry.path === file.path
-              ? {
-                  ...entry,
-                  content: model.getValue(),
-                  dirty: false,
-                  mtime: typeof value.mtime === 'number' ? value.mtime : entry.mtime,
-                }
-              : entry,
-          ),
-        );
-        written += 1;
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        if (/changed on disk|no longer exists/u.test(message)) setConflict({ path: file.path, message });
-        else setEditorError(message);
+        for (const file of dirty) {
+          const model = modelsRef.current.get(file.path);
+          if (model === undefined) continue;
+          try {
+            const value = await callFs<{ mtime?: number | null }>({
+              op: 'write',
+              path: file.path,
+              content: model.getValue(),
+              mtime: file.mtime ?? undefined,
+            });
+            setOpenFiles((current) =>
+              current.map((entry) =>
+                entry.path === file.path ? workspaceFileAfterSave(entry, model.getValue(), value.mtime) : entry,
+              ),
+            );
+            written += 1;
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            if (/changed on disk|no longer exists/u.test(message)) setConflict({ path: file.path, message });
+            else setEditorError(message);
+          }
+        }
+        if (written > 0) {
+          flashStatus(t('editor.savedAll', { count: written }));
+          await loadGit();
+        }
+        return written;
+      } finally {
+        saveAllInFlightRef.current = false;
+        endCommitOperation();
       }
-    }
-    if (written > 0) {
-      flashStatus(t('editor.savedAll', { count: written }));
-      await loadGit();
-    }
-    return written;
-  }, [flashStatus, loadGit, t]);
+    }, [beginCommitOperation, endCommitOperation, flashStatus, loadGit, t]);
   const gotoInputRef = React.useRef<HTMLInputElement | null>(null);
   /* IDEA 的 Go to Line/Column：接受行号或 `行:列`。 */ const [gotoState, setGotoState] =
     React.useState<EditorGotoLineState | null>(null);
@@ -4617,46 +4619,43 @@ function EditorWorkspace({
     },
     [],
   );
+  const writeFindScopeXml = useFindScopeFileWrite(beginCommitOperation, endCommitOperation, callFs, t);
+  const scopeWriteRevisionRef = React.useRef(0);
+  const writeSharedFindScopes = useFindScopeFileAutoSave(
+    beginCommitOperation,
+    endCommitOperation,
+    callFs,
+    t,
+    setEditorError,
+  );
   /** Persist local named Scopes and invalidate a selection that disappeared. */ const changeCustomFindScopes =
-    React.useCallback((value: unknown) => {
-      const normalized = writeCustomFindScopes(rootRef.current, value);
-      const sharedScopes = normalized.filter((scope) => scope.shared === true);
-      if (sharedScopes.length > 0 || sharedFindScopesRef.current.length > 0) {
-        sharedFindScopesRef.current = sharedScopes;
-        void callFs({
-          op: 'write',
-          path: '.idea/scopes/dsh-editor.xml',
-          content: serializeIdeaScopeXml(sharedScopes),
-          force: true,
-          create: true,
-        }).catch((failure) => {
-          setEditorError(failure instanceof Error ? failure.message : String(failure));
-        });
-      }
-      setCustomFindScopes(normalized);
-      setFindTool((current) => {
-        if (
-          current === null ||
-          typeof current.searchScopePreset !== 'string' ||
-          !current.searchScopePreset.startsWith('custom:')
-        ) {
-          return current;
+    React.useCallback(
+      (value: unknown) => {
+        const previousScopes = customFindScopes;
+        const previousSharedScopes = sharedFindScopesRef.current;
+        const revision = ++scopeWriteRevisionRef.current;
+        const normalized = writeCustomFindScopes(rootRef.current, value);
+        const sharedScopes = normalized.filter((scope) => scope.shared === true);
+        if (sharedScopes.length > 0 || sharedFindScopesRef.current.length > 0) {
+          const rollback = () => {
+            if (scopeWriteRevisionRef.current !== revision) return;
+            const restored = writeCustomFindScopes(rootRef.current, previousScopes);
+            sharedFindScopesRef.current = previousSharedScopes;
+            setCustomFindScopes(restored);
+            setFindTool((current) => (current === null ? current : findToolAfterCustomScopesChange(current, restored)));
+          };
+          if (!writeSharedFindScopes(serializeIdeaScopeXml(sharedScopes), rollback)) {
+            setEditorError(t('editor.updateBusy'));
+            return previousScopes;
+          }
+          sharedFindScopesRef.current = sharedScopes;
         }
-        const id = current.searchScopePreset.slice('custom:'.length);
-        if (normalized.some((scope) => scope.id === id)) return current;
-        return {
-          ...current,
-          searchScopePreset: 'projectFiles',
-          files: [],
-          matches: [],
-          index: 0,
-          error: null,
-          searchGeneration: (current.searchGeneration ?? 0) + 1,
-          loadedGeneration: -1,
-        };
-      });
-      return normalized;
-    }, []);
+        setCustomFindScopes(normalized);
+        setFindTool((current) => (current === null ? current : findToolAfterCustomScopesChange(current, normalized)));
+        return normalized;
+      },
+      [customFindScopes, writeSharedFindScopes],
+    );
   /**
    * Open Replace in Files from the Editor without losing the live scope.
    *
@@ -7978,6 +7977,7 @@ function EditorWorkspace({
         const changedDirectories = Array.isArray(event.dirs)
           ? event.dirs.filter((directory): directory is string => typeof directory === 'string')
           : null;
+        refreshWorkspaceTypesForChange(window.monaco, event.paths, changedDirectories);
         /* Serialize: two overlapping refreshes would interleave their state
                writes and one could resurrect a listing the other just dropped. */ chain = chain
           .then(async () => {
@@ -10851,9 +10851,12 @@ function EditorWorkspace({
         setGit(value);
         setCommitSelection(new Set((value?.changes ?? []).map((change) => change.path)));
         rememberMessage(commitMessage);
-        /* Keep the text so the "cleared by mistake" case has a one-click undo. */ setClearedMessage(commitMessage);
-        setCommitMessage('');
-        writeCommitDraft(root, '');
+        const nextDraft = commitDraftAfterSuccess(commitMessageValueRef.current, commitMessage);
+        /* Keep the submitted text so the "cleared by mistake" case has a one-click undo. */ if (nextDraft === '')
+          setClearedMessage(commitMessage);
+        else setClearedMessage('');
+        setCommitMessage(nextDraft);
+        writeCommitDraft(root, nextDraft);
         setAmend(false);
         setDiffTarget(null);
         /* A rejected push keeps the commit: IDEA reports both outcomes separately. */ setCommitNotice(
@@ -11300,6 +11303,7 @@ function EditorWorkspace({
         openFilesRef={openFilesRef}
         changedFilePaths={(git?.changes ?? []).map((change) => change.path)}
         customScopes={customFindScopes}
+        onWriteScopeXml={writeFindScopeXml}
         queryHistory={recentFindQueries}
         replaceHistory={recentReplacements}
         onQuery={(query) => {
@@ -12131,6 +12135,7 @@ function EditorWorkspace({
                   void loadGraph(scope.branch, scope.at);
                 }}
                 onMessage={(value) => {
+                  commitMessageValueRef.current = value;
                   setCommitMessage(value);
                   setHistoryIndex(-1);
                   /* Typing is the user taking over: the saved draft is no longer relevant. */ draftBeforeRecall.current =

@@ -275,6 +275,27 @@ test('Project create, rename, move, save and upload refuse while Update owns the
   await savePath('a.txt');
   assert.equal(saveCalls, 0);
 
+  let saveAllCalls = 0;
+  const saveAll = loadTypeScriptCallback(editorSource, 'saveAll', {
+    saveAllInFlightRef: { current: false },
+    beginCommitOperation,
+    endCommitOperation,
+    openFilesRef: { current: [{ path: 'a.txt', dirty: true, mtime: 1 }] },
+    modelsRef: { current: new Map([['a.txt', { getValue: () => 'changed' }]]) },
+    callFs: async () => {
+      saveAllCalls += 1;
+      return { mtime: 2 };
+    },
+    setOpenFiles: () => {},
+    setConflict: () => {},
+    setEditorError: () => {},
+    flashStatus: () => {},
+    loadGit: async () => {},
+    t: (key) => key,
+  });
+  assert.equal(await saveAll(), 0);
+  assert.equal(saveAllCalls, 0);
+
   let uploadCalls = 0;
   const uploadProjectDropWithGuard = loadTypeScriptFunction(uploadGuardSource, 'uploadProjectDropWithGuard');
   await uploadProjectDropWithGuard(

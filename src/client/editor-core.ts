@@ -1494,6 +1494,10 @@ interface MonacoTypeScriptRuntimeConfig {
   downlevelIteration?: boolean;
   allowSyntheticDefaultImports?: boolean;
   resolveJsonModule?: boolean;
+  baseUrl?: string;
+  typeRoots?: string[];
+  types?: string[];
+  paths?: Record<string, string[]>;
 }
 
 function editorTypeScriptConfig(): MonacoTypeScriptRuntimeConfig {
@@ -1569,6 +1573,12 @@ function configureMonacoLanguageDiagnostics(
     downlevelIteration: config.downlevelIteration === true,
     allowSyntheticDefaultImports: config.allowSyntheticDefaultImports === true,
     resolveJsonModule: config.resolveJsonModule === true,
+    ...(typeof config.baseUrl === 'string' && config.baseUrl !== '' ? { baseUrl: config.baseUrl } : null),
+    ...(Array.isArray(config.typeRoots) && config.typeRoots.length > 0 ? { typeRoots: config.typeRoots } : null),
+    ...(Array.isArray(config.types) && config.types.length > 0 ? { types: config.types } : null),
+    ...(config.paths !== null && typeof config.paths === 'object' && Object.keys(config.paths).length > 0
+      ? { paths: config.paths }
+      : null),
   };
   typescriptDefaults.setDiagnosticsOptions(diagnosticsOptions);
   javascriptDefaults.setDiagnosticsOptions(diagnosticsOptions);
@@ -1578,6 +1588,227 @@ function configureMonacoLanguageDiagnostics(
     allowJs: true,
     checkJs: false,
   });
+  return true;
+}
+
+export interface MonacoWorkspaceTypeLibraries {
+  files?: Array<{ path?: string; content?: string }>;
+  types?: string[];
+  typeRoots?: string[];
+  baseUrl?: string;
+  paths?: Record<string, string[]>;
+  truncated?: boolean;
+  totalBytes?: number;
+}
+
+const workspaceTypeLibraryDisposables = new WeakMap<object, Array<{ dispose?: () => void }>>();
+let workspaceTypeLibraryRequestSerial = 0;
+const WORKSPACE_TYPE_REFRESH_DELAY_MS = 120;
+
+export interface WorkspaceTypeLibraryRefreshQueue {
+  schedule(): void;
+  cancel(): void;
+}
+
+interface WorkspaceTypeLibraryRefreshEntry {
+  abortController: AbortController | null;
+  queue: WorkspaceTypeLibraryRefreshQueue;
+}
+
+const workspaceTypeLibraryRefreshEntries = new WeakMap<object, WorkspaceTypeLibraryRefreshEntry>();
+
+/**
+ * Coalesce rapid type-root invalidations without dropping the final change.
+ *
+ * A request that is already reading the declaration graph cannot include a
+ * later filesystem event. Keeping one pending flag converts that race into one
+ * trailing refresh instead of parallel host scans.
+ */
+export function createWorkspaceTypeLibraryRefreshQueue(
+  request: () => Promise<unknown>,
+  schedule: (callback: () => void, delay: number) => number,
+  cancelSchedule: (handle: number) => void,
+  delay = WORKSPACE_TYPE_REFRESH_DELAY_MS,
+): WorkspaceTypeLibraryRefreshQueue {
+  let timer: number | null = null;
+  let inFlight: Promise<void> | null = null;
+  let pending = false;
+  const drain = (): void => {
+    timer = null;
+    if (!pending || inFlight !== null) return;
+    pending = false;
+    inFlight = Promise.resolve()
+      .then(request)
+      .catch(() => {})
+      .then(() => {
+        inFlight = null;
+        if (pending) drain();
+      });
+  };
+  return {
+    schedule() {
+      pending = true;
+      if (timer !== null) cancelSchedule(timer);
+      timer = schedule(() => {
+        drain();
+      }, delay);
+    },
+    cancel() {
+      if (timer !== null) cancelSchedule(timer);
+      timer = null;
+      pending = false;
+    },
+  };
+}
+
+/**
+ * Install workspace-declared type packages into Monaco's TS worker.
+ *
+ * Monaco has no filesystem access. The host therefore supplies bounded `.d.ts`
+ * contents and the virtual node_modules/typeRoots layout that makes normal
+ * imports and global declarations resolve as they do in Node or Deno.
+ * @param {object} monaco - Monaco global namespace.
+ * @param {object|null|undefined} libraries - host workspace type payload.
+ * @returns {number} number of installed declaration files.
+ */
+export function configureMonacoWorkspaceTypes(
+  monaco: MonacoApi,
+  libraries: MonacoWorkspaceTypeLibraries | null | undefined,
+): number {
+  if (libraries === null || libraries === undefined) cancelWorkspaceTypeLibrariesRefresh(monaco);
+  const typescript = monaco?.languages?.typescript;
+  const typescriptDefaults = typescript?.typescriptDefaults;
+  const javascriptDefaults = typescript?.javascriptDefaults;
+  if (typeof typescriptDefaults?.addExtraLib !== 'function' || typeof javascriptDefaults?.addExtraLib !== 'function') {
+    return 0;
+  }
+  for (const disposable of workspaceTypeLibraryDisposables.get(monaco) ?? []) disposable.dispose?.();
+  const disposables: Array<{ dispose?: () => void }> = [];
+  const files = Array.isArray(libraries?.files) ? libraries.files : [];
+  let installed = 0;
+  for (const file of files) {
+    if (typeof file?.path !== 'string' || file.path === '' || typeof file.content !== 'string') continue;
+    const uri = `file:///${file.path.split('/').map(encodeURIComponent).join('/')}`;
+    disposables.push(typescriptDefaults.addExtraLib(file.content, uri));
+    disposables.push(javascriptDefaults.addExtraLib(file.content, uri));
+    installed += 1;
+  }
+  workspaceTypeLibraryDisposables.set(monaco, disposables);
+  configureMonacoLanguageDiagnostics(monaco, {
+    ...editorTypeScriptConfig(),
+    baseUrl: `file:///${
+      typeof libraries?.baseUrl === 'string' && libraries.baseUrl !== ''
+        ? libraries.baseUrl.split('/').map(encodeURIComponent).join('/')
+        : ''
+    }`,
+    paths:
+      libraries?.paths !== null && typeof libraries?.paths === 'object'
+        ? Object.fromEntries(
+            Object.entries(libraries.paths)
+              .slice(0, 100)
+              .filter(([, targets]) => Array.isArray(targets))
+              .map(([alias, targets]) => [
+                alias,
+                targets.filter((target): target is string => typeof target === 'string' && target !== '').slice(0, 20),
+              ]),
+          )
+        : {},
+    typeRoots: (Array.isArray(libraries?.typeRoots) ? libraries.typeRoots : [])
+      .filter((path): path is string => typeof path === 'string' && path !== '')
+      .map((path) => `file:///${path.split('/').map(encodeURIComponent).join('/')}`),
+    types: (Array.isArray(libraries?.types) ? libraries.types : []).filter(
+      (type): type is string => typeof type === 'string' && type !== '',
+    ),
+  });
+  return installed;
+}
+
+/** Fetch and install the active workspace's bounded Node/Deno declarations. */
+export async function requestWorkspaceTypeLibraries(monaco: MonacoApi, signal?: AbortSignal): Promise<number> {
+  const requestId = ++workspaceTypeLibraryRequestSerial;
+  const libraries = await callFs<MonacoWorkspaceTypeLibraries>({ op: 'typeLibraries' }, { signal });
+  return signal?.aborted === true || requestId !== workspaceTypeLibraryRequestSerial
+    ? 0
+    : configureMonacoWorkspaceTypes(monaco, libraries);
+}
+
+function workspaceTypeLibraryRefreshEntry(monaco: MonacoApi): WorkspaceTypeLibraryRefreshEntry {
+  const existing = workspaceTypeLibraryRefreshEntries.get(monaco);
+  if (existing !== undefined) return existing;
+  const entry: WorkspaceTypeLibraryRefreshEntry = {
+    abortController: null,
+    queue: null as unknown as WorkspaceTypeLibraryRefreshQueue,
+  };
+  entry.queue = createWorkspaceTypeLibraryRefreshQueue(
+    () => {
+      const controller = new AbortController();
+      entry.abortController = controller;
+      return requestWorkspaceTypeLibraries(monaco, controller.signal).finally(() => {
+        if (entry.abortController === controller) entry.abortController = null;
+      });
+    },
+    (callback, delay) => window.setTimeout(callback, delay),
+    (handle) => window.clearTimeout(handle),
+  );
+  workspaceTypeLibraryRefreshEntries.set(monaco, entry);
+  return entry;
+}
+
+/** Drop a workspace's pending and in-flight coalesced type refresh. */
+export function cancelWorkspaceTypeLibrariesRefresh(monaco: MonacoApi | undefined): void {
+  if (monaco === undefined) return;
+  const entry = workspaceTypeLibraryRefreshEntries.get(monaco);
+  if (entry === undefined) return;
+  entry.queue.cancel();
+  entry.abortController?.abort();
+  workspaceTypeLibraryRefreshEntries.delete(monaco);
+}
+
+/** True when a workspace change can alter installed Node/Deno type roots. */
+export function workspaceChangeInvalidatesTypeLibraries(value: unknown): boolean {
+  const paths = Array.isArray(value)
+    ? value
+        .filter((path): path is string => typeof path === 'string' && path !== '')
+        .map((path) => path.replaceAll('\\', '/').replace(/^\.\/+/u, ''))
+    : [];
+  return paths.some((path) => {
+    const name = path.slice(path.lastIndexOf('/') + 1);
+    if (
+      name === 'package.json' ||
+      name === 'tsconfig.json' ||
+      name === 'jsconfig.json' ||
+      name === 'deno.json' ||
+      name === 'deno.jsonc' ||
+      name === 'deno.lock' ||
+      name === 'package-lock.json' ||
+      name === 'pnpm-lock.yaml' ||
+      name === 'yarn.lock' ||
+      name === 'bun.lock' ||
+      name === 'bun.lockb'
+    ) {
+      return true;
+    }
+    if (name.endsWith('.d.ts') || name.endsWith('.d.mts') || name.endsWith('.d.cts')) return true;
+    return path === 'node_modules' || path.startsWith('node_modules/') || path.includes('/node_modules/');
+  });
+}
+
+/** Queue one coalesced refresh when a watcher change can alter type roots. */
+export function refreshWorkspaceTypesForChange(
+  monaco: MonacoApi | undefined,
+  paths: unknown,
+  directories: unknown,
+): boolean {
+  if (
+    monaco === undefined ||
+    !workspaceChangeInvalidatesTypeLibraries([
+      ...(Array.isArray(paths) ? paths : []),
+      ...(Array.isArray(directories) ? directories : []),
+    ])
+  ) {
+    return false;
+  }
+  workspaceTypeLibraryRefreshEntry(monaco).queue.schedule();
   return true;
 }
 

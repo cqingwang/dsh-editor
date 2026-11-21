@@ -24,8 +24,10 @@ test('hitting the shell cap says what to do, not what the host rejected', () => 
   const create = source.slice(source.indexOf('const createTerminal = React.useCallback('), source.indexOf('const cycleTerminalColor'));
   assert.match(
     create,
-    /setError\(\{\s+message: describeCreateFailure\(failure\),\s+limitReached: terminalCreateFailureLimitReached\(failure\),?\s+\}\)/u,
+    /const createError = \{\s+message: describeCreateFailure\(failure\),\s+limitReached: terminalCreateFailureLimitReached\(failure\),?\s+\};/u,
   );
+  assert.match(create, /createFailureRef\.current = createError;/u);
+  assert.match(create, /setError\(createError\);/u);
   /* Round 150 added `awaitMeasured` (spawn at the screen's real width) to the
      dependency list, so the check is on membership rather than exact text. */
   assert.match(

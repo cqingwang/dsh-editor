@@ -149,6 +149,7 @@ export interface FindToolWindowProps {
   onDirectoryRecursiveChange?: (value: boolean) => void;
   customScopes?: FindCustomScope[];
   onCustomScopesChange?: (scopes: FindCustomScope[]) => FindCustomScope[];
+  onWriteScopeXml: (path: string, content: string) => Promise<void>;
   onMove: (direction: number, count: number, index?: number) => void;
   onOpen: (result: SearchTextResult | SearchFileResult, openInNewTab: boolean) => void;
   onReplaceOccurrence: (result: SearchTextResult, index: number) => void;
@@ -200,6 +201,7 @@ function FindToolWindowView({
   onDirectoryRecursiveChange,
   customScopes = [],
   onCustomScopesChange,
+  onWriteScopeXml,
   onMove,
   onOpen,
   onReplaceOccurrence,
@@ -2702,6 +2704,7 @@ function FindToolWindowView({
           t={t}
           scopes={customScopes}
           initialId={selectedCustomScope?.id ?? null}
+          onWriteScopeXml={onWriteScopeXml}
           onSave={(nextScopes, nextSelectedId) => {
             const normalized =
               typeof onCustomScopesChange === 'function'

@@ -2,13 +2,17 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-import { transpileTypeScriptFunction } from './ts-source.mjs';
+import { loadTypeScriptCallback, transpileTypeScriptFunction } from './ts-source.mjs';
 
 const searchEverywhereSource = await readFile(
   new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url),
   'utf8',
 );
 const workspaceSource = await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8');
+const workspaceFileModelSource = await readFile(
+  new URL('../src/client/components/editor/workspace-file-model.ts', import.meta.url),
+  'utf8',
+);
 const commitSource = await readFile(new URL('../src/client/commit.ts', import.meta.url), 'utf8');
 const terminalSource = await readFile(new URL('../src/client/terminal.ts', import.meta.url), 'utf8');
 const source = [
@@ -33,8 +37,53 @@ test('saving a dirty model writes live content and clears dirty with the new mti
   assert.match(savePath, /mtime: file\?\.mtime \?\? undefined,\s+force,/u);
   assert.match(
     savePath,
-    /entry\.path === path\s+\? \{[\s\S]*?content: model\.getValue\(\),[\s\S]*?dirty: false,[\s\S]*?mtime: typeof value\.mtime === 'number' \? value\.mtime : entry\.mtime,/u,
+    /entry\.path === path \? workspaceFileAfterSave\(entry, model\.getValue\(\), value\.mtime\) : entry/u,
   );
+  const afterSave = new Function(
+    `${transpileTypeScriptFunction(workspaceFileModelSource, 'workspaceFileAfterSave')}; return workspaceFileAfterSave;`,
+  )();
+  assert.deepEqual(afterSave({ path: 'a.ts', content: 'old', dirty: true, mtime: 1 }, 'live', 2), {
+    path: 'a.ts',
+    content: 'live',
+    dirty: false,
+    mtime: 2,
+  });
+  assert.equal(afterSave({ path: 'a.ts', content: 'old', dirty: true, mtime: 3 }, 'live', null).mtime, 3);
+});
+
+test('two same-turn Save All requests enter only one write batch', async () => {
+  const requests = [];
+  const saveAllInFlightRef = { current: false };
+  let released = 0;
+  const saveAll = loadTypeScriptCallback(workspaceSource, 'saveAll', {
+    saveAllInFlightRef,
+    beginCommitOperation: () => true,
+    endCommitOperation: () => {
+      released += 1;
+    },
+    openFilesRef: { current: [{ path: 'a.ts', dirty: true, mtime: 1 }] },
+    modelsRef: { current: new Map([['a.ts', { getValue: () => 'live' }]]) },
+    callFs: () =>
+      new Promise((resolve) => {
+        requests.push(resolve);
+      }),
+    setOpenFiles: () => {},
+    setConflict: () => {},
+    setEditorError: () => {},
+    flashStatus: () => {},
+    loadGit: async () => {},
+    t: (key) => key,
+  });
+  const first = saveAll();
+  const second = saveAll();
+  await Promise.resolve();
+
+  assert.equal(requests.length, 1);
+  assert.equal(await second, 0);
+  requests[0]({ mtime: 2 });
+  assert.equal(await first, 1);
+  assert.equal(saveAllInFlightRef.current, false);
+  assert.equal(released, 1);
 });
 
 test('Search Everywhere text requests invalidate stale responses after open-file changes', () => {

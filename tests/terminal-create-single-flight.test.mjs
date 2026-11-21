@@ -18,8 +18,10 @@ function createHarness() {
     activeId: null,
   };
   const createInFlightRef = { current: false };
+  const createFailureRef = { current: null };
   const createTerminal = loadTypeScriptCallback(panelSource, 'createTerminal', {
     createInFlightRef,
+    createFailureRef,
     awaitMeasured: async () => ({ cols: 100, rows: 30 }),
     describeCreateFailure: (failure) => (failure instanceof Error ? failure.message : String(failure)),
     terminalCreateFailureLimitReached: () => false,
@@ -50,7 +52,7 @@ function createHarness() {
       state.activeId = value;
     },
   });
-  return { createTerminal, createInFlightRef, pending, state };
+  return { createTerminal, createInFlightRef, createFailureRef, pending, state };
 }
 
 test('two same-turn Terminal create requests send only one Host create', async () => {

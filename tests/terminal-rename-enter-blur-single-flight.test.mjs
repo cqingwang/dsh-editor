@@ -2,12 +2,14 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-import { loadTypeScriptCallback } from './ts-source.mjs';
+import { loadTypeScriptCallback, loadTypeScriptModule } from './ts-source.mjs';
 
 const panelSource = await readFile(
   new URL('../src/client/components/terminal/TerminalPanel.tsx', import.meta.url),
   'utf8',
 );
+const terminalSource = await readFile(new URL('../src/client/terminal.ts', import.meta.url), 'utf8');
+const { terminalManualRenameOwnsTitle } = loadTypeScriptModule(terminalSource, ['terminalManualRenameOwnsTitle']);
 
 function renameHarness() {
   const pending = [];
@@ -68,4 +70,24 @@ test('an older rename success cannot close the newer tab rename input', async ()
   pending[1].resolve({ terminal: { id: 'tab-b', title: 'other renamed' } });
   await second;
   assert.equal(state.renaming, null);
+});
+
+test('a failed manual rename does not permanently block shell titles', async () => {
+  const { scope, state, pending } = renameHarness();
+  const request = scope.commitRename();
+  pending[0].reject(new Error('rename failed'));
+  await request;
+
+  assert.equal(scope.renamedRef.current.has('tab-a'), false);
+  assert.match(state.error.message, /rename failed/u);
+});
+
+test('manual rename owns the title while its request is in flight', () => {
+  assert.equal(terminalManualRenameOwnsTitle('tab-a', new Set(), null), false);
+  assert.equal(
+    terminalManualRenameOwnsTitle('tab-a', new Set(), 'tab-a\u0000renamed'),
+    true,
+  );
+  assert.equal(terminalManualRenameOwnsTitle('tab-a', new Set(['tab-a']), null), true);
+  assert.equal(terminalManualRenameOwnsTitle('tab-b', new Set(['tab-a']), 'tab-a\u0000renamed'), false);
 });

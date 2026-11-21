@@ -79,6 +79,7 @@ test('the editor invalidates Git-backed search when the watcher reports the scop
       disposed: false,
       chain: Promise.resolve(),
       root: '/workspace',
+      window: { monaco: undefined },
       refreshTree: async () => [],
       loadGit: async () => {},
       checkExternalChanges: async () => {},
@@ -87,6 +88,7 @@ test('the editor invalidates Git-backed search when the watcher reports the scop
       setMarkdownAssetRevisions: () => {},
       nextMarkdownAssetRevisions: (current) => current,
       workspaceChangeInvalidatesSearchScope: () => false,
+      refreshWorkspaceTypesForChange: () => false,
       setSearchRevision: (updater) => revisions.push(updater(4)),
     },
   );

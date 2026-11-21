@@ -107,7 +107,7 @@ test('the commit draft is debounced and cleared on commit', () => {
   assert.match(source, /const draft = readCommitDraft\(root\);/);
   assert.match(source, /draftTimer\.current = window\.setTimeout\(\(\) => \{/);
   assert.match(source, /writeCommitDraft\(root, commitMessage\);/);
-  assert.match(source, /writeCommitDraft\(root, ''\);/);
+  assert.match(source, /writeCommitDraft\(root, nextDraft\);/);
   /* An existing draft must never overwrite what the user already typed. */
   assert.match(source, /if \(draft !== ''\) setCommitMessage\(\(current\) => \(current === '' \? draft : current\)\);/);
 });

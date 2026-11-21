@@ -20,6 +20,8 @@ export interface SearchEverywhereScopeState {
 
 export interface FindToolScopeState {
   searchGeneration?: number;
+  searchScopePreset?: string;
+  index?: number;
   error?: unknown;
   files?: unknown[];
   matches?: unknown[];
@@ -151,6 +153,118 @@ export function directoryScopeRequest<T extends { mode: string; preset: string; 
     : normalized;
 }
 import React from 'react';
+
+export interface FindScopeFileWriteRequest {
+  path: string;
+  content: string;
+  beginOperation: () => boolean;
+  endOperation: () => void;
+  callFs: (payload: Record<string, unknown>) => Promise<unknown>;
+}
+
+export function createSerializedFindScopeWriter(): (
+  path: string,
+  content: string,
+  callFs: (payload: Record<string, unknown>) => Promise<unknown>,
+) => Promise<void> {
+  const chains = new Map<string, Promise<void>>();
+  return (path, content, callFs) => {
+    const previous = chains.get(path) ?? Promise.resolve();
+    const request = previous
+      .catch(() => {})
+      .then(() =>
+        callFs({
+          op: 'write',
+          path,
+          content,
+          force: true,
+          create: true,
+        }),
+      )
+      .then(() => {});
+    chains.set(path, request);
+    return request.finally(() => {
+      if (chains.get(path) === request) chains.delete(path);
+    });
+  };
+}
+
+export const writeFindScopeFile = createSerializedFindScopeWriter();
+
+export async function writeFindScopeFileWithGuard(request: FindScopeFileWriteRequest): Promise<boolean> {
+  if (!request.beginOperation()) return false;
+  try {
+    await writeFindScopeFile(request.path, request.content, request.callFs);
+    return true;
+  } finally {
+    request.endOperation();
+  }
+}
+
+export function useFindScopeFileWrite(
+  beginOperation: () => boolean,
+  endOperation: () => void,
+  callFs: (payload: Record<string, unknown>) => Promise<unknown>,
+  translate: (key: string) => string,
+): (path: string, content: string) => Promise<void> {
+  return React.useCallback(
+    async (path, content) => {
+      const written = await writeFindScopeFileWithGuard({
+        path,
+        content,
+        beginOperation,
+        endOperation,
+        callFs,
+      });
+      if (!written) throw new Error(translate('editor.updateBusy'));
+    },
+    [beginOperation, callFs, endOperation, translate],
+  );
+}
+
+export function useFindScopeFileAutoSave(
+  beginOperation: () => boolean,
+  endOperation: () => void,
+  callFs: (payload: Record<string, unknown>) => Promise<unknown>,
+  translate: (key: string) => string,
+  setError: (message: string) => void,
+): (content: string, onFailure?: () => void) => boolean {
+  return React.useCallback(
+    (content, onFailure) => {
+      if (!beginOperation()) {
+        setError(translate('editor.updateBusy'));
+        return false;
+      }
+      void writeFindScopeFile('.idea/scopes/dsh-editor.xml', content, callFs)
+        .catch((failure) => {
+          setError(failure instanceof Error ? failure.message : String(failure));
+          onFailure?.();
+        })
+        .finally(endOperation);
+      return true;
+    },
+    [beginOperation, callFs, endOperation, setError, translate],
+  );
+}
+
+export function findToolAfterCustomScopesChange<T extends FindToolScopeState>(state: T, scopes: unknown[]): T {
+  const preset = typeof state.searchScopePreset === 'string' ? state.searchScopePreset : '';
+  if (!preset.startsWith('custom:')) return state;
+  const id = preset.slice('custom:'.length);
+  if (scopes.some((scope) => scope !== null && typeof scope === 'object' && 'id' in scope && scope.id === id)) {
+    return state;
+  }
+  return {
+    ...state,
+    searchScopePreset: 'projectFiles',
+    files: [],
+    matches: [],
+    index: 0,
+    error: null,
+    searchGeneration: (state.searchGeneration ?? 0) + 1,
+    loadedGeneration: -1,
+  };
+}
 
 interface UseSearchInvalidationOptions<TSearch extends SearchEverywhereScopeState, TFind extends FindToolScopeState> {
   searchRevision: number;

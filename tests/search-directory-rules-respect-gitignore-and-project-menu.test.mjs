@@ -47,6 +47,13 @@ async function createSearchFixture(t) {
   await mkdir(join(root, 'src', 'drop'), { recursive: true });
   await writeFile(join(root, 'src', 'keep', 'kept.txt'), 'SEARCH_RULE_NEEDLE kept child\n', 'utf8');
   await writeFile(join(root, 'src', 'drop', 'dropped.txt'), 'SEARCH_RULE_NEEDLE excluded child\n', 'utf8');
+  const nested = join(root, 'packages', 'nested');
+  await mkdir(join(nested, '.gradle'), { recursive: true });
+  await execFileAsync('git', ['init', '-q', nested]);
+  await writeFile(join(nested, '.gitignore'), '.gradle/\nnested-ignored.txt\n', 'utf8');
+  await writeFile(join(nested, '.gradle', 'cache.bin'), 'SEARCH_RULE_NEEDLE nested ignored directory\n', 'utf8');
+  await writeFile(join(nested, 'nested-ignored.txt'), 'SEARCH_RULE_NEEDLE nested ignored file\n', 'utf8');
+  await writeFile(join(nested, 'nested-visible.txt'), 'SEARCH_RULE_NEEDLE nested visible\n', 'utf8');
   return root;
 }
 
@@ -120,8 +127,11 @@ test('search file and text providers exclude Git ignored directories even with i
   });
   assert.ok(files.files.includes('visible.txt'));
   assert.ok(files.files.includes('src/keep/kept.txt'));
+  assert.ok(files.files.includes('packages/nested/nested-visible.txt'));
   assert.ok(!files.files.includes('ignored-dir/hidden.txt'));
   assert.ok(!files.files.includes('ignored-file.txt'));
+  assert.ok(!files.files.includes('packages/nested/.gradle/cache.bin'));
+  assert.ok(!files.files.includes('packages/nested/nested-ignored.txt'));
 
   const text = await host.searchWorkspaceText(root, 'SEARCH_RULE_NEEDLE', {
     includeExcluded: true,
@@ -130,8 +140,11 @@ test('search file and text providers exclude Git ignored directories even with i
   const paths = new Set(text.matches.map((match) => match.path));
   assert.ok(paths.has('visible.txt'));
   assert.ok(paths.has('src/keep/kept.txt'));
+  assert.ok(paths.has('packages/nested/nested-visible.txt'));
   assert.ok(!paths.has('ignored-dir/hidden.txt'));
   assert.ok(!paths.has('ignored-file.txt'));
+  assert.ok(!paths.has('packages/nested/.gradle/cache.bin'));
+  assert.ok(!paths.has('packages/nested/nested-ignored.txt'));
 });
 
 test('Find and Replace apply custom excluded directories with child include overrides', async (t) => {

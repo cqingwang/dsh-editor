@@ -182,6 +182,7 @@ test('a watcher frame re-reads the parent of every changed directory', () => {
       disposed: false,
       chain: Promise.resolve(),
       root: '/workspace',
+      window: { monaco: undefined },
       refreshTree: async (directories) => {
         refreshes.push(directories);
         return ['assets'];
@@ -202,6 +203,7 @@ test('a watcher frame re-reads the parent of every changed directory', () => {
         directories: Object.fromEntries((changed ?? []).map((directory) => [directory, 1])),
       }),
       workspaceChangeInvalidatesSearchScope: () => false,
+      refreshWorkspaceTypesForChange: () => false,
       setSearchRevision: () => {},
     },
   );

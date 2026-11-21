@@ -82,3 +82,12 @@ export function workspaceFileAfterReload(
     mtime: text.mtime ?? file.mtime,
   };
 }
+
+export function workspaceFileAfterSave(file: WorkspaceFile, content: string, mtime: unknown): WorkspaceFile {
+  return {
+    ...file,
+    content,
+    dirty: false,
+    mtime: typeof mtime === 'number' ? mtime : file.mtime,
+  };
+}
