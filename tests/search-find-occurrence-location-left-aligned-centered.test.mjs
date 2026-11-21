@@ -12,7 +12,10 @@ const component = await readFile(
 test('Find occurrence rows center their content and keep the location column compact', () => {
   for (const styles of [uiStyles, inlineStyles]) {
     assert.match(styles, /findToolOccurrence: \{[\s\S]*?alignItems: 'center'[\s\S]*?padding: '0 10px'/u);
-    assert.match(styles, /findToolLocation: \{[\s\S]*?minWidth: 44,[\s\S]*?textAlign: 'left',[\s\S]*?fontSize: 8,/u);
+    assert.match(
+      styles,
+      /findToolLocation: \{[\s\S]*?minWidth: 44,[\s\S]*?textAlign: 'left',[\s\S]*?fontSize: EDITOR_FONT_SIZE_SCALE\.badge/u,
+    );
   }
 });
 

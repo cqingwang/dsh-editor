@@ -1161,7 +1161,7 @@ export const styles: Record<string, CSSProperties> = {
     textAlign: 'left',
     opacity: 0.72,
     ...EDITOR_TEXT_STYLE.metadata,
-    fontSize: 8,
+    fontSize: EDITOR_FONT_SIZE_SCALE.badge,
   },
   findToolPreview: {
     minWidth: 0,
