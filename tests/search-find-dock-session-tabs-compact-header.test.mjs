@@ -79,6 +79,10 @@ test('Find dock renders tabs, shared filters, and minimize in one read-only non-
   );
   assert.match(stylesSource, /findToolDockTabList: \{[\s\S]*?flex: '1 1 auto'[\s\S]*?maxWidth: 'none'/u);
   assert.match(stylesSource, /findToolDockTabLabel: \{[\s\S]*?maxWidth: 120,[\s\S]*?textOverflow: 'ellipsis'/u);
+  assert.match(
+    stylesSource,
+    /findToolDockTab: \{[\s\S]*?boxSizing: 'border-box',[\s\S]*?maxWidth: 'min\(150px, 100%\)'/u,
+  );
   assert.match(stylesSource, /findToolDockScroll: \{[\s\S]*?overflowX: 'auto'/u);
   assert.match(stylesSource, /findToolDockFixedTools: \{[\s\S]*?flex: '0 0 auto'/u);
 });
@@ -103,4 +107,15 @@ test('New dock searches append while a popup draft can close back to the existin
     /if \(findTool\?\.surface === 'dock'\)\s+return openFindTool\(selectedQuery, 'find', null, 'query', 'popup', true\);/u,
   );
   assert.match(workspaceSource, /if \(closeFindPopupSession\(findToolSessionsRef\.current\)\) return;/u);
+});
+
+test('overflowing search tabs expose one menu that can activate every session', () => {
+  assert.match(componentSource, /data-dsh-find-session-overflow=''/u);
+  assert.match(componentSource, /items: tabs\.map\(\(tab\) => \{/u);
+  assert.match(componentSource, /onSelectFindToolTab\?\.\(tab\.id\)/u);
+  assert.match(componentSource, /aria-expanded=\{sessionMenu !== null\}/u);
+  assert.match(
+    componentSource,
+    /event\.key !== 'ContextMenu' && !\(event\.shiftKey === true && event\.key === 'F10'\)/u,
+  );
 });

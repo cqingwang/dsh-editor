@@ -1,13 +1,27 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
+import { loadTypeScriptModule } from './ts-source.mjs';
 
-const [fileTreeSource, projectPanelSource, localesSource, injectedCssSource] = await Promise.all([
+const [fileTreeSource, projectPanelSource, localesSource, injectedCssSource, commitSource] = await Promise.all([
   readFile(new URL('../src/client/components/project/FileTreeView.tsx', import.meta.url), 'utf8'),
   readFile(new URL('../src/client/components/project/ProjectPanel.tsx', import.meta.url), 'utf8'),
   readFile(new URL('../src/client/locales.ts', import.meta.url), 'utf8'),
   readFile(new URL('../src/client/injected-css.ts', import.meta.url), 'utf8'),
+  readFile(new URL('../src/client/commit.ts', import.meta.url), 'utf8'),
 ]);
+
+test('files inherit an excluded directory scope and explicit include restores them', () => {
+  const { searchDirectoryEffectiveState } = loadTypeScriptModule(commitSource, ['searchDirectoryEffectiveState']);
+  const rules = {
+    excludedDirectories: ['node_modules'],
+    includedDirectories: ['node_modules/allowed'],
+  };
+  assert.equal(searchDirectoryEffectiveState('node_modules', rules), 'excluded');
+  assert.equal(searchDirectoryEffectiveState('node_modules/pkg/index.js', rules), 'excluded');
+  assert.equal(searchDirectoryEffectiveState('node_modules/allowed/index.js', rules), 'included');
+  assert.equal(searchDirectoryEffectiveState('src/client/editor-workspace.tsx', rules), 'included');
+});
 
 test('Project rows expose the search exclusion state to accessibility and tooltips', () => {
   assert.match(fileTreeSource, /iconClassName\?: string/u);
@@ -15,10 +29,7 @@ test('Project rows expose the search exclusion state to accessibility and toolti
   assert.match(fileTreeSource, /ariaDescription\?: string/u);
   assert.match(fileTreeSource, /aria-description=\{decoration\?\.ariaDescription\}/u);
   assert.match(projectPanelSource, /searchDirectoryEffectiveState\(row\.path, searchDirectoryRules\) === 'excluded'/u);
-  assert.match(
-    projectPanelSource,
-    /searchDirectoryExcludedWithIncludedDescendant\(row\.path, searchDirectoryRules\)/u,
-  );
+  assert.match(projectPanelSource, /searchDirectoryExcludedWithIncludedDescendant\(row\.path, searchDirectoryRules\)/u);
   assert.match(
     projectPanelSource,
     /iconClassName: searchExcluded \? 'dsh-editor-tree-icon-search-excluded' : undefined/u,
@@ -29,6 +40,7 @@ test('Project rows expose the search exclusion state to accessibility and toolti
     projectPanelSource,
     /searchDirectoryEffectiveState\(row\.path, searchDirectoryRules\) === 'excluded'[\s\S]*?color: 'var\(--dsw-alias-label-tertiary\)'/u,
   );
+  assert.match(projectPanelSource, /state\.isDirectory\s+\? t\([\s\S]*?: t\('editor\.pathExcludedFromSearch'\)/u);
   assert.match(projectPanelSource, /opacity: 0\.68/u);
 });
 
@@ -44,12 +56,11 @@ test('the excluded icon is muted in light themes and keeps contrast in dark them
 test('the search exclusion description is localized in both dictionaries', () => {
   assert.match(localesSource, /directoryExcludedFromSearch: '已从搜索范围排除'/u);
   assert.match(localesSource, /directoryExcludedFromSearch: 'Excluded from search scope'/u);
-  assert.match(
-    localesSource,
-    /directoryExcludedFromSearchWithIncludedChildren: '已从搜索范围排除，部分子目录仍包含'/u,
-  );
+  assert.match(localesSource, /directoryExcludedFromSearchWithIncludedChildren: '已从搜索范围排除，部分子目录仍包含'/u);
   assert.match(
     localesSource,
     /directoryExcludedFromSearchWithIncludedChildren: 'Excluded from search scope; some child folders remain included'/u,
   );
+  assert.match(localesSource, /pathExcludedFromSearch: '该文件已从搜索范围排除'/u);
+  assert.match(localesSource, /pathExcludedFromSearch: 'This file is excluded from search scope'/u);
 });

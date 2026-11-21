@@ -588,16 +588,17 @@ function ProjectPanel({
     projectRowPresentationByPath.get(row.path)?.open ?? (row.searchOpen === true || expanded.has(row.path));
   const decorateProjectRow = (state: FileTreeViewRowState<ProjectRow>): FileTreeViewRowDecoration => {
     const { row } = state;
-    const searchExcluded =
-      state.isDirectory && searchDirectoryEffectiveState(row.path, searchDirectoryRules) === 'excluded';
+    const searchExcluded = searchDirectoryEffectiveState(row.path, searchDirectoryRules) === 'excluded';
     const searchExcludedWithIncludedDescendant =
       searchExcluded && searchDirectoryExcludedWithIncludedDescendant(row.path, searchDirectoryRules);
     const searchExcludedDescription = searchExcluded
-      ? t(
-          searchExcludedWithIncludedDescendant
-            ? 'editor.directoryExcludedFromSearchWithIncludedChildren'
-            : 'editor.directoryExcludedFromSearch',
-        )
+      ? state.isDirectory
+        ? t(
+            searchExcludedWithIncludedDescendant
+              ? 'editor.directoryExcludedFromSearchWithIncludedChildren'
+              : 'editor.directoryExcludedFromSearch',
+          )
+        : t('editor.pathExcludedFromSearch')
       : '';
     return {
       style: {
@@ -704,8 +705,7 @@ function ProjectPanel({
     const projectRowPresentation = projectRowPresentationByPath.get(row.path);
     if (projectRowPresentation === undefined) return null;
     const { directoryTintState, statusColor } = projectRowPresentation;
-    const searchExcluded =
-      state.isDirectory && searchDirectoryEffectiveState(row.path, searchDirectoryRules) === 'excluded';
+    const searchExcluded = searchDirectoryEffectiveState(row.path, searchDirectoryRules) === 'excluded';
     return (
       <span
         style={{

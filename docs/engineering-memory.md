@@ -1,5 +1,98 @@
 # dsh-editor 工程记忆
 
+## 2026-11-21 — Find occurrence 位置列应小号左对齐并让内容垂直居中
+
+**作用域**：Find dock 文本 occurrence 行、line:column 位置列、预览内容。
+
+**症状 / 原始证据**：
+
+- 截图里 `5:18`、`14:12` 等位置文本比搜索内容更靠内且偏大；
+- occurrence 计算样式为 `alignItems: baseline`；
+- 位置列 `minWidth: 52px`、字号 10px；
+- 用户关注搜索内容本身，但行内容视觉上靠上。
+
+**修复**：
+
+- occurrence 行改为 `alignItems: center`，padding 改为 `0 10px 0 36px`；
+- 位置列改为 left align、`minWidth: 44px`、字号 8px；
+- 预览列继续使用 ellipsis 和命中高亮。
+
+**验证**：
+
+- 24px 行内位置列与预览内容垂直中心偏差为 0；
+- 运行态 location：`fontSize: 8px`、`minWidth: 44px`、`textAlign: left`；
+- 定向 occurrence/导航回归通过。
+
+**长期约束**：
+
+- 搜索结果行优先让搜索内容占据视觉中心，位置元数据应轻量；
+- line:column 列保持固定左锚点，不随内容长度漂移；
+- occurrence 行必须单一垂直对齐模型，不使用 baseline 混排。
+
+## 2026-11-21 — Project 搜索排除状态必须向文件后代继承
+
+**作用域**：Project 树搜索范围视觉状态、目录/文件行名称与图标、aria-description。
+
+**症状 / 原始证据**：
+
+- `node_modules` 目录本身有 excluded 提示，但其 `.bin`、`@babel` 等后代仍是正常颜色；
+- ProjectPanel 中两处 `searchExcluded` 计算都多加了 `state.isDirectory`；
+- 但 `searchDirectoryEffectiveState()` 本身已经能对任意文件路径继承 exclude，
+  并允许更深的 include 规则覆盖父目录。
+
+**修复**：
+
+- ProjectPanel 的行装饰和名称样式对所有路径调用 same effective-state helper；
+- 文件排除 aria 文案新增 `pathExcludedFromSearch`，不再复用目录专属文案；
+- 目录仍显示“部分子目录仍包含”，文件显示“该文件已从搜索范围排除”；
+- 选中行保持选中色；未选中 excluded 行使用 tertiary + 0.68 opacity。
+
+**验证**：
+
+- 单测：`node_modules/pkg/index.js` excluded；
+  `node_modules/allowed/index.js` included；
+- 运行态：node_modules、`.bin`、`@babel` 目录名称均为
+  `rgb(129,133,140)` / opacity `0.68` 且附带 excluded icon class；
+- 菜单 include `node_modules/@babel` 后，其子目录恢复 normal color/opacity，
+  父 `node_modules` 保持 excluded 并提示部分子目录仍包含。
+
+**长期约束**：
+
+- 搜索排除视觉必须由 `searchDirectoryEffectiveState(path, rules)` 统一决定，
+  不得按 `isDirectory` 截断继承；
+- 文件与目录共享视觉透明度，但 aria 文案要区分；
+- 选中、Git 修改状态与搜索排除叠加时，选中状态必须优先可读。
+
+## 2026-11-21 — Find tab 长标题不得吃掉窄屏关闭按钮
+
+**作用域**：Find dock tab 条、长关键词标题、响应式关闭按钮。
+
+**症状 / 原始证据**：
+
+- 标题可读宽度提高到约 120px 后，tab 自身最大宽度可达 150px；
+- 760px 视口下 tab 条可视区只有约 72px；
+- tab 内容宽度超过 tab 条，右侧关闭按钮可能落在滚动裁切区外。
+
+**根因**：
+
+- 只限制了 label 宽度，没有限制 tab 容器相对 tab 条视口的最大宽度。
+
+**修复**：
+
+- tab 容器使用 `boxSizing: border-box`；
+- `maxWidth: min(150px, 100%)`，窄屏由 label 收缩，18px 关闭按钮保持不可收缩。
+
+**验证**：
+
+- 760px 视口实测 active tab 72px、关闭按钮 18×18 且完整位于 tab 条内；
+- 1440px 视口长标题仍保留更宽的省略阈值；
+- 定向样式和共享结果行回归通过。
+
+**长期约束**：
+
+- 长标题优化不能以裁掉 tab 关闭按钮为代价；
+- tab 容器的宽度上限必须相对 tab 条视口计算，而不是只固定 label 像素。
+
 ## 2026-11-21 — Find 结果 dock 必须支持多 tab、紧凑工具栏和持久分屏
 
 **作用域**：Find in Files dock header、搜索会话生命周期、结果计数、
@@ -22,7 +115,10 @@
 - dock 重复承担了 popup 才需要的 query/scope 配置；
 - 计数文本没有面向窄 dock 的图标化，也没有独立不可压缩的数值/图标组；
 - 预览分屏没有 drag owner 和 storage key；
-- preview gutter 与 Monaco gutter 各自维护排版，没有共享 token。
+- preview gutter 与 Monaco gutter 各自维护排版，没有共享 token；
+- Find popup 文本结果没有复用 Search Everywhere 的 `SearchFileResultItem`，
+  因而不显示文件类型图标；
+- `SearchFileResultItem` 的 `EntryIcon` 直接参与 flex shrink，窄窗口下会被压缩。
 
 **修复**：
 
@@ -34,12 +130,15 @@
 - 新增 `matchCount` / `fileStack` 图标；计数片段 `flex: 0 0 auto`；
 - 复用 `EditorSplitDivider`，持久化
   `dsh-editor.find.previewPercent`，默认预览 46%，范围 20–80%；
-- 抽出共享 `codePreviewGutter`，与 Monaco 行号统一为 10px / 500。
+- 抽出共享 `codePreviewGutter`，与 Monaco 行号统一为 10px / 500；
+- Find popup 文本行改用 `SearchFileResultItem`，文件类型图标由 `EntryIcon` 提供；
+- `SearchFileResultItem` 增加固定 16×16、`flex: 0 0 16px` 的图标容器，
+  Search Everywhere 与 Find 共用且不随窗口缩小。
 
 **RED/GREEN**：
 
 - RED：会话、图标计数、分屏持久化、gutter 对齐测试先失败；
-- GREEN：相关定向回归通过；完整测试见最终验证行；
+- GREEN：相关定向回归通过；完整测试 **3644 pass / 0 fail**；
 - GREEN：lint、TypeScript、client build、pack、`git diff --check` 通过。
 
 ```bash
@@ -56,7 +155,10 @@ npm test
 - 计数显示 `10 [matchCount] / 5 [fileStack]`，tooltip 保留完整文案；
 - 拖动分屏后存储 `previewPercent=38`，刷新后恢复约 62/38；
 - preview gutter 与 editor line number 均为 `10px / 500`；
-- dock tab bar 实测高度 29px（含 1px 边框/布局误差）。
+- dock tab bar 实测高度 29px（含 1px 边框/布局误差）；深色背景为
+  `rgb(241, 243, 245)`，与内容区形成边界；
+- Find popup 与 Search Everywhere 的文件类型图标在 1440px 和 760px
+  视口下均保持 16×16。
 
 **长期约束**：
 
@@ -65,6 +167,10 @@ npm test
 - 预览分屏比例必须可拖动、可恢复并保持在 20–80%；
 - 远离 Monaco gutter 的预览行号必须复用共享 token，不能自行放大或加粗；
 - tab bar 固定工具区必须优先保留窄 dock 的最小可用空间。
+- 搜索结果行的文件类型图标必须走 `SearchFileResultItem` 固定图标槽，
+  不得让 host SVG 直接参与 flex 收缩；
+- UI 截图复查先收起左右侧栏和聊天区域，使用正常桌面窗口宽度即可；
+  不必继续扩大 viewport，窄视口仅作为响应式回归场景。
 
 ## 2026-11-21 — Find 大结果必须在首屏声明截断后的“至少”计数
 

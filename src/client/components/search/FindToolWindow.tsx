@@ -349,6 +349,7 @@ function FindToolWindowView({
   const resultGroupingIdentity = `${scopeMode}:${scopePreset}:${findGroupBy}`;
   const previousResultGroupingRef = React.useRef<string | null>(null);
   const [historyMenu, setHistoryMenu] = React.useState(null);
+  const [sessionMenu, setSessionMenu] = React.useState(null);
   const [resultMenu, setResultMenu] = React.useState(null);
   const [previewState, setPreviewState] = React.useState({
     loading: false,
@@ -822,6 +823,34 @@ function FindToolWindowView({
                 }, 0);
               },
             })),
+    });
+  };
+  const openSessionMenu = (anchor: DOMRect): void => {
+    const surfaceRect = rootRef.current?.getBoundingClientRect();
+    const menuTop = findToolMenuTop(
+      anchor.bottom + 4,
+      surfaceRect?.top ?? 0,
+      surfaceRect?.bottom ?? window.innerHeight,
+    );
+    setSessionMenu({
+      x: findToolMenuLeft(anchor.right - 220, surfaceRect?.left ?? 0, surfaceRect?.right ?? window.innerWidth),
+      y: menuTop,
+      maxHeight: findToolMenuMaxHeight(surfaceRect?.top ?? 0, surfaceRect?.bottom ?? window.innerHeight, menuTop),
+      title: t('editor.findToolSessionsMenu'),
+      fallbackFocus: () => rootRef.current?.querySelector<HTMLElement>('[data-dsh-find-session-overflow]')?.focus?.(),
+      items: tabs.map((tab) => {
+        const text = typeof tab.state.query === 'string' ? tab.state.query.trim() : '';
+        const label = text === '' ? t('editor.findToolDockEmptyTitle') : text;
+        return {
+          id: `find-session:${tab.id}`,
+          label,
+          shortcut: tab.id === activeTabId ? '✓' : '',
+          run: () => {
+            setSessionMenu(null);
+            onSelectFindToolTab?.(tab.id);
+          },
+        };
+      }),
     });
   };
   const acceptFileMask = (value: unknown): void => {
@@ -2040,6 +2069,30 @@ function FindToolWindowView({
                     );
                   })}
                 </div>
+                {tabs.length > 1 ? (
+                  <button
+                    type='button'
+                    style={{
+                      ...styles.findToolDockTabClose,
+                      flex: '0 0 18px',
+                      height: 24,
+                      marginLeft: 0,
+                    }}
+                    data-dsh-find-session-overflow=''
+                    aria-label={t('editor.findToolSessionsMenu')}
+                    title={t('editor.findToolSessionsMenu')}
+                    aria-haspopup='menu'
+                    aria-expanded={sessionMenu !== null}
+                    onClick={(event) => openSessionMenu(event.currentTarget.getBoundingClientRect())}
+                    onKeyDown={(event) => {
+                      if (event.key !== 'ContextMenu' && !(event.shiftKey === true && event.key === 'F10')) return;
+                      event.preventDefault();
+                      event.stopPropagation();
+                      openSessionMenu(event.currentTarget.getBoundingClientRect());
+                    }}>
+                    »
+                  </button>
+                ) : null}
               </div>
             </div>
             <span
@@ -2925,6 +2978,13 @@ function FindToolWindowView({
           t={t}
           menu={groupByMenu}
           onClose={() => setGroupByMenu(null)}
+        />
+      )}
+      {sessionMenu === null ? null : (
+        <ContextMenu
+          menu={sessionMenu}
+          onClose={() => setSessionMenu(null)}
+          t={t}
         />
       )}
       {filterMenu === null ? null : (
