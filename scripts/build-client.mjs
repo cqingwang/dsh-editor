@@ -47,6 +47,7 @@ const uiExports = [
   'DiffViewModeControl',
   'DockResizeHandle',
   'focusSurfaceWhenReady',
+  'resolveFocusSurface',
   'dialogFocusableElements',
   'nextDialogFocusTarget',
   'trapDialogFocus',
@@ -1745,9 +1746,7 @@ const searchEverywhereFileCandidatesResult = await transformAsync(
     babelrc: false,
   },
 );
-const searchEverywhereFileCandidatesBody = stripModuleSyntax(
-  searchEverywhereFileCandidatesResult.code ?? '',
-).trimEnd();
+const searchEverywhereFileCandidatesBody = stripModuleSyntax(searchEverywhereFileCandidatesResult.code ?? '').trimEnd();
 if (searchEverywhereFileCandidatesBody === '') {
   console.error('build-client: Babel produced an empty Search Everywhere file-candidates module');
   process.exit(1);

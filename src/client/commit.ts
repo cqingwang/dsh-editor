@@ -178,6 +178,7 @@ type DirtyReplaceModel = Monaco.editor.ITextModel;
 interface DirtyReplacePlan {
   path: string;
   model: DirtyReplaceModel;
+  before?: string;
   text: string;
   count: number;
 }
@@ -1358,6 +1359,9 @@ export function commitFindToolDirtyPlans(plans: DirtyReplacePlan[] | null | unde
         throw new Error(`dirty buffer is unavailable: ${plan?.path ?? '<unknown>'}`);
       }
       const original = model.getValue();
+      if (typeof plan.before === 'string' && original !== plan.before) {
+        throw new Error(`dirty buffer changed since it was planned: ${plan.path}`);
+      }
       if (plan.text === original) continue;
       attempted.push({ path: plan.path, model, original });
       model.pushStackElement?.();
@@ -1408,6 +1412,33 @@ export function commitFindToolDirtyPlans(plans: DirtyReplacePlan[] | null | unde
     throw primary;
   }
   return { contents, paths, count };
+}
+
+/** Return the first dirty plan whose live model was removed, replaced or disposed. */
+export function unavailableDirtyReplacePath(
+  plans: DirtyReplacePlan[] | null | undefined,
+  models: Map<string, DirtyReplaceModel> | null | undefined,
+): string | null {
+  for (const plan of Array.isArray(plans) ? plans : []) {
+    const path = typeof plan?.path === 'string' ? plan.path : '';
+    const model = plan?.model;
+    const liveModel = models instanceof Map && path !== '' ? models.get(path) : undefined;
+    const disposed =
+      model !== null &&
+      typeof model === 'object' &&
+      typeof (model as DirtyReplaceModel & { isDisposed?: () => boolean }).isDisposed === 'function' &&
+      (model as DirtyReplaceModel & { isDisposed: () => boolean }).isDisposed();
+    let changedAfterPlan = false;
+    if (!disposed && liveModel === model && typeof plan.before === 'string') {
+      try {
+        changedAfterPlan = model.getValue() !== plan.before;
+      } catch {
+        return path || '<unknown>';
+      }
+    }
+    if (path === '' || liveModel !== model || disposed || changedAfterPlan) return path || '<unknown>';
+  }
+  return null;
 }
 
 /**
@@ -1475,7 +1506,8 @@ export function planWorkspaceReplacements(
         errorMessage: null,
       };
     }
-    const rewritten = editorReplaceAll(model.getValue(), query, replacement, { ...options, path });
+    const before = model.getValue();
+    const rewritten = editorReplaceAll(before, query, replacement, { ...options, path });
     if (rewritten.error !== null) {
       return {
         dirtyMatches,
@@ -1487,7 +1519,7 @@ export function planWorkspaceReplacements(
       };
     }
     if (rewritten.count > 0) {
-      dirtyPlans.push({ path, model, text: rewritten.text, count: rewritten.count });
+      dirtyPlans.push({ path, model, before, text: rewritten.text, count: rewritten.count });
     }
   }
   return {
@@ -1663,8 +1695,23 @@ export async function confirmFindReplaceAndGeneration<T extends FindToolState>(
   requestIsCurrent: () => boolean,
   guard: { current: boolean } | null,
   update: (updater: (current: T | null) => T | null) => void,
+  dirtyPlans?: DirtyReplacePlan[] | null,
+  models?: Map<string, DirtyReplaceModel> | null,
+  t?: (key: string, params?: Record<string, unknown>) => string,
 ): Promise<boolean> {
-  if ((await confirm()) && requestIsCurrent()) return true;
+  if (await confirm()) {
+    if (!requestIsCurrent()) {
+      releaseReplaceAttempt(guard);
+      update(findToolReplaceAbortState);
+      return false;
+    }
+    const unavailablePath = unavailableDirtyReplacePath(dirtyPlans, models);
+    if (unavailablePath === null) return true;
+    releaseReplaceAttempt(guard);
+    const message = t?.('editor.searchReplaceDirtyClosed', { path: unavailablePath }) ?? unavailablePath;
+    update((current) => replaceFailureSettlement(current, true, message));
+    return false;
+  }
   releaseReplaceAttempt(guard);
   update(findToolReplaceAbortState);
   return false;
@@ -1838,8 +1885,17 @@ export function searchReplaceFailureMessage(
   changedFileCount: unknown,
   t: (key: string, params?: Record<string, unknown>) => string,
 ): string {
-  return replaceFailureMessage(new Error(searchTextFailureMessage(failure, t)), changedFileCount, (message) =>
-    t('editor.searchReplacePartialFailure', { message }),
+  const message = failure instanceof Error ? failure.message : String(failure);
+  const changedAfterSearch = message.match(/the file changed on disk since it was searched:\s*(.+)$/iu);
+  const dirtyChangedAfterPlan = message.match(/dirty buffer changed since it was planned:\s*(.+)$/iu);
+  const localized =
+    changedAfterSearch !== null
+      ? t('editor.searchReplaceFileChanged', { path: changedAfterSearch[1].trim() })
+      : dirtyChangedAfterPlan !== null
+        ? t('editor.searchReplaceDirtyClosed', { path: dirtyChangedAfterPlan[1].trim() })
+        : searchTextFailureMessage(failure, t);
+  return replaceFailureMessage(new Error(localized), changedFileCount, (partialMessage) =>
+    t('editor.searchReplacePartialFailure', { message: partialMessage }),
   );
 }
 
@@ -1855,6 +1911,15 @@ export interface ReplaceHistoryOperation {
   dirty: DirtyReplaceUndoEntry[];
   files: string[];
   replacements: number;
+}
+
+/** Convert the newest operation into a dirty-only retry after its host half succeeded. */
+export function dirtyOnlyReplaceHistoryTail<T extends ReplaceHistoryOperation>(history: T[]): T[] {
+  if (!Array.isArray(history) || history.length === 0) return history;
+  const operation = history.at(-1);
+  if (operation === undefined) return history;
+  const files = [...new Set(operation.dirty.map((entry) => entry.path))];
+  return [...history.slice(0, -1), { ...operation, clean: false, operationId: '', files }];
 }
 
 /** Capture the dirty-model half of one Replace All undo operation. */

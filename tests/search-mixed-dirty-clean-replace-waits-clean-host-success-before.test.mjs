@@ -28,7 +28,7 @@ test('Every dirty path is preflighted and changed file/replacement totals are me
   assert.match(replacementPlanner, /const dirtyPaths = \[\s*\.\.\.new Set\(dirtyMatches\.map\([\s\S]*?filter\(/u);
   assert.match(
     replacementPlanner,
-    /dirtyPlans\.push\(\{ path, model, text: rewritten\.text, count: rewritten\.count \}\)/,
+    /dirtyPlans\.push\(\{ path, model, before, text: rewritten\.text, count: rewritten\.count \}\)/,
   );
   assert.match(replaceAll, /const dirtyReplacements = dirtyCommit\.count/);
   assert.match(replaceAll, /const dirtyUndo = dirtyReplaceUndo\(dirtyPlans\)/);

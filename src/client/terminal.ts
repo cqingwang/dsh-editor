@@ -1186,6 +1186,53 @@ export function toolPanelFlex(activity: 'project' | 'commit', value: number): st
   return `0 0 clamp(${TOOL_PANEL_MIN_PX}px, ${percent}%, ${max}px)`;
 }
 
+export const TERMINAL_SPLIT_MIN_PERCENT = 20;
+export const TERMINAL_SPLIT_MAX_PERCENT = 80;
+
+/**
+ * Resolve IDEA-style keyboard movement for the Terminal split separator.
+ *
+ * Arrow keys adjust by a small step, Shift uses a larger step, Home/End reach
+ * the supported bounds, and Enter restores the default even split.
+ * @param current - current left-pane percentage.
+ * @param key - pressed keyboard key.
+ * @param shiftKey - whether Shift requests the larger step.
+ * @returns the next bounded percentage, or null when the key is not owned.
+ */
+export function terminalSplitKeyboardPercent(current: number | string, key: string, shiftKey = false): number | null {
+  const parsed = Number(current);
+  const percent = Number.isFinite(parsed) ? parsed : 50;
+  const step = shiftKey ? 10 : 2;
+  let next: number;
+  if (key === 'ArrowLeft') next = percent - step;
+  else if (key === 'ArrowRight') next = percent + step;
+  else if (key === 'Home') next = TERMINAL_SPLIT_MIN_PERCENT;
+  else if (key === 'End') next = TERMINAL_SPLIT_MAX_PERCENT;
+  else if (key === 'Enter') next = 50;
+  else return null;
+  return Math.max(TERMINAL_SPLIT_MIN_PERCENT, Math.min(TERMINAL_SPLIT_MAX_PERCENT, next));
+}
+
+/**
+ * Decide whether a disappearing overflow control should return focus to the
+ * active tab. Restoration is limited to the exact layout transition where the
+ * overflow hosted focus and was removed, so unrelated focus targets are kept.
+ * @param previousHiddenCount - hidden terminal count from the previous render.
+ * @param hiddenCount - hidden terminal count after the current render.
+ * @param focusFellToBody - whether the browser dropped focus to the page body.
+ * @param activeId - the visible terminal that should own the tab stop.
+ * @returns the terminal id to focus, or null when focus must stay untouched.
+ */
+export function terminalOverflowFocusRecovery(
+  previousHiddenCount: number,
+  hiddenCount: number,
+  focusFellToBody: boolean,
+  activeId: string | null,
+): string | null {
+  if (previousHiddenCount <= 0 || hiddenCount !== 0 || focusFellToBody !== true) return null;
+  return typeof activeId === 'string' && activeId !== '' ? activeId : null;
+}
+
 /**
  * Keep the left editor group readable while preserving the right group.
  * @param {number|string} value - requested left-pane percentage.

@@ -8,8 +8,9 @@ test('Editor gutter, divider, content surface and gap share one rule set', () =>
   assert.match(source, /'\[data-dsh-editor-gutter-surface="idea"\] \{'/);
   assert.match(source, /--dsh-editor-gutter-fill: var\(--dsw-alias-interactive-bg-hover-solid\)/);
   assert.match(source, /--dsh-editor-gutter-divider: var\(--dsw-alias-border-l3\)/);
-  assert.match(source, /--dsh-editor-content-fill: var\(--dsw-alias-bg-base\)/);
+  assert.match(source, /--dsh-editor-content-fill: var\(--dsh-editor-code-background\)/);
   assert.match(source, /--dsh-editor-gutter-gap: 2px/);
+  assert.doesNotMatch(source, /--dsh-editor-gutter-fill: var\(--dsh-editor-(?:project|code)-background\)/);
   assert.match(
     source,
     /'\.monaco-editor \.margin \{'[\s\S]*?var\(--dsh-editor-gutter-divider\)[\s\S]*?var\(--dsh-editor-content-fill\)/,

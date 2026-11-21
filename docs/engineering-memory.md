@@ -1,5 +1,882 @@
 # dsh-editor 工程记忆
 
+## 2026-11-21 — DSH Pocket manifest 401 与 dsh-rea 重复工厂注册
+
+**作用域**：DSH Pocket LAN 认证层、`@jwbo6/dsh-rea` 客户端注册 id、
+DSH Web 启动时的 ModuleLoader。
+
+**症状 / 原始错误**：
+
+- `GET http://192.168.2.172:3081/manifest.webmanifest` 返回
+  `401 Unauthorized`；
+- 控制台出现
+  `client-modules: duplicate factory registration for "dsh-rea"`；
+- 合并插件 bundle 报
+  `already executed without registering "@jwbo6/dsh-rea"`，
+  单包 URL 又报 `loaded without registering "@jwbo6/dsh-rea"`；
+- `@jwbo6/dsh-rea: import failed`，Web boot 记录
+  `1 entry did not activate`。
+
+**根因证据**：
+
+- `dsh-pocket/lib/proxy.mjs` 在静态资源转发前统一执行登录门禁，
+  PWA manifest 与图标也被 401；
+- `@jwbo6/dsh-rea/lib/client.js` 注册 id 是裸名 `dsh-rea`，
+  而 DSH boot graph 的 entry id 是包名 `@jwbo6/dsh-rea`；
+- 合并 bundle 已执行但因 id 不匹配被 Loader 判为未注册；
+  Loader 回退单包 URL 后仍使用同一错误 id，随后重放触发重复工厂注册。
+
+**最终修复**：
+
+- DSH Pocket 增加仅限 GET/HEAD 的精确未认证静态 allowlist：
+  `/manifest.webmanifest`、`/favicon.ico` 与 manifest 声明的三个 PWA 图标；
+- 受保护根页面、API 与 WebSocket 继续走原认证门禁；
+- `@jwbo6/dsh-rea` 注册 id 改为 `@jwbo6/dsh-rea`，与
+  `package.json.name` 和 boot graph id 一致。
+
+**回归测试**：
+
+```bash
+node --test test/pocket-manifest-static-assets-bypass-auth.test.mjs
+node --test test/client-registration-id-matches-package.test.mjs
+```
+
+- Pocket RED：manifest `401 !== 200`；
+- Pocket GREEN：manifest/icon `200`，根页面仍显示 Pocket 登录，
+  私有 API 仍为 `401`；
+- dsh-rea RED：注册 id 实际为 `dsh-rea`；
+- dsh-rea GREEN：注册 id 与 package name 一致。
+
+**运行态验证**：
+
+- 重启 DSH Desktop 后，Pocket 未认证 manifest/icon 均返回 `200`；
+- 本机认证后 boot graph entry 为 `@jwbo6/dsh-rea`；
+- 合并 bundle 中 27 个注册无重复，
+  `@jwbo6/dsh-rea` 注册成功；
+- 认证后的 DSH Web 主界面正常加载，目标启动错误不再出现。
+
+**长期约束**：
+
+- DSH 包插件注册 id 必须等于 boot graph 的完整包名，不得使用裸短名；
+- Pocket 未认证静态 allowlist 必须保持精确路径和只读方法，
+  不得扩大为整个 `/plugins` 或 `/assets`；
+- 包更新可能覆盖安装在 `$DSH_HOME/profiles/desktop/node_modules`
+  下的本地修复，升级 `dsh-pocket` / `@jwbo6/dsh-rea` 后必须重跑上述回归。
+
+## 2026-11-21 — Editor gutter 行号与折叠箭头紧凑化
+
+**作用域**：Monaco line-number width、line decorations width、
+line-number typography、folding codicon、代码横向空间。
+
+**用户决策**：
+
+- 行号字体改小；
+- 行号容器总宽度缩小；
+- 展开/收起箭头缩小；
+- 目标是减少 gutter 占用、增加代码横向空间。
+
+**修复**：
+
+- 增加共享 `EDITOR_GUTTER_LAYOUT`：
+  - `lineNumbersMinChars: 3`（Monaco 默认 5）；
+  - `lineDecorationsWidth: 2`（默认 10）；
+  - `foldIconFontSize: 10`；
+  - `foldIconMarginLeft: 0`；
+- 主 Monaco editor 通过 options 消费共享数值；
+- line-number CSS 使用 caption 字号 token（10px）；
+- folding expanded/collapsed/manual codicon 统一 10px；
+- 不改行号背景、代码字号、行高或折叠语义。
+
+**回归测试**：
+
+```bash
+node --test tests/editor-gutter-line-numbers-fold-icons-use-compact-layout.test.mjs \
+  tests/editor-code-coloring-idea-light-palette.test.mjs \
+  tests/editor-gutter-divider-content-surface-gap-share-one-rule-set.test.mjs \
+  tests/commit-block-restore-undoable-diff-toolbar-z.test.mjs
+npm test
+```
+
+- RED：共享 gutter 配置不存在；
+- GREEN：gutter/palette 定向 **26 pass / 0 fail**；
+- GREEN：完整测试 **3611 pass / 0 fail**。
+
+**测试隔离修复**：
+
+- 3 个旧 `createCodeEditorGroup` harness 没有注入新增配置；
+- 补齐 `EDITOR_GUTTER_LAYOUT` scope 后相关定向 **14 pass / 0 fail**。
+
+**运行态**：
+
+- 行号字号明显小于正文；
+- gutter 总宽减少，代码区横向空间增加；
+- folding lane 与折叠行为保留。
+
+**长期约束**：
+
+- gutter 紧凑参数由 `EDITOR_GUTTER_LAYOUT` 单一拥有；
+- 行号至少保证 3 位，更多位数仍由 Monaco 自动扩宽；
+- 不得通过关闭行号/折叠功能换取布局空间。
+
+## 2026-11-21 — Project 文件树改为编辑器护眼底色
+
+**作用域**：Project 工具窗背景、Editor code surface、Commit tool-window、
+Monaco line-number gutter。
+
+**用户决策**：
+
+- Project 文件树必须与右侧编辑器代码区使用同一护眼背景；
+- 行号背景颜色保持原样；
+- Commit 工具窗背景不被此次改动影响。
+
+**修复**：
+
+- `EDITOR_SURFACE_BACKGROUNDS` 的旧 `project` 字段更名为语义准确的
+  `toolWindow`；
+- `editorToolWindowBackground('project')` 返回
+  `var(--dsh-editor-code-background)`；
+- `editorToolWindowBackground('commit')` 继续返回
+  `var(--dsh-editor-tool-window-background)`；
+- `--dsh-editor-project-background` 兼容 alias 指向 code 背景；
+- 行号继续使用独立 `--dsh-editor-gutter-fill:
+  var(--dsw-alias-interactive-bg-hover-solid)`，不跟随 Project 改色。
+
+**回归测试**：
+
+```bash
+node --test tests/editor-surfaces-use-distinct-restful-backgrounds.test.mjs \
+  tests/editor-gutter-divider-content-surface-gap-share-one-rule-set.test.mjs \
+  tests/editor-editorworkspacesurface-reusable-tsx-editor-surface.test.mjs
+npm run build:client
+```
+
+- RED：Project 仍指向 tool-window token，palette 仍使用 `project` 字段；
+- GREEN：背景/gutter 定向 **9 pass / 0 fail**；
+- GREEN：完整测试 **3609 pass / 0 fail**。
+
+**运行态**：
+
+- Project 树与 Monaco 代码区呈现同一暖白底色；
+- 行号 gutter 仍为灰色；
+- Commit 背景保持不变。
+
+**长期约束**：
+
+- Project 文件树跟随 editor code token；
+- Commit 及其他工具窗使用独立 tool-window token；
+- 行号 gutter 是独立 surface，不得因 Project 背景调整而变化。
+
+## 2026-11-21 — Commit 分支 chip 缺少可见键盘焦点
+
+**作用域**：共享 PanelToolbar branch popup、Commit 分支菜单、
+keyboard focus、forced-colors。
+
+**症状/证据**：
+
+- 分支 chip 可聚焦，Enter 可打开分支菜单；
+- AX 暴露为 pop up button；
+- 但它没有项目统一 `:focus-visible`，键盘用户只能依赖浏览器默认反馈。
+
+**根因**：
+
+- PanelToolbar 的分支触发器是自定义 `.dsh-editor-branch-button`，
+  不属于共享 `ToolbarButton` class；
+- 现有 ToolbarButton 焦点修复不会覆盖它。
+
+**修复**：
+
+- 在共享 injected CSS 中为 `.dsh-editor-branch-button:focus-visible`
+  增加 1px business-primary ring、1px offset 和 9px 圆角；
+- forced-colors 下映射为系统 `Highlight`；
+- 不改变分支菜单、expanded 状态、模式 tab 或 overflow 测量。
+
+**回归测试**：
+
+```bash
+node --test tests/commit-branch-chip-exposes-visible-keyboard-focus-ring.test.mjs \
+  tests/project-view-selector-reports-local-menu-expansion.test.mjs \
+  tests/editor-toolbarbutton-forwards-menu-keyboard-popup-semantics.test.mjs
+npm run build:client
+```
+
+- RED：branch-button focus-visible 与 forced-colors 规则均缺失；
+- GREEN：Commit/branch/toolbar 定向 **9 pass / 0 fail**；
+- GREEN：完整测试 **3608 pass / 0 fail**。
+
+**运行态**：
+
+- Change tab 后 Tab 进入 `Checkout branch: main`；
+- 分支 chip 显示清晰 accent ring；
+- Enter 打开菜单聚焦首项，Escape 返回同一 chip。
+
+**长期约束**：
+
+- 所有 PanelToolbar 自定义 popup trigger 必须拥有自己的 focus-visible；
+- 不能假设共享 ToolbarButton 样式会自动覆盖原生自绘按钮；
+- forced-colors 必须继续映射到系统 `Highlight`。
+
+## 2026-11-21 — Terminal overflow 消失后焦点落到 BODY
+
+**作用域**：Terminal overflow、布局尺寸变化、roving tab focus、
+键盘焦点回收。
+
+**症状/证据**：
+
+- `»` 在 hidden 终端数量归零时直接卸载；
+- 若它正持有键盘焦点，浏览器会把焦点移到页面 body；
+- 原 roving focus 只处理方向键，没有处理控件因布局变化消失。
+
+**根因**：
+
+- 没有记录 hidden count 的前后转换；
+- 没有在 overflow 被移除后检查浏览器是否把焦点丢到 body。
+
+**修复**：
+
+- 增加纯函数 `terminalOverflowFocusRecovery`；
+- TerminalPanel 记录上一帧 hidden 数；
+- 仅当 `hidden > 0 → 0`、focus owner 是 body/空/断开节点且 activeId 有效时，
+  调用共享 `focusTerminalTabById`；
+- 其他控件持焦时不抢焦点。
+
+**回归测试**：
+
+```bash
+node --test tests/terminal-overflow-removal-recovers-focus-to-active-tab.test.mjs \
+  tests/terminal-overflow-button-exposes-hidden-tab-menu-builder.test.mjs \
+  tests/terminal-overflow-item-owns-focus-after-activation.test.mjs \
+  tests/terminal-tabs-expose-localized-tablist-roving-tab-semantics.test.mjs
+npm run build:client
+```
+
+- RED：恢复 helper 缺失；
+- GREEN：恢复与 overflow 定向 **8 pass / 0 fail**；
+- GREEN：完整测试 **3606 pass / 0 fail**；
+- GREEN：测试直接执行真实 `useEffect` callback，验证 body 失焦时恢复，
+  其他 focus owner 时不抢焦点。
+
+**运行边界**：
+
+- 本机窗口放大快捷键被应用的 Project speed search 占用，未单独完成人工
+  放大复验；
+- effect callback 与 DOM focus owner 状态已通过可执行测试覆盖。
+
+**长期约束**：
+
+- 控件因响应式布局卸载时，必须区分“用户主动移焦”和“浏览器丢焦到 body”；
+- 只有后者才允许把焦点还给 active surface；
+- 焦点回收必须复用现有 tab identity lookup，不能按标题或位置猜测。
+
+## 2026-11-21 — Terminal overflow 触发器的 popup 语义缺失
+
+**作用域**：Terminal `»` overflow、ContextMenu、键盘焦点往返、
+辅助技术语义。
+
+**症状/证据**：
+
+- `»` 点击、Shift+F10 与 ContextMenu 都会打开隐藏终端菜单；
+- AX 树仍将其识别为普通 `button`，没有 popup 语义；
+- 菜单打开/关闭时没有 `aria-expanded` 状态。
+
+**根因**：
+
+- overflow 使用原生 button 手写菜单行为，没有 `aria-haspopup`；
+- 通用 `menu` state 包含多种终端菜单，原实现未派生 overflow 的开闭状态。
+
+**修复**：
+
+- 从当前 ContextMenu state 派生
+  `overflowMenuOpen = menu.title === terminalOverflowTitle`；
+- overflow button 增加 `aria-haspopup='menu'` 与 `aria-expanded`；
+- 不改变 `→` 进入 overflow、`←` 返回活动标签、Enter/点击打开菜单以及
+  Esc 返回 opener 的路径。
+
+**回归测试**：
+
+```bash
+node --test tests/terminal-overflow-button-exposes-hidden-tab-menu-builder.test.mjs \
+  tests/terminal-overflow-item-owns-focus-after-activation.test.mjs \
+  tests/terminal-tabs-expose-localized-tablist-roving-tab-semantics.test.mjs \
+  tests/terminal-strip-controls-expose-visible-keyboard-focus-ring.test.mjs
+npm run build:client
+```
+
+- RED：popup/expanded 属性与状态派生均缺失；
+- GREEN：overflow focus/menu 定向 **8 pass / 0 fail**；
+- GREEN：完整测试 **3604 pass / 0 fail**。
+
+**运行态**：
+
+- AX 绑定显示为 `pop up button 还有 N 个终端标签`；
+- 活动标签按 `→` 到 `»`，Enter 打开菜单，Esc 回到 `»`，`←` 回到标签；
+- 验证后恢复单终端状态。
+
+**长期约束**：
+
+- 任何打开 ContextMenu 的 overflow/split trigger 都必须暴露 menu popup 语义；
+- `aria-expanded` 必须来自真实菜单生命周期，不得在点击时永久置 true；
+- overflow 的 roving focus 与菜单 opener 恢复继续由 Terminal strip 统一拥有。
+
+## 2026-11-21 — Terminal 分屏分隔条缺少真实键盘路径
+
+**作用域**：Terminal 左右分屏、separator 语义、键盘可达性、
+Terminal Options、split ratio persistence。
+
+**症状/证据**：
+
+- Terminal 分屏条只有 `onMouseDown` 与 `onDoubleClick`；
+- 没有 `role='separator'`、方向/当前值、`tabIndex` 或 `onKeyDown`；
+- 键盘用户无法调整比例，也无法用键盘恢复默认 50/50。
+
+**根因**：
+
+- Terminal split 是独立布局，没有复用 Editor split 的 separator 语义；
+- 即使只补 `tabIndex`，xterm 会消费 `Tab/⇧Tab`，separator 仍无实际键盘入口；
+- 原 `splitDragging` 只参与恒为 `col-resize` 的三元表达式，拖动没有可见反馈。
+
+**修复**：
+
+- 增加 `terminalSplitKeyboardPercent`：
+  - `←/→` 每次 2%；
+  - `Shift+←/→` 每次 10%；
+  - `Home/End` 到 20/80%；
+  - `Enter` 恢复 50%；
+- split handle 增加 `role='separator'`、vertical orientation、
+  min/max/now、`aria-valuetext`、可访问名称和 `tabIndex=0`；
+- Terminal Options 增加“调整分屏宽度”，通过 `splitHandleRef` 直接聚焦
+  separator，绕开 xterm 对 Tab 的消费；
+- 鼠标按下分隔条同步聚焦，拖动时使用 accent 背景；
+- injected CSS 增加内嵌 accent focus ring 和 forced-colors Highlight；
+- 工具提示说明双击或 Enter 恢复 50/50。
+
+**回归测试**：
+
+```bash
+node --test tests/terminal-split-handle-exposes-keyboard-vertical-resize.test.mjs \
+  tests/editor-double-clicking-split-divider-restores-50-split.test.mjs \
+  tests/terminal-split-focuses-visible-right-pane.test.mjs \
+  tests/editor-resize-handles-share-visible-keyboard-focus.test.mjs
+npm run build:client
+```
+
+- RED：helper 缺失，测试在加载阶段直接失败；
+- GREEN：Terminal split / focus / resizer 定向 **8 pass / 0 fail**；
+- GREEN：完整测试 **3604 pass / 0 fail**。
+
+**运行态**：
+
+- Terminal Options → “调整分屏宽度”后，焦点落在 separator；
+- `→` 将比例 `50 → 52`，`Shift+→` 到 `62`，`Enter` 恢复 `50`；
+- 验证后取消分屏并关闭额外终端，恢复原始单终端状态。
+
+**长期约束**：
+
+- 可聚焦 separator 必须有真实键盘入口，不能只增加 `tabIndex`；
+- xterm 内的 Tab 仍归 shell，终端布局控件通过显式菜单路径获得焦点；
+- split ratio 的键盘与鼠标提交必须复用同一 clamp 和持久化入口。
+
+## 2026-11-21 — Terminal 标签与 overflow 缺少可见键盘焦点
+
+**作用域**：Terminal tab strip、overflow 菜单按钮、标签内关闭按钮、
+keyboard focus、forced-colors。
+
+**症状/证据**：
+
+- Terminal tab 可由键盘到达；
+- tab strip 与 tab 内控件没有项目 accent 焦点反馈；
+- tab 容器为 `overflow: hidden`，浏览器默认外扩 outline 容易被裁切。
+
+**根因**：
+
+- `.dsh-editor-terminal-tab`、`.dsh-editor-terminal-overflow` 和
+  `.dsh-editor-terminal-tab > button` 没有 `:focus-visible`；
+- 紧凑的 22px tab 与 28px strip 没有足够空间容纳外扩 ring；
+- forced-colors 下也没有系统 `Highlight` 映射。
+
+**修复**：
+
+- 在共享 injected CSS 中为三个 Terminal strip 控件增加
+  `outline: 1px solid state-business-primary !important`；
+- 使用 `outline-offset: -2px !important`，让 ring 始终留在被裁切区域内部；
+- forced-colors 下映射为 `outline-color: Highlight !important`；
+- 不改变 roving tabindex、arrow/Home/End、拖拽或 overflow 菜单逻辑。
+
+**回归测试**：
+
+```bash
+node --test tests/terminal-strip-controls-expose-visible-keyboard-focus-ring.test.mjs \
+  tests/terminal-tabs-expose-localized-tablist-roving-tab-semantics.test.mjs \
+  tests/editor-resize-handles-share-visible-keyboard-focus.test.mjs \
+  tests/editor-toolbarbutton-forwards-menu-keyboard-popup-semantics.test.mjs
+npm run build:client
+```
+
+- RED：三个 selector 均没有 focus-visible 规则，**0 pass / 2 fail**；
+- GREEN：Terminal focus 与相关 toolbar/resizer 定向 **10 pass / 0 fail**；
+- GREEN：完整测试 **3601 pass / 0 fail**。
+
+**运行态**：
+
+- 从 Terminal Options 连续 `⇧Tab` 进入 Terminal tab；
+- 标签内部出现清晰的蓝色 accent 环；
+- 高度 separator 获得焦点后，`↑/↓` 正确完成 `220 → 236 → 220`。
+
+**长期约束**：
+
+- Terminal strip 的焦点反馈由共享 injected CSS 唯一拥有；
+- 紧凑、overflow hidden 的 hit box 必须使用内嵌 outline；
+- forced-colors 必须继续映射到系统 `Highlight`。
+
+## 2026-11-21 — 共享 ToolbarButton 缺少主题键盘焦点环
+
+**作用域**：ToolbarButton、Commit/Project/Terminal/diff toolbar、键盘焦点、
+forced-colors。
+
+**症状/证据**：
+
+- Commit toolbar 可由键盘 Tab 到达；
+- 共享按钮仅有 hover CSS；
+- 键盘焦点环依赖浏览器默认，与项目 accent/forced-colors 语义不一致。
+
+**根因**：
+
+- `.dsh-editor-toolbar-button` 没有显式 `:focus-visible`；
+- 所有业务工具栏复用同一按钮，因此修复必须落在共享样式。
+
+**修复**：
+
+- 增加 `.dsh-editor-toolbar-button:focus-visible`：
+  `outline: 1px solid state-business-primary; outline-offset: 1px`；
+- forced-colors 下 `outline-color: Highlight !important`；
+- 不改变 hover、disabled、active 或菜单键盘语义。
+
+**回归测试**：
+
+```bash
+node --test tests/editor-toolbarbutton-forwards-menu-keyboard-popup-semantics.test.mjs \
+  tests/editor-toolbarbutton-only-exposes-pressed-semantics-real-toggle-actions.test.mjs
+npm test
+```
+
+- RED：共享按钮缺少 focus-visible 样式；
+- GREEN：普通主题 accent ring 与 forced-colors Highlight 均存在；
+- GREEN：ToolbarButton 定向 **7 pass / 0 fail**；
+- GREEN：完整测试 **3599 pass / 0 fail**。
+
+**运行态**：
+
+- Commit Refresh 点击后按 Tab 到 View Options；
+- View Options 出现清晰 accent 焦点外框；
+- hover 与 disabled 未变化。
+
+**长期约束**：
+
+- 共享 ToolbarButton 的焦点反馈只能由共享 CSS 拥有；
+- 业务调用方不得复制 focus-visible 样式；
+- forced-colors 必须继续映射到系统 Highlight。
+
+## 2026-11-21 — Commit 选中行在统一工具窗底色上对比不足
+
+**作用域**：Commit Changes 主选中行、active diff 行、range selection、
+工具窗背景、accent 层级。
+
+**症状/证据**：
+
+- Project/Commit 统一冷灰后，selected row 的 12% transparent accent
+  与普通灰行区分偏弱；
+- active diff 行退化为普通 host hover 灰；
+- 运行态 `src/index.ts` 主选中存在，但层级不够清晰。
+
+**根因**：
+
+- 选中色依赖 transparent overlay；
+- 实际结果由底层工具窗颜色决定，统一灰底后色差被压缩；
+- active diff 和 selected 不属于同一视觉族。
+
+**修复**：
+
+- selected：`primary 24% + tool-window-background` 实色混合；
+- active：`primary 32% + tool-window-background`；
+- 两者共用 `inset 2px 0 0 primary` 左侧 accent；
+- range selection 保持较浅 hover 层级。
+
+**回归测试**：
+
+```bash
+node --test tests/editor-surfaces-use-distinct-restful-backgrounds.test.mjs
+npm test
+```
+
+- RED：selected/active 均未使用工具窗实色混合；
+- GREEN：selected/active 使用 24%/32% 实色混合与左侧 accent；
+- GREEN：selection 定向 **4 pass / 0 fail**；
+- GREEN：完整测试 **3598 pass / 0 fail**。
+
+**运行态**：
+
+- `src/index.ts` 选中行在灰底上清晰可见；
+- active diff 选择使用更强一档的同族填充；
+- 普通行与 range selection 仍不混淆。
+
+**长期约束**：
+
+- 工具窗上的选中色必须与工具窗背景做实色混合，不得依赖透明叠色；
+- primary selection 与 active-diff selection 使用同一视觉族、不同强度；
+- 左侧 accent 是当前主行的稳定第二信号，不得被普通 hover 覆盖。
+
+## 2026-11-21 — Project/Commit 工具窗背景断层
+
+**作用域**：Editor side tool window、Project/Commit activity、低眩光背景、
+Terminal 隔离、主题 token。
+
+**症状/证据**：
+
+- Project 已使用冷灰低眩光背景；
+- 切换到 Commit 后左侧恢复纯白，右侧代码仍为暖白；
+- IDEA 中 Project 与 Commit 属于同一工具窗 surface。
+
+**根因**：
+
+- 上一轮 `EditorToolWindowPanel` 只对 `activity === 'project'` 应用背景；
+- Commit 继续使用 `styles.sidePanel` 的 host base；
+- 缺少独立工具窗 token 和 activity 解析 owner。
+
+**修复**：
+
+- 新增 `editorToolWindowBackground(activity)`；
+- Project/Commit 共用 `--dsh-editor-tool-window-background`；
+- Terminal/Harness 不借用该 token；
+- 浅色值与低眩光 Project 色一致，深色使用同一工具窗 palette；
+- 面板组件改为调用共享 helper。
+
+**回归测试**：
+
+```bash
+node --test tests/editor-surfaces-use-distinct-restful-backgrounds.test.mjs \
+  tests/editor-gutter-divider-content-surface-gap-share-one-rule-set.test.mjs
+npm test
+```
+
+- RED：Commit 未获得工具窗 token；
+- GREEN：Project/Commit helper 返回同一 token；
+- GREEN：Terminal 返回 undefined；
+- GREEN：背景定向 **6 pass / 0 fail**；
+- GREEN：完整测试 **3597 pass / 0 fail**。
+
+**运行态**：
+
+- 重载后 Commit 左侧与 Project 同为冷灰；
+- 右侧代码区继续为暖白；
+- 切换 Project/Commit 不再出现底层色突变。
+
+**长期约束**：
+
+- Project 与 Commit 共享工具窗 surface，不得各自硬编码背景；
+- Terminal/Harness 的 dock/chat 表面不得被工具窗 token 覆盖；
+- activity 到背景的映射由共享 helper 唯一拥有。
+
+## 2026-11-21 — Replace 确认期间 dirty model 丢失或变化可诱发部分写入
+
+**作用域**：Search Everywhere/Find Replace All、确认框、dirty plan、
+Monaco model lifecycle、clean Host transaction。
+
+**症状/证据**：
+
+- dirty plan 在确认框打开前捕获 model；
+- 原流程在确认成功后直接写 clean 文件；
+- 如果 dirty tab 在确认期间关闭/重建，dirty commit 只能在 clean 写之后失败；
+- model 实例仍 live 但内容在确认期间变化时，旧 plan 还可能覆盖新编辑；
+- 这会把本可提前拒绝的状态变成 clean 成功、dirty 丢失的部分提交。
+
+**根因**：
+
+- request ownership 检查 query/workspace/generation，但不检查 dirty model；
+- 确认等待期间没有重新验证 dirty plan 是否仍属于 live `modelsRef`；
+- plan 没有保存生成时原文，无法识别 same-model content drift；
+- 可用性检查只存在于确认前 planning 阶段。
+
+**修复**：
+
+- 新增 `unavailableDirtyReplacePath()`：
+  - path 必须仍映射到同一 model 实例；
+  - model 不得 dispose；
+  - 实时 `getValue()` 必须仍等于 plan 保存的 `before`；
+- planning 只读取一次 original content，作为 `before` 快照；
+- dirty commit 修改 model 前再次比较实时内容与 `before`，覆盖 Host I/O 漂移；
+- Host I/O 期间漂移以稳定 marker
+  `dirty buffer changed since it was planned: <path>` 拒绝；
+- Undo/Redo 重建 dirty plan 时分别写入
+  `before=afterContent` / `before=beforeContent`，复用同一保护；
+- Undo/Redo 的 Host clean 结果在 try 外保存，dirty 失败时统一走
+  `searchReplaceFailureMessage()` 并刷新已变化 clean 文件；
+- partial 后通过 `dirtyOnlyReplaceHistoryTail()` 降级最新 operation：
+  `clean=false`、清空 Host operationId、files 收敛到 dirty snapshots；
+- `confirmFindReplaceAndGeneration()` 在确认后、Host write 前调用该检查；
+- 不可用时释放写守卫、设置 `editor.searchReplaceDirtyClosed`、返回 false；
+- Search 浮层和 Find dock 共用同一参数化校验。
+
+**回归测试**：
+
+```bash
+node --test tests/search-replace-confirmation-rejects-closed-dirty-model.test.mjs \
+  tests/search-replace-confirmation-workspace-switch-cancels-write.test.mjs \
+  tests/search-directory-rules-respect-gitignore-and-project-menu.test.mjs
+npm run build:client
+```
+
+- RED：helper 缺失，3 个新测试全部失败；
+- RED：确认回调删除模型后旧流程仍接受写入；
+- RED：确认回调修改 live model 内容后旧流程仍接受写入；
+- RED：Host I/O 期间 model 被修改后 commit 仍覆盖；
+- GREEN：删除/替换/dispose/content drift 均在 clean 写入前阻断；
+- GREEN：Host I/O 后 content drift 在 dirty commit 前阻断；
+- GREEN：Undo/Redo 的 dirty plan 携带对应 pre-image；
+- GREEN：Undo/Redo clean success + dirty failure 使用同一 partial feedback；
+- GREEN：partial operation 下次只重试 dirty half；
+- GREEN：守卫释放、错误本地化、焦点请求恢复；
+- GREEN：Undo/Redo 与快照 **17 pass / 0 fail**；
+- GREEN：完整测试 **3596 pass / 0 fail**。
+
+**长期约束**：
+
+- 确认框返回后必须重新验证所有依赖于可变对象的计划；
+- dirty plan 的对象身份和 lifecycle 属于写入前置条件；
+- dirty plan 必须保存生成时原文，并在确认后做内容等价校验；
+- dirty commit 必须再次校验 before 快照，不能信任长时间异步窗口前的计划；
+- Undo/Redo 重建计划时必须显式恢复对应 pre-image，不能省略 before；
+- Undo/Redo 的 clean Host 写入结果必须在 dirty commit 前可被 catch 读取；
+- Host 半成功后必须移除 operation 的 clean claim，避免重试重复 Host 事务；
+- clean Host 写入之前不得保留已知可能失败的 dirty plan；
+- Search 与 Find 必须共享同一确认后校验，不得各自复制。
+
+## 2026-11-21 — Replace All 磁盘冲突泄漏宿主英文
+
+**作用域**：Search Everywhere Replace All、Find Replace All、
+`replaceText` mtime 冲突、错误本地化、partial-success 包装。
+
+**症状/证据**：
+
+- 两个临时 fixture 的普通 Replace All 与 Undo 均成功；
+- 再次搜索后从终端修改其中一个文件，Host 正确拒绝整批写入；
+- UI 显示 `搜索失败：the file changed on disk since it was searched: .dsh-replace-probe-b.ts`；
+- 事务本身正确，另一文件未发生部分替换。
+
+**根因**：
+
+- `searchReplaceFailureMessage()` 仅调用通用 `searchTextFailureMessage()`；
+- 通用映射没有识别 replace-only 的
+  `the file changed on disk since it was searched: <path>`；
+- 未识别错误按宿主原句返回，中文 UI 因而泄漏英文技术文本。
+
+**修复**：
+
+- `searchReplaceFailureMessage()` 识别该 mtime 冲突并提取路径；
+- 通过 `editor.searchReplaceFileChanged` 输出双语可执行提示；
+- 若已有 clean 写成功，继续复用 `searchReplacePartialFailure` 包装；
+- 其他未知错误保持原始 detail，不扩大吞错范围。
+
+**回归测试**：
+
+```bash
+node --test tests/search-replace-file-changed-localized-and-partial-failure.test.mjs \
+  tests/search-replace-confirmation-context-cancel-focus.test.mjs \
+  tests/search-mixed-replace-host-success-dirty-failure-refreshes-host.test.mjs
+npm run build:client
+```
+
+- RED：中文界面直接显示宿主英文冲突句；
+- GREEN：冲突路径保留，提示变为本地化可执行文本；
+- GREEN：partial-success 仍保留原有包装语义；
+- GREEN：定向 **12 pass / 0 fail**；
+- GREEN：完整测试 **3587 pass / 0 fail**。
+
+**运行态**：
+
+- 正常 Replace All：2 文件/2 处成功，结果刷新为 0；
+- Undo：恢复 2 处并重新出现结果；
+- mtime 冲突：整批事务回滚，显示本地化冲突路径；
+- mixed dirty/clean：dirty Monaco 只在内存替换，clean 文件写盘；
+- mixed Undo 同时恢复 dirty model 与 clean 磁盘文件；
+- mixed 场景下 clean 侧 mtime 冲突会先于 dirty commit 失败，dirty model
+  保持未替换，整批事务没有部分写入；
+- 两个临时 fixture 已删除。
+
+**长期约束**：
+
+- 宿主可枚举的业务错误必须在进入用户提示前完成本地化；
+- mtime 冲突提示必须保留真实路径并引导重新搜索；
+- partial-success 包装必须包裹已经本地化的内层 message；
+- 未知错误仍保留原始 detail，禁止为了统一文案吞掉诊断。
+
+## 2026-11-21 — Search Everywhere Esc 从工具窗错误回落到 Monaco
+
+**作用域**：Search Everywhere dismiss、Commit Changes/Project 工具窗、
+opener focus、React 卸载时序、共享 focus-surface owner。
+
+**症状/证据**：
+
+- IDEA 从 Commit/Project 打开 Search Everywhere 后，Esc 回到原工具窗；
+- Harness Commit Changes 聚焦时打开 Actions，Esc 后 Accessibility Tree
+  focused element 为 Monaco editor；
+- 原 `Changes` outline 仍存在且可聚焦，并非真实退化 fallback。
+
+**根因**：
+
+- dismiss 仅用一次 `setTimeout(0)` 聚焦 opener；
+- Search Everywhere 卸载、focus trap 和 React/宿主渲染之间无顺序保证；
+- opener 断开时旧 fallback 直接选择 Monaco，跳过当前可见工具窗。
+
+**修复**：
+
+- `focus-surface.ts` 新增共享 `resolveFocusSurface()`：
+  connected opener → 当前 Changes/Project tree → Monaco；
+- dismiss 改用 `focusSurfaceWhenReady()`，`maxAttempts: 8`、
+  `reassertFrames: 2`；
+- 复用 `cancelFocusRequestRef` 管理新焦点请求；
+- action-driven close 保持原有“不回跳 opener”语义。
+
+**回归测试**：
+
+```bash
+node --test tests/search-everywhere-escape-restores-origin-focus.test.mjs \
+  tests/editor-tool-window-focus-retries-until-content-mounted.test.mjs
+npm run build:client
+```
+
+- RED：Commit focus 下 Esc 后进入 Monaco；
+- GREEN：Esc 后回到 Changes outline；
+- GREEN：disconnected opener 回当前工具窗，工具窗缺失才回 Monaco；
+- GREEN：焦点定向 **11 pass / 0 fail**；
+- GREEN：完整测试 **3584 pass / 0 fail**；
+- GREEN：ESLint、TypeScript、Prettier、client build consistency 通过。
+
+**运行态**：
+
+- Commit Changes 焦点下 `⇧⌘P` 打开 Actions；
+- Esc 后 focused element 为 `Changes` outline；
+- Terminal `⌘F` 与 Esc 回焦 PTY 的既有行为未回归。
+
+**长期约束**：
+
+- Search Everywhere Esc 必须先恢复 opener；
+- opener 重建时，工具窗可见树优先于 Monaco；
+- 所有延迟焦点恢复必须使用共享有界焦点 owner，不再新增裸 `setTimeout(0)`；
+- action close 与 user dismiss 的焦点语义必须保持分离。
+
+## 2026-11-21 — Find Action 被工具窗 child-context 守卫错误阻断
+
+**作用域**：Search Everywhere Find Action、全局 keydown、Project tree、
+Commit Changes/Log、Terminal、普通输入控件、workspace 焦点边界。
+
+**症状/证据**：
+
+- IDEA 在 Project tree 获得焦点时按 `⇧⌘A` 会打开 Actions；
+- Harness Editor 在 Terminal 输入框获得焦点时按 `⇧⌘P` 无任何响应；
+- Project tree、Commit Changes/Log 和 input 同样无法打开全局 Actions；
+- 现有测试甚至把“让出 chord”写成预期，造成实现与 IDEA 全局动作语义相反。
+
+**根因**：
+
+- 全局 handler 已具备 workspace 边界与 `searchEverywhereOpen` 去重；
+- 额外的 `findActionShortcutBlockedByChildContext()` 把 Project、Commit、
+  Terminal 与 input 错判为拥有相同 chord；
+- 这些控件没有 `⇧⌘P` 独立动作，该守卫只造成入口丢失。
+
+**修复**：
+
+- 删除 `findActionShortcutBlockedByChildContext()` 及全局 handler 调用；
+- Editor workspace 内所有焦点位置统一由全局 handler 打开 Actions；
+- 保留 workspace 包含检查、Search Everywhere 已打开短路、preventDefault、
+  stopPropagation 与查询框回焦；
+- macOS 继续显示宿主安全 `⇧⌘P`，不抢占宿主归档 `⇧⌘A`。
+
+**回归测试**：
+
+```bash
+node --test tests/search-find-action-global-chord-opens-from-tool-windows.test.mjs \
+  tests/search-find-action-shortcut-works-inside-monaco.test.mjs \
+  tests/plugin-typescript-foundation-keyboard-detection-behavior.test.mjs
+npm run build:client
+```
+
+- RED：Terminal/Project focus 下快捷键无变化；
+- GREEN：全局 handler 从 tree/terminal/input-context 调用仍打开 Actions；
+- GREEN：定向行为回归 **6 pass / 0 fail**；
+- GREEN：完整测试 **3583 pass / 0 fail**；
+- GREEN：ESLint、TypeScript、Prettier、client build consistency、
+  `node --check`、`git diff --check`、`npm pack --dry-run` 通过；
+- GREEN：`lib/client.js` **2,584,906 bytes**，package **149 files**。
+
+**运行态**：
+
+- 重载客户端后，Terminal focus 下 `⇧⌘P` 打开 Actions 页；
+- Project tree focus 下同一 chord 也打开 Actions 页；
+- IDEA 同焦点对照一致。
+
+**长期约束**：
+
+- Search Everywhere / Find Action 是 workspace 全局动作，不属于单个工具窗；
+- 只有 Search Everywhere 自身已经打开时才阻止全局 handler 再次打开；
+- 快捷键让路必须对应真实存在的局部所有权，不能按控件类型猜测；
+- macOS 的 `⇧⌘A` 仍由宿主归档保留，插件主显示必须继续使用 `⇧⌘P`。
+
+## 2026-11-21 — Project 与代码区背景同为纯白，缺少低眩光层级
+
+**作用域**：Editor Project 工具窗、Monaco 代码阅读区、活动 tab、
+gutter content fill、浅色/深色 surface palette。
+
+**症状/证据**：
+
+- Computer Use 对照 IDEA 浅色界面后，Harness Editor 的 Project 树与 Monaco
+  均为纯白；
+- 左右区域只靠分割线区分，长时间阅读时背景亮度高且层级弱；
+- Project 工具窗、editor surface、active tab 和 Monaco theme 各自引用 host
+  `bg-base`，浅色主题下实际合并成同一颜色。
+
+**根因**：
+
+- 没有编辑器专用的 Project/code surface token；
+- Monaco gutter 的 `--dsh-editor-content-fill` 也直接引用 host base；
+- 视觉分区依赖多个组件的偶然同色，而不是单一共享 palette。
+
+**修复**：
+
+- `editor-style-model.ts` 新增唯一
+  `EDITOR_SURFACE_BACKGROUNDS` 与 `editorSurfaceBackground()`；
+- 浅色 Project `#EEF1F4`、code `#FAF9F6`；
+- 深色 Project `#181A1D`、code `#1E1E1E`；
+- injected CSS 发布 `--dsh-editor-project-background` /
+  `--dsh-editor-code-background`；
+- Project 工具窗只在 Project activity 使用 project token；
+- editor surface、active tab、Monaco light theme 与 gutter content fill
+  统一使用 code token。
+
+**回归测试**：
+
+```bash
+node --test tests/editor-surfaces-use-distinct-restful-backgrounds.test.mjs \
+  tests/editor-gutter-divider-content-surface-gap-share-one-rule-set.test.mjs
+npm test
+```
+
+- GREEN：浅/深色两组 Project/code 背景均不同；
+- GREEN：浅色 code 不是纯白，Project/code 对黑字对比度均不低于 7:1；
+- GREEN：共享 surface owner 全部消费同一 token；
+- GREEN：定向 **5 pass / 0 fail**；
+- GREEN：完整 `npm test` **3586 pass / 0 fail**；
+- GREEN：ESLint、TypeScript、**135** 个 source imports、Prettier、
+  client build consistency、`node --check`、`git diff --check` 通过；
+- GREEN：`lib/client.js` **2526.2 KB**；
+- GREEN：`npm pack --dry-run` **149 files**。
+
+**长期约束**：
+
+- Project 导航与代码阅读区必须保持可辨识但低对比的层级；
+- Project/code 背景必须来自同一共享 palette，不得在调用方另写颜色；
+- 活动 tab 与 Monaco 主题必须跟随 code token，避免 tab 和代码区断层；
+- Commit/Terminal 的背景语义只能按各自工具窗需求单独调整，不能借此次
+  修改顺带变色。
+
 ## 2026-11-21 — Scope XML 并发写入可乱序覆盖
 
 **作用域**：shared Find Scope auto-save、manual XML export、Host write

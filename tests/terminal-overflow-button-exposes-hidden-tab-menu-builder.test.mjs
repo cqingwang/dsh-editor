@@ -16,7 +16,19 @@ test('Shift+F10 and ContextMenu open the same overflow menu as a click', () => {
     panel.indexOf("className='dsh-editor-terminal-overflow'"),
     panel.indexOf('</button>', panel.indexOf("className='dsh-editor-terminal-overflow'")),
   );
-  assert.match(overflow, /onClick=\{\(event\) => \{\s+openTerminalOverflowMenu\(event\.currentTarget\.getBoundingClientRect\(\)\);/s);
-  assert.match(overflow, /onContextMenu=\{\(event\) => \{\s+event\.preventDefault\(\);\s+event\.stopPropagation\(\);\s+event\.currentTarget\.focus\?\.\(\);\s+openTerminalOverflowMenu\(event\.currentTarget\.getBoundingClientRect\(\)\);/s);
+  assert.match(
+    panel,
+    /const overflowMenuOpen = menu !== null && menu\.title === t\('editor\.terminalOverflowTitle'\);/,
+  );
+  assert.match(overflow, /aria-haspopup='menu'/);
+  assert.match(overflow, /aria-expanded=\{overflowMenuOpen\}/);
+  assert.match(
+    overflow,
+    /onClick=\{\(event\) => \{\s+openTerminalOverflowMenu\(event\.currentTarget\.getBoundingClientRect\(\)\);/s,
+  );
+  assert.match(
+    overflow,
+    /onContextMenu=\{\(event\) => \{\s+event\.preventDefault\(\);\s+event\.stopPropagation\(\);\s+event\.currentTarget\.focus\?\.\(\);\s+openTerminalOverflowMenu\(event\.currentTarget\.getBoundingClientRect\(\)\);/s,
+  );
   assert.match(overflow, /event\.key === 'ContextMenu' \|\| \(event\.shiftKey === true && event\.key === 'F10'\)/);
 });

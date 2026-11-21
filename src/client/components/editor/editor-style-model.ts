@@ -41,6 +41,43 @@ export const EDITOR_RESPONSIVE_FONT_SIZE = {
   commitChip: 'clamp(8px, 4.4cqw, 10px)',
 } as const;
 
+/** Shared compact geometry for Monaco's line-number and folding chrome. */
+export const EDITOR_GUTTER_LAYOUT = {
+  lineNumbersMinChars: 3,
+  lineDecorationsWidth: 2,
+  foldIconFontSize: 10,
+  foldIconMarginLeft: 0,
+} as const;
+
+export type EditorColorScheme = 'light' | 'dark';
+export type EditorSurfaceTone = 'toolWindow' | 'code';
+
+/**
+ * Keep Commit and other tool-window chrome on a separate low-glare tone while
+ * the Project file tree shares the softer editor reading surface.
+ */
+export const EDITOR_SURFACE_BACKGROUNDS = {
+  light: {
+    toolWindow: '#eef1f4',
+    code: '#faf9f6',
+  },
+  dark: {
+    toolWindow: '#181a1d',
+    code: '#1e1e1e',
+  },
+} as const;
+
+export function editorSurfaceBackground(scheme: EditorColorScheme, tone: EditorSurfaceTone): string {
+  return EDITOR_SURFACE_BACKGROUNDS[scheme][tone];
+}
+
+/** The user prefers Project to share the editor background; Commit keeps tool-window chrome. */
+export function editorToolWindowBackground(activity: unknown): string | undefined {
+  if (activity === 'project') return 'var(--dsh-editor-code-background)';
+  if (activity === 'commit') return 'var(--dsh-editor-tool-window-background)';
+  return undefined;
+}
+
 export type EditorTextRole = 'title' | 'input' | 'control' | 'body' | 'label' | 'metadata' | 'code';
 
 /** Semantic text roles used by dialogs, tool windows and shared controls. */

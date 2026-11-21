@@ -49,11 +49,15 @@ import {
   shouldPersistTerminalProfile,
   storeFontSize,
   TERMINAL_COLORS,
+  TERMINAL_SPLIT_MAX_PERCENT,
+  TERMINAL_SPLIT_MIN_PERCENT,
   terminalActiveAfterClose,
   terminalAutoOpenAction,
   terminalFindPaneEmulator,
   terminalFontSize,
   terminalManualRenameOwnsTitle,
+  terminalOverflowFocusRecovery,
+  terminalSplitKeyboardPercent,
   type TerminalDescription,
   writeEditorTerminals,
   writeTerminalColors,
@@ -294,6 +298,7 @@ function TerminalPanel({
   /* Keyboard handlers are bound once, so they read the pane through a ref. */
   const focusedPaneRef = React.useRef<'left' | 'right'>('left');
   const splitIdRef = React.useRef<string | null>(null);
+  const splitHandleRef = React.useRef<HTMLDivElement | null>(null);
   const tRef = React.useRef(t);
   tRef.current = t;
   React.useEffect(() => {
@@ -1690,6 +1695,21 @@ function TerminalPanel({
 
   /* One split for the render: which tabs stay in the strip and which go to `»`. */
   const tabLayout = overflowTabs(dockTerminals, visibleTabCount(tabStripWidth, dockTerminals.length), activeId);
+  const previousHiddenTerminalCountRef = React.useRef(0);
+  React.useEffect(() => {
+    const previousHiddenCount = previousHiddenTerminalCountRef.current;
+    previousHiddenTerminalCountRef.current = tabLayout.hidden.length;
+    const activeElement = document.activeElement;
+    const focusFellToBody =
+      activeElement === null || activeElement === document.body || activeElement.isConnected === false;
+    const recoveredTerminalId = terminalOverflowFocusRecovery(
+      previousHiddenCount,
+      tabLayout.hidden.length,
+      focusFellToBody,
+      activeId,
+    );
+    if (recoveredTerminalId !== null) focusTerminalTabById(tabStripRef.current, recoveredTerminalId);
+  }, [activeId, tabLayout.hidden.length]);
 
   /**
    * Activate one terminal tab without changing its overflow visibility.
@@ -1847,6 +1867,7 @@ function TerminalPanel({
       })),
     });
   };
+  const overflowMenuOpen = menu !== null && menu.title === t('editor.terminalOverflowTitle');
   return (
     <div
       style={styles.terminalPanel}
@@ -2038,6 +2059,8 @@ function TerminalPanel({
               aria-label={t('editor.terminalOverflow', {
                 count: tabLayout.hidden.length,
               })}
+              aria-haspopup='menu'
+              aria-expanded={overflowMenuOpen}
               onKeyDown={(event) => {
                 if (event.key === 'ContextMenu' || (event.shiftKey === true && event.key === 'F10')) {
                   event.preventDefault();
@@ -2141,6 +2164,15 @@ function TerminalPanel({
                   disabled: available === false || activeId === null,
                   run: (): void => {
                     void toggleSplit();
+                  },
+                },
+                {
+                  id: 'resizeSplit',
+                  label: t('editor.terminalSplitResize'),
+                  disabled: splitId === null,
+                  restoreFocus: false,
+                  run: (): void => {
+                    splitHandleRef.current?.focus({ preventScroll: true });
                   },
                 },
                 {
@@ -2341,16 +2373,40 @@ function TerminalPanel({
           </div>
           {splitId === null ? null : (
             <div
+              ref={splitHandleRef}
               style={{
                 ...styles.terminalSplitHandle,
-                cursor: splitDragging ? 'col-resize' : 'col-resize',
+                cursor: 'col-resize',
+                ...(splitDragging
+                  ? {
+                      background: 'var(--dsw-alias-state-business-primary)',
+                    }
+                  : null),
               }}
+              role='separator'
+              aria-orientation='vertical'
+              aria-valuemin={TERMINAL_SPLIT_MIN_PERCENT}
+              aria-valuemax={TERMINAL_SPLIT_MAX_PERCENT}
+              aria-valuenow={Math.round(splitPercent)}
+              aria-valuetext={`${Math.round(splitPercent)}%`}
+              aria-label={t('editor.terminalSplitResize')}
+              tabIndex={0}
               title={t('editor.terminalSplitReset')}
+              data-dsh-terminal-split-handle=''
+              onKeyDown={(event) => {
+                const next = terminalSplitKeyboardPercent(splitPercent, event.key, event.shiftKey);
+                if (next === null) return;
+                event.preventDefault();
+                event.stopPropagation();
+                setSplitPercent(next);
+                commitSplitPercent(next);
+              }}
               onDoubleClick={() => {
                 setSplitPercent(50);
                 commitSplitPercent(50);
               }}
               onMouseDown={(event) => {
+                event.currentTarget.focus({ preventScroll: true });
                 event.preventDefault();
                 const area = event.currentTarget.parentElement;
                 if (area === null) return;

@@ -18,7 +18,10 @@ test('Search Everywhere Replace All reuses dirty-model replacement instead of re
   assert.match(replacementPlanner, /const dirtyFiles = new Map/);
   assert.match(replacementPlanner, /const dirtyMatches = hitList\.filter/);
   assert.match(replacementPlanner, /const cleanMatches = hitList\.filter/);
-  assert.match(replacementPlanner, /editorReplaceAll\(model\.getValue\(\), query, replacement/);
+  assert.match(
+    replacementPlanner,
+    /const before = model\.getValue\(\);\s+const rewritten = editorReplaceAll\(before, query, replacement/u,
+  );
 });
 
 test('Search Everywhere replaces clean files through the host and commits dirty models transactionally', () => {

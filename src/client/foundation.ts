@@ -343,29 +343,6 @@ export function findActionShortcutLabel(macPlatform: boolean): string {
 }
 
 /**
- * Leave Find Action chords to controls that already own the same context.
- * @param {EventTarget|null} target - event target.
- * @param {Element|null} active - current focused element.
- * @returns {boolean} whether a child context should receive the chord.
- */
-export function findActionShortcutBlockedByChildContext(
-  target: { closest?: (selector: string) => Element | null } | null | undefined,
-  active: { closest?: (selector: string) => Element | null } | null | undefined,
-): boolean {
-  const blocks = (element: typeof target): boolean => {
-    if (element == null) return false;
-    const editable = element.closest?.('input, textarea, [contenteditable="true"]');
-    const monaco = element.closest?.('.monaco-editor');
-    if (editable != null && monaco == null) return true;
-    return (
-      element.closest?.('[data-dsh-editor-terminal], [data-dsh-changes-panel], [data-dsh-log-panel], [role="tree"]') !=
-      null
-    );
-  };
-  return blocks(target) || blocks(active);
-}
-
-/**
  * Remember a small, content-safe description of the latest interaction.
  *
  * This ring is persisted only when the Editor reports a runtime error. It deliberately ignores

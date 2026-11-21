@@ -94,3 +94,13 @@ export function focusSurfaceWhenReady(
   frame = requestFrame(attempt);
   return stop;
 }
+
+/** Prefer the connected opener, then the current tool window, then the editor. */
+export function resolveFocusSurface(
+  opener: FocusableSurface | null,
+  toolWindow: FocusableSurface | null,
+  editor: FocusableSurface | null | undefined,
+): FocusableSurface | null {
+  if (opener !== null && opener.isConnected === true) return opener;
+  return toolWindow ?? editor ?? null;
+}

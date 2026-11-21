@@ -155,10 +155,13 @@ test('cancelling a pending focus request prevents a stale activity steal', () =>
 });
 
 test('tool-window shortcuts retry their mounted content instead of focusing BODY', () => {
-  assert.match(workspaceSource, /import \{ focusSurfaceWhenReady \} from '\.\/components\/ui\/focus-surface';/u);
+  assert.match(
+    workspaceSource,
+    /import \{ focusSurfaceWhenReady, resolveFocusSurface \} from '\.\/components\/ui\/focus-surface';/u,
+  );
   assert.match(
     uiSource,
-    /export \{ focusSurfaceWhenReady, type FocusableSurface, type FocusSurfaceWhenReadyOptions \}/u,
+    /export \{\s+focusSurfaceWhenReady,\s+resolveFocusSurface,\s+type FocusableSurface,\s+type FocusSurfaceWhenReadyOptions,\s+\} from '\.\/focus-surface\.ts';/u,
   );
   assert.match(buildSource, /const uiExports = \[[\s\S]*?'focusSurfaceWhenReady'/u);
   const start = workspaceSource.indexOf('const focusToolWindowContent = React.useCallback(');

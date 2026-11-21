@@ -62,6 +62,7 @@ function createGroupHarness(platform) {
     'detectTheme',
     'ensureEditorTheme',
     'EDITOR_UI_FONT',
+    'EDITOR_GUTTER_LAYOUT',
     `let codeEditorGroupSequence = 0;
      const EDITOR_CODE_FONT_SIZE = 13;
      const EDITOR_CODE_LINE_HEIGHT = 20;
@@ -77,6 +78,7 @@ function createGroupHarness(platform) {
     () => 'vs',
     () => 'dsh-editor-idea-light',
     'monospace',
+    { lineNumbersMinChars: 3, lineDecorationsWidth: 2 },
   );
   create(monaco, {}, {});
   return actions;

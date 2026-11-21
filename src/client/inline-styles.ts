@@ -2047,10 +2047,14 @@ export const styles: EditorStyleSheet = {
     letterSpacing: 0.2,
   },
   commitFileRowActive: {
-    background: 'var(--dsw-alias-interactive-bg-hover-solid)',
+    background:
+      'color-mix(in srgb, var(--dsw-alias-state-business-primary) 32%, var(--dsh-editor-tool-window-background))',
+    boxShadow: 'inset 2px 0 0 var(--dsw-alias-state-business-primary)',
   },
   commitFileRowSelected: {
-    background: 'color-mix(in srgb, var(--dsw-alias-state-business-primary) 12%, transparent)',
+    background:
+      'color-mix(in srgb, var(--dsw-alias-state-business-primary) 24%, var(--dsh-editor-tool-window-background))',
+    boxShadow: 'inset 2px 0 0 var(--dsw-alias-state-business-primary)',
   },
   /* A Shift/⌘ range member: visible as part of the same list selection,
          but only the primary row gets the stronger focus fill. */
@@ -2946,6 +2950,7 @@ export const styles: EditorStyleSheet = {
     minWidth: 0,
     minHeight: 0,
     overflow: 'hidden',
+    background: 'var(--dsh-editor-code-background)',
   },
   tabStrip: {
     display: 'flex',
@@ -3004,7 +3009,7 @@ export const styles: EditorStyleSheet = {
   },
   tabActive: {
     color: 'var(--dsw-alias-label-primary)',
-    background: 'var(--dsw-alias-bg-base)',
+    background: 'var(--dsh-editor-code-background)',
   },
   /* The diff tab carries a long generated name; clip it so the "Commit: "
          prefix — the part that says what the tab IS — never scrolls out. */

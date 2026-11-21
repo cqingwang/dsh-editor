@@ -23,6 +23,7 @@ function createGroupHarness() {
     'detectTheme',
     'ensureEditorTheme',
     'EDITOR_UI_FONT',
+    'EDITOR_GUTTER_LAYOUT',
     `let codeEditorGroupSequence = 0;
      const EDITOR_CODE_FONT_SIZE = 13;
      const EDITOR_CODE_LINE_HEIGHT = 20;
@@ -37,6 +38,7 @@ function createGroupHarness() {
     () => 'vs',
     () => 'dsh-editor-idea-light',
     'monospace',
+    { lineNumbersMinChars: 3, lineDecorationsWidth: 2 },
   );
   const actions = [];
   const contextKeys = new Map();

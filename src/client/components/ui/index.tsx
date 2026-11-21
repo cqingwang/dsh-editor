@@ -29,7 +29,12 @@ export {
   trapDialogFocus,
   type DialogFocusTrapOptions,
 } from './focus-trap.ts';
-export { focusSurfaceWhenReady, type FocusableSurface, type FocusSurfaceWhenReadyOptions } from './focus-surface.ts';
+export {
+  focusSurfaceWhenReady,
+  resolveFocusSurface,
+  type FocusableSurface,
+  type FocusSurfaceWhenReadyOptions,
+} from './focus-surface.ts';
 export { GitStatusBadge, type GitStatusBadgeProps } from './GitStatusBadge.tsx';
 export {
   allPathsUnversioned,

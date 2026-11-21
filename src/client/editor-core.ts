@@ -2,7 +2,13 @@
 import type * as Monaco from 'monaco-editor';
 import { languageFor } from './components/editor/editor-language-model';
 import { dirname } from './components/editor/editor-path-model';
-import { EDITOR_CODE_FONT_SIZE, EDITOR_CODE_LINE_HEIGHT, EDITOR_UI_FONT } from './components/editor/editor-style-model';
+import {
+  EDITOR_CODE_FONT_SIZE,
+  EDITOR_CODE_LINE_HEIGHT,
+  EDITOR_GUTTER_LAYOUT,
+  EDITOR_SURFACE_BACKGROUNDS,
+  EDITOR_UI_FONT,
+} from './components/editor/editor-style-model';
 import {
   IDEA_LIGHT_SEMANTIC_TOKEN_LEGEND,
   IDEA_LIGHT_THEME_ID,
@@ -755,7 +761,7 @@ export function ensureEditorTheme(monaco: MonacoApi): string {
       rules: ideaLightTokenRules(),
       colors: {
         'editor.foreground': '#000000',
-        'editor.background': '#ffffff',
+        'editor.background': EDITOR_SURFACE_BACKGROUNDS.light.code,
       },
     });
     registeredIdeaLightThemes.add(monaco);
@@ -839,6 +845,8 @@ export function createCodeEditorGroup(
     automaticLayout: true,
     fontSize: EDITOR_CODE_FONT_SIZE,
     lineHeight: EDITOR_CODE_LINE_HEIGHT,
+    lineNumbersMinChars: EDITOR_GUTTER_LAYOUT.lineNumbersMinChars,
+    lineDecorationsWidth: EDITOR_GUTTER_LAYOUT.lineDecorationsWidth,
     minimap: { enabled: false },
     scrollBeyondLastLine: false,
     wordWrap: 'off',

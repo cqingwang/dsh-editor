@@ -5,6 +5,7 @@ import { compactActionBarSource, panelToolbarSource } from './ui-sources.mjs';
 
 const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
 const buttonSource = await readFile(new URL('../src/client/components/ui/ToolbarButton.tsx', import.meta.url), 'utf8');
+const injectedCssSource = await readFile(new URL('../src/client/injected-css.ts', import.meta.url), 'utf8');
 
 test('ToolbarButton forwards menu keyboard and popup semantics', () => {
   assert.match(buttonSource, /onKeyDown = null/);
@@ -31,7 +32,21 @@ test('Project and Changes overflow buttons open their custom menu from the keybo
 
 test('overflow opener clicks and menu keys all reuse the same builder', () => {
   const panel = panelToolbarSource;
-  assert.match(panel, /onClick=\{\(event\) => \{\s+openOverflowMenu\(event\.currentTarget\.getBoundingClientRect\(\)\);/s);
+  assert.match(
+    panel,
+    /onClick=\{\(event\) => \{\s+openOverflowMenu\(event\.currentTarget\.getBoundingClientRect\(\)\);/s,
+  );
   const builders = (panel.match(/openOverflowMenu\(event\.currentTarget\.getBoundingClientRect\(\)\)/g) ?? []).length;
   assert.ok(builders >= 3, `click, Shift+F10 and ContextMenu must reuse the builder; found ${builders}`);
+});
+
+test('shared toolbar buttons expose one themed keyboard focus ring', () => {
+  assert.match(
+    injectedCssSource,
+    /\.dsh-editor-toolbar-button:focus-visible \{ outline: 1px solid var\(--dsw-alias-state-business-primary\); outline-offset: 1px; \}/u,
+  );
+  assert.match(
+    injectedCssSource,
+    /@media \(forced-colors: active\)[\s\S]*?\.dsh-editor-toolbar-button:focus-visible \{ outline-color: Highlight !important; \}/u,
+  );
 });

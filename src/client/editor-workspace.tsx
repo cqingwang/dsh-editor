@@ -45,7 +45,6 @@ import {
 } from './code-navigation';
 import {
   doubleShiftAction,
-  findActionShortcutBlockedByChildContext,
   findActionShortcutLabel,
   findActionShortcutMatches,
   ideaFindStepShortcutAction,
@@ -70,6 +69,7 @@ import {
   completeSearchMatches,
   confirmFindReplaceAndGeneration,
   dirtyReplaceUndo,
+  dirtyOnlyReplaceHistoryTail,
   findToolContentQuery,
   findToolQueryTransition,
   findToolRequestIsCurrent,
@@ -190,7 +190,7 @@ import type { EditorTerminalDescriptor } from './components/terminal/EditorTermi
 import { TerminalPanel } from './components/terminal/TerminalPanel';
 import { usePersistentTerminalDockOpen } from './components/terminal/use-persistent-terminal-dock-open';
 import { ActivityStripe } from './components/ui/ActivityStripe';
-import { focusSurfaceWhenReady } from './components/ui/focus-surface';
+import { focusSurfaceWhenReady, resolveFocusSurface } from './components/ui/focus-surface';
 import {
   changePositionOf,
   changeRowGroup,
@@ -5179,9 +5179,6 @@ function EditorWorkspace({
       if (searchEverywhereOpen) return;
       const host = document.querySelector<HTMLElement>('[data-dsh-editor-workspace]');
       if (host === null || !host.contains(document.activeElement)) return;
-      const shortcutTarget = event.target instanceof Element ? event.target : null;
-      const shortcutActive = document.activeElement instanceof Element ? document.activeElement : null;
-      if (findActionShortcutBlockedByChildContext(shortcutTarget, shortcutActive)) return;
       event.preventDefault();
       event.stopPropagation();
       openSearchEverywhere('actions');
@@ -5630,10 +5627,16 @@ function EditorWorkspace({
     const previous = searchEverywhereReturnFocusRef.current;
     searchEverywhereReturnFocusRef.current = null;
     setSearchEverywhere(null);
-    window.setTimeout(() => {
-      if (previous !== null && previous.isConnected) previous.focus();
-      else currentCodeEditor()?.focus?.();
-    }, 0);
+    const toolWindow = document.querySelector<HTMLElement>('[data-dsh-changes-list], [data-dsh-project-tree]');
+    cancelFocusRequestRef.current?.();
+    cancelFocusRequestRef.current = focusSurfaceWhenReady(
+      () => resolveFocusSurface(previous, toolWindow, currentCodeEditor()),
+      {
+        maxAttempts: 8,
+        reassertFrames: 2,
+        fallbackSurface: () => currentCodeEditor(),
+      },
+    );
   }, [abortSearchEverywhereFileRequests, currentCodeEditor]);
   const rememberSearchEverywhereQuery = React.useCallback((query: string) => {
     const workspace = rootRef.current;
@@ -6552,6 +6555,9 @@ function EditorWorkspace({
         ),
       replaceWriteBusyRef,
       setSearchEverywhere,
+      dirtyPlans,
+      modelsRef.current,
+      t,
     );
     if (!confirmedReplace) return;
     /* Search Everywhere uses the same host undo slot. Any previous Find
@@ -6707,6 +6713,9 @@ function EditorWorkspace({
           ),
         replaceWriteBusyRef,
         setFindTool,
+        dirtyPlans,
+        modelsRef.current,
+        t,
       );
       if (!confirmedReplace) return;
       let hostChanged: string[] = [];
@@ -6994,13 +7003,8 @@ function EditorWorkspace({
     },
     [findTool, flashStatus, loadGit, reloadFile, rememberCurrentFindQuery, rememberCurrentReplacement, t],
   );
-  /**
-   * Undo the latest successful Find Replace operation.
-   *
-   * Dirty models are validated before the host transaction, so a changed
-   * buffer cannot let clean files roll back first and dirty files fail
-   * afterwards.
-   */ const undoFindReplace = React.useCallback(async () => {
+  /* Dirty pre-images must match before host rollback. */
+  const undoFindReplace = React.useCallback(async () => {
     const operation = findReplaceUndoStack.at(-1) ?? null;
     if (operation === null) return;
     const dirtyPlans = [];
@@ -7014,15 +7018,12 @@ function EditorWorkspace({
         flashStatus(message);
         return;
       }
-      dirtyPlans.push({
-        path: entry.path,
-        model,
-        text: entry.beforeContent,
-        count: 1,
-      });
+      dirtyPlans.push({ path: entry.path, model, before: entry.afterContent, text: entry.beforeContent, count: 1 });
     }
     if (!claimReplaceAttempt(replaceWriteBusyRef, findTool?.replaceBusy === true)) return;
     setFindTool((current) => (current === null ? current : { ...current, replaceBusy: true, error: null }));
+    let hostChanged: string[] = [],
+      dirtyCommitted = false;
     try {
       const value = operation.clean
         ? await callFs({
@@ -7031,6 +7032,7 @@ function EditorWorkspace({
           })
         : null;
       const dirtyCommit = commitFindToolDirtyPlans(dirtyPlans);
+      dirtyCommitted = true;
       if (dirtyCommit.contents.size > 0) {
         setOpenFiles((current) =>
           current.map((file) =>
@@ -7044,7 +7046,7 @@ function EditorWorkspace({
           ),
         );
       }
-      const hostChanged = Array.isArray(value?.files) ? value.files : [];
+      hostChanged = Array.isArray(value?.files) ? value.files : [];
       const changed = [...new Set([...hostChanged, ...dirtyCommit.paths])];
       const openChanged = new Set(openFilesRef.current.map((file) => file.path));
       const dirtyChanged = new Set(dirtyCommit.paths);
@@ -7070,13 +7072,15 @@ function EditorWorkspace({
             },
       );
     } catch (failure) {
-      const message = failure instanceof Error ? failure.message : String(failure);
+      const message = searchReplaceFailureMessage(failure, hostChanged.length, t);
       flashStatus(message);
       setFindTool((current) => (current === null ? current : { ...current, replaceBusy: false, error: message }));
+      if (hostChanged.length > 0) void refreshHostReplaceChanges(hostChanged).catch(() => {});
+      if (hostChanged.length > 0 && !dirtyCommitted) setFindReplaceUndoStack(dirtyOnlyReplaceHistoryTail);
     } finally {
       releaseReplaceAttempt(replaceWriteBusyRef);
     }
-  }, [findReplaceUndoStack, findTool?.replaceBusy, flashStatus, loadGit, reloadFile, t]);
+  }, [findReplaceUndoStack, findTool?.replaceBusy, flashStatus, loadGit, refreshHostReplaceChanges, reloadFile, t]);
   /** Redo the latest Undo Last Replace operation after validating both scopes. */ const redoFindReplace =
     React.useCallback(async () => {
       const operation = findReplaceRedoStack.at(-1) ?? null;
@@ -7092,15 +7096,12 @@ function EditorWorkspace({
           flashStatus(message);
           return;
         }
-        dirtyPlans.push({
-          path: entry.path,
-          model,
-          text: entry.afterContent,
-          count: 1,
-        });
+        dirtyPlans.push({ path: entry.path, model, before: entry.beforeContent, text: entry.afterContent, count: 1 });
       }
       if (!claimReplaceAttempt(replaceWriteBusyRef, findTool?.replaceBusy === true)) return;
       setFindTool((current) => (current === null ? current : { ...current, replaceBusy: true, error: null }));
+      let hostChanged: string[] = [],
+        dirtyCommitted = false;
       try {
         const value = operation.clean
           ? await callFs({
@@ -7109,6 +7110,7 @@ function EditorWorkspace({
             })
           : null;
         const dirtyCommit = commitFindToolDirtyPlans(dirtyPlans);
+        dirtyCommitted = true;
         if (dirtyCommit.contents.size > 0) {
           setOpenFiles((current) =>
             current.map((file) =>
@@ -7122,7 +7124,7 @@ function EditorWorkspace({
             ),
           );
         }
-        const hostChanged = Array.isArray(value?.files) ? value.files : [];
+        hostChanged = Array.isArray(value?.files) ? value.files : [];
         const changed = [...new Set([...hostChanged, ...dirtyCommit.paths])];
         const openChanged = new Set(openFilesRef.current.map((file) => file.path));
         const dirtyChanged = new Set(dirtyCommit.paths);
@@ -7148,13 +7150,15 @@ function EditorWorkspace({
               },
         );
       } catch (failure) {
-        const message = failure instanceof Error ? failure.message : String(failure);
+        const message = searchReplaceFailureMessage(failure, hostChanged.length, t);
         flashStatus(message);
         setFindTool((current) => (current === null ? current : { ...current, replaceBusy: false, error: message }));
+        if (hostChanged.length > 0) void refreshHostReplaceChanges(hostChanged).catch(() => {});
+        if (hostChanged.length > 0 && !dirtyCommitted) setFindReplaceRedoStack(dirtyOnlyReplaceHistoryTail);
       } finally {
         releaseReplaceAttempt(replaceWriteBusyRef);
       }
-    }, [findReplaceRedoStack, findTool?.replaceBusy, flashStatus, loadGit, reloadFile, t]);
+    }, [findReplaceRedoStack, findTool?.replaceBusy, flashStatus, loadGit, refreshHostReplaceChanges, reloadFile, t]);
   /**
    * Stop warning about one external change without touching the editor.
    *

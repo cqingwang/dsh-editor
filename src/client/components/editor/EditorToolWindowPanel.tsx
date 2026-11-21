@@ -1,5 +1,6 @@
 import React from 'react';
 import { styles } from '../../ui/styles';
+import { editorToolWindowBackground } from './editor-style-model';
 
 export interface EditorToolWindowPanelProps {
   activity: string;
@@ -25,6 +26,7 @@ function EditorToolWindowPanel({
       style={{
         ...styles.sidePanel,
         flex: toolPanelFlex(activity, widthPercent),
+        background: editorToolWindowBackground(activity),
         cursor: dragging ? 'col-resize' : undefined,
       }}>
       {children}
