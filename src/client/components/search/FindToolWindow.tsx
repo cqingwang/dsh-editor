@@ -2452,23 +2452,17 @@ function FindToolWindowView({
                       event.currentTarget.focus?.();
                     }}
                     onDoubleClick={() => openFindResult(result)}>
-                    <span style={styles.findToolPopupResultPreview}>
-                      {isText ? (
-                        previewParts(result)
-                      ) : (
-                        <SearchFileResultItem
-                          path={result.path}
-                          name={result.path}
-                        />
-                      )}
-                    </span>
-                    <span
-                      style={{
+                    <SearchFileResultItem
+                      path={result.path}
+                      name={isText ? previewParts(result) : result.path}
+                      detail={isText ? `${basename(result.path)} ${result.line}` : basename(result.path)}
+                      selected={position === activeIndex}
+                      nameStyle={styles.findToolPopupResultPreview}
+                      detailStyle={{
                         ...styles.findToolPopupResultPath,
                         ...(position === activeIndex ? styles.findToolPopupResultPathActive : null),
-                      }}>
-                      {isText ? `${basename(result.path)} ${result.line}` : basename(result.path)}
-                    </span>
+                      }}
+                    />
                   </div>
                 );
               })

@@ -7,7 +7,7 @@ import type { GitStatusInfo } from '../ui/git-status-model';
 
 export interface SearchFileResultItemProps {
   path: string;
-  name: string;
+  name: React.ReactNode;
   detail?: string;
   statusInfo?: GitStatusInfo | null;
   selected?: boolean;
@@ -32,13 +32,17 @@ export function SearchFileResultItem({
     <span
       style={styles.searchFileResultItem}
       data-dsh-search-file-result-item=''>
-      <EntryIcon
-        entry={{
-          path,
-          kind: 'file',
-        }}
-        expanded={false}
-      />
+      <span
+        style={styles.searchFileResultIcon}
+        data-dsh-search-file-result-icon=''>
+        <EntryIcon
+          entry={{
+            path,
+            kind: 'file',
+          }}
+          expanded={false}
+        />
+      </span>
       {statusInfo === null ? null : (
         <GitStatusBadge
           selected={selected}

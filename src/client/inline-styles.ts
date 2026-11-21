@@ -380,6 +380,16 @@ export const styles: EditorStyleSheet = {
     overflow: 'hidden',
     whiteSpace: 'nowrap',
   },
+  searchFileResultIcon: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flex: '0 0 16px',
+    width: 16,
+    height: 16,
+    minWidth: 16,
+    overflow: 'visible',
+  },
   searchEverywhereCategory: {
     flex: 'none',
     maxWidth: 110,

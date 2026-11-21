@@ -9,6 +9,7 @@ const findTool = await read('src/client/components/search/FindToolWindow.tsx');
 const quickOpen = await read('src/client/components/search/QuickOpen.tsx');
 const showUsages = await read('src/client/components/search/ShowUsagesPopup.tsx');
 const builtClient = await read('lib/client.js');
+const inlineStyles = await read('src/client/inline-styles.ts');
 
 test('SearchFileResultItem owns file identity presentation without interaction semantics', () => {
   assert.match(component, /export interface SearchFileResultItemProps/u);
@@ -18,10 +19,20 @@ test('SearchFileResultItem owns file identity presentation without interaction s
   assert.match(component, /EDITOR_TEXT_STYLE\.body/u);
   assert.match(component, /<GitStatusBadge/u);
   assert.match(component, /data-dsh-search-file-result-item=''/u);
+  assert.match(component, /data-dsh-search-file-result-icon=''/u);
+  assert.match(component, /style=\{styles\.searchFileResultIcon\}[\s\S]*?<EntryIcon/u);
+  assert.match(component, /name: React\.ReactNode;/u);
   assert.doesNotMatch(component, /<Icon\s+name='file'/u);
   assert.doesNotMatch(component, /role='option'/u);
   assert.doesNotMatch(component, /onClick=/u);
   assert.doesNotMatch(component, /onContextMenu=/u);
+});
+
+test('the shared file-type icon cell cannot shrink with the result row', () => {
+  assert.match(
+    inlineStyles,
+    /searchFileResultIcon: \{[\s\S]*?flex: '0 0 16px',[\s\S]*?width: 16,[\s\S]*?height: 16,[\s\S]*?minWidth: 16,/u,
+  );
 });
 
 test('Search Everywhere reuses the shared file result item for path-backed rows', () => {
@@ -50,6 +61,13 @@ test('Find popup, dock file row and group header reuse the same item component',
   assert.match(findTool, /<SearchFileResultItem[\s\S]*?path=\{result\.path\}/u);
   assert.match(findTool, /<SearchFileResultItem[\s\S]*?path=\{file\.path\}/u);
   assert.match(findTool, /<SearchFileResultItem[\s\S]*?path=\{group\.path\}/u);
+});
+
+test('Find popup text rows retain the file-type icon through the shared item', () => {
+  assert.match(
+    findTool,
+    /data-dsh-find-popup-result=\{isText \? 'text' : 'file'\}[\s\S]{0,2200}<SearchFileResultItem[\s\S]{0,500}path=\{result\.path\}[\s\S]{0,300}name=\{[\s\S]{0,200}previewParts\(result\)/u,
+  );
 });
 
 test('the browser bundle defines SearchFileResultItem before its search consumers', () => {
