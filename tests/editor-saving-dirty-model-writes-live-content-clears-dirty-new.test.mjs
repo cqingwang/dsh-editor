@@ -135,9 +135,9 @@ test('402-line files retain the final match inside the bounded preview window', 
 
 test('all text-result open paths retain line-centered navigation', () => {
   assert.match(source, /const openFileAtLocation = React\.useCallback\(\s*\([\s\S]*?path[\s\S]*?\) =>/u);
-  assert.match(source, /pendingReveal\.current = \{ path, line, column \}/u);
-  assert.match(source, /revealLines\(path, line, column\)/u);
+  assert.match(source, /pendingReveal\.current = \{\s*path,\s*line,\s*column,/u);
+  assert.match(source, /revealLines\([\s\S]*?options\.endLine[\s\S]*?options\.endColumn/u);
   assert.match(source, /editor\.revealLineInCenter\(safeLine\)/u);
-  assert.match(source, /openFileAtLocation\(result\.path, result\.line, result\.column\)/u);
+  assert.match(source, /openFileAtLocation\(result\.path, result\.line, result\.column, \{[\s\S]*?endColumn:/u);
   assert.match(source, /openFileAtLocation\(match\.path, match\.line, match\.column\)/u);
 });

@@ -3,6 +3,7 @@ import { styles } from '../../ui/styles';
 import { findActionShortcutMatches, isMacPlatform, searchHistoryShortcutMatches } from '../../foundation';
 import { CodePreviewCode } from '../commit/CodePreviewCode';
 import { dirname } from '../editor/editor-path-model';
+import { EditorSplitDivider } from '../editor/EditorSplitDivider';
 import { CompactActionBar } from '../ui/CompactActionBar';
 import { ContextMenu } from '../ui/Menu';
 import { badgeFor } from '../ui/git-change-model';
@@ -41,13 +42,18 @@ import {
 } from '../../commit';
 import { basename, callFs } from '../../editor-core';
 import {
+  SEARCH_EVERYWHERE_RESULTS_DEFAULT_PERCENT,
+  clampSearchEverywhereResultsPercent,
   fileExtensionFilterMatches,
+  findToolTextMatchLength,
   fuzzyScore,
   normalizeFileExtensionFilter,
   searchPreviewFailureMessage,
 } from '../../find-tool';
+import { readStoredNumber, writeStoredNumber } from '../../terminal';
 
 type Translate = (key: string, params?: Record<string, unknown>) => string;
+const SEARCH_EVERYWHERE_RESULTS_PERCENT_STORAGE_KEY = 'dsh-editor.searchEverywhere.resultsPercent';
 
 /**
  * Resolve what one Escape key owns inside Search Everywhere.
@@ -247,6 +253,7 @@ interface SearchTextResult {
   line: number;
   column: number;
   preview?: string;
+  matchLength?: number;
   [key: string]: unknown;
 }
 
@@ -294,6 +301,7 @@ interface SearchResult {
   dirty?: boolean;
   mtime?: unknown;
   preview?: string;
+  matchLength?: number;
   disabled?: boolean;
   history?: boolean;
   rememberQuery?: boolean;
@@ -416,6 +424,15 @@ function SearchEverywhere({
   const [resultMenu, setResultMenu] = React.useState(null);
   const [resultInfo, setResultInfo] = React.useState(null);
   const [previewOpen, setPreviewOpen] = React.useState(false);
+  const [searchEverywhereResultsPercent, setSearchEverywhereResultsPercent] = React.useState(() =>
+    clampSearchEverywhereResultsPercent(
+      readStoredNumber(
+        SEARCH_EVERYWHERE_RESULTS_PERCENT_STORAGE_KEY,
+        SEARCH_EVERYWHERE_RESULTS_DEFAULT_PERCENT,
+      ),
+    ),
+  );
+  const [resultsDragging, setResultsDragging] = React.useState(false);
   const [previewSoftWrap, setPreviewSoftWrap] = React.useState(true);
   const [previewState, setPreviewState] = React.useState({
     loading: false,
@@ -423,6 +440,9 @@ function SearchEverywhere({
     path: '',
     content: '',
     line: 1,
+    contentStartLine: 1,
+    truncatedBefore: false,
+    truncatedAfter: false,
     error: null,
   });
   const [searchFilters, setSearchFilters] = React.useState(defaultSearchEverywhereFilters);
@@ -560,11 +580,15 @@ function SearchEverywhere({
         mtime: match.mtime,
         dirty: match.dirty === true,
         preview: match.preview ?? '',
+        matchLength: findToolTextMatchLength(match, effectiveQuery, {
+          caseSensitive: state.caseSensitive === true,
+          regex: state.regex === true,
+        }),
         title: match.preview || basename(match.path),
         subtitle: `${match.path}:${match.line}:${match.column}`,
         icon: 'search',
       })),
-    [textMatches],
+    [effectiveQuery, state.caseSensitive, state.regex, textMatches],
   );
   const historyResults: SearchResult[] = React.useMemo(
     () =>
@@ -687,7 +711,9 @@ function SearchEverywhere({
     if (state.includeNonProject !== true) onToggleIncludeNonProject();
     window.setTimeout(() => searchInputRef.current?.focus?.(), 0);
   };
-  const previewWindow = previewOpen ? searchEverywherePreviewWindow(previewState.content, previewState.line) : null;
+  const previewLocalLine = Math.max(1, previewState.line - previewState.contentStartLine + 1);
+  const previewWindow = previewOpen ? searchEverywherePreviewWindow(previewState.content, previewLocalLine) : null;
+  const previewFirstLine = previewState.contentStartLine + (previewWindow?.start ?? 1) - 1;
   const previewLines =
     previewWindow === null || previewState.content === ''
       ? []
@@ -701,6 +727,9 @@ function SearchEverywhere({
         path: '',
         content: '',
         line: 1,
+        contentStartLine: 1,
+        truncatedBefore: false,
+        truncatedAfter: false,
         error: null,
       });
       return undefined;
@@ -712,6 +741,9 @@ function SearchEverywhere({
         path: '',
         content: '',
         line: 1,
+        contentStartLine: 1,
+        truncatedBefore: false,
+        truncatedAfter: false,
         error: null,
       });
       return undefined;
@@ -723,6 +755,9 @@ function SearchEverywhere({
         path: '',
         content: activeResult.description ?? '',
         line: 1,
+        contentStartLine: 1,
+        truncatedBefore: false,
+        truncatedAfter: false,
         error: null,
       });
       return undefined;
@@ -736,6 +771,9 @@ function SearchEverywhere({
         path: activeResult.path,
         content: typeof liveFile?.content === 'string' ? liveFile.content : '',
         line: activeResult.line ?? 1,
+        contentStartLine: 1,
+        truncatedBefore: false,
+        truncatedAfter: false,
         error: null,
       });
       return undefined;
@@ -748,12 +786,17 @@ function SearchEverywhere({
       path: activeResult.path,
       content: '',
       line: activeResult.line ?? 1,
+      contentStartLine: 1,
+      truncatedBefore: false,
+      truncatedAfter: false,
       error: null,
     });
     callFs(
       {
-        op: 'read',
+        op: 'readPreview',
         path: activeResult.path,
+        line: activeResult.line ?? 1,
+        radius: 200,
       },
       {
         signal: previewAbort.signal,
@@ -767,6 +810,9 @@ function SearchEverywhere({
           path: activeResult.path,
           content: typeof value?.content === 'string' ? value.content : '',
           line: activeResult.line ?? 1,
+          contentStartLine: Math.max(1, Math.floor(Number(value?.startLine) || 1)),
+          truncatedBefore: value?.truncatedBefore === true,
+          truncatedAfter: value?.truncatedAfter === true,
           error: null,
         });
       })
@@ -779,6 +825,9 @@ function SearchEverywhere({
           path: activeResult.path,
           content: '',
           line: activeResult.line ?? 1,
+          contentStartLine: 1,
+          truncatedBefore: false,
+          truncatedAfter: false,
           error: searchPreviewFailureMessage(t, failure),
         });
       });
@@ -1598,9 +1647,22 @@ function SearchEverywhere({
         {searchResultStatus}
       </div>
       <div
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          flex: '1 1 auto',
+          minWidth: 0,
+          minHeight: 0,
+          overflow: 'hidden',
+        }}
+        data-dsh-search-results-area=''>
+      <div
         ref={listRef}
         id={SEARCH_EVERYWHERE_LISTBOX_ID}
-        style={styles.searchEverywhereList}
+        style={{
+          ...styles.searchEverywhereList,
+          ...(previewOpen ? { flex: `${searchEverywhereResultsPercent} 1 0` } : null),
+        }}
         role='listbox'
         aria-busy={textLoading && effectiveTab !== 'actions' ? true : undefined}
         aria-label={t('editor.searchEverywhere')}
@@ -1703,6 +1765,7 @@ function SearchEverywhere({
                   : null),
               }}
               onMouseEnter={(event) => {
+                if (resultsDragging) return;
                 onMove(position - activeIndex, results.length, position, result.rowKey);
                 scheduleResultTooltip(event, result);
               }}
@@ -1786,8 +1849,27 @@ function SearchEverywhere({
         ) : null}
       </div>
       {previewOpen ? (
+        <EditorSplitDivider
+          orientation='horizontal'
+          percent={searchEverywhereResultsPercent}
+          dragging={resultsDragging}
+          title={t('editor.searchEverywherePreviewSplitter')}
+          clampPercent={(value, height) => clampSearchEverywhereResultsPercent(value, height)}
+          onChange={setSearchEverywhereResultsPercent}
+          onDraggingChange={setResultsDragging}
+          onCommit={(final) =>
+            writeStoredNumber(SEARCH_EVERYWHERE_RESULTS_PERCENT_STORAGE_KEY, Math.round(final))
+          }
+        />
+      ) : null}
+      {previewOpen ? (
         <div
-          style={styles.searchEverywherePreview}
+          style={{
+            ...styles.searchEverywherePreview,
+            flex: `${100 - searchEverywhereResultsPercent} 1 0`,
+            minHeight: 100,
+            borderTop: 'none',
+          }}
           className='dsh-editor-search-preview'
           data-dsh-search-preview=''>
           <div style={styles.searchEverywherePreviewToolbar}>
@@ -1831,25 +1913,27 @@ function SearchEverywhere({
             ) : null}
             {!previewState.loading && previewState.error === null && previewState.kind !== 'action' ? (
               <React.Fragment>
-                {previewWindow?.truncatedBefore ? <div style={styles.searchEverywhereMessage}>…</div> : null}
+                {previewState.truncatedBefore || previewWindow?.truncatedBefore ? (
+                  <div style={styles.searchEverywhereMessage}>…</div>
+                ) : null}
                 {previewLines.length === 0 ? (
                   <div style={styles.searchEverywhereMessage}>{t('editor.searchPreviewEmpty')}</div>
                 ) : (
                   previewLines.map((code, index) => (
                     <div
-                      key={previewWindow.start + index}
-                      data-dsh-preview-line={previewWindow.start + index}
+                      key={previewFirstLine + index}
+                      data-dsh-preview-line={previewFirstLine + index}
                       className='dsh-editor-code-preview-line'
                       style={{
                         ...styles.searchEverywherePreviewLine,
-                        ...(previewState.kind === 'text' && previewWindow.start + index === previewState.line
+                        ...(previewState.kind === 'text' && previewFirstLine + index === previewState.line
                           ? styles.searchEverywherePreviewLineActive
                           : null),
                       }}>
                       <span
                         className='dsh-editor-code-preview-gutter'
                         style={styles.codePreviewGutter}>
-                        {String(previewWindow.start + index)}
+                        {String(previewFirstLine + index)}
                       </span>
                       <CodePreviewCode
                         text={code}
@@ -1864,12 +1948,15 @@ function SearchEverywhere({
                     </div>
                   ))
                 )}
-                {previewWindow?.truncatedAfter ? <div style={styles.searchEverywhereMessage}>…</div> : null}
+                {previewState.truncatedAfter || previewWindow?.truncatedAfter ? (
+                  <div style={styles.searchEverywhereMessage}>…</div>
+                ) : null}
               </React.Fragment>
             ) : null}
           </div>
         </div>
       ) : null}
+      </div>
       {filterMenu === null ? null : (
         <ContextMenu
           t={t}

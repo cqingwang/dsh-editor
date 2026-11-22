@@ -59,6 +59,7 @@ import {
   findToolReplaceHistoryActionPinned,
   findToolReplaceAdvanceIndex,
   findToolResultsAreCurrent,
+  clampFindFloatingPreviewPercent,
   searchPreviewFailureMessage,
   FIND_TOOL_PREVIEW_DEFAULT_PERCENT,
   clampFindPreviewPercent,
@@ -362,6 +363,9 @@ function FindToolWindowView({
     path: '',
     content: '',
     line: 1,
+    contentStartLine: 1,
+    truncatedBefore: false,
+    truncatedAfter: false,
     error: null,
   });
   const query = typeof state.query === 'string' ? state.query : '';
@@ -752,10 +756,12 @@ function FindToolWindowView({
     state.fileMask,
   ]);
   const replaceFocusRequest = Math.max(0, Number(state.replaceFocusRequest) || 0);
+  const previewLocalLine = Math.max(1, previewState.line - previewState.contentStartLine + 1);
   const previewWindow = React.useMemo(
-    () => (previewOpen ? searchEverywherePreviewWindow(previewState.content, previewState.line) : null),
-    [previewOpen, previewState.content, previewState.line],
+    () => (previewOpen ? searchEverywherePreviewWindow(previewState.content, previewLocalLine) : null),
+    [previewOpen, previewLocalLine, previewState.content],
   );
+  const previewFirstLine = previewState.contentStartLine + (previewWindow?.start ?? 1) - 1;
   const previewLines = React.useMemo(
     () =>
       previewWindow === null || previewState.content === ''
@@ -1643,6 +1649,9 @@ function FindToolWindowView({
         path: '',
         content: '',
         line: 1,
+        contentStartLine: 1,
+        truncatedBefore: false,
+        truncatedAfter: false,
         error: null,
       });
       return undefined;
@@ -1653,6 +1662,9 @@ function FindToolWindowView({
       path: active.path,
       content: '',
       line: active.line ?? 1,
+      contentStartLine: 1,
+      truncatedBefore: false,
+      truncatedAfter: false,
       error: null,
     });
     if (activeLivePreviewContent !== null) {
@@ -1661,6 +1673,9 @@ function FindToolWindowView({
         path: active.path,
         content: activeLivePreviewContent,
         line: active.line ?? 1,
+        contentStartLine: 1,
+        truncatedBefore: false,
+        truncatedAfter: false,
         error: null,
       });
       return undefined;
@@ -1668,8 +1683,10 @@ function FindToolWindowView({
     const previewAbort = new AbortController();
     callFs(
       {
-        op: 'read',
+        op: 'readPreview',
         path: active.path,
+        line: active.line ?? 1,
+        radius: 200,
       },
       {
         signal: previewAbort.signal,
@@ -1682,6 +1699,9 @@ function FindToolWindowView({
           path: active.path,
           content: typeof value?.content === 'string' ? value.content : '',
           line: active.line ?? 1,
+          contentStartLine: Math.max(1, Math.floor(Number(value?.startLine) || 1)),
+          truncatedBefore: value?.truncatedBefore === true,
+          truncatedAfter: value?.truncatedAfter === true,
           error: null,
         });
       })
@@ -1693,6 +1713,9 @@ function FindToolWindowView({
           path: active.path,
           content: '',
           line: active.line ?? 1,
+          contentStartLine: 1,
+          truncatedBefore: false,
+          truncatedAfter: false,
           error: searchPreviewFailureMessage(t, failure),
         });
       });
@@ -2479,7 +2502,10 @@ function FindToolWindowView({
         <div
           style={
             floating
-              ? styles.findToolResultsStack
+              ? {
+                  ...styles.findToolResultsStack,
+                  flex: previewOpen ? `${100 - dockPreviewPercent} 1 0` : '1 1 auto',
+                }
               : {
                   ...styles.findToolDockResultsPane,
                   flex: previewOpen ? `${100 - dockPreviewPercent} 1 0` : '1 1 auto',
@@ -2571,8 +2597,12 @@ function FindToolWindowView({
                     onDoubleClick={() => openFindResult(result)}>
                     <SearchFileResultItem
                       path={result.path}
-                      name={isText ? previewParts(result) : result.path}
-                      detail={isText ? `${basename(result.path)} ${result.line}` : basename(result.path)}
+                      name={isText ? previewParts(result) : basename(result.path)}
+                      detail={
+                        isText
+                          ? `${result.path}:${result.line}:${result.column}`
+                          : dirname(result.path)
+                      }
                       selected={position === activeIndex}
                       nameStyle={styles.findToolPopupResultPreview}
                       detailStyle={{
@@ -2628,7 +2658,8 @@ function FindToolWindowView({
                           }>
                           <SearchFileResultItem
                             path={file.path}
-                            name={file.path}
+                            name={basename(file.path)}
+                            detail={dirname(file.path)}
                           />
                         </div>
                       );
@@ -2696,7 +2727,8 @@ function FindToolWindowView({
                         </button>
                         <SearchFileResultItem
                           path={group.path}
-                          name={group.path}
+                          name={basename(group.path)}
+                          detail={dirname(group.path)}
                         />
                         <span style={styles.findToolFileCount}>
                           {group.matches.length === 1
@@ -2770,24 +2802,29 @@ function FindToolWindowView({
             ) : null}
           </div>
         </div>
-        {floating || !previewOpen ? null : (
+        {!previewOpen ? null : (
           <EditorSplitDivider
+            orientation={floating ? 'horizontal' : 'vertical'}
             percent={100 - dockPreviewPercent}
             dragging={dockPreviewDragging}
             title={t('editor.findPreviewSplitter')}
-            clampPercent={(value, width) => clampFindPreviewPercent(value, width)}
+            clampPercent={(value, extent) =>
+              floating ? clampFindFloatingPreviewPercent(value, extent) : clampFindPreviewPercent(value, extent)
+            }
             onChange={(next) => setDockPreviewPercent(100 - next)}
             onDraggingChange={setDockPreviewDragging}
-            onCommit={(final) =>
-              writeStoredNumber(FIND_PREVIEW_PERCENT_STORAGE_KEY, Math.round(100 - clampFindPreviewPercent(final)))
-            }
+            onCommit={(final) => writeStoredNumber(FIND_PREVIEW_PERCENT_STORAGE_KEY, Math.round(100 - final))}
           />
         )}
         {previewOpen && (floating ? active !== null && hasFindToolContentQuery(query) : true) ? (
           <div
             style={
               floating
-                ? styles.findToolPreviewPane
+                ? {
+                    ...styles.findToolPreviewPane,
+                    flex: `${dockPreviewPercent} 1 0`,
+                    borderTop: 'none',
+                  }
                 : {
                     ...styles.findToolPreviewPane,
                     ...styles.findToolDockPreviewPane,
@@ -2832,7 +2869,9 @@ function FindToolWindowView({
               ) : null}
               {active !== null && !previewState.loading && previewState.error === null ? (
                 <React.Fragment>
-                  {previewWindow?.truncatedBefore ? <div style={styles.searchEverywhereMessage}>…</div> : null}
+                  {previewState.truncatedBefore || previewWindow?.truncatedBefore ? (
+                    <div style={styles.searchEverywhereMessage}>…</div>
+                  ) : null}
                   {previewLines.length === 0 ? (
                     <div style={styles.searchEverywhereMessage}>{t('editor.searchPreviewEmpty')}</div>
                   ) : (
@@ -2840,19 +2879,19 @@ function FindToolWindowView({
                       const previewSegments = previewLineParts[index] ?? [];
                       return (
                         <div
-                          key={previewWindow.start + index}
-                          data-dsh-preview-line={previewWindow.start + index}
+                          key={previewFirstLine + index}
+                          data-dsh-preview-line={previewFirstLine + index}
                           className='dsh-editor-code-preview-line'
                           style={{
                             ...styles.searchEverywherePreviewLine,
-                            ...(previewWindow.start + index === previewState.line
+                            ...(previewFirstLine + index === previewState.line
                               ? styles.searchEverywherePreviewLineActive
                               : null),
                           }}>
                           <span
                             className='dsh-editor-code-preview-gutter'
                             style={styles.codePreviewGutter}>
-                            {String(previewWindow.start + index)}
+                            {String(previewFirstLine + index)}
                           </span>
                           <CodePreviewCode
                             text={previewSegments.map((part) => part.text).join('')}
@@ -2868,7 +2907,9 @@ function FindToolWindowView({
                       );
                     })
                   )}
-                  {previewWindow?.truncatedAfter ? <div style={styles.searchEverywhereMessage}>…</div> : null}
+                  {previewState.truncatedAfter || previewWindow?.truncatedAfter ? (
+                    <div style={styles.searchEverywhereMessage}>…</div>
+                  ) : null}
                 </React.Fragment>
               ) : null}
             </div>

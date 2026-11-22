@@ -3,6 +3,50 @@
 本文件只记录长期有效的架构约束、设计规范、关键根因和回归边界。单轮命令输出、
 临时端口、PR 过程、重复测试数字不在这里长期保留。
 
+## 2026-11-22：Search Everywhere 分栏与文本命中定位
+
+- 作用域：Search Everywhere 结果列表、预览面板、`EditorSplitDivider`、文本搜索
+  结果激活与 Monaco reveal。
+- 症状：列表/预览比例不可调整；单击文本命中后只显示文件，未稳定定位到命中
+  行列，甚至停在文件头部。
+- 根因：上下区域原先没有独立分隔条；文本结果缺少命中长度，激活链路只传单点；
+  model 绑定 effect 与首帧 reveal 竞争，并会丢弃待恢复的范围。
+- 修复：共享分隔条支持水平方向并按 Y 轴计算，比例写入 workspace UI 偏好；
+  Host 文本命中携带 `matchLength`，客户端对旧响应回退计算；Monaco 使用
+  `column + matchLength` 建立选区；打开文件后等待 model 绑定并重试，绑定 effect
+  透传 `endLine/endColumn`，最终 `revealLineInCenter`。
+- 回归：`tests/search-everywhere-preview-split-and-match-highlight.test.mjs`，
+  以及共享分隔条、导航历史和预览定位测试。真实 LAN 验收覆盖拖动后重开恢复，
+  以及精确行列、关键词选区和居中显示。
+
+## 2026-11-22：大文件预览与索引重进
+
+- 作用域：Search Everywhere / Find 预览、Project 自动索引更新、workspace watcher。
+- 症状：超过 4 MiB 的文件无法预览；拖动分栏会切换命中；每次重新进入 Editor
+  都重新显示索引进度。
+- 根因：预览错误复用编辑器整文件 `read`；拖动中的行 hover 仍更新 active row；
+  客户端自动索引 hook 不读取 Host 验证状态，watcher 释放又会立即撤销索引
+  freshness，造成重新进入后的重复扫描。
+- 修复：新增流式 `readPreview`（目标行前后各 200 行）；拖动期间冻结结果 hover；
+  自动更新只在 Host 快照不完整时启动；SSE 释放 watcher 后保留 30 分钟粘滞期，
+  期间文件事件仍会 invalidate，重新进入则复用连续 watcher 证明。
+- 回归：`tests/search-preview-large-file-window.test.mjs`、
+  `tests/project-search-index-auto-progress.test.mjs`，以及 Search/Find 预览取消、
+  窗口和 memo 测试。
+
+## 2026-11-22：All 页负预览回退与 Find 浮动分栏
+
+- 作用域：Search Everywhere All 页正文 provider、floating Find 弹窗布局。
+- 症状：All 页对 `registerDataSetObserver` 返回“没有匹配（结果不完整）”，
+  Find 弹窗能看到结果；Find 弹窗上下列表/预览不能拖动。
+- 根因：All 页 Git 快速预览在零候选时直接返回不完整空结果，没有回退完整扫描；
+  Find 分隔条只在 dock 模式渲染，floating 结果区和预览区又使用 auto/固定 flex，
+  且误用了 120 px 宽度下限，使可拖动范围接近无效。
+- 修复：Git 快速预览只接受正命中，零候选回退完整 workspace 搜索；floating Find
+  改用水平分隔条和零基 flex 比例，并以 60 px 高度下限计算可拖动范围。
+- 回归：`tests/search-git-index-partial-text-fast-path.test.mjs`、
+  `tests/search-find-floating-preview-split.test.mjs`。
+
 ## 1. 项目定位
 
 - DSH 的 Chat 是宿主能力；Editor 是嵌入的分栏工作台，不替换 Chat。
@@ -138,6 +182,61 @@
   使用同一可见预算，不能继续扫描到 200 条再丢弃 160 条。Text 页仍使用 200
   条正文预算；切换页签时按新预算重新请求。回归：
   `tests/search-everywhere-all-text-budget-matches-visible-cap.test.mjs`。
+- Search Everywhere 的 typed file query 一旦返回完整路径索引命中，必须立即写入
+  当前 `includeNonProject` scope；不得等待较慢的基础文件列表建立 scope。否则
+  项目刚打开时索引命中会被 `searchEverywhereFilesForScope` 过滤，表现成只有
+  正文命中或完全无结果。回归：
+  `tests/search-everywhere-file-candidates-preserve-truncation.test.mjs`。
+- Search Everywhere 的 query 每次变化必须立即清空上一轮 `textMatches`、
+  `textTruncated` 与 text-owned error，并在查询长度达到 2 时进入 loading；
+  不得在新 query 的 180 ms debounce 窗口继续展示旧正文行。files-owned error
+  属于另一 provider，必须保留。回归：
+  `tests/search-everywhere-query-transition-clears-stale-provider-state.test.mjs`。
+- Find 的“文件”scope 是路径搜索，不得只对初始最多 2,000 个文件候选做本地
+  fuzzy 过滤；必须把 query、File Mask、Scope 和 Git ignore 一起发给 Host 的
+  持久路径索引，再在返回候选上执行大小写/整词模糊过滤。否则索引中第 2,001
+  个之后的真实文件名会永久不可达。回归：
+  `tests/search-find-file-scope-mask-filters-before-cap.test.mjs`。
+- Find 与 Search Everywhere 的文件结果必须共用 `SearchFileResultItem`：
+  主标题是 `basename(path)`，右侧次要信息是 `dirname(path)`。文件列表、
+  Project/Directory/Scope 的文件组头、浮窗 file/text 结果都不得再把完整路径
+  当主标题，也不得把文件名放到右侧。回归：
+  `tests/search-find-file-result-name-first-path-second.test.mjs`。
+- 持久路径 sidecar 即使 `complete=false`，只要 workspace watcher、scope
+  signature 与 epoch 有效，仍应参与 typed filename query，返回已存在的部分命中
+  并标记 `truncated=true`。不得退回 50,000 目录项实时遍历后把可达路径错误报告
+  为零；未完整快照只限制完整性声明，不限制已有候选的可用性。回归：
+  `tests/search-index-incomplete-path-query-remains-useful.test.mjs`。
+- 正文索引与路径 sidecar 是原子替换的独立文件。增量更新在 `unchanged` 时必须
+  校验路径 sidecar 的轻量 JSON header（updatedAt、complete、directoriesComplete、
+  contentScanVerified、scope、truncation 等）与正文索引一致，不能只检查 sidecar
+  是否存在；否则正文已完整而状态会永久显示 `pathScanComplete=false`。仅 header
+  漂移时从内存正文索引重写路径投影，不重新读取工作区正文。真实 Zygisksdk 修复后
+  状态为 434,220 文件 / 133,157 目录且 `pathScanComplete=true`。回归：
+  `tests/search-index-path-sidecar-header-repair.test.mjs`。
+- 文件名/路径排序热路径必须复用创建的 `Intl.Collator`，不能在每次比较时调用
+  `String.localeCompare`。ZygiskSdk 38.5 万次比较实测从约 1 s 降到约 18 ms；
+  同时路径匹配应流式进入有界 Top-N，不得先构造数十万个中间命中对象。回归：
+  `tests/search-index-path-query-stream-fast-path.test.mjs`。
+- typed path query 的正结果可以进入有界内存 LRU；键必须绑定 path sidecar
+  identity、query-view epoch、scan invalidation revision、index generation、
+  path index dirtyRevision 与 scope。Host 删除测试必须让缓存立即 miss。
+  未完整快照的 file-list provider 只返回文件，可复用已有 file 记录并标记
+  `truncated=true`，不必等待目录流完整。回归：
+  `tests/search-index-path-query-stream-fast-path.test.mjs`。
+- All-tab Git 正命中预览可以有界缓存为内存结果，并绑定 content/scan revision
+  与 generation；仍必须返回 `truncated=true`，不得写入持久完整结果缓存。
+  零结果不缓存。回归：
+  `tests/search-git-index-partial-text-fast-path.test.mjs`。
+- All-tab Git 快路径的 exit code 1 是“无匹配”，不是命令失败；必须快速返回
+  `matches=[] / truncated=true / fastPartialTextSearchNegative=true`，不得回退
+  到 43 万路径的完整扫描。Git 不搜索 symlink 目标，所以该空结果只属于不完整
+  preview；Text 页仍必须执行完整扫描并找到符号链接目标内容。回归同上。
+- 索引状态轮询的文件/目录计数按索引对象 `dirtyRevision` 缓存，路径 mutation
+  必须推进 revision；禁止每次 status 请求对 46 万键重新 `Object.keys`。
+- 批量目录遍历已经把 `realpath` identity 交给 `listDirectory`，不得对同一目录
+  再次 `stat + realpath`。ZygiskSdk 43.4 万文件 / 13.3 万目录纯枚举约 9.2 s，
+  冷启动完整索引校验约 15.9 s；此前约 23.6 s。
 - All 页可先使用 Git 工作树/未跟踪索引做有界正文预览：`git grep -l` 只负责
   找出正命中文件，Host 再读取这些文件生成真实行列与预览。只要得到正结果即可
   返回，但必须 `truncated=true` 并标记 `fastPartialTextSearch=true`，不得写入
@@ -158,6 +257,17 @@
   变化都必须同步 disarm。ZygiskSdk 实测跨重启命中由约 2 s 降到约 6 ms。
 - 正文遍历与索引正文预算跳过已知图片、压缩包、音视频、字体、编译产物和数据库
   扩展名；文件名搜索仍保留这些路径。未知扩展名不得被启发式排除。
+- 已索引项目的 ASCII 字面正文搜索可以在候选路径上启动有界 GNU grep 并行
+  候选发现：候选必须已经应用 Scope、Git ignore、file mask、系统生成文件与
+  二进制扩展过滤；grep 只输出文件/行号/行文本，最终列号、preview 和结果上限
+  仍由 Host 的 JS 匹配器生成。达到 `maxMatches` 后立即终止全部 grep 子进程；
+  正则、整词、有限 `maxBytes`、dirty buffer 或 grep 异常时回退完整扫描。
+  ZygiskSdk 未缓存 `Application.java` Text 查询实测约 25 s 降至约 3.9 s。
+  回归：`tests/search-text-grep-candidate-fast-path.test.mjs`。
+- trigram sketch 跳过同时属于“跳过 stat”的优化，`skippedStats` 必须计入该
+  路径；`sketchesSkipped` 只补充跳过原因，不能出现总跳过数小于 cached-hit 数
+  的矛盾状态。回归：
+  `tests/search-index-text-provider-watcher-freshness.test.mjs`。
 - 正文搜索默认不设 64 MiB 单请求总读取预算，也不使用旧的 2,000 文件实时候选
   上限；已知路径与 live 发现路径都必须进入同一无上限候选集合。
 - 正文搜索默认不因单文件超过 1 MiB 而跳过文本；

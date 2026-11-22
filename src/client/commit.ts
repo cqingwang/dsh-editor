@@ -1291,6 +1291,36 @@ export function searchEverywhereTextIdleState<T extends FindToolState>(current: 
 }
 
 /**
+ * Start a new Search Everywhere query generation without retaining stale text
+ * rows, truncation or errors from the previous query. The debounced providers
+ * will replace this loading state with their current result.
+ * @param {object|null} current - current Search Everywhere state.
+ * @param {unknown} query - next raw query text.
+ * @returns {object|null} query-scoped state.
+ */
+export function searchEverywhereQueryTransition<T extends FindToolState>(
+  current: T | null,
+  query: unknown,
+): T | null {
+  if (current === null) return null;
+  const nextQuery = typeof query === 'string' ? query : String(query ?? '');
+  const normalizedQuery = nextQuery.trim();
+  const ownsTextError = current.errorSource === 'text';
+  return {
+    ...current,
+    query: nextQuery,
+    filesTruncated: normalizedQuery === '' ? current.filesTruncated === true : false,
+    textMatches: [],
+    textLoading: normalizedQuery.length >= 2,
+    textTruncated: false,
+    error: ownsTextError ? null : current.error,
+    errorSource: ownsTextError ? null : current.errorSource,
+    index: 0,
+    activeRowKey: null,
+  } as T;
+}
+
+/**
  * Format the bounded Find result count with correct file singular/plural.
  * @param {Function} t - locale translator.
  * @param {number} matches - visible occurrence count.

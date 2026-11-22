@@ -8,7 +8,7 @@ const component = await readFile(new URL('src/client/components/search/FindToolW
 test('Find preview content-derived values are cached by their real inputs', () => {
   assert.match(
     component,
-    /const previewWindow = React\.useMemo\(\s*\(\) => \(previewOpen \? searchEverywherePreviewWindow\(previewState\.content, previewState\.line\) : null\),\s*\[previewOpen, previewState\.content, previewState\.line\],\s*\);/u,
+    /const previewWindow = React\.useMemo\(\s*\(\) => \(previewOpen \? searchEverywherePreviewWindow\(previewState\.content, previewLocalLine\) : null\),\s*\[previewOpen, previewLocalLine, previewState\.content\],\s*\);/u,
   );
   assert.match(
     component,

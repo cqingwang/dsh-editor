@@ -12,13 +12,13 @@ test('EditorSplitDivider is a reusable TSX editor component', async () => {
   assert.match(component, /function EditorSplitDivider\(/u);
   assert.match(component, /data-dsh-editor-split-divider=''/u);
   assert.match(component, /role='separator'/u);
-  assert.match(component, /aria-orientation='vertical'/u);
+  assert.match(component, /aria-orientation=\{orientation === 'horizontal' \? 'horizontal' : 'vertical'\}/u);
   assert.match(component, /aria-valuemin=\{20\}/u);
   assert.match(component, /aria-valuemax=\{80\}/u);
   assert.match(component, /aria-valuenow=\{Math\.round\(percent\)\}/u);
   assert.match(component, /clampPercent\(/u);
   assert.match(component, /onDraggingChange\(true\)/u);
-  assert.match(component, /onCommit\(Math\.round\(clampPercent\(latest, rect\.width\)\)\)/u);
+  assert.match(component, /onCommit\(Math\.round\(clampPercent\(latest, horizontal \? rect\.height : rect\.width\)\)\)/u);
   assert.match(component, /export \{ EditorSplitDivider \};/u);
   assert.doesNotMatch(component, /React\.createElement/u);
 });

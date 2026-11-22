@@ -21,6 +21,8 @@ test('Find file-candidates effect depends on request inputs, not its derived sco
 
   assert.match(dependencies, /findTool\?\.includeExcluded/u);
   assert.match(dependencies, /findTool\?\.fileMask/u);
+  assert.match(dependencies, /findToolQuery/u);
+  assert.match(dependencies, /findTool\?\.searchGeneration/u);
   assert.match(dependencies, /searchRevision/u);
   assert.match(dependencies, /searchDirectoryRules/u);
   assert.doesNotMatch(

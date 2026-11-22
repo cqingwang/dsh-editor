@@ -67,7 +67,7 @@ test('Find tool window exposes group collapse, expand/collapse all and source pr
   assert.match(dialog, /data-dsh-find-preview=''/);
   assert.match(
     dialog,
-    /callFs(?:<[^>]+>)?\(\s+\{\s+op: 'read',\s+path: active\.path,\s+\},\s+\{\s+signal: previewAbort\.signal,\s+\},\s+\)/u,
+    /callFs(?:<[^>]+>)?\(\s+\{\s+op: 'readPreview',\s+path: active\.path,\s+line: active\.line \?\? 1,\s+radius: 200,\s+\},\s+\{\s+signal: previewAbort\.signal,\s+\},\s+\)/u,
   );
   assert.match(dialog, /searchEverywherePreviewWindow\(/);
 });

@@ -41,7 +41,7 @@ test('split ratio is stateful and persisted after drag', () => {
 test('a real vertical separator updates only flex layout state', () => {
   assert.match(splitDividerSource, /data-dsh-editor-split-divider=''/);
   assert.match(splitDividerSource, /role='separator'/);
-  assert.match(splitDividerSource, /aria-orientation='vertical'/);
+  assert.match(splitDividerSource, /aria-orientation=\{orientation === 'horizontal' \? 'horizontal' : 'vertical'\}/);
   assert.match(splitDividerSource, /aria-valuenow=\{Math\.round\(percent\)\}/);
   assert.match(source, /onChange=\{setEditorSplitPercent\}/);
   assert.match(source, /onDraggingChange=\{setEditorSplitDragging\}/);

@@ -57,7 +57,7 @@ test('Find file scope loads file candidates and keeps click-to-preview semantics
     workspace,
     /findToolFileCandidatesRequest\([\s\S]*?normalizeFileExtensionFilter\(findTool\?\.fileMask\)/u,
   );
-  assert.match(workspace, /findFilePathMatches\([\s\S]*?current\.query/u);
+  assert.match(workspace, /findFilePathMatches\(candidatePaths, requestQuery/u);
   assert.match(workspace, /matches: \[\][\s\S]*?loadedGeneration: generation/u);
   assert.doesNotMatch(windowSource, /onClick=\{[^}]*openFindResult/u);
   assert.match(windowSource, /onDoubleClick=\{\(\) => openFindResult\(result\)\}/u);

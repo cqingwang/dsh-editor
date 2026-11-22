@@ -71,7 +71,7 @@ test('Location jumps record history while history traversal does not recurse', (
   );
   assert.match(opener, /navigationHistoryRecord\(\s*navigationHistoryRef\.current,/u);
   assert.match(opener, /recordHistory === false/u);
-  assert.match(opener, /pendingReveal\.current = \{ path, line, column \}/u);
+  assert.match(opener, /pendingReveal\.current = \{\s*path,\s*line,\s*column,/u);
   assert.match(source, /navigationHistoryStep\(navigationHistoryRef\.current, current, direction\)/u);
   assert.match(source, /navigateHistory\('back'\)/u);
   assert.match(source, /navigateHistory\('forward'\)/u);

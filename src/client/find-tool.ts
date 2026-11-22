@@ -18,6 +18,8 @@ export const FIND_TOOL_PREVIEW_MIN_PERCENT = 20;
 export const FIND_TOOL_PREVIEW_MAX_PERCENT = 80;
 export const FIND_TOOL_PREVIEW_DEFAULT_PERCENT = 46;
 export const FIND_TOOL_PREVIEW_MIN_WIDTH = 120;
+export const SEARCH_EVERYWHERE_RESULTS_DEFAULT_PERCENT = 42;
+const FIND_TOOL_FLOATING_MIN_PANE_HEIGHT = 60;
 
 /** Keep the remembered result/preview split reachable at every dock width. */
 export function clampFindPreviewPercent(value: unknown, width?: unknown): number {
@@ -30,6 +32,33 @@ export function clampFindPreviewPercent(value: unknown, width?: unknown): number
       : FIND_TOOL_PREVIEW_MIN_PERCENT;
   const maxPercent = Math.max(50, 100 - minPercent);
   return Math.max(minPercent, Math.min(maxPercent, numeric));
+}
+
+/** Keep both stacked Find panes usable while preserving a wide drag range. */
+export function clampFindFloatingPreviewPercent(value: unknown, height?: unknown): number {
+  const numeric = Number(value);
+  const measuredHeight = Number(height);
+  const minPercent =
+    Number.isFinite(measuredHeight) && measuredHeight > 0
+      ? Math.min(50, Math.max(15, (FIND_TOOL_FLOATING_MIN_PANE_HEIGHT / measuredHeight) * 100))
+      : 20;
+  const maxPercent = Math.max(50, 100 - minPercent);
+  return Math.max(minPercent, Math.min(maxPercent, Number.isFinite(numeric) ? numeric : 50));
+}
+
+/** Keep Search Everywhere's stacked list and preview panes readable. */
+export function clampSearchEverywhereResultsPercent(value: unknown, height?: unknown): number {
+  const numeric = Number(value);
+  const measuredHeight = Number(height);
+  const minPercent =
+    Number.isFinite(measuredHeight) && measuredHeight > 0
+      ? Math.min(50, Math.max(20, (110 / measuredHeight) * 100))
+      : 20;
+  const maxPercent = Math.max(50, 100 - minPercent);
+  return Math.max(
+    minPercent,
+    Math.min(maxPercent, Number.isFinite(numeric) ? numeric : SEARCH_EVERYWHERE_RESULTS_DEFAULT_PERCENT),
+  );
 }
 
 /** Preserve the reopen draft and the generation that owns it. */
@@ -711,6 +740,41 @@ interface FindFilePathMatchOptions {
   wholeWords?: boolean;
   fileMask?: unknown;
   limit?: number;
+}
+
+export interface FindToolTextMatchLengthOptions {
+  caseSensitive?: boolean;
+  regex?: boolean;
+}
+
+/** Resolve the exact selected range for a text-search result preview. */
+export function findToolTextMatchLength(
+  result: { preview?: unknown; column?: unknown; matchLength?: unknown } | null | undefined,
+  query: unknown,
+  options: FindToolTextMatchLengthOptions = {},
+): number {
+  const hostLength = Math.floor(Number(result?.matchLength));
+  if (Number.isFinite(hostLength) && hostLength > 0) return hostLength;
+  const needle = typeof query === 'string' ? query : '';
+  const preview = typeof result?.preview === 'string' ? result.preview : '';
+  const column = Math.max(1, Math.floor(Number(result?.column) || 1));
+  const offset = Math.min(preview.length, column - 1);
+  if (needle === '') return 1;
+  if (options.regex !== true) {
+    return Math.max(1, Math.min(needle.length, Math.max(1, preview.length - offset)));
+  }
+  try {
+    const expression = new RegExp(needle, options.caseSensitive === true ? 'gu' : 'giu');
+    for (const match of preview.matchAll(expression)) {
+      const start = match.index ?? 0;
+      const length = Math.max(0, match[0]?.length ?? 0);
+      if (start <= offset && offset < start + length) return Math.max(1, length);
+      if (start > offset) break;
+    }
+  } catch {
+    /* The Host accepted the expression; fall back to a caret-only reveal. */
+  }
+  return 1;
 }
 
 /**

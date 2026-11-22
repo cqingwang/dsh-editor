@@ -24,6 +24,10 @@ const mergeFileCandidates = loadTypeScriptFunction(
   extractFunctionSource(fileCandidatesSource, 'mergeFileCandidates'),
   'mergeFileCandidates',
 );
+const searchEverywhereFilesForScope = loadTypeScriptFunction(
+  extractFunctionSource(searchEverywhereSource, 'searchEverywhereFilesForScope'),
+  'searchEverywhereFilesForScope',
+);
 const t = (key) => key;
 
 test('Search Everywhere preserves file-candidate truncation from the host', async () => {
@@ -246,4 +250,49 @@ test('a typed file query runs against the complete host index before the base li
   assert.equal(requests.length, 1);
   assert.equal(requests[0].op, 'search');
   assert.deepEqual(state.files, [{ path: 'src/Application.java' }]);
+});
+
+test('a typed file query exposes index hits before the base file scope settles', async () => {
+  let state = {
+    query: 'application.java',
+    includeNonProject: false,
+    files: [],
+    filesScope: undefined,
+    filesTruncated: false,
+    error: null,
+    errorSource: null,
+  };
+  const requestHostQueryFiles = loadTypeScriptCallback(fileCandidatesSource, 'requestHostQueryFiles', {
+    queryRequestRef: { current: 0 },
+    queryAbortRef: { current: null },
+    truncatedRef: { current: false },
+    filesRef: { current: [] },
+    remoteFilesRef: { current: [] },
+    currentQueryRef: { current: 'application.java' },
+    scopeRef: { current: false },
+    fileMaskRef: { current: '' },
+    mergeFileCandidates,
+    searchDirectoryRules: {
+      excludedDirectories: [],
+      includedDirectories: [],
+    },
+    setSearchEverywhere(update) {
+      state = typeof update === 'function' ? update(state) : update;
+    },
+    callFs: async () => ({
+      entries: [{ path: 'src/Application.java', kind: 'file' }],
+      truncated: true,
+    }),
+    searchTextFailureMessage,
+    t,
+  });
+
+  requestHostQueryFiles('application.java', false, '');
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assert.equal(state.filesScope, false);
+  assert.deepEqual(
+    searchEverywhereFilesForScope(state.files, state.filesScope, state.includeNonProject),
+    [{ path: 'src/Application.java' }],
+  );
 });

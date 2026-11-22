@@ -69,6 +69,64 @@ test('broad path queries retain the bounded best matches without sorting every h
   assert.equal(result.entries[199].path, 'a199.ts');
 });
 
+test('repeated typed path queries reuse the positive compact-stream result', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'dsh-editor-path-query-cache-root-'));
+  const indexDirectory = await mkdtemp(join(tmpdir(), 'dsh-editor-path-query-cache-index-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(() => rm(indexDirectory, { recursive: true, force: true }));
+  await Promise.all(
+    Array.from({ length: 300 }, (_, index) =>
+      writeFile(join(root, `a${String(index).padStart(3, '0')}.ts`), 'export {};\n', 'utf8'),
+    ),
+  );
+  await rebuildWorkspaceSearchIndex(root, { searchIndexDirectory: indexDirectory });
+
+  const watcher = new WorkspaceWatcher(root, () => {});
+  t.after(() => watcher.close());
+  watcher.start();
+  const options = {
+    respectGitIgnore: true,
+    searchDirectoryRules: { excludedDirectories: [], includedDirectories: [] },
+    searchIndex: true,
+    searchIndexDirectory: indexDirectory,
+    filesOnly: true,
+    searchSessionId: 'path-query-cache-1',
+    searchRevision: 1,
+  };
+  const first = await workspaceFileOperations.search(root, 'a', options);
+  assert.equal(first.indexFastPath, true);
+  assert.notEqual(first.pathQueryCacheHit, true);
+
+  const second = await workspaceFileOperations.search(root, 'a', {
+    ...options,
+    searchSessionId: 'path-query-cache-2',
+    searchRevision: 2,
+  });
+  assert.equal(second.pathQueryCacheHit, true);
+  assert.equal(second.truncated, true);
+  assert.deepEqual(
+    second.entries.map((entry) => entry.path),
+    first.entries.map((entry) => entry.path),
+  );
+  assert.equal(
+    (await workspaceSearchIndexStatus(root, { searchIndexDirectory: indexDirectory })).files,
+    300,
+  );
+
+  await workspaceFileOperations.remove(root, 'a000.ts');
+  const changed = await workspaceFileOperations.search(root, 'a', {
+    ...options,
+    searchSessionId: 'path-query-cache-3',
+    searchRevision: 3,
+  });
+  assert.notEqual(changed.pathQueryCacheHit, true);
+  assert.equal(changed.entries.some((entry) => entry.path === 'a000.ts'), false);
+  assert.equal(
+    (await workspaceSearchIndexStatus(root, { searchIndexDirectory: indexDirectory })).files,
+    299,
+  );
+});
+
 test('known binary extensions stay filename-searchable but do not enter text scans', async (t) => {
   const root = await mkdtemp(join(tmpdir(), 'dsh-editor-text-binary-extension-root-'));
   const indexDirectory = await mkdtemp(join(tmpdir(), 'dsh-editor-text-binary-extension-index-'));

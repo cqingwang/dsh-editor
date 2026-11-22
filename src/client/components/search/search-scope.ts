@@ -31,34 +31,51 @@ export interface FindToolScopeState {
 }
 
 export interface FindToolFileCandidatesRequest extends Record<string, unknown> {
-  op: 'files';
+  op: 'search';
+  query: string;
+  showHidden: true;
+  showExcluded: boolean;
+  sort: 'name';
+  foldersFirst: false;
   includeExcluded: boolean;
   respectGitIgnore: true;
   fileMask: string;
+  matchPath: true;
+  filesOnly: true;
   searchDirectoryRules: unknown;
 }
 
 /**
- * Build the bounded candidate request for Find's File scope.
+ * Build the indexed path request for Find's File scope.
  *
- * The Host must apply the File Mask before its file-count ceiling. Filtering
- * the returned rows locally cannot recover paths that were already omitted,
- * especially when a large non-matching subtree sorts ahead of the target.
+ * The Host must apply the query and File Mask before its result ceiling.
+ * Filtering a bounded base listing locally cannot recover paths that were
+ * already omitted by the initial 2,000-file list.
  * @param includeExcluded - whether Project-excluded directories participate.
  * @param fileMask - normalized IDEA File Mask text.
  * @param searchDirectoryRules - user include/exclude directory rules.
+ * @param query - typed file-path query.
  * @returns Host files request retaining the mask before traversal.
  */
 export function findToolFileCandidatesRequest(
   includeExcluded: unknown,
   fileMask: unknown,
   searchDirectoryRules: unknown,
+  query: unknown,
 ): FindToolFileCandidatesRequest {
+  const normalizedQuery = typeof query === 'string' ? query.trim() : '';
   return {
-    op: 'files',
+    op: 'search',
+    query: normalizedQuery,
+    showHidden: true,
+    showExcluded: includeExcluded === true,
+    sort: 'name',
+    foldersFirst: false,
     includeExcluded: includeExcluded === true,
     respectGitIgnore: true,
     fileMask: typeof fileMask === 'string' ? fileMask : '',
+    matchPath: true,
+    filesOnly: true,
     searchDirectoryRules,
   };
 }

@@ -36,6 +36,7 @@ export interface SearchIndexStatusResult extends SearchIndexMutationResult {
   exists?: boolean;
   pathScanComplete?: boolean;
   directoryScanComplete?: boolean;
+  contentScanVerified?: boolean;
   truncated?: boolean;
   pathTruncated?: boolean;
   contentTruncated?: boolean;
@@ -58,6 +59,17 @@ export function searchIndexProgressPercent(processedFiles: number, totalFiles: n
   const total = Math.max(0, Number(totalFiles) || 0);
   if (total === 0) return 0;
   return Math.max(0, Math.min(100, Math.floor((processed / total) * 100)));
+}
+
+/** Whether project-open should start an incremental index mutation. */
+export function searchIndexStatusNeedsUpdate(value: SearchIndexStatusResult | null | undefined): boolean {
+  if (value?.rebuilding === true) return false;
+  return (
+    value?.exists !== true ||
+    value.pathScanComplete !== true ||
+    value.directoryScanComplete !== true ||
+    value.contentScanVerified !== true
+  );
 }
 
 /** Turn a stale Host operation table into actionable recovery instead of raw English. */
@@ -193,7 +205,8 @@ export function useProjectSearchIndexActions(
         .then((value) => {
           if (!active) return;
           if (value.watcherActive === true || attempts >= 8) {
-            begin();
+            if (searchIndexStatusNeedsUpdate(value)) begin();
+            else autoUpdateRootsRef.current.add(root);
             return;
           }
           timer = globalThis.setTimeout(probe, 150);

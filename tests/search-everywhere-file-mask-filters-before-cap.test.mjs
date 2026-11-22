@@ -19,7 +19,11 @@ const fileCandidatesSource = await readFile(
   'utf8',
 );
 const editorCoreSource = await readFile(new URL('../src/client/editor-core.ts', import.meta.url), 'utf8');
+const commitSource = await readFile(new URL('../src/client/commit.ts', import.meta.url), 'utf8');
 const { searchTextFailureMessage } = loadTypeScriptModule(editorCoreSource, ['searchTextFailureMessage']);
+const { searchEverywhereQueryTransition } = loadTypeScriptModule(commitSource, [
+  'searchEverywhereQueryTransition',
+]);
 const mergeFileCandidates = loadTypeScriptFunction(
   extractFunctionSource(fileCandidatesSource, 'mergeFileCandidates'),
   'mergeFileCandidates',
@@ -289,6 +293,7 @@ test('Search Everywhere query edits schedule the host fallback', () => {
   const updateQuery = loadTypeScriptCallback(fileCandidatesSource, 'updateQuery', {
     currentQueryRef: { current: '' },
     scheduleHostQuery: (query) => scheduled.push(query),
+    searchEverywhereQueryTransition,
     setSearchEverywhere(update) {
       state = typeof update === 'function' ? update(state) : update;
     },

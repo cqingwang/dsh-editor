@@ -19,7 +19,7 @@ test('Find Preview aborts superseded file reads', () => {
   assert.match(effect, /const previewAbort = new AbortController\(\);/u);
   assert.match(
     effect,
-    /callFs(?:<[^>]+>)?\(\s+\{\s+op: 'read',\s+path: active\.path,\s+\},\s+\{\s+signal: previewAbort\.signal,\s+\},\s+\)/u,
+    /callFs(?:<[^>]+>)?\(\s+\{\s+op: 'readPreview',\s+path: active\.path,\s+line: active\.line \?\? 1,\s+radius: 200,\s+\},\s+\{\s+signal: previewAbort\.signal,\s+\},\s+\)/u,
   );
   assert.match(effect, /failure\?\.name === 'AbortError'[\s\S]*?return;/u);
   assert.match(effect, /cancelled = true;\s+previewAbort\.abort\(\);/u);

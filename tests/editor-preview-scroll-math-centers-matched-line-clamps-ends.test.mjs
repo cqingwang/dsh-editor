@@ -69,7 +69,7 @@ test('Find in Files scrolls its preview body to the active occurrence', () => {
 test('All text search result open paths retain line-centered editor reveal', () => {
   assert.match(
     source,
-    /onActivate: \(result\) => \{[\s\S]*?if \(result\.kind === 'text'\) \{\s+openFileAtLocation\(result\.path, result\.line, result\.column\);/u,
+    /onActivate: \(result\) => \{[\s\S]*?if \(result\.kind === 'text'\) \{\s+openFileAtLocation\(result\.path, result\.line, result\.column, \{[\s\S]*?endColumn:/u,
   );
   assert.match(
     source,

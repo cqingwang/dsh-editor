@@ -259,6 +259,7 @@ import {
   findToolDraftFromState,
   findToolRefreshHandoff,
   findToolSearchOptionsTransition,
+  findToolTextMatchLength,
   moveFindToolSelection,
   findToolReopenDraft,
   findToolResultsAreCurrent,
@@ -481,7 +482,11 @@ type FindToolInitial = Record<string, unknown> & {
 type FindToolScope = Parameters<NonNullable<React.ComponentProps<typeof FindToolWindow>['onScopeChange']>>[0];
 type FindToolFile = NonNullable<FindToolState['files']>[number];
 type FindToolMatch = NonNullable<FindToolState['matches']>[number];
-type FileListResponse = { files?: string[]; truncated?: boolean };
+type SearchEntriesResponse = {
+  entries?: Array<{ path?: string; kind?: string }>;
+  truncated?: boolean;
+  scopeComplete?: boolean;
+};
 type TextSearchResponse = { matches?: FindToolMatch[]; truncated?: boolean; dirtyPaths?: string[] };
 type EditorFindMatches = Pick<ReturnType<typeof editorFindResult>, 'matches' | 'error'>;
 const SEARCH_EVERYWHERE_POPUP_GEOMETRY_STORAGE_KEY = 'dsh-editor.searchEverywhere.popup.geometry.v1';
@@ -1271,9 +1276,6 @@ function EditorWorkspace({
   if (findTool !== null) {
     findToolDraftRef.current = findToolDraftFromState(findTool);
   }
-  const [findToolFileCandidates, setFindToolFileCandidates] = React.useState<string[]>([]);
-  const [findToolFileCandidatesScope, setFindToolFileCandidatesScope] = React.useState<boolean | null>(null);
-  const [findToolFileCandidatesTruncated, setFindToolFileCandidatesTruncated] = React.useState(false);
   const findToolFileRequestRef = React.useRef(0);
   const findToolFileAbortRef = React.useRef<AbortController | null>(null);
   const [findToolPopupGeometry, setFindToolPopupGeometry] = React.useState(() => readFindPopupGeometry());
@@ -3226,9 +3228,18 @@ function EditorWorkspace({
     path: string;
     line: number;
     column: number;
+    endLine?: number;
+    endColumn?: number;
   } | null>(null);
   const revealLines = React.useCallback(
-    (path: string, line: number, column: number, pane: 'left' | 'right' | null = null) => {
+    (
+      path: string,
+      line: number,
+      column: number,
+      pane: 'left' | 'right' | null = null,
+      endLine?: number | null,
+      endColumn?: number | null,
+    ) => {
       const focused = focusedEditorRef.current;
       const preferred = pane === 'right' ? splitEditorRef.current : pane === 'left' ? editorRef.current : null;
       const editor =
@@ -3242,7 +3253,18 @@ function EditorWorkspace({
       if (editor === null || model === undefined || typeof line !== 'number' || line < 1) return;
       const safeLine = Math.min(Math.max(1, line), model.getLineCount());
       const safeColumn = Math.min(Math.max(1, column ?? 1), model.getLineMaxColumn(safeLine));
-      editor.setSelection(new window.monaco.Range(safeLine, safeColumn, safeLine, safeColumn));
+      const safeEndLine = Math.min(
+        Math.max(safeLine, Math.floor(Number(endLine) || safeLine)),
+        model.getLineCount(),
+      );
+      const safeEndColumn = Math.min(
+        Math.max(
+          safeEndLine === safeLine ? safeColumn : 1,
+          Math.floor(Number(endColumn) || safeColumn),
+        ),
+        model.getLineMaxColumn(safeEndLine),
+      );
+      editor.setSelection(new window.monaco.Range(safeLine, safeColumn, safeEndLine, safeEndColumn));
       editor.revealLineInCenter(safeLine);
       editor.focus();
     },
@@ -3264,6 +3286,8 @@ function EditorWorkspace({
       options: {
         recordHistory?: boolean;
         origin?: { path: string; line: number; column: number } | null;
+        endLine?: number | null;
+        endColumn?: number | null;
       } = {},
     ) => {
       if (typeof path !== 'string' || path === '') return;
@@ -3273,7 +3297,13 @@ function EditorWorkspace({
         line,
         column,
       });
-      pendingReveal.current = { path, line, column };
+      pendingReveal.current = {
+        path,
+        line,
+        column,
+        ...(typeof options.endLine === 'number' ? { endLine: options.endLine } : {}),
+        ...(typeof options.endColumn === 'number' ? { endColumn: options.endColumn } : {}),
+      };
       void openFile(path).then((opened) => {
         if (!opened) {
           if (pendingReveal.current?.path === path) pendingReveal.current = null;
@@ -3284,11 +3314,26 @@ function EditorWorkspace({
         }
         navigationCurrentLocationRef.current = targetLocation;
         window.requestAnimationFrame(() => {
-          const model = modelsRef.current.get(path);
-          const editor = editorRef.current;
-          if (model === undefined || editor?.getModel?.() !== model) return;
-          if (pendingReveal.current?.path === path) pendingReveal.current = null;
-          revealLines(path, line, column);
+          let attempts = 0;
+          const revealOpenedFile = () => {
+            const model = modelsRef.current.get(path);
+            const editor = editorRef.current;
+            if (model === undefined || editor?.getModel?.() !== model) {
+              attempts += 1;
+              if (attempts < 60) window.requestAnimationFrame(revealOpenedFile);
+              return;
+            }
+            if (pendingReveal.current?.path === path) pendingReveal.current = null;
+            revealLines(
+              path,
+              line,
+              column,
+              null,
+              options.endLine ?? null,
+              options.endColumn ?? null,
+            );
+          };
+          window.requestAnimationFrame(revealOpenedFile);
         });
       });
     },
@@ -3810,7 +3855,7 @@ function EditorWorkspace({
     /* A terminal link may have asked for a specific line in this file. */ const reveal = pendingReveal.current;
     if (reveal !== null && reveal.path === activePath) {
       pendingReveal.current = null;
-      revealLines(activePath, reveal.line, reveal.column);
+      revealLines(activePath, reveal.line, reveal.column, null, reveal.endLine ?? null, reveal.endColumn ?? null);
     }
     const subscription = editor.onDidChangeModelContent(() => {
       /* A reload from disk replaces the model; marking it dirty would fake unsaved work. */ if (
@@ -4968,106 +5013,109 @@ function EditorWorkspace({
   React.useEffect(() => {
     if (!findToolOpen || findToolSearchScopeMode !== 'files') return undefined;
     const includeExcluded = findTool?.includeExcluded === true;
+    const query = findToolQuery;
+    const generation = findTool?.searchGeneration ?? 0;
+    const requestRoot = rootRef.current;
     const requestId = ++findToolFileRequestRef.current;
     findToolFileAbortRef.current?.abort();
+    if (!hasFindToolContentQuery(query)) {
+      setFindTool((current) =>
+        current === null || current.searchScopeMode !== 'files'
+          ? current
+          : {
+              ...current,
+              files: [],
+              matches: [],
+              truncated: false,
+              loading: false,
+              error: null,
+              loadedGeneration: generation,
+            },
+      );
+      return undefined;
+    }
     const searchAbort = new AbortController();
     findToolFileAbortRef.current = searchAbort;
     setFindTool((current) =>
       current === null || current.searchScopeMode !== 'files' ? current : { ...current, loading: true, error: null },
     );
-    void callFs<FileListResponse>(
-      findToolFileCandidatesRequest(
-        includeExcluded,
-        normalizeFileExtensionFilter(findTool?.fileMask),
-        searchDirectoryRules,
-      ),
-      { signal: searchAbort.signal },
-    )
-      .then((value) => {
-        if (findToolFileRequestRef.current !== requestId) return;
-        const files = (Array.isArray(value?.files) ? value.files : []).filter(
-          (path): path is string => typeof path === 'string' && path !== '',
-        );
-        setFindToolFileCandidates(files);
-        setFindToolFileCandidatesScope(includeExcluded);
-        setFindToolFileCandidatesTruncated(value?.truncated === true);
-      })
-      .catch((failure) => {
-        if (failure?.name === 'AbortError' || failure?.name === 'CanceledError') return;
-        if (findToolFileRequestRef.current !== requestId) return;
-        setFindTool((current) =>
-          current === null || current.searchScopeMode !== 'files'
-            ? current
-            : {
-                ...current,
-                loading: false,
-                error: searchTextFailureMessage(failure, t),
-              },
-        );
-      })
-      .finally(() => {
-        if (findToolFileAbortRef.current === searchAbort) findToolFileAbortRef.current = null;
-      });
-    return () => searchAbort.abort();
+    const timer = window.setTimeout(() => {
+      const requestQuery = query.trim();
+      void callFs<SearchEntriesResponse>(
+        findToolFileCandidatesRequest(
+          includeExcluded,
+          normalizeFileExtensionFilter(findTool?.fileMask),
+          searchDirectoryRules,
+          requestQuery,
+        ),
+        { signal: searchAbort.signal },
+      )
+        .then((value) => {
+          if (findToolFileRequestRef.current !== requestId || rootRef.current !== requestRoot) return;
+          const candidatePaths = (Array.isArray(value?.entries) ? value.entries : [])
+            .filter(
+              (entry): entry is { path: string; kind?: string } =>
+                entry?.kind === 'file' && typeof entry.path === 'string' && entry.path !== '',
+            )
+            .map((entry) => entry.path);
+          setFindTool((current) => {
+            if (
+              current === null ||
+              current.searchScopeMode !== 'files' ||
+              current.searchGeneration !== generation ||
+              current.query.trim() !== requestQuery
+            )
+              return current;
+            const files = findFilePathMatches(candidatePaths, requestQuery, {
+              caseSensitive: current.caseSensitive === true,
+              wholeWords: current.wholeWords === true,
+              fileMask: current.fileMask,
+            }).map((path): FindToolFile => ({ path }));
+            return pruneFindCollapsedFiles({
+              ...current,
+              files,
+              matches: [],
+              index: findToolPreservedFileIndex(current.files, files, current.index),
+              truncated: value?.truncated === true || value?.scopeComplete === false,
+              loading: false,
+              error: null,
+              loadedGeneration: generation,
+            });
+          });
+        })
+        .catch((failure) => {
+          if (failure?.name === 'AbortError' || failure?.name === 'CanceledError') return;
+          if (findToolFileRequestRef.current !== requestId || rootRef.current !== requestRoot) return;
+          setFindTool((current) =>
+            current === null || current.searchScopeMode !== 'files' || current.searchGeneration !== generation
+              ? current
+              : {
+                  ...current,
+                  loading: false,
+                  error: searchTextFailureMessage(failure, t),
+                },
+          );
+        })
+        .finally(() => {
+          if (findToolFileAbortRef.current === searchAbort) findToolFileAbortRef.current = null;
+        });
+    }, 180);
+    return () => {
+      window.clearTimeout(timer);
+      searchAbort.abort();
+    };
   }, [
     findToolOpen,
     findToolSearchScopeMode,
+    findToolQuery,
+    findTool?.searchGeneration,
+    findTool?.caseSensitive,
+    findTool?.wholeWords,
     findTool?.includeExcluded,
     findTool?.fileMask,
     searchRevision,
     searchDirectoryRules,
     t,
-  ]);
-  React.useEffect(() => {
-    if (!findToolOpen || findToolSearchScopeMode !== 'files') return;
-    const includeExcluded = findTool?.includeExcluded === true;
-    setFindTool((current) => {
-      if (
-        current === null ||
-        current.searchScopeMode !== 'files' ||
-        (current.includeExcluded === true) !== includeExcluded
-      )
-        return current;
-      const generation = current.searchGeneration ?? 0;
-      if (!hasFindToolContentQuery(current.query)) {
-        return {
-          ...current,
-          files: [],
-          matches: [],
-          truncated: false,
-          loading: false,
-          error: null,
-          loadedGeneration: generation,
-        };
-      }
-      if (findToolFileCandidatesScope !== includeExcluded) return current;
-      const files = findFilePathMatches(findToolFileCandidates, current.query, {
-        caseSensitive: current.caseSensitive === true,
-        wholeWords: current.wholeWords === true,
-        fileMask: current.fileMask,
-      }).map((path): FindToolFile => ({ path }));
-      return pruneFindCollapsedFiles({
-        ...current,
-        files,
-        matches: [],
-        index: findToolPreservedFileIndex(current.files, files, current.index),
-        truncated: findToolFileCandidatesTruncated,
-        loading: false,
-        error: null,
-        loadedGeneration: generation,
-      });
-    });
-  }, [
-    findToolOpen,
-    findToolSearchScopeMode,
-    findToolQuery,
-    findToolFileCandidates,
-    findToolFileCandidatesScope,
-    findToolFileCandidatesTruncated,
-    findTool?.includeExcluded,
-    findTool?.caseSensitive,
-    findTool?.wholeWords,
-    findTool?.fileMask,
   ]);
   React.useEffect(() => {
     if (!findToolOpen || findTool.loadedGeneration === findTool.searchGeneration) return undefined;
@@ -5269,9 +5317,6 @@ function EditorWorkspace({
     previousWorkspaceSearchRootRef.current = root;
     if (workspaceSearchSurfacesShouldReset(previousWorkspaceRoot, root)) {
       cancelWorkspaceSearchRequests();
-      setFindToolFileCandidates([]);
-      setFindToolFileCandidatesScope(null);
-      setFindToolFileCandidatesTruncated(false);
       clearSearchEverywhereFileCache();
       setSearchEverywhere(null);
       setShowUsages(null);
@@ -11585,7 +11630,14 @@ function EditorWorkspace({
               }
               setSearchEverywhere(null);
               if (result.kind === 'text') {
-                openFileAtLocation(result.path, result.line, result.column);
+                openFileAtLocation(result.path, result.line, result.column, {
+                  endColumn:
+                    result.column +
+                    findToolTextMatchLength(result, searchEverywhere?.query ?? '', {
+                      caseSensitive: searchEverywhere?.caseSensitive === true,
+                      regex: searchEverywhere?.regex === true,
+                    }),
+                });
                 return;
               }
               void openFile(result.path);

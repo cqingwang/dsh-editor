@@ -41,7 +41,7 @@ test('Search Everywhere Preview reads the selected file and renders a highlighte
   assert.match(dialog, /t\('editor\.searchPreview'\)/);
   assert.match(
     dialog,
-    /callFs(?:<[^>]+>)?\(\s+\{\s+op: 'read',\s+path: activeResult\.path,\s+\},\s+\{\s+signal: previewAbort\.signal,\s+\},\s+\)/u,
+    /callFs(?:<[^>]+>)?\(\s+\{\s+op: 'readPreview',\s+path: activeResult\.path,\s+line: activeResult\.line \?\? 1,\s+radius: 200,\s+\},\s+\{\s+signal: previewAbort\.signal,\s+\},\s+\)/u,
   );
   assert.match(dialog, /searchEverywherePreviewWindow\(/);
   assert.match(dialog, /'data-dsh-search-preview': ''/);

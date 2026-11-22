@@ -12,7 +12,7 @@ const searchScopeSource = await readFile(
   'utf8',
 );
 
-test('Find file-scope File Mask filters Host candidates before the file budget', async (t) => {
+test('Find file-scope typed search reaches indexed paths beyond the base file budget', async (t) => {
   const root = await mkdtemp(join(tmpdir(), 'dsh-editor-find-file-scope-mask-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   for (let index = 0; index < 2001; index += 1) {
@@ -35,19 +35,27 @@ test('Find file-scope File Mask filters Host candidates before the file budget',
     true,
     '*.ts',
     { excludedDirectories: [], includedDirectories: [] },
+    'visible',
   );
   assert.deepEqual(request, {
-    op: 'files',
+    op: 'search',
+    query: 'visible',
+    showHidden: true,
+    showExcluded: true,
+    sort: 'name',
+    foldersFirst: false,
     includeExcluded: true,
     respectGitIgnore: true,
     fileMask: '*.ts',
+    matchPath: true,
+    filesOnly: true,
     searchDirectoryRules: {
       excludedDirectories: [],
       includedDirectories: [],
     },
   });
 
-  const filtered = await host.workspaceFileOperations.files(root, 2000, request);
-  assert.deepEqual(filtered.files, ['zz-visible.ts']);
-  assert.equal(filtered.truncated, false);
+  const found = await host.workspaceFileOperations.search(root, 'visible', request);
+  assert.deepEqual(found.entries.map((entry) => entry.path), ['zz-visible.ts']);
+  assert.equal(found.truncated, false);
 });

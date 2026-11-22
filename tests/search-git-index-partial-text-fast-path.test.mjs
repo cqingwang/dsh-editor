@@ -1,11 +1,16 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
-import { searchWorkspaceText } from '../lib/index.js';
+import {
+  rebuildWorkspaceSearchIndex,
+  searchWorkspaceText,
+  WorkspaceWatcher,
+  workspaceFileOperations,
+} from '../lib/index.js';
 
 function initRepository(root) {
   execFileSync('git', ['-C', root, 'init', '-q']);
@@ -69,4 +74,71 @@ test('Search Everywhere enables the partial Git preview only on the All tab', as
   const { readFile } = await import('node:fs/promises');
   const source = await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8');
   assert.match(source, /fastPartialTextSearch: searchEverywhere\?\.tab === 'all',/u);
+});
+
+test('positive partial Git previews reuse a bounded watcher-scoped memory cache', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'dsh-editor-git-text-cache-'));
+  const indexDirectory = await mkdtemp(join(tmpdir(), 'dsh-editor-git-text-cache-index-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(() => rm(indexDirectory, { recursive: true, force: true }));
+  initRepository(root);
+  const file = join(root, 'tracked.ts');
+  await writeFile(file, 'const value = FAST_CACHE_NEEDLE;\n', 'utf8');
+  execFileSync('git', ['-C', root, 'add', 'tracked.ts']);
+  await rebuildWorkspaceSearchIndex(root, { searchIndexDirectory: indexDirectory });
+  const watcher = new WorkspaceWatcher(root, () => {});
+  t.after(() => watcher.close());
+  watcher.start();
+
+  const options = {
+    fastPartialTextSearch: true,
+    maxMatches: 40,
+    searchIndex: true,
+    searchIndexDirectory: indexDirectory,
+    searchSessionId: 'partial-cache-1',
+    searchRevision: 1,
+    searchDirectoryRules: { excludedDirectories: [], includedDirectories: [] },
+  };
+  const first = await searchWorkspaceText(root, 'FAST_CACHE_NEEDLE', options);
+  assert.equal(first.fastPartialTextSearch, true);
+  assert.notEqual(first.indexCache.fastPartialQueryCacheHit, true);
+
+  const second = await searchWorkspaceText(root, 'FAST_CACHE_NEEDLE', {
+    ...options,
+    searchSessionId: 'partial-cache-2',
+    searchRevision: 2,
+  });
+  assert.equal(second.fastPartialQueryCacheHit, true);
+  assert.equal(second.truncated, true);
+  assert.deepEqual(
+    second.matches.map((match) => match.path),
+    first.matches.map((match) => match.path),
+  );
+
+  await workspaceFileOperations.write(root, 'tracked.ts', 'no old needle remains\n', undefined, false, false);
+  const changed = await searchWorkspaceText(root, 'FAST_CACHE_NEEDLE', {
+    ...options,
+    searchRevision: 3,
+  });
+  assert.notEqual(changed.fastPartialQueryCacheHit, true);
+  assert.deepEqual(changed.matches, []);
+});
+
+test('a negative Git preview falls back to the complete workspace scan', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'dsh-editor-git-text-negative-'));
+  const targetDirectory = await mkdtemp(join(tmpdir(), 'dsh-editor-git-text-negative-target-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(() => rm(targetDirectory, { recursive: true, force: true }));
+  initRepository(root);
+  const target = join(targetDirectory, 'target.ts');
+  await writeFile(target, 'SYMLINK_ONLY_NEEDLE\n', 'utf8');
+  await symlink(target, join(root, 'linked.ts'));
+
+  const preview = await searchWorkspaceText(root, 'SYMLINK_ONLY_NEEDLE', {
+    fastPartialTextSearch: true,
+    maxMatches: 40,
+    searchDirectoryRules: { excludedDirectories: [], includedDirectories: [] },
+  });
+  assert.deepEqual(preview.matches.map((match) => match.path), ['linked.ts']);
+  assert.equal(preview.fastPartialTextSearch, undefined);
 });

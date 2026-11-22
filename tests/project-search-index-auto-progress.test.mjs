@@ -14,6 +14,7 @@ const panel = await readFile(
 );
 const workspace = await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8');
 const locales = await readFile(new URL('../src/client/locales.ts', import.meta.url), 'utf8');
+const host = await readFile(new URL('../lib/index.js', import.meta.url), 'utf8');
 
 function loadSearchIndexFunction(name) {
   return loadTypeScriptFunction(
@@ -89,12 +90,14 @@ function loadSearchIndexHook(fakeReact, callFs) {
   );
   const advanceRequest = loadSearchIndexFunction('advanceSearchIndexRequest');
   const requestOwns = loadSearchIndexFunction('searchIndexRequestOwns');
+  const statusNeedsUpdate = loadSearchIndexFunction('searchIndexStatusNeedsUpdate');
   const failureMessage = loadSearchIndexFunction('searchIndexActionFailureMessage');
   return new Function(
     'React',
     'callFs',
     'advanceSearchIndexRequest',
     'searchIndexRequestOwns',
+    'searchIndexStatusNeedsUpdate',
     'searchIndexActionFailureMessage',
     `${hookCode}\nreturn useProjectSearchIndexActions;`,
   )(
@@ -102,6 +105,7 @@ function loadSearchIndexHook(fakeReact, callFs) {
     callFs,
     advanceRequest,
     requestOwns,
+    statusNeedsUpdate,
     failureMessage,
   );
 }
@@ -198,6 +202,51 @@ test('a complete existing index is still incrementally updated, never treated as
   const actions = render();
   actions.cancel();
   assert.equal(updateSignal.aborted, true);
+});
+
+test('a watcher-verified complete index skips the automatic update request', async () => {
+  const fakeReact = createFakeReact();
+  const operations = [];
+  const callFs = (payload) => {
+    operations.push(payload.op);
+    if (payload.op === 'searchIndexStatus') {
+      return Promise.resolve({
+        exists: true,
+        rebuilding: false,
+        watcherActive: true,
+        pathScanComplete: true,
+        directoryScanComplete: true,
+        contentScanVerified: true,
+        processedFiles: 0,
+        totalFiles: 0,
+      });
+    }
+    throw new Error(`unexpected operation: ${payload.op}`);
+  };
+  const hook = loadSearchIndexHook(fakeReact, callFs);
+  fakeReact.resetCursor();
+  hook(
+    () => {},
+    (key) => key,
+    { excludedDirectories: [], includedDirectories: [] },
+    '/verified-workspace',
+  );
+
+  await waitForAutomaticUpdate();
+  assert.equal(operations.includes('updateSearchIndex'), false);
+  assert.equal(operations.includes('rebuildSearchIndex'), false);
+});
+
+test('the Host keeps its workspace watcher warm across quick Editor re-entry', () => {
+  assert.match(host, /WORKSPACE_WATCHER_IDLE_CLOSE_MS = 30 \* 60 \* 1000/u);
+  const response = host.slice(
+    host.indexOf('function workspaceWatchResponse('),
+    host.indexOf('function encodeSse('),
+  );
+  assert.match(response, /let detached = false/u);
+  assert.match(response, /if \(detached\) return/u);
+  assert.match(response, /detached = true/u);
+  assert.match(response, /setTimeout\(\(\) => \{\s*watcher\?\.close\(\);/u);
 });
 
 test('Project owns the visible index progress strip and automatic prebuild wiring', () => {

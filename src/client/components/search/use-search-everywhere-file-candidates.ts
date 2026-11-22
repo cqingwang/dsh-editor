@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { searchEverywhereFilesRequestState } from '../../commit';
+import { searchEverywhereFilesRequestState, searchEverywhereQueryTransition } from '../../commit';
 import type { SearchDirectoryRules } from '../../commit';
 import { callFs, searchTextFailureMessage } from '../../editor-core';
 import type { SearchEverywhereState, SearchFile } from './SearchEverywhere';
@@ -38,6 +38,7 @@ interface SearchEntryResult {
 interface SearchEntriesResponse {
   entries?: SearchEntryResult[];
   truncated?: boolean;
+  scopeComplete?: boolean;
 }
 
 /** Merge host query hits after the bounded base list without duplicating paths. */
@@ -132,6 +133,11 @@ export function useSearchEverywhereFileCandidates({
               : {
                   ...current,
                   files,
+                  /* A typed query is already scoped by its Host request. Mark
+                     that scope before the slower base file list settles so the
+                     indexed duplicate rows can render immediately. */
+                  filesScope: includeNonProject === true,
+                  filesScopeComplete: value?.scopeComplete === true,
                   filesTruncated: value?.truncated === true,
                   error: null,
                   errorSource: null,
@@ -271,17 +277,7 @@ export function useSearchEverywhereFileCandidates({
   const updateQuery = React.useCallback(
     (query: string) => {
       currentQueryRef.current = query;
-      setSearchEverywhere((current) =>
-        current === null
-          ? current
-          : {
-              ...current,
-              query,
-              filesTruncated: query.trim() === '' ? current.filesTruncated : false,
-              index: 0,
-              activeRowKey: null,
-            },
-      );
+      setSearchEverywhere((current) => searchEverywhereQueryTransition(current, query));
       scheduleHostQuery(query);
     },
     [scheduleHostQuery, setSearchEverywhere],
