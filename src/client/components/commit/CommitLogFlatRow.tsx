@@ -2,6 +2,7 @@ import React from 'react';
 import { styles } from '../../ui/styles';
 import { formatCommitDate } from '../../find-tool';
 import type { CommitLogEntry } from './CommitLog';
+import { commitLogOptionId } from './commit-log-view-model';
 
 type Translate = (key: string, params?: Record<string, unknown>) => string;
 
@@ -31,6 +32,7 @@ function CommitLogFlatRow({
       className='dsh-editor-commit-row'
       title={`${commit.hash}\n${t('editor.logRowHint')}`}
       ref={rowRef}
+      id={commitLogOptionId(commit.hash)}
       role='option'
       data-dsh-log-hash={commit.hash}
       aria-haspopup='menu'

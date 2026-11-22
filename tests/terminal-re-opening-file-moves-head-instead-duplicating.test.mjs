@@ -71,7 +71,8 @@ test('the list is stored per workspace', () => {
 /* ── ⌘E opens it, and it renders in MRU order ──────────────────────────── */
 
 test('⌘E opens Recent Files without a filesystem walk', () => {
-  const block = source.slice(source.indexOf('const openRecent = React.useCallback('), source.indexOf('React.useEffect(() => {\n        const onKeyDown = (event) => {\n          const meta = event.metaKey'));
+  const start = source.indexOf('const openRecent = React.useCallback(');
+  const block = source.slice(start, source.indexOf('\n  }, [quickOpenFileCandidates, rememberQuickOpenOrigin]);', start));
   /* The list must be ready immediately; scanning the tree first defeats the
      point of a "where was I" popup. */
   assert.match(block, /const list = readRecentFiles\(\s*rootRef\.current/u);
@@ -165,7 +166,8 @@ test('"return to dock" reaches the panel that owns the placement', () => {
      `[data-dsh-editor-workspace]` — different nodes, so the button did nothing.
      Measured: dockTabs stayed 0 and the editor kept the tab. */
   assert.match(source, /window\.addEventListener\('dsh-editor-return-terminal', onReturn\)/);
-  assert.match(source, /window\.dispatchEvent\(\s+new CustomEvent\('dsh-editor-return-terminal'/);
+  assert.match(workspaceSource, /requestTerminalDockActivation\(terminal\.id, terminal\)/);
+  assert.match(source, /window\.dispatchEvent\(new CustomEvent\('dsh-editor-return-terminal'/);
   assert.doesNotMatch(source, /querySelector\('\[data-dsh-editor-host\]'\)\?\.dispatchEvent/);
 });
 
@@ -177,7 +179,7 @@ test('the editor area is one surface: a terminal hides the empty placeholder', (
     /activeFile === null &&[\s\S]*?splitFile === null &&[\s\S]*?diffOpen === false &&[\s\S]*?annotateTarget === null &&[\s\S]*?monacoError === null &&[\s\S]*?editorTerminals\.length === 0/u,
   );
   assert.match(workspaceSource, /<EditorTerminalArea[\s\S]*?active=\{editorTerminals\.length > 0 && diffOpen === false && annotateTarget === null\}/u);
-  assert.match(editorTerminalAreaSource, /if \(!active \|\| terminal === null\) return null;/);
+  assert.match(editorTerminalAreaSource, /if \(!active \|\| terminals\.length === 0\) return null;/);
 });
 
 test('a reloaded page re-resolves its editor terminals from the host', async () => {

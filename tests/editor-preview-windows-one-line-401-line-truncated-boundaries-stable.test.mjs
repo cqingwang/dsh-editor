@@ -97,7 +97,7 @@ test('Dirty preview and save/reload paths keep current content authoritative', (
   const dialog = searchEverywhereSource.slice(searchEverywhereSource.indexOf('function SearchEverywhere('));
   assert.match(dialog, /activeResult\.kind === 'text' && activeResult\.dirty === true/u);
   assert.match(dialog, /Array\.isArray\(openFiles\) \? openFiles : \[\]/u);
-  assert.match(dialog, /activeResult\?\.dirty, openFiles\]/u);
+  assert.match(dialog, /activeResult\?\.dirty, openFiles, t\]/u);
   assert.match(source, /\.\.\.entry,[\s\S]*?content: model\.getValue\(\),[\s\S]*?dirty: false,[\s\S]*?mtime:/u);
   assert.match(source, /\.\.\.entry,[\s\S]*?content:\s*typeof value\.content === 'string' \? value\.content : ''[\s\S]*?dirty: false,[\s\S]*?mtime:/u);
   assert.match(source, /textRevision: \(current\.textRevision \?\? 0\) \+ 1/u);

@@ -59,6 +59,8 @@ test('the graph clears the previous failure on success', async () => {
   const errors = [];
   const loadGraph = loadTypeScriptCallback(client, 'loadGraph', {
     git: { isRepo: true },
+    root: '/workspace',
+    commitLogStorage: { readGraphScope: () => null, writeGraphScope: () => {} },
     beginLogRequest: () => new AbortController(),
     finishLogRequest: () => {},
     callGit: async () => ({

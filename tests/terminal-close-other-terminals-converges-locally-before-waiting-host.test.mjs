@@ -14,7 +14,15 @@ test('Close Other Terminals converges locally before waiting for the host', () =
   const localUpdate = block.indexOf('setTerminals(remaining);');
   const hostClose = block.indexOf('await Promise.all(');
   assert.ok(localUpdate >= 0 && hostClose > localUpdate);
-  assert.match(block, /const remaining = current\.filter\(\(terminal\) => terminal\.id === keepId\);/u);
+  assert.match(block, /const editorIds = new Set\(editorIdsRef\.current\);/u);
+  assert.match(
+    block,
+    /const doomed = current\.filter\(\(terminal\) => terminal\.id !== keepId && !editorIds\.has\(terminal\.id\)\);/u,
+  );
+  assert.match(
+    block,
+    /const remaining = current\.filter\(\(terminal\) => terminal\.id === keepId \|\| editorIds\.has\(terminal\.id\)\);/u,
+  );
 });
 
 test('Close Other Terminals records closed tabs and focuses the survivor', () => {

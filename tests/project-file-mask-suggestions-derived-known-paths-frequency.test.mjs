@@ -127,25 +127,31 @@ test('Project speed search never claims IDEA Shift+Cmd/Ctrl+F', () => {
 
 test('Find menus are clamped inside the dialog hit-testing surface', () => {
   const clamp = new Function(
-    `${extractFunction('findToolMenuLeft')}\n${extractFunction('findToolMenuTop')}\n${extractFunction('findToolMenuMaxHeight')}; return { findToolMenuLeft, findToolMenuTop, findToolMenuMaxHeight };`,
+    `${extractFunction('findToolMenuLeft')}\n${extractFunction('findToolMenuTop')}\n${extractFunction('findToolMenuMaxHeight')}\n${extractFunction('findToolMenuMaxWidth')}; return { findToolMenuLeft, findToolMenuTop, findToolMenuMaxHeight, findToolMenuMaxWidth };`,
   )();
-  assert.equal(clamp.findToolMenuLeft(754, 232, 812), 356);
-  assert.equal(clamp.findToolMenuLeft(900, 232, 812), 356);
-  assert.equal(clamp.findToolMenuLeft(250, 232, 812), 18);
+  assert.equal(clamp.findToolMenuLeft(754, 232, 812), 588);
+  assert.equal(clamp.findToolMenuLeft(900, 232, 812), 588);
+  assert.equal(clamp.findToolMenuLeft(250, 232, 812), 250);
   assert.equal(clamp.findToolMenuLeft(900, undefined, undefined), 900);
-  assert.equal(clamp.findToolMenuTop(196, 60.5, 596.5), 135.5);
-  assert.equal(clamp.findToolMenuTop(700, 60.5, 596.5), 372);
-  assert.equal(clamp.findToolMenuMaxHeight(60.5, 596.5, 135.5), 380.5);
+  assert.equal(clamp.findToolMenuTop(196, 60.5, 596.5), 196);
+  assert.equal(clamp.findToolMenuTop(700, 60.5, 596.5), 432.5);
+  assert.equal(clamp.findToolMenuMaxHeight(60.5, 596.5, 196), 380.5);
+  assert.equal(clamp.findToolMenuMaxWidth(200, 708), 320);
+  assert.equal(clamp.findToolMenuMaxWidth(0, 250), 242);
+  /* The test source joins lib/client.js and the TSX source, so a synchronized
+     build contains each of the six menu factories twice. */
+  assert.equal((source.match(/maxWidth: menuMaxWidth/g) ?? []).length, 12);
   assert.match(source, /const surfaceRect = event\.currentTarget\.closest\('\[data-dsh-find-tool-window\]'\)/u);
   assert.match(
     source,
-    /x: findToolMenuLeft\(rect\.right - 220, surfaceRect\?\.left \?\? 0, surfaceRect\?\.right \?\? window\.innerWidth\)/u,
+    /x: findToolMenuLeft\(\s*rect\.right - menuMaxWidth,[\s\S]*?menuMaxWidth,\s*\)/u,
   );
   assert.match(
     source,
-    /x: findToolMenuLeft\(rect\.left, surfaceRect\?\.left \?\? 0, surfaceRect\?\.right \?\? window\.innerWidth\)/u,
+    /x: findToolMenuLeft\(\s*rect\.left,[\s\S]*?menuMaxWidth,\s*\)/u,
   );
   assert.match(source, /maxHeight: findToolMenuMaxHeight\(/u);
+  assert.match(menuSource, /maxWidth: menu\.maxWidth/u);
   assert.match(menuSource, /maxHeight: menuHeight/u);
   assert.match(menuSource, /overflowY: 'auto'/u);
 });

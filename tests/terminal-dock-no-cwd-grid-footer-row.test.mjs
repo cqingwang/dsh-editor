@@ -63,7 +63,7 @@ test('the dock title row is gone and the hide control moved into the tab strip',
   /* It reaches the panel as a prop: a tool window cannot close itself. */
   assert.match(
     workspaceSource,
-    /onRequestClose=\{\(\) => \{[\s\S]*?terminalReturnFocusRef\.current = null;[\s\S]*?setTerminalOpen\(false\);[\s\S]*?focusWorkspaceSurface\(previous\);/u,
+    /onRequestClose=\{\(\) => \{[\s\S]*?terminalReturnFocusRef\.current = null;[\s\S]*?setTerminalOpen\(false\);[\s\S]*?restoreTerminalFocusTarget\(previous, \(\) => focusWorkspaceSurface\(previous\)\);/u,
   );
   assert.match(localeSource, /hideTerminal: '隐藏终端面板',/);
   assert.match(localeSource, /hideTerminal: 'Hide terminal',/);

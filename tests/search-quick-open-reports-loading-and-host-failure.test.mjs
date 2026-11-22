@@ -4,7 +4,6 @@ import test from 'node:test';
 
 import { loadTypeScriptCallback, loadTypeScriptModule } from './ts-source.mjs';
 
-const workspaceSource = await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8');
 const editorCoreSource = await readFile(new URL('../src/client/editor-core.ts', import.meta.url), 'utf8');
 const quickOpenSource = await readFile(
   new URL('../src/client/components/search/QuickOpen.tsx', import.meta.url),
@@ -13,48 +12,45 @@ const quickOpenSource = await readFile(
 const { searchTextFailureMessage } = loadTypeScriptModule(editorCoreSource, ['searchTextFailureMessage']);
 const t = (key) => key;
 
-function loadOpenQuickOpen(callFs) {
-  let state = null;
-  const quickOpenFilesRequestRef = { current: 0 };
-  const quickOpenFilesAbortRef = { current: null };
-  const openQuickOpen = loadTypeScriptCallback(workspaceSource, 'openQuickOpen', {
-    rememberQuickOpenOrigin: () => {},
-    setPaletteMode: () => {},
-    quickOpenFilesRequestRef,
-    quickOpenFilesAbortRef,
-    searchDirectoryRules: { excludedDirectories: [], includedDirectories: [] },
+function loadRequestFiles(callFs) {
+  let state = { query: '', index: 0, files: [], truncated: false, loading: false, error: null };
+  const requestFiles = loadTypeScriptCallback(quickOpenSource, 'requestFiles', {
+    requestRef: { current: 0 },
+    abortRef: { current: null },
+    filesRef: { current: [] },
+    truncatedRef: { current: false },
+    remoteFilesRef: { current: [] },
+    currentQueryRef: { current: '' },
+    cancelPendingQuery: () => {},
+    scheduleHostQuery: () => {},
     setQuickOpen(update) {
       state = typeof update === 'function' ? update(state) : update;
     },
     callFs,
     searchTextFailureMessage,
+    searchDirectoryRules: { excludedDirectories: [], includedDirectories: [] },
     t,
   });
   return {
-    openQuickOpen,
+    requestFiles,
     state: () => state,
   };
 }
 
 test('Go to File reports loading until the host file list arrives', async () => {
   let resolveFiles;
-  const palette = loadOpenQuickOpen(
+  const palette = loadRequestFiles(
     () =>
       new Promise((resolve) => {
         resolveFiles = resolve;
       }),
   );
 
-  const pending = palette.openQuickOpen();
-  assert.deepEqual(palette.state(), {
-    query: '',
-    index: 0,
-    truncated: false,
-    loading: true,
-    error: null,
-  });
+  palette.requestFiles();
+  assert.equal(palette.state().loading, true);
+  assert.equal(palette.state().error, null);
   resolveFiles({ files: ['README.md'] });
-  await pending;
+  await new Promise((resolve) => setTimeout(resolve, 0));
   assert.deepEqual(palette.state(), {
     query: '',
     index: 0,
@@ -66,11 +62,13 @@ test('Go to File reports loading until the host file list arrives', async () => 
 });
 
 test('Go to File surfaces a host enumeration failure instead of an empty result', async () => {
-  const palette = loadOpenQuickOpen(async () => {
+  const palette = loadRequestFiles(async () => {
     throw new Error('workspace listing failed');
   });
 
-  await palette.openQuickOpen();
+  palette.requestFiles();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
   assert.deepEqual(palette.state(), {
     query: '',
     index: 0,

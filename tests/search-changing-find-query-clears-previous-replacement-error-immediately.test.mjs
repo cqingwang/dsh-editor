@@ -4,6 +4,7 @@ import test from 'node:test';
 
 const source = await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8');
 const commitSource = await readFile(new URL('../src/client/commit.ts', import.meta.url), 'utf8');
+const findToolSource = await readFile(new URL('../src/client/find-tool.ts', import.meta.url), 'utf8');
 const panel = source.slice(
   source.indexOf('<FindToolWindow'),
   source.indexOf('onClose={closeFindToolWindow}', source.indexOf('<FindToolWindow')),
@@ -30,6 +31,7 @@ test('changing search options also clears stale replacement errors', () => {
     const start = panel.indexOf(marker);
     const next = panel.indexOf('onMove={', start);
     const block = panel.slice(start, next < 0 ? panel.length : next);
-    assert.match(block, /error: null/, `${marker} should clear the error`);
+    assert.match(block, /findToolSearchOptionsTransition\(/, `${marker} should invalidate result state`);
   }
+  assert.match(findToolSource, /error: null/);
 });

@@ -71,10 +71,8 @@ test('Dirty-file merge respects scope, file masks and the shared match cap', () 
 
 test('Find merges dirty buffers after host search and previews their live content', () => {
   assert.match(source, /mergeFindToolDirtyMatches\(\s*hostMatches/);
-  assert.match(source, /openFilesRef\.current[\s\S]*?dirty === true/);
-  assert.match(source, /active\.dirty === true/);
-  assert.match(source, /entry\?\.content/);
-  assert.match(source, /openFilesRef,\n\s+changedFilePaths:/);
+  assert.match(source, /findToolLivePreviewContent\(\s*active\?\.path,\s*openFiles/);
+  assert.match(source, /openFiles,\n\s+changedFilePaths:/);
 });
 
 function extractFunction(name) {

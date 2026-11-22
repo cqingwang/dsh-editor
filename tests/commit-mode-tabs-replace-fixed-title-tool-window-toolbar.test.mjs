@@ -66,7 +66,7 @@ test('the old standalone tab row is removed', () => {
 });
 
 test('the moved tabs use the user-requested Change and Commit labels', () => {
-  assert.equal(locales.match(/tabChanges: 'Change'/g)?.length, 2);
+  assert.equal(locales.match(/tabChanges: 'Changes'/g)?.length, 2);
   assert.equal(locales.match(/tabLog: 'Commit'/g)?.length, 2);
 });
 

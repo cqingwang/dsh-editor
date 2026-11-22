@@ -30,6 +30,7 @@ test('leaving text providers clears a stale text-search error and loading state'
     tab: 'actions',
     query: 'endValue',
     index: 0,
+    activeRowKey: null,
     error: null,
     textLoading: false,
   });
@@ -51,6 +52,7 @@ test('switching between text-capable tabs preserves the in-flight loading state'
   );
   assert.equal(next.tab, 'text');
   assert.equal(next.index, 0);
+  assert.equal(next.activeRowKey, null);
   assert.equal(next.error, null);
   assert.equal(next.textLoading, true);
 });

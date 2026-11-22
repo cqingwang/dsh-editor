@@ -53,6 +53,7 @@ test('a non-empty Find query enters Loading before the debounced request', () =>
     error: null,
     searchGeneration: 5,
     loadedGeneration: -1,
+    activeRowKey: null,
     collapsedFiles: [],
   });
 });

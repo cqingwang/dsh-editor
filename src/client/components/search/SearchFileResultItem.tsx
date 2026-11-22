@@ -50,6 +50,7 @@ export function SearchFileResultItem({
         />
       )}
       <span
+        className='dsh-editor-search-result-name'
         style={{
           ...EDITOR_TEXT_STYLE.body,
           ...styles.paletteName,
@@ -60,6 +61,7 @@ export function SearchFileResultItem({
       </span>
       {detail === undefined || detail === '' ? null : (
         <span
+          className='dsh-editor-search-result-detail dsh-editor-search-everywhere-meta'
           style={{
             ...styles.searchEverywhereMeta,
             ...detailStyle,

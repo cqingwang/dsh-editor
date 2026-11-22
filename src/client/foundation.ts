@@ -504,15 +504,31 @@ export function startVisibilityGatedPoll(
 /* The host can remount the workspace during layout updates; the selected
    IDEA tool window is user context and must not silently fall back to Project. */
 let lastEditorActivity = 'project';
+const EDITOR_ACTIVITY_STORAGE_KEY = 'dsh-editor.editor.activity';
 
 /** Read the last active IDEA-style tool window for remount persistence. */
 export function readLastEditorActivity(): string {
+  try {
+    const stored = window.localStorage.getItem(EDITOR_ACTIVITY_STORAGE_KEY);
+    if (stored === 'project' || stored === 'commit') {
+      lastEditorActivity = stored;
+      return stored;
+    }
+  } catch {
+    /* a storage-less browser keeps the in-memory activity */
+  }
   return lastEditorActivity;
 }
 
 /** Remember the active tool window without importing a mutable binding. */
 export function writeLastEditorActivity(activity: string): void {
-  lastEditorActivity = activity;
+  const normalized = activity === 'commit' ? 'commit' : 'project';
+  lastEditorActivity = normalized;
+  try {
+    window.localStorage.setItem(EDITOR_ACTIVITY_STORAGE_KEY, normalized);
+  } catch {
+    /* a storage-less browser keeps the in-memory activity */
+  }
 }
 /** Tab label is intentionally identical in both languages. */
 export const VIEW_LABEL = 'Editor';

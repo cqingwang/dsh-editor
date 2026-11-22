@@ -1,5 +1,3586 @@
 # dsh-editor 工程记忆
 
+## 2026-11-22 — Dock 的 Close Other Terminals 不得关闭 Editor Terminal
+
+**作用域**：Terminal dock tab menu、Move to Editor placement、
+Close Other Terminals、cwd/README 清理。
+
+**症状 / 根因**：
+
+- Close Other Terminals 用全部 Host terminals 减 keepId；
+- Move to Editor 的 terminal 不在 dock strip 中，但仍属于 Host list；
+- 该命令因此会意外关闭 editor terminal，使 placement 指向已死 PTY。
+
+**修复**：
+
+- 使用 editorIdsRef 排除 editor terminal；
+- doomed 仅包含其他 Dock terminal；
+- remaining 保留 keepId 与所有 editor terminal；
+- cwd/README 只按真实 remaining live set 清理；
+- editor placement 与 editor tab 不受 Dock Close Other 影响。
+
+**运行态证据**：
+
+- 三个 terminal 中把 `0b70…` Move to Editor；
+- 在 Dock 的 `189e…` 上 Close Other Terminals；
+- Dock 仅剩 `189e…`，editor 仍保留 `0b70…`；
+- placement 仍为 `["0b70…"]`。
+
+**回归**：
+
+- `tests/terminal-close-other-terminals-converges-locally-before-waiting-host.test.mjs`
+- `tests/terminal-close-prunes-stale-cwd-metadata.test.mjs`
+- RED：editor terminal 被计入 doomed；
+- GREEN：只关闭 Dock 其他 tab，editor terminal/cwd/live identity 保留；
+- GREEN：Terminal close-other 定向回归 **11 pass / 0 fail**；
+- GREEN：完整 `npm test` **3783 pass / 0 fail**。
+
+**长期约束**：
+
+- Dock menu action 的 scope 是 Dock，不是 Host 全局 terminal 集合；
+- Move to Editor 的 PTY 生命周期不得被 Dock close-other 接管；
+- 本地收敛和 Host close 都必须使用同一个 doomed 集合。
+
+## 2026-11-22 — Search Everywhere 任意关闭路径都必须中止 provider 请求
+
+**作用域**：Search Everywhere keyboard close、action/navigation close、
+文件枚举 provider、query fallback、正文搜索与预览读取。
+
+**症状 / 根因**：
+
+- close/dismiss callback 会 abort 文件枚举；
+- Cmd/Ctrl+F、Cmd/Ctrl+G、action activation 和结果跳转直接
+  `setSearchEverywhere(null)`；
+- 文件候选 hook 挂在 EditorWorkspace 上，不随 dialog unmount，因此这些路径
+  可能把 files/query fallback 留在后台继续执行。
+
+**修复**：
+
+- 增加 closed-state effect：只要 `searchEverywhereOpen === false` 就调用
+  `abortSearchEverywhereFileRequests()`；
+- abort 同时递增 request generation、取消 debounce timers 和 query controller；
+- close/dismiss 保留同步 abort，快速路径不等待 effect；
+- 正文搜索和 preview effect 继续在 state 变化时 cleanup abort。
+
+**运行态证据**：
+
+- 5 秒网络延迟下打开 Search Everywhere 并输入 `contextFilter`；
+- 捕获到 `files` 与 `searchText` 请求；
+- Cmd+G 关闭后，两个 provider signals 以及相关 fs 请求全部 aborted。
+
+**回归**：
+
+- `tests/search-everywhere-close-aborts-file-enumeration.test.mjs`
+- RED：直接 set null 的路径没有 files abort；
+- GREEN：closed state effect 执行 abort，open state 不误 abort；
+- GREEN：Search Everywhere close 定向回归 **2 pass / 0 fail**；
+- GREEN：完整 `npm test` **3783 pass / 0 fail**。
+
+**长期约束**：
+
+- 所有 dialog/provider 关闭路径必须共享同一 cancellation invariant；
+- 常驻 hook 不能把挂载状态误当成“用户仍打开搜索”；
+- request generation、debounce timer 和 AbortController 必须一起失效；
+- 关闭动作不得依赖后续组件 unmount 才能取消后台工作。
+
+## 2026-11-22 — Editor Terminal 返回 Dock 的激活请求必须跨卸载保留
+
+**作用域**：Move to Editor、Return to dock、hidden/overflow terminal、
+TerminalPanel unmount、Host terminal list reconciliation。
+
+**症状 / 根因**：
+
+- Return to dock 在 Dock 关闭时 dispatch window event，但 TerminalPanel 已卸载；
+- Dock 随后重新挂载，事件已丢失，只能恢复旧 dock layout；
+- 从 overflow hidden terminal 移入 Editor 再返回时，Dock 可能激活另一个 tab。
+
+**修复**：
+
+- terminal.ts 增加 module-level pending activation state；
+- `requestTerminalDockActivation()` 同时保存 pending 并 dispatch 即时事件；
+- TerminalPanel 挂载后仅在 Host list 确认 terminal 存活时消费 pending；
+- EditorWorkspace 的返回路径统一使用 request helper；
+- Host 已不保留该 terminal 时清理 pending，不制造幽灵 tab。
+
+**运行态证据**：
+
+- 两个 terminal 中把 overflow hidden terminal `b369…` Move to Editor；
+- 关闭 Dock 后返回；
+- Dock 重开后 selected tab 仍是 `b369…`，editor placement 清空；
+- 同一 PTY screen 继续显示。
+
+**回归**：
+
+- `tests/terminal-editor-return-activates-dock-after-unmounted.test.mjs`
+- RED：Dock 关闭时 window event 无接收者；
+- GREEN：pending 跨 unmount 保留，live id 消费，缺失 id 清理；
+- GREEN：Terminal return 定向回归 **3 pass / 0 fail**；
+- GREEN：完整 `npm test` **3782 pass / 0 fail**。
+
+**长期约束**：
+
+- 对已关闭/未挂载 UI 的跨组件动作不能只依赖同步 DOM event；
+- 激活请求必须绑定 Host 权威 live id，不得复活已关闭 PTY；
+- 已挂载路径可即时消费，未挂载路径必须保留到可确认 state 后再消费。
+
+## 2026-11-22 — Commit Log 作者过滤和 Graph scope 必须跨 reload 恢复
+
+**作用域**：Commit Log author filter、Commit Graph branch/commit scope、
+Web Host 根路径持久化、client build 模块拼接。
+
+**症状 / 根因**：
+
+- `logAuthor` 与 graph branch/at 只存在 React state；
+- reload 后 Log 和 selected commit 恢复，但过滤条件与 Graph scope 清零；
+- Web Add Workspace 场景下 `workspaceId` 可能为空，用它作 storage scope
+  会导致完全不写 localStorage；
+- 自定义 build 脚本按模块拼接，namespace import 会留下未定义标识符：
+  `commitLogPreferences is not defined`。
+
+**修复**：
+
+- 使用 Project root 作为 scope：
+  - `dsh-editor.commit.logAuthor:<root>`
+  - `dsh-editor.commit.graphScope:<root>`
+- `useCommitLogAuthor(root)` 在 root 就绪后 hydrate author，并同步维护异步请求 ref；
+- author 变更通过 hook setter 持久化，相同值不重复写；
+- `loadGraph` 写 branch/at scope；无显式参数时读取已存 scope；
+- `useCommitLogInitialLoad` 在 author hydrate 后才允许首屏 Log 请求；
+- build-safe 单对象 `commitLogStorage` 取代 namespace import。
+
+**运行态证据**：
+
+- Author=`Your` 写入 root-scoped key；
+- Graph branch=`main` 写入 `{"branch":"main","at":null}`；
+- reload 后 Author 仍为 `Your`、Log 47 rows；
+- 打开 Graph 后 branch=`main`、47 rows。
+
+**回归**：
+
+- `tests/commit-log-filter-and-graph-scope-survive-reload.test.mjs`
+- RED：reload 后 author 与 graph scope 丢失；
+- RED：namespace import 在真实 bundle 中抛 `is not defined`；
+- GREEN：root-scoped 读写、corrupt JSON fallback、hook hydration、无重复写；
+- GREEN：Commit Log 定向回归 **9 pass / 0 fail**；
+- GREEN：完整 `npm test` **3779 pass / 0 fail**。
+
+**长期约束**：
+
+- 浏览器偏好优先按 Project root scope，不依赖可能为空的 Web workspaceId；
+- Graph mode 是按需行为，但 branch/at scope 必须在用户下次打开 Graph 时恢复；
+- 自定义 build 禁止 namespace import；共享能力以显式 symbol 或单对象导出；
+- Log 首屏必须等 author hydrate 完成，避免先发 unfiltered 请求再重发。
+
+## 2026-11-22 — Project 选中行必须跨 reload 恢复
+
+**作用域**：Project tree primary selection、workspace-scoped browser storage、
+Editor reload 恢复、Project view 切换。
+
+**症状 / 根因**：
+
+- 打开文件 tab 与 activePath 会恢复，但 Project 的 selectedPath 只存在 React state；
+- reload 后编辑器恢复当前文件，Project 树却没有任何 selected row；
+- 用户必须重新定位并点击当前文件。
+
+**修复**：
+
+- 新增 `project-selection-persistence.ts`；
+- 使用 `dsh-editor.project.selection.v1:<root>` 保存每个 workspace 的 primary path；
+- expansion state 就绪后才读取，且只恢复当前 rows 中真实、非 placeholder 的路径；
+- 删除/移走/失效路径回退 null，不生成幽灵选择；
+- workspace 切换时先清除旧 workspace path，再恢复新 workspace；
+- 相同路径不重复写 storage，避免 Git/树刷新产生写入抖动。
+
+**运行态证据**：
+
+- 隔离 Host 与 ego-browser：选择 `README.md` 后 localStorage 写入对应
+  workspace key；
+- reload 并重新打开 Editor 后 Project activity 与 `README.md` selected row
+  同时恢复。
+
+**回归**：
+
+- `tests/project-selection-restores-across-reload.test.mjs`
+- RED：reload 后 `aria-selected` 为空；
+- GREEN：workspace 隔离、无效路径过滤、root 切换清理、无重复写与 reload 恢复；
+- GREEN：Project selection 定向回归 **4 pass / 0 fail**；
+- GREEN：完整 `npm test` **3774 pass / 0 fail**。
+
+**长期约束**：
+
+- 恢复前必须以当前可见 rows 为准，不能仅凭 storage 内容选中行；
+- Project selection 与 editor activePath 是两个状态，不得互相冒充或自动扩张；
+- 新 workspace 不得继承旧 workspace 的 selection；
+- 同一选择值不得在每次目录/Git 刷新时重复写 localStorage。
+
+## 2026-11-22 — Project 索引 Clear 不得提供虚假取消
+
+**作用域**：Project root search-index menu、Clear request、Cancel 语义。
+
+**症状 / 根因**：
+
+- Rebuild 是长任务，Cancel 有明确价值；
+- Clear 最终是索引文件删除，HTTP 请求 abort 无法回滚已经提交的 unlink；
+- 运行态网络延迟实验表明，即使客户端随后显示 cancel，索引文件仍可能已删除。
+
+**最终决策**：
+
+- Rebuild 保留 Cancel；
+- Clear 在途时 Rebuild/Clear 均禁用，Cancel 只服务 Rebuild；
+- 不在 UI 中提供可能误报“已取消”的 Clear Cancel；
+- Editor 卸载仍会 abort 尚未完成的 Clear 请求。
+
+**回归**：
+
+- `tests/project-search-index-root-menu-rebuild-clear.test.mjs`
+- 行为断言：Clear 在途时 Cancel 不 abort、不提前清空 clearing；
+- Clear 完成后只显示真实 cleared/none 结果。
+
+**长期约束**：
+
+- 只有能保证提交点前中止、或能回滚的操作才能展示 Cancel；
+- destructive 操作的 UI 文案必须描述真实已提交状态，不能用客户端 abort 冒充回滚。
+
+## 2026-11-22 — 恢复的 Commit Log 必须自动加载首屏
+
+**作用域**：Commit mode reload 恢复、`CommitPanel` Log 首屏查询、
+`loadLog()` 调用生命周期。
+
+**症状 / 原始错误**：
+
+- 页面 reload 后 Log tab 与选中 commit 已恢复；
+- 列表却一直显示 “No commits yet”，detail pane 为空；
+- 手动点击 Refresh 后 47 个 commit 立即出现，说明 Git 和 pane 本身可用。
+
+**根因**：
+
+- `loadLog()` 只挂在 `onMode('log')` 的业务切换回调上；
+- reload 后 mode 已由 localStorage 初始化为 `log`，没有发生切换事件；
+- 选中 commit 的恢复 effect 又要求 `commits.length > 0`，于是首屏一直等待
+  一个不会自动发出的请求。
+
+**修复**：
+
+- `commit-log-view-model.ts` 新增纯函数 `shouldLoadCommitLogOnOpen()`；
+- 只有 Activity=Commit、面板可见、mode=Log、Git 就绪、Repo 有效、列表为空、
+  未 exhausted、未 loading、未 failed 时才请求首屏；
+- EditorWorkspace 在状态满足时调用一次 `loadLog()`；
+- loading、结果、失败和 exhausted 状态阻止重复请求。
+
+**回归**：
+
+- `tests/commit-log-log-tab-loads-after-reload.test.mjs`
+- RED：恢复的 Log 没有首屏请求条件；
+- GREEN：首次满足条件返回 true，重复/非 Log/非 Repo/失败状态返回 false；
+- GREEN：Commit Log 定向回归 **13 pass / 0 fail**；
+- GREEN：完整 `npm test` **3769 pass / 0 fail**。
+
+**运行态证据**：
+
+- 隔离 Host 与 ego-browser 下 reload 后直接打开 Editor；
+- Commit Log 自动显示 47 个 commit，无需 Refresh；
+- localStorage selected hash 与 listbox `aria-activedescendant`、detail pane
+  都指向 `6ba1d917b850399e6cebc299bcf1ad1be9fb699b`；
+- 验收后停止隔离 Host 并清理临时 `DSH_HOME`。
+
+**验证门禁**：
+
+- `npm run lint:client-types` 通过；
+- `npm run check:client-build` 通过；
+- `npm run check:format:client-components` 通过；
+- `npm pack --dry-run` 为 153 files；
+- `git diff --check`、`node --check lib/index.js`、`node --check lib/client.js`
+  通过；
+- `lib/client.js` 2,675,104 bytes；`editor-workspace.tsx` 12,585 行。
+
+**长期约束**：
+
+- 首屏自动加载必须由显式可执行状态模型控制，不依赖“刚好发生了 mode 事件”；
+- loading、失败、exhausted 和已有结果不得被自动 effect 反复请求；
+- 恢复选中项前必须已有权威 commit 列表，失效 hash 仍要清空；
+- 新增 Log 入口时继续共用 `loadLog()`，不要建立绕过分页与 abort 生命周期的旁路。
+
+## 2026-11-22 — Editor activity 必须跨 reload 恢复
+
+**作用域**：`readLastEditorActivity` / `writeLastEditorActivity`、
+Project/Commit tool-window activity 和 Activity Stripe pressed 状态。
+
+**症状 / 根因**：
+
+- activity 只存在模块变量；
+- EditorWorkspace remount 可恢复，但整页 reload 重置为 Project；
+- Commit mode 已持久化后，reload 会出现模式与工具窗状态不一致。
+
+**修复**：
+
+- 新增 `dsh-editor.editor.activity`；
+- 读取时只接受 `project` / `commit`，并同步内存值；
+- 写入时先归一化，再同时更新内存与 localStorage；
+- storage 不可用时保留模块内存 fallback。
+
+**运行态证据**：
+
+- 隔离 Host `127.0.0.1:3099`，ego-browser `1400×900`；
+- 选择 Commit 后存储值为 `commit`；
+- reload 并重新打开 Editor 后 Commit tool window 直接可见；
+- Activity Stripe pressed item 仍为 Commit；
+- 验收后停止隔离 Host 并清理临时 `DSH_HOME`。
+
+**回归**：
+
+- `tests/editor-activity-persists-across-reload.test.mjs`
+- RED：activity 仅保存在模块内存；
+- GREEN：单 key、双值校验、内存 fallback 与 reload 恢复；
+- GREEN：Activity/Commit mode 定向回归 **17 pass / 0 fail**；
+- GREEN：完整 `npm test` **3765 pass / 0 fail**；
+- GREEN：client build、lint/TypeScript、139 个 source imports、Prettier、
+  `npm pack --dry-run` 153 files、`git diff --check` 通过；
+- GREEN：`lib/client.js` **2,673,097 bytes**；
+- GREEN：`editor-workspace.tsx` **12,543 行**。
+
+**长期约束**：
+
+- Project/Commit activity 只接受两个已知值；
+- reload 后工具窗 activity 与 Commit mode 不得互相矛盾；
+- storage 失效不得让工具窗落到未知/空 activity；
+- 扩展第三个 side tool window 时需同步更新校验集合。
+
+## 2026-11-22 — Commit Changes/Log 模式必须跨 reload 保持
+
+**作用域**：Commit tool-window mode、File History/Annotate/Commit success
+的 Log 跳转、字符串偏好存储。
+
+**症状 / 根因**：
+
+- `commitMode` 初始值固定为 `changes`；
+- activity 可跨 Editor remount 保留，但 reload 后 Log tab 丢失；
+- 多个业务入口直接 `setCommitMode('log')`，没有统一持久化与滚动切换入口。
+
+**修复**：
+
+- 新增 `writeStoredText()`；
+- commit mode 从 `dsh-editor.commit.mode` 初始化；
+- 仅 `log` 是有效非默认值，其他内容回退 `changes`；
+- `switchCommitMode()` 记录 outgoing scroll 后写回模式；
+- File History、Annotate 跳转和 Commit 成功展示改用
+  `switchCommitMode('log')`；
+- 补齐 callback dependencies 与测试 scope。
+
+**运行态证据**：
+
+- 隔离 Host `127.0.0.1:3099`，ego-browser `1400×900`；
+- 切换 Commit Log 后 localStorage 为 `log`；
+- reload 再打开 Commit，Log tab 仍 selected；
+- activeElement 为 Commit Log listbox；
+- 验收后停止隔离 Host 并清理临时 `DSH_HOME`。
+
+**回归**：
+
+- `tests/commit-mode-persists-across-reload.test.mjs`
+- RED：reload 后固定回 Changes，三条业务跳转绕过持久化；
+- GREEN：模式初始化、所有 Log 跳转、File History 和 Commit success；
+- GREEN：Commit mode 定向回归 **19 pass / 0 fail**；
+- GREEN：完整 `npm test` **3764 pass / 0 fail**；
+- GREEN：client build、lint/TypeScript、139 个 source imports、Prettier、
+  `npm pack --dry-run` 153 files、`git diff --check` 通过；
+- GREEN：`lib/client.js` **2,671,937 bytes**；
+- GREEN：`editor-workspace.tsx` **12,543 行**。
+
+**长期约束**：
+
+- Commit mode 所有变更必须经过 `switchCommitMode`；
+- 持久值必须归一化，非法值回退 Changes；
+- 跳转 Log 仍要保留 outgoing Changes 滚动位置；
+- 页面 reload 不得把用户从 Log 无条件带回 Changes。
+
+## 2026-11-22 — Editor Terminal tab 的 Escape 必须返回终端内容
+
+**作用域**：`EditorTerminalTab` tablist、Escape、Tab/Shift+Tab
+浏览器焦点顺序。
+
+**症状 / 根因**：
+
+- tablist 已支持方向键 roving，但 Escape 没有业务处理；
+- 键盘用户停留在 tab 时没有直接回到 Terminal input 的路径；
+- Tab 顺序此前未做运行态确认。
+
+**修复**：
+
+- editor terminal tab keydown 在 roving 前处理 Escape；
+- Escape prevent/stop 后聚焦当前 xterm emulator；
+- 原生 Tab 顺序保持 active tab → 返回 dock → Find → Terminal input。
+
+**运行态证据**：
+
+- 隔离 Host `127.0.0.1:3099`，ego-browser `1400×900`；
+- 一个 terminal Move to Editor；
+- tab 持焦后 Escape，activeElement 为 Terminal input；
+- tab 后第一次 Tab 到 “Move back to the terminal dock”，第二次到 Find；
+- 验收后停止隔离 Host 并清理临时 `DSH_HOME`。
+
+**回归**：
+
+- `tests/terminal-editor-terminal-tabs-preserve-each-moved-pty.test.mjs`
+- RED：tablist 无 Escape 分支；
+- GREEN：Escape 聚焦 terminal input，Tab 顺序保持原生可预测；
+- GREEN：Editor Terminal 定向回归 **7 pass / 0 fail**；
+- GREEN：完整 `npm test` **3762 pass / 0 fail**；
+- GREEN：client build、lint/TypeScript、139 个 source imports、Prettier、
+  `npm pack --dry-run` 153 files、`git diff --check` 通过；
+- GREEN：`lib/client.js` **2,671,526 bytes**；
+- GREEN：`editor-workspace.tsx` **12,539 行**。
+
+**长期约束**：
+
+- editor terminal tab 的 Escape 不得发送给 shell，而应回到终端输入区；
+- 方向键只负责 tab roving，Escape 只负责离开 tablist；
+- Tab/Shift+Tab 必须保持浏览器顺序，不额外吞掉；
+- tablist 的 active、focus、terminal focus 三者要有明确边界。
+
+## 2026-11-22 — Editor Terminal active tab 必须随 placement 一起恢复
+
+**作用域**：`EditorTerminalArea` active tab、terminal inactive restore、
+Move to Editor placement 和 per-terminal-scope storage。
+
+**症状 / 根因**：
+
+- Editor terminal `activeId` 只存在组件 state；
+- reload 后 descriptors 异步返回，active 被默认设为 placement 最后一项；
+- 首次恢复时 previous ids 为空，恢复项被误判为新增；
+- 用户最后选择的 terminal tab 因而无法恢复。
+
+**修复**：
+
+- 新增 `readEditorTerminalActiveId()` /
+  `writeEditorTerminalActiveId()`，使用同一 terminal scope；
+- active id 从持久值初始化；
+- 首次收到有效列表时，如果 stored active 仍存在，将当前 ids 先写入
+  previous ids，避免新增优先级覆盖恢复选择；
+- active 变化继续写回；stored id 失效时回退最后 placement；
+- 新 Move to Editor terminal 仍通过 added 优先级自动激活。
+
+**运行态证据**：
+
+- 隔离 Host `127.0.0.1:3099`，ego-browser `1400×900`；
+- 两个 zsh 都 Move to Editor，点击第二个 tab；
+- reload 并重新打开 Editor 后第二个 tab 仍 selected，Terminal input 持焦；
+- 验收后停止隔离 Host 并清理临时 `DSH_HOME`。
+
+**回归**：
+
+- `tests/terminal-editor-terminal-tabs-preserve-each-moved-pty.test.mjs`
+- RED：reload 后 active 回到 placement 最后一项；
+- GREEN：stored active 恢复、新 placement 自动激活、失效 active 回退；
+- GREEN：Editor Terminal 定向回归 **20 pass / 0 fail**；
+- GREEN：完整 `npm test` **3761 pass / 0 fail**；
+- GREEN：client build、lint/TypeScript、139 个 source imports、Prettier、
+  `npm pack --dry-run` 153 files、`git diff --check` 通过；
+- GREEN：`lib/client.js` **2,671,338 bytes**；
+- GREEN：`editor-workspace.tsx` **12,539 行**。
+
+**长期约束**：
+
+- editor terminal placement 与 active selection 必须使用同一 scope；
+- 首次恢复不能把已存在的 placement 当作新移动；
+- active id 无效时回退存活 placement，不得留下空选；
+- 新增 terminal 的自动激活优先于保留旧 selection。
+
+## 2026-11-22 — Terminal split 状态与跨 Diff 回焦必须共享持久契约
+
+**作用域**：Terminal dock layout、split pane、`Alt+F12`、
+Diff 返回焦点、Activity Stripe 和 dock close。
+
+**症状 / 原始证据**：
+
+- split 右 pane 持焦时按 Alt+F12 关闭再打开，页面只剩 left pane；
+- 页面 reload 后同样丢失 split 与 right focus；
+- Commit Diff textbox 持焦时打开 Terminal，再关闭后 activeElement=BODY；
+- `TerminalPanel` 随 dock 关闭卸载，active/split/focused 只存在组件 state；
+- 关闭路径使用多处临时 focus 逻辑，无法保证 input event 后的回焦时序。
+
+**修复**：
+
+- 新增 per-scope `TerminalDockLayout`：
+  `{activeId, splitId, focusedPane}`；
+- 对 localStorage 输入做严格归一化，重复/空 id 不建立 split；
+- state 从持久布局初始化，host terminal 列表 loaded 前不清理 restoring split；
+- active/split/focused 变化写回 localStorage；
+- 新增 `restoreTerminalFocusTarget()`，统一 connected preferred 与 fallback；
+- 键盘、Activity Stripe 和 dock close 都在当前事件结束后调用该 helper。
+
+**运行态证据**：
+
+- 隔离 Host `127.0.0.1:3099`，ego-browser `1400×900`；
+- 两个 zsh Split 后 active pane=`right`；
+- Alt+F12 关闭/重开以及页面 reload 后均恢复 left+right 和 right focus；
+- Commit Diff textbox → Alt+F12 → Terminal input → Alt+F12 后回到 Diff textbox；
+- 验收后停止隔离 Host 并清理临时 `DSH_HOME`。
+
+**回归**：
+
+- `tests/terminal-dock-layout-survives-hide-reopen.test.mjs`
+- `tests/terminal-screen-reclaims-focus-whenever-becomes-visible.test.mjs`
+- RED：dock 重开只剩单 pane，Diff 关闭后落到 BODY；
+- GREEN：布局归一化、持久恢复、loaded 后校验和 connected/fallback 回焦；
+- GREEN：Terminal/Diff/Split 定向回归 **17 pass / 0 fail**；
+- GREEN：完整 `npm test` **3760 pass / 0 fail**；
+- GREEN：client build、lint/TypeScript、139 个 source imports、Prettier、
+  `npm pack --dry-run` 153 files、`git diff --check` 通过；
+- GREEN：`lib/client.js` **2,670,116 bytes**；
+- GREEN：`editor-workspace.tsx` **12,539 行**。
+
+**长期约束**：
+
+- Terminal dock UI 状态必须按 terminal scope 持久化；
+- host terminal 列表未加载前不得判定 restored split 无效；
+- 终端关闭后必须优先恢复当前 connected preferred surface；
+- 键盘、鼠标和 dock close 不得各自维护不同的回焦实现；
+- Commit Diff、Project tree 和 Monaco 都通过同一回焦 helper 恢复。
+
+## 2026-11-22 — Editor Terminal tabs 的焦点必须跟随 roving selection
+
+**作用域**：`EditorTerminalTab` tablist、`editorTerminalTabTargetIndex()`、
+editor terminal 切换的键盘焦点与 focus ring。
+
+**症状 / 原始证据**：
+
+- editor terminal tabs 都是普通 button，全部进入 Tab 顺序；
+- 首次增加 ArrowRight 后，运行态结果是 selected 已切到第二个 tab，
+  但 activeElement 仍是第一个 tab；
+- 局部 tablist 节点上的 requestAnimationFrame 回焦未能稳定命中 React
+  更新后的 tab；
+- tab 按钮没有复用 dock terminal 的 focus-visible class。
+
+**修复**：
+
+- `editorTerminalTabTargetIndex()` 负责左右循环和 Home/End 边界；
+- active tab 是唯一 `tabIndex=0`，其他 tab 为 `-1`；
+- 键盘切换使用独立 callback，不触发 xterm focus generation；
+- React 更新后的零延迟任务按稳定
+  `data-dsh-editor-terminal-tab-id` 聚焦目标 tab；
+- tab 按钮复用 `dsh-editor-terminal-tab` 的 inset accent focus ring；
+- 鼠标点击路径保持原有行为：切换 terminal 并让 input 获得焦点。
+
+**运行态证据**：
+
+- 隔离 Host `127.0.0.1:3099`，ego-browser `1400×900`；
+- 两个 zsh 都 Move to Editor；
+- ArrowRight 后 selected/focused id 均为另一个 tab；
+- Home 后 selected/focused id 均回到第一个 tab；
+- activeElement role=`tab`，computed outlineStyle=`solid`；
+- 截图确认单行 tabs 与可见焦点环；
+- 验收后停止隔离 Host 并清理临时 `DSH_HOME`。
+
+**回归**：
+
+- `tests/terminal-editor-terminal-tabs-preserve-each-moved-pty.test.mjs`
+- RED：导航 helper 不存在，tablist 无 roving tabIndex；
+- RED：运行态 selection/focus 分离；
+- GREEN：左右循环、Home/End 边界和非导航键返回 null；
+- GREEN：selected 与 focused tab 同步；
+- GREEN：Editor Terminal 定向回归 **5 pass / 0 fail**；
+- GREEN：完整 `npm test` **3756 pass / 0 fail**；
+- GREEN：client build、lint/TypeScript、139 个 source imports、Prettier、
+  `npm pack --dry-run` 153 files、`git diff --check` 通过；
+- GREEN：`lib/client.js` **2,667,951 bytes**；
+- GREEN：`editor-workspace.tsx` **12,535 行**。
+
+**长期约束**：
+
+- tablist 只保留一个 Tab 进入点，方向键负责 roving focus；
+- 键盘 activation 后焦点必须落在新 tab，不得留在旧 DOM；
+- 鼠标 activation 后焦点应进入 terminal 内容；
+- 所有 terminal tab 变体共享 `dsh-editor-terminal-tab` 焦点样式；
+- 使用稳定 data id 回焦，不依赖可重命名的 title。
+
+## 2026-11-22 — 多个 Move to Editor 终端必须全部可见
+
+**作用域**：`editorTerminals` placement、`EditorTerminalArea`、
+`EditorTerminalTab` 单行 tab 工具栏、PTY 切换与回 dock。
+
+**症状 / 根因**：
+
+- `editorTerminals` 状态可以累计多个 host terminal descriptor；
+- Workspace 只传入 `editorTerminals[editorTerminals.length - 1]`；
+- 先移动的 PTY 仍在运行、placement 仍被持久化，但页面没有 tab 或入口；
+- 用户无法切换或找回被最后一项遮住的所有 editor terminals。
+
+**修复**：
+
+- 新增 `editorTerminalActiveAfterChange()` 纯模型：
+  - 新 placement 进入时激活最新项；
+  - 当前项仍存在时保持；
+  - 当前项移除时回退最近存活项；
+  - 空列表返回 null；
+- `EditorTerminalArea` 维护 active id，并把完整 terminal 列表传入 tab view；
+- `EditorTerminalTab` 在同一行工具栏渲染 tablist、返回 dock 和 Find；
+- 点击 tab 更新 active id 并递增 `focusGeneration`，让 xterm 重新获得键盘；
+- 不创建新 PTY，不改变 Host close / move / return 协议。
+
+**运行态证据**：
+
+- 隔离 Host `127.0.0.1:3099`，ego-browser `1400×900`；
+- 创建两个 zsh，分别执行 Move to Editor；
+- 编辑器区域同时出现 2 个 terminal tab，最新 terminal 选中；
+- 点击另一 tab 后 `aria-selected` 切换且 Terminal input 持焦；
+- 返回一个 terminal 到 dock 后，编辑器保留另一个 tab 并自动激活；
+- 截图确认单行 tab，无额外重复 toolbar；
+- 验收后停止隔离 Host 并清理临时 `DSH_HOME`。
+
+**回归**：
+
+- `tests/terminal-editor-terminal-tabs-preserve-each-moved-pty.test.mjs`
+- RED：Workspace 只传最后一个 editor terminal，DOM 只能出现一个 tab；
+- GREEN：新增、保持、移除和清空四类活动项迁移；
+- GREEN：每个 placement 都有稳定 tab id 和 selection；
+- GREEN：Editor Terminal 定向回归 **19 pass / 0 fail**；
+- GREEN：完整 `npm test` **3755 pass / 0 fail**；
+- GREEN：client build、lint/TypeScript、139 个 source imports、Prettier、
+  `npm pack --dry-run` 153 files、`git diff --check` 通过；
+- GREEN：`lib/client.js` **2,666,428 bytes**；
+- GREEN：`editor-workspace.tsx` **12,535 行**。
+
+**长期约束**：
+
+- 一个 editor placement 必须对应一个可见 tab，不得用“取最后一个”隐藏 PTY；
+- 新 placement 激活，删除活动 placement 时回退存活项；
+- 切换 tab 必须重新建立 xterm 键盘焦点；
+- editor terminal 工具栏只占一行，tab 与操作按钮共享同一 chrome；
+- Build 必须按依赖顺序显式包含新的 terminal tab model 模块。
+
+## 2026-11-22 — Activity Stripe 关闭 Terminal 不得把焦点留在按钮上
+
+**作用域**：Terminal Activity Stripe、`rememberActivityToolWindowOrigin`、
+`selectActivity('terminal')`、鼠标关闭后的跨工具窗焦点恢复。
+
+**症状 / 原始证据**：
+
+- Terminal 从 Project 打开后保持 dock 可见，点击 Project 的 `README.md`；
+- Project tree 持焦时点击 Terminal 活动按钮；
+- 修复前 pointerdown 后 activeElement 变为 Terminal 按钮；
+- dock 关闭后 activeElement 仍为
+  `button[aria-label="Terminal"]`，没有回到 Project tree；
+- pointerdown 本身能读取到 Project tree，但来源刷新在 `terminalOpen=true`
+  时被直接跳过，且异步 focus 请求被按钮默认聚焦覆盖。
+
+**修复**：
+
+- Terminal 已打开时，pointerdown 仍记录当前真实外部表面；
+- 若当前元素位于 Terminal 或 Activity Stripe 内，则保留原来源；
+- 鼠标关闭路径在 click 默认聚焦之后的零延迟任务中恢复来源；
+- 已连接来源直接 `focus({preventScroll:true})`，仅断开时回退共享
+  `focusWorkspaceSurface()`。
+
+**运行态证据**：
+
+- 隔离 Host `127.0.0.1:3099`，ego-browser `1400×900`；
+- Terminal 打开时点击 `README.md`，activeElement 为 Project tree；
+- 点击 Terminal 活动按钮：dock/pane 关闭，activeElement 仍为 Project tree；
+- 验收后停止隔离 Host 并清理临时 `DSH_HOME`。
+
+**回归**：
+
+- `tests/terminal-activity-stripe-open-restores-current-external-surface.test.mjs`
+- RED：打开状态下外部 Project 控件不会更新来源；
+- RED：运行时关闭后焦点停在 Terminal 活动按钮；
+- GREEN：stripe/terminal 自身不会覆盖来源；
+- GREEN：click 后直接恢复已连接来源，断开时才走 fallback；
+- GREEN：Terminal/Activity Stripe 定向回归 **19 pass / 0 fail**；
+- GREEN：完整 `npm test` **3752 pass / 0 fail**；
+- GREEN：client build、lint/TypeScript、138 个 source imports、Prettier、
+  `npm pack --dry-run` 152 files、`git diff --check` 通过；
+- GREEN：`lib/client.js` **2,663,937 bytes**；
+- GREEN：`editor-workspace.tsx` **12,535 行**。
+
+**长期约束**：
+
+- 鼠标工具窗按钮的默认聚焦不能覆盖关闭后的业务回焦；
+- 只有 Terminal/Activity Stripe 外的当前控件可以更新 Terminal 返回来源；
+- 来源断开时必须回退共享 focus owner，不得落到 BODY 或活动按钮；
+- 键盘和鼠标关闭 Terminal 共用同一来源语义，但执行时机各自尊重输入方式。
+
+## 2026-11-22 — Alt+F12 聚焦已打开终端时必须刷新返回来源
+
+**作用域**：Editor Workspace 的 `terminalReturnFocusRef`、
+`toggleTerminalDock()`、Activity Stripe Terminal 快捷键与跨工具窗焦点恢复。
+
+**症状 / 根因**：
+
+- 首次从编辑器打开终端时，来源正确记录为 Monaco；
+- 终端保持打开后切到 Project，再按 `Alt+F12`，`terminalShortcutAction`
+  返回 `focus=true`；
+- focus 分支只递增 `terminalFocusGeneration`，没有重新记录当前 Project 控件；
+- 随后在终端中按 `Alt+F12` 关闭，焦点恢复到首次打开前的旧编辑器，
+  而不是用户刚离开的 Project。
+
+**修复**：
+
+- focus 分支在移动焦点前调用唯一的 `rememberTerminalOrigin()`；
+- 已在终端内部时仍由 hide 分支直接恢复既有 origin，不覆盖来源；
+- 不改终端 dock 持久性、shell 创建、split pane 选择或 tool-window 切换。
+
+**运行态证据**：
+
+- 隔离 Host `127.0.0.1:3099`，ego-browser `1400×900`；
+- Project tree 持焦 → `Alt+F12` → Terminal input 持焦；
+- `Alt+1` → Project tree 持焦且 Terminal dock 仍打开；
+- `Alt+F12` → Terminal input 持焦；
+- `Alt+F12` → Terminal 关闭，Project tree 重新持焦；
+- 验收后停止隔离 Host。
+
+**回归**：
+
+- `tests/terminal-alt-f12-focus-existing-dock-records-current-origin.test.mjs`
+- RED：focus 分支没有记录当前来源；
+- GREEN：focus 前记录来源，Terminal 内关闭不覆盖来源；
+- GREEN：Terminal/Alt+F12/Activity Stripe 定向回归 **25 pass / 0 fail**；
+- GREEN：完整 `npm test` **3749 pass / 0 fail**；
+- GREEN：client build、lint/TypeScript、138 个 source imports、Prettier、
+  `npm pack --dry-run` 152 files、`git diff --check` 通过；
+- GREEN：`lib/client.js` **2,663,559 bytes**；
+- GREEN：`editor-workspace.tsx` **12,527 行**。
+
+**长期约束**：
+
+- 任一“终端获得焦点”的路径都必须先确定返回来源；
+- 从终端内部关闭只消费现有 origin，不得用终端控件覆盖它；
+- Project、Commit、Diff、Monaco 和活动工具窗共用同一个来源记录。
+
+## 2026-11-22 — Commit Log listbox 必须关联当前可见活动项
+
+**作用域**：Commit Log flat/graph 列表、`role="listbox"` 的
+`aria-activedescendant`、过滤与 Graph fold 后的活动行。
+
+**症状 / 根因**：
+
+- Commit Log 容器可获得焦点并以方向键改变活动 commit；
+- Flat 与 Graph 行只有 `role="option"`、`data-*` hash 和 selected 状态；
+- 行没有稳定 DOM id，listbox 也没有 `aria-activedescendant`；
+- 辅助技术只能看到列表焦点，无法把当前 commit 与详情窗格关联起来。
+
+**修复**：
+
+- `commit-log-view-model.ts` 提供唯一的 hash → URL-safe option id 纯函数；
+- Flat row 与 Graph row 使用同一个 option id；
+- Flat listbox 只用当前 `selected`，且必须仍存在于过滤后的 visible rows；
+- Graph listbox 优先使用 `graphCursor`，缺失时回退 `selected`；
+- Graph 只有在 hash 同时存在于过滤结果和 fold 后可见行时才暴露
+  `aria-activedescendant`，避免引用已被折起或过滤掉的行；
+- 既有 CommitLog filter 合同测试改为允许同一 view-model import 同时引入
+  filter 与 option-id helper，不削弱原断言。
+
+**回归**：
+
+- `tests/commit-log-listbox-exposes-active-option-id.test.mjs`
+- RED：view model 无 option id，Flat/Graph row 无 id，listbox 无活动项关联；
+- GREEN：Flat/Graph 共用 URL-safe id；
+- GREEN：活动 hash 被过滤或 Graph fold 隐藏时不再暴露失效 descendant；
+- GREEN：Commit Log 定向回归 **11 pass / 0 fail**；
+- GREEN：完整 `npm test` **3747 pass / 0 fail**；
+- GREEN：client build、lint/TypeScript、138 个 source imports、Prettier、
+  `npm pack --dry-run` 152 files、`git diff --check` 通过；
+- GREEN：`lib/client.js` **2,663,521 bytes**；
+- GREEN：`editor-workspace.tsx` 保持 **12,526 行**。
+
+**长期约束**：
+
+- 同一个 commit 在 Flat 和 Graph 中必须投影到同一个 option id；
+- `aria-activedescendant` 只能指向当前 DOM 中真实可见的 option；
+- Graph fold 与文本过滤都必须参与可见性判定；
+- 新增 commit row 变体时不得自行拼接另一套 id。
+
+## 2026-11-22 — Changes 分组标题必须接入共享键盘树导航
+
+**作用域**：Commit Changes 树的 Staged/Unstaged/Unversioned 分组标题、
+`onChangesKeyDown`、目录/文件行 roving 焦点。
+
+**症状 / 根因**：
+
+- 分组标题是 `role="treeitem"`、`tabIndex=0`，可以被键盘聚焦；
+- 标题自身 `onKeyDown` 只处理 ArrowLeft/Right 和 Shift+F10/ContextMenu；
+- ArrowUp/ArrowDown/Home/End 没有委托给共享 `onChangesKeyDown`；
+- 实测聚焦 Staged 后按 ArrowDown 无反应，无法进入 Unstaged 或文件行。
+
+**修复**：
+
+- 分组标题处理完折叠和菜单键后，将剩余键盘事件委托给
+  `onChangesKeyDown`；
+- 复用现有 flattened row 顺序、`chooseGroup`、Shift 选择与 typeahead；
+- 不放宽 `event.target === event.currentTarget` 守卫，避免重复步进。
+
+**运行态证据**：
+
+- 隔离 DSH Web、`1400×900`；
+- Staged 分组持焦时 ArrowDown 移动到 Unstaged；
+- 再次 ArrowDown 移动到 `docs` 目录行；
+- 隔离 Host 已停止并清理。
+
+**回归**：
+
+- `tests/commit-changes-owns-group-node-selection-separate-commit-checkboxes.test.mjs`
+- RED：分组标题没有 `onChangesKeyDown?.(event)`；
+- GREEN：ArrowLeft/Right 与上下文菜单优先级保持，其他键进入共享导航；
+- GREEN：Changes 定向回归 **9 pass / 0 fail**；
+- GREEN：完整 `npm test` **3744 pass / 0 fail**；
+- GREEN：client build、lint/TypeScript、138 个 source imports、Prettier、
+  `npm pack --dry-run` 152 files、`git diff --check` 通过；
+- GREEN：`editor-workspace.tsx` 保持 **12,526 行**。
+
+**长期约束**：
+
+- 所有 Changes `treeitem` 的导航键必须走同一个 handler；
+- 分组标题只独占折叠键和上下文菜单键，不得吞掉树导航；
+- 文件/目录/分组混合列表的键盘顺序必须与 flattenRows 视觉顺序一致。
+
+## 2026-11-22 — Quick Open 初始文件列表复用持久索引
+
+**作用域**：Go to File / Recent Files opener、QuickOpen `requestFiles()`、
+Host `files` 路由和统一 `workspaceFilesForRequest()`。
+
+**性能问题**：
+
+- Quick Open 的初始文件列表固定调用实时 `files` 遍历；
+- 即使 Search Everywhere 已证明完整索引可在约 0.42 ms 内提供同一 3,000
+  文件投影，Go to File 仍再次执行约 35.80 ms 的目录 walk；
+- Recent Files 模式本身不使用该文件列表，但 Go to File 每次打开都承担成本。
+
+**修复**：
+
+- Quick Open 的 `requestFiles()` payload 增加内部 `searchIndex: true`；
+- 继续复用 Host 已有的 freshness、Scope 签名、Git ignore、File Mask 与
+  watcher 判定；
+- 索引不可信时由 `workspaceFilesForRequest()` 自动回退实时 walk；
+- Recent Files 的 MRU 顺序、查询 fallback、截断和错误语义保持不变。
+
+**回归**：
+
+- `tests/search-quick-open-excludes-gitignored-and-user-excluded-paths.test.mjs`
+- RED：Quick Open `files` payload 缺少 `searchIndex: true`；
+- GREEN：Go to File 请求显式 opt-in 持久索引并保留搜索目录规则；
+- GREEN：Quick Open / Search Everywhere / 索引定向回归 **90 pass / 0 fail**；
+- GREEN：完整 `npm test` **3744 pass / 0 fail**；
+- GREEN：client build、lint/TypeScript、138 个 source imports、Prettier、
+  `npm pack --dry-run` 152 files、`git diff --check` 通过；
+- GREEN：`editor-workspace.tsx` 保持 **12,526 行**。
+
+**长期约束**：
+
+- 所有初始文件候选入口都应复用同一 indexed file-list helper；
+- Quick Open 只能 opt-in，不得绕过 Host 的 freshness/Scope 判定；
+- Recent Files 保持本地 MRU 顺序，索引优化只影响 Go to File 候选来源；
+- 索引缺失或 watcher 关闭时必须无损回退实时遍历。
+
+## 2026-11-22 — Search Everywhere 初始文件列表复用持久索引
+
+**作用域**：Search Everywhere file candidate opener、Host `files` 路由、
+`workspaceFilesForRequest()`、`listWorkspaceIndexedFiles()` 与 path-scan fast path。
+
+**性能问题**：
+
+- Search Everywhere 每次打开都通过 `listWorkspaceFiles()` 重新遍历目录；
+- 即使完整持久索引与活跃 watcher 均可用，初始 2,000 文件候选仍绕开索引；
+- 目录越深、搜索排除和 Git ignore 越多，这次可避免的冷启动 walk 越昂贵。
+
+**修复**：
+
+- Search Everywhere 的初始 `files` 请求显式携带内部 `searchIndex: true`；
+- Host `files` 路由与 `workspaceFileOperations.files()` 统一走
+  `workspaceFilesForRequest()`；
+- 索引完整、Scope 签名一致且 watcher 活跃时，直接从 index path projection
+  生成有界 `files/truncated`；
+- File Mask 和搜索目录规则仍在索引路径投影上过滤；
+- watcher 不活跃、索引缺失/损坏、Scope 不匹配或 Include non-project 时返回
+  null，由原实时 walk 接管；
+- 响应附加 `indexFastPath`，便于回归确认真实走了缓存。
+
+**性能证据**：
+
+- 60 目录 × 50 文件 = 3,000 个 TypeScript 文件；
+- 持久索引 rebuild 约 **155.98 ms**；
+- 5 次 live file-list 中位 **35.80 ms**；
+- 5 次 indexed file-list 中位 **0.42 ms**；
+- 两种结果都遵守 2,000 文件上限并返回 `truncated=true`。
+
+**回归**：
+
+- `tests/search-index-everywhere-file-list-fast-path.test.mjs`
+- RED：完整索引 + watcher 下 `files` 没有 `indexFastPath`；
+- GREEN：索引投影命中，Scope 与 File Mask 继续生效；
+- GREEN：watcher 关闭时回退实时 walk；
+- GREEN：Search Everywhere / 索引定向回归 **93 pass / 0 fail**；
+- GREEN：完整 `npm test` **3743 pass / 0 fail**；
+- GREEN：client build、lint/TypeScript、138 个 source imports、Prettier、
+  `npm pack --dry-run` 152 files、`git diff --check` 通过；
+- GREEN：`editor-workspace.tsx` 保持 **12,526 行**。
+
+**长期约束**：
+
+- 索引化文件列表必须与查询 fallback 共用同一 path-scan freshness；
+- 响应合同仍是 `files + truncated`，`indexFastPath` 只作诊断；
+- Include non-project 继续使用实时 traversal，不得从默认索引伪装结果；
+- 索引缺失或不可信时必须无损回退，不得返回空列表冒充成功。
+
+## 2026-11-22 — watcher 失效必须先于持久索引载入生效
+
+**作用域**：`WorkspaceWatcher`、`invalidateWorkspaceSearchIndexScan()`、
+持久索引读取、文件名搜索与正文搜索的 path-scan fast path。
+
+**症状 / 原始证据**：
+
+- 新建 fresh Host 模块后直接启动 watcher，不预先读取持久索引；
+- 外部创建 `new.ts`，watcher 已发出 `ready -> change`；
+- 下一次正文搜索仍返回 `indexFastPath=true`，结果为空并遗漏 `new.ts`；
+- 第二次相同搜索继续命中旧 fast path。
+
+**根因**：
+
+- scan invalidation 只修改 `SEARCH_INDEX_MEMORY` 中已经载入的 index；
+- 索引尚未载入时该失效没有留下任何进程内状态；
+- 随后读取 gzip 缓存，磁盘 header 仍声明
+  `pathScanComplete=true/pathScanStale=false`，旧路径快照被错误恢复；
+- 文件级删除校验看不到从未进入候选集的“新文件”，因此 fast path
+  无法自行发现遗漏。
+
+**修复**：
+
+- 增加进程内 `SEARCH_INDEX_SCAN_STALE` 和独立 scan revision；
+- watcher invalidation 无论 index 是否已载入都标记 workspace identity；
+- 持久 index 读取时把 scan-stale 投影为 path/directory incomplete；
+- 文件名搜索、正文搜索和重建捕获 scan revision，只有 traversal 期间没有
+  新 invalidation 时才能重新声明完整并清除 stale；
+- 普通 content invalidation 不增加 scan revision，避免无意义的目录重建；
+- 新文件由一次完整实时 traversal 补入索引，第二次查询恢复 fast path。
+
+**回归**：
+
+- `tests/search-index-watcher-invalidates-unloaded-persisted-path-scan.test.mjs`
+- RED：fresh Host + watcher 创建新文件后第一次正文搜索仍 fast path，无命中；
+- GREEN：正文搜索第一次实时命中 `new.ts`，第二次恢复 fast path；
+- GREEN：文件名搜索同样不漏掉 `brand-new-name.ts`；
+- `tests/search-index-watcher-invalidates-during-traversal.test.mjs`
+  在真实 `readdir` 暂停点触发 watcher invalidation，证明 traversal 完成
+  不能覆盖并发 scan revision；
+- GREEN：traversal 竞争回归 **1 pass / 0 fail**；
+- GREEN：首次竞争搜索保持 incomplete，第二次重扫恢复完整，第三次恢复 fast path；
+- GREEN：watcher unloaded-scan 回归 **2 pass / 0 fail**；
+- GREEN：索引、正文与根菜单定向回归 **74 pass / 0 fail**；
+- GREEN：完整 `npm test` **3744 pass / 0 fail**；
+- GREEN：client build、lint/TypeScript、138 个 source imports、Prettier、
+  `npm pack --dry-run` 152 files、`git diff --check` 通过；
+- GREEN：`editor-workspace.tsx` 保持 **12,526 行**。
+
+**长期约束**：
+
+- watcher invalidation 不得依赖 index 是否已经载入内存；
+- path-scan 完整性与 directory-scan 完整性必须在载入磁盘快照时再次应用；
+- traversal 完成不等于结果完整，必须核对开始时的 scan revision；
+- 测试 traversal 竞争必须暂停真实目录读取，不能用纯 mock 替代事件顺序；
+- content 变化与路径集合变化使用独立 revision，避免所有保存操作触发目录重建；
+- fast path 只能建立在本进程已确认新鲜的路径快照上。
+
+## 2026-11-22 — Search Everywhere 焦点逃出后 Escape 仍必须关闭弹框
+
+**作用域**：Search Everywhere modal、window Escape fallback、Project 树持焦、
+菜单/Item Info/IME/替换确认框的 Escape 优先级。
+
+**症状 / 原始证据**：
+
+- `1400×900` 隔离 Web Host 中打开 Search Everywhere；
+- 将焦点移到 Project 树后按 Escape，`[data-dsh-search-everywhere]` 仍存在；
+- 修复前运行态结果为：
+  `before.activeRole=tree`、`after.activeRole=tree`、`after.dialog=true`。
+
+**根因**：
+
+- Escape 只在 Search Everywhere 根节点的 React `onKeyDown` 中处理；
+- 焦点离开弹框后键盘事件不会经过该 React 处理器；
+- Tab focus trap 只能约束从弹框内部开始的 Tab，不能恢复已被全局交互、
+  辅助技术或程序化路径移走的焦点。
+
+**修复**：
+
+- Search Everywhere 根节点保存 DOM ref；
+- window capture 监听 Escape，仅在事件目标与 activeElement 都位于弹框外时接管；
+- `defaultPrevented`、IME composing、已打开 menu 或其他 modal/alertdialog 存在时让出；
+- Item Info 打开时第一层 Escape 仍只关闭 Item Info；
+- 最终关闭复用 `dismissSearchEverywhere()`，保留请求取消和 opener 回焦。
+
+**回归**：
+
+- `tests/search-everywhere-escape-closes-when-focus-leaves-dialog.test.mjs`
+- RED：Project 树持焦后 Escape，弹框保持；helper 与 listener 均缺失；
+- GREEN：焦点在弹框外时 Escape 关闭弹框并回焦 Project 树；
+- GREEN：Filter 菜单第一层 Escape 只关菜单，第二层才关闭弹框；
+- GREEN：Item Info 第一层 Escape 关闭信息层并把焦点还给查询框；
+- GREEN：Search Everywhere 定向回归 **22 pass / 0 fail**；
+- GREEN：完整 `npm test` **3738 pass / 0 fail**；
+- GREEN：client build、lint/TypeScript、138 个 source imports、Prettier、
+  `npm pack --dry-run` 152 files、`git diff --check` 通过；
+- GREEN：`editor-workspace.tsx` 保持 **12,526 行**。
+
+**长期约束**：
+
+- modal 级 Escape 兜底不得抢走嵌套 menu、alertdialog 或 IME 的首次 Escape；
+- 焦点恢复必须继续走共享 opener/tool-window/editor fallback；
+- 新增 Search Everywhere 嵌套浮层时，必须同步更新 window fallback 的让出条件；
+- 关闭动作必须继续取消 provider 请求，不能只隐藏 DOM。
+
+## 2026-11-22 — 索引 status 必须报告扫描完整性
+
+**作用域**：`workspaceSearchIndexStatus()`、Scope 自愈后的 directory snapshot 和索引维护诊断。
+
+**症状 / 根因**：
+
+- Scope 自愈会使 `directoryScanComplete=false`；
+- status 只暴露 `directories` 数量，不说明 snapshot 是否完整；
+- 调用方无法区分完整目录投影、partial path-only 投影、watcher 已验证正文和普通读取状态。
+
+**修复**：
+
+- status 增加 `pathScanComplete`、`directoryScanComplete`、
+  `contentScanVerified` 和 `scopeSignature`；
+- rebuilding / missing 状态返回四个明确的不完整值；
+- 已完成索引返回真实内存 index flags。
+
+**验证**：
+
+- GREEN：rebuilding 时 scan flags 全 false，scopeSignature 为空；
+- GREEN：完成重建后 path/directory scan 为 true；
+- GREEN：Scope signature 为 `{"excluded":[],"included":[]}`；
+- GREEN：索引/根菜单定向回归 **55 pass / 0 fail**；
+- GREEN：完整 `npm test` **3736 pass / 0 fail**；
+- GREEN：client build、lint/TypeScript、138 source imports、Prettier、
+  `npm pack --dry-run` 152 files、`git diff --check` 通过。
+
+**运行态审计**：
+
+- 隔离 Web Host 在 1400×900 下复查 Commit、Terminal、Search Everywhere
+  和持久 Find；
+- 未发现新的可复现布局缺陷；
+- 3099 已关闭，临时 DSH_HOME 已清理。
+
+**长期约束**：
+
+- status 计数必须配有完整性/新鲜度标志；
+- partial directory snapshot 不得被调用方误认为完整；
+- contentScanVerified 只能在当前 watcher/validation 条件下为 true；
+- 新增影响候选集的选项必须同步更新 Scope signature 可观测性。
+
+## 2026-11-22 — Scope 目录快照预取必须有独立上限
+
+**作用域**：`TEXT_SEARCH_DIRECTORY_SNAPSHOT_LIMIT`、`listWorkspaceFiles(directoryLimit)` 和 Scope 自愈目录预取。
+
+**性能证据**：
+
+- 10,000 个空目录 + 1 个文件：
+  - rebuild 约 **115.05 ms**
+  - Scope 切换正文遍历约 **771.93 ms**
+  - 堆内存增量约 **35.35 MiB**
+- 50,000 目录线性外推约 **175 MiB**，不适合作为默认 Web Host 预取。
+
+**修复**：
+
+- Scope 目录快照预取上限设为 **10,000**；
+- `directoryLimit` 与文件 limit 完全独立；
+- 目录超限只设置 `directoriesTruncated=true`，不设置文件 `truncated`；
+- Scope 自愈在目录不完整时仍失效 `directoryScanComplete`，等待真实 traversal。
+
+**回归**：
+
+- GREEN：3 个目录、directoryLimit=2 时返回 2 个目录；
+- GREEN：`directoriesTruncated=true` 且文件 `truncated=false`；
+- GREEN：文件结果保持完整；
+- GREEN：索引/根菜单定向回归 **55 pass / 0 fail**；
+- GREEN：完整 `npm test` **3736 pass / 0 fail**；
+- GREEN：client build、lint/TypeScript、138 source imports、Prettier、
+  `npm pack --dry-run` 152 files、`git diff --check` 通过。
+
+**长期约束**：
+
+- 目录预取必须独立有界，不能线性占用正文文件预算；
+- 目录 truncated 与文件 truncated 必须分开表达；
+- 目录超限不得启用 directory fast path；
+- 上限调整必须带内存/延迟基准，不能只按文件数上限对齐。
+
+## 2026-11-22 — Scope 自愈应合并目录快照避免双次遍历
+
+**作用域**：`listWorkspaceFiles()` 目录预算、`searchWorkspaceText()` Scope 变化和后续文件名 fast path。
+
+**性能证据**：
+
+- 5,000 文件、50 个内容目录 + 1 个恢复纳入的空目录；
+- Scope 正文遍历约 **36.45 ms**，原实现还要再遍历目录约 **57.43 ms**；
+- 合并收集后 1,500 文件 / 30 内容目录：
+  - Scope 正文遍历约 **33.48 ms**；
+  - 首次文件名查询直接 fast path 约 **14.27 ms**。
+
+**修复**：
+
+- `listWorkspaceFiles()` 增加独立 `directoryLimit`；
+- 独立目录预算耗尽只设置 `directoriesTruncated`，不改变文件预算或文件 truncated；
+- 未显式传 directoryLimit 的调用保持原行为；
+- 正文搜索在 Scope 签名变化时，于同一次完整遍历里收集目录；
+- 目录完整时精确替换 snapshot，不完整时仍失效 `directoryScanComplete`。
+
+**回归**：
+
+- RED：Scope 正文自愈后首次文件名搜索仍 `indexFastPath=undefined`；
+- GREEN：首次文件名搜索直接 fast path 并命中 `docs/empty-dir`；
+- GREEN：目录结果和第二次 fast path 保持正确；
+- GREEN：索引/根菜单定向回归 **54 pass / 0 fail**；
+- GREEN：完整 `npm test` **3735 pass / 0 fail**；
+- GREEN：client build、lint/TypeScript、138 source imports、Prettier、
+  `npm pack --dry-run` 152 files、`git diff --check` 通过。
+
+**长期约束**：
+
+- 目录收集不得挤占文件候选上限；
+- 独立目录上限必须有界且不能静默伪造完整 snapshot；
+- 目录截断时继续使用真实 traversal 修正，不得启用 directory fast path；
+- 普通调用不传 directoryLimit 时必须保持原 truncation 语义。
+
+## 2026-11-22 — Scope 自愈必须同步失效目录投影
+
+**作用域**：`searchWorkspaceText()` Scope 自愈、`index.directories`、`directoryScanComplete` 和后续文件名 fast path。
+
+**症状 / 原始证据**：
+
+- 正文 Scope 自愈已修正文件路径和签名；
+- `index.directories` 仍保留旧 Scope，`directoryScanComplete` 仍为 true；
+- 之前被排除、现在恢复纳入的空目录不会出现在目录索引中；
+- RED：恢复 Scope 后文件名搜索 `empty-dir` 返回 `[]`。
+
+**根因**：
+
+- Scope 变化只更新了文件路径投影；
+- 目录投影同时受 Scope 影响，但没有失效或清理；
+- 文件名 fast path 仍把旧 directory snapshot 当成完整结果。
+
+**修复**：
+
+- Scope 签名变化时删除当前规则不允许的旧目录；
+- 设置 `directoryScanComplete=false` 并 mark dirty；
+- 下一次文件名搜索执行实时目录遍历并替换 directory snapshot；
+- 完成后恢复目录 fast path。
+
+**回归**：
+
+- RED：正文 Scope 恢复后 `docs/empty-dir` 文件名搜索为空；
+- GREEN：Scope 自愈使目录快照失效；
+- GREEN：第一次文件名搜索实时找到 `docs/empty-dir`；
+- GREEN：第二次同 Scope 搜索 `indexFastPath=true` 且结果保持；
+- GREEN：索引/根菜单定向回归 **54 pass / 0 fail**；
+- GREEN：完整 `npm test` **3735 pass / 0 fail**；
+- GREEN：client build、lint/TypeScript、138 source imports、Prettier、
+  `npm pack --dry-run` 152 files、`git diff --check` 通过。
+
+**长期约束**：
+
+- Scope 变化不能只修正正文文件投影，必须同步考虑目录投影；
+- 未完整遍历的目录集合不得继续声明 `directoryScanComplete=true`；
+- 空目录也必须由真实 traversal 或完整 snapshot 证明存在；
+- 目录 fast path 只能使用与当前 Scope 签名一致的完整 snapshot。
+
+## 2026-11-22 — 正文索引 Scope 变化后必须自愈
+
+**作用域**：`searchWorkspaceText()` 的持久索引路径快照、Scope 签名和规则变更后的后续搜索。
+
+**症状 / 原始证据**：
+
+- 文件搜索会在签名变化时写回新 `scopeSignature`；
+- 正文搜索的路径快照更新却只在 `index.scopeSignature === indexScopeSignature`
+  时执行；
+- 规则变化后第一次搜索能实时回退并得到正确结果，但签名仍保持旧值；
+- 新回归第二次相同 scoped 搜索仍 `indexFastPath=undefined`，证明永久回退。
+
+**根因**：
+
+- 正文搜索缺少 Scope 自愈写入；
+- 只把规则变化视为 fast path 失效条件，没有把完整实时枚举结果用于修正索引；
+- 路径快照更新和签名更新被错误地绑定为“签名已经相等”才执行。
+
+**修复**：
+
+- 只要实时枚举完整，就允许 `searchIndexApplyPathSnapshot()`；
+- 签名不同则写回当前 Scope 并 mark dirty；
+- 完整 scoped listing 会移除新规则排除的路径，保留仍允许文件的正文缓存；
+- 截断候选、File Mask、Git Scope、allowedPaths、非递归等不完整场景仍不更新签名。
+
+**回归**：
+
+- RED：第一次 scoped 搜索 fast path=false，旧 exclude 仍留在索引；
+- RED：第二次相同搜索仍 fast path=false；
+- GREEN：第一次完整 scoped 搜索只返回 `src/kept.ts`；
+- GREEN：第一次搜索后路径快照和签名已更新；
+- GREEN：第二次搜索 `indexFastPath=true`；
+- GREEN：索引/根菜单定向回归 **53 pass / 0 fail**；
+- GREEN：完整 `npm test` **3734 pass / 0 fail**；
+- GREEN：client build、lint/TypeScript、138 source imports、Prettier、
+  `npm pack --dry-run` 152 files、`git diff --check` 通过。
+
+**长期约束**：
+
+- Scope 签名只能由完整枚举结果更新；
+- 任何影响候选集的规则变化都必须在一次完整实时遍历后自愈；
+- 路径快照更新不得丢失仍允许路径的已缓存正文；
+- 候选截断时宁可继续实时回退，也不能写入伪完整签名。
+
+## 2026-11-22 — 索引重建必须携带 Project 搜索排除 Scope
+
+**作用域**：Project 根菜单 Rebuild、`useProjectSearchIndexActions()`、Host `rebuildSearchIndex` 路由和索引 Scope 签名。
+
+**症状 / 原始证据**：
+
+- 索引 Scope 签名包含 `searchDirectoryRules`；
+- 后续正文搜索只有签名完全一致才启用 `indexFastPath`；
+- 根菜单重建请求只发送 `{ op: 'rebuildSearchIndex' }`；
+- Host 也只传 `{ signal }`，重建索引始终保存空 Scope 签名；
+- 用户只要排除一个目录，后续搜索就持续失去持久索引 fast path。
+
+**根因**：
+
+- EditorWorkspace、index action hook 和 Host 路由三层都没有传递当前搜索目录规则；
+- 重建因此索引了本应排除的目录，同时把索引签名写成错误状态。
+
+**修复**：
+
+- `useProjectSearchIndexActions()` 增加 `searchDirectoryRules` 参数；
+- 重建 payload 携带完整 excluded/included rules；
+- Host 路由把 `body.searchDirectoryRules` 转交
+  `rebuildWorkspaceSearchIndex()`；
+- EditorWorkspace 使用当前状态调用 hook；
+- 重建与后续搜索共享同一 Scope 签名。
+
+**回归**：
+
+- RED：组件没有 `op: 'rebuildSearchIndex', searchDirectoryRules`；
+- RED：Host 路由没有 `body?.searchDirectoryRules`；
+- GREEN：组件、hook、Host 全链路传递 rules；
+- GREEN：排除 `docs` 后重建，同一 rules 搜索 `indexFastPath=true`；
+- GREEN：命中只包含 `src/kept.ts`，`docs/dropped.ts` 不进入索引；
+- GREEN：索引/根菜单定向回归 **52 pass / 0 fail**；
+- GREEN：完整 `npm test` **3733 pass / 0 fail**；
+- GREEN：client build、lint/TypeScript、138 source imports、Prettier、
+  `npm pack --dry-run` 152 files、`git diff --check` 通过。
+
+**长期约束**：
+
+- 索引写入与读取必须用同一 Scope signature 来源；
+- 重建不得扫描用户已排除且无 include override 的目录；
+- 新增影响候选集的搜索选项时，必须同步评估 Scope 签名；
+- 不允许以空签名索引覆盖带规则的工作区，导致 fast path 永久失效。
+
+## 2026-11-22 — 索引清理在途时菜单必须反映真实 busy 状态
+
+**作用域**：Project 根菜单 rebuild/cancel/clear、`useProjectSearchIndexActions()` 和本地化状态文案。
+
+**症状 / 原始证据**：
+
+- `clearAbortRef` 已在请求期阻止重复 mutation；
+- 菜单 model 没有 `clearing`，因此 clear 在途时 rebuild/clear 仍显示可执行；
+- 点击会被 request guard 静默忽略，没有 busy 反馈；
+- RED 中 `clearing:true` 的 disabled 结果为 `[false,true,false]`。
+
+**根因**：
+
+- 客户端只持有 rebuild progress，没有 clear 的可见状态；
+- menu model 只根据 rebuilding 计算 rebuild/clear disabled；
+- hook 发起 clear 后没有可重渲染的 clearing state。
+
+**修复**：
+
+- hook 增加 `clearing` state，发请求时同步置 true；
+- 当前 clear request 的 finally 才允许恢复 false；
+- action model 暴露 clearing；
+- `mutationBusy = rebuilding || clearing` 统一禁用 rebuild/clear；
+- clear 行在在途时显示 `editor.searchIndexClearing`；
+- 中英文字典同步该文案。
+
+**回归**：
+
+- RED：clearing 菜单 disabled 为 `[false,true,false]`，label 仍为空闲；
+- RED：hook 的第二次 render 没有 `clearing`；
+- RED：locale 缺少 `searchIndexClearing`；
+- GREEN：clearing 菜单 disabled 为 `[true,true,true]`；
+- GREEN：清理中文案为 `editor.searchIndexClearing`；
+- GREEN：发起 clear 后下一 render `clearing === true`；
+- GREEN：索引定向回归 **51 pass / 0 fail**；
+- GREEN：完整 `npm test` **3732 pass / 0 fail**；
+- GREEN：client build、lint/TypeScript、138 source imports、Prettier、
+  `npm pack --dry-run` 152 files、`git diff --check` 通过。
+
+**长期约束**：
+
+- 任何 request guard 都必须有对应的可见 busy/disabled 状态；
+- rebuild 与 clear 的 mutation 门禁必须共享同一计算；
+- busy 状态只能由仍拥有 request ownership 的 finally 清除；
+- disabled 行不能表现为可点击后静默 no-op。
+
+## 2026-11-22 — 索引清理必须可取消且不得通知已切换的工作区
+
+**作用域**：Project 根菜单 `Clear search index`、`clearWorkspaceSearchIndex()`、Editor root 卸载和 workspace 切换。
+
+**症状 / 原始证据**：
+
+- 客户端 clear 用 fire-and-forget 调用 `callFs({ op: 'clearSearchIndex' })`；
+- clear 没有 AbortController，Host 路由也没有转发 request.signal；
+- Editor root 因 workspace 切换销毁后，clear 仍可能继续删除索引；
+- 新回归以预取消 signal 调用 clear，旧实现仍删除索引且不返回 `aborted`。
+
+**根因**：
+
+- clear 未进入搜索索引操作共享的 request ownership/abort 生命周期；
+- Host 没有在破坏性 `rm` 之前消费取消信号；
+- unmount cleanup 只 abort rebuild，没有覆盖 clear；
+- 完成回调没有按 sequence 判断是否仍属于旧 workspace。
+
+**修复**：
+
+- 客户端增加 `clearAbortRef`、独立 request id 和 signal；
+- completion/error 只有 request 仍拥有 sequence 时才 notify；
+- unmount cleanup 同时 abort rebuild 和 clear；
+- Host 路由把 `request.signal` 传给 `clearWorkspaceSearchIndex()`；
+- Host 在等待后台写、读取 stat 和 `rm` 前检查 signal；
+- 真正开始删除后按同步提交执行，避免返回“aborted”但文件已经消失。
+
+**回归**：
+
+- 新增 `an aborted clear leaves the existing index intact`；
+- 新增 fake React 行为测试：unmount abort 在途 clear，旧 Promise 不再 notify；
+- RED：预取消 clear 返回 `aborted=undefined`，索引被删除；
+- GREEN：预取消返回 `{ cleared:false, aborted:true }`，索引文件仍存在；
+- GREEN：clear signal 在 unmount 后立即变为 aborted，通知列表保持为空；
+- GREEN：索引定向回归 **51 pass / 0 fail**；
+- GREEN：完整 `npm test` **3732 pass / 0 fail**；
+- GREEN：client build、lint/TypeScript、138 source imports、Prettier、
+  `npm pack --dry-run` 152 files、`git diff --check` 通过。
+- 运行态：隔离 `DSH_HOME` 与 3099 Web Host 下，Project 根菜单 Rebuild
+  生成索引，Clear 正常删除；验收后关闭 Host 并清理临时目录。
+
+**长期约束**：
+
+- 任何索引 mutation 都必须有可取消的 request 生命周期；
+- workspace 切换后旧 completion/error 不得写回新 Editor UI；
+- abort 必须在破坏性文件操作之前生效，不能伪装已取消；
+- clear/rebuild 与自动搜索写盘继续使用同一 generation 和串行队列。
+
+## 2026-11-22 — 文件名搜索不得在响应后遗留后台索引写入
+
+**作用域**：`searchWorkspaceEntries()` 的 live-only 路径回写、陈旧路径清理、Project speed search 和 Quick Open。
+
+**症状 / 原始证据**：
+
+- 文件名搜索发现索引外路径后，结束路径使用
+  `void queueWorkspaceSearchIndexWrite(...)`；
+- `search()` Promise 已返回、客户端甚至已关闭 Quick Open/Project speed search 后，
+  索引压缩和临时文件写入仍可能继续；
+- 新回归在搜索返回后立即 `stat()` 索引文件得到 `null`，证明写盘尚未 settle。
+
+**根因**：
+
+- 文件搜索把索引写入当成与调用生命周期无关的后台任务；
+- 候选搜索本身已结束，但 dirty path snapshot 的持久化仍持有 CPU、文件描述符和磁盘 IO；
+- 调用方完成响应后不会再持有可触发的业务取消点，因此不能依靠后续操作清理。
+
+**修复**：
+
+- 文件名搜索在返回结果前 `await queueWorkspaceSearchIndexWrite()`；
+- 继续使用同一 workspace 串行队列、generation、rebuild suspend 和 AbortSignal；
+- 写入失败仍只保留 dirty，不把已成功的搜索结果改为失败；
+- 不再用 fire-and-forget 方式启动索引持久化。
+
+**回归**：
+
+- 新增行为断言：`search()` settle 后索引文件必须立即可读；
+- RED：搜索返回后索引 `stat()` 为 `null`；
+- GREEN：搜索返回时索引文件已存在且大小大于 0；
+- GREEN：文件名搜索、fast path、clear 等待、并发 mutation、live writeback、
+  stale write 和 abort 定向回归 **13 pass / 0 fail**；
+- GREEN：完整 `npm test` **3730 pass / 0 fail**；
+- GREEN：lint/TypeScript、138 个 source imports、client build consistency、
+  Prettier、`npm pack --dry-run` 152 files、`git diff --check` 通过。
+
+**长期约束**：
+
+- 搜索 API 的生命周期结束不得成为索引 IO 继续运行的唯一失联点；
+- dirty 索引写盘必须在当前调用可取消、可观测的生命周期内完成；
+- 写盘失败仍不得回滚搜索结果或破坏旧索引；
+- clear/rebuild 与文件名搜索写盘继续共享同一 generation 和串行队列。
+
+## 2026-11-22 — 搜索 Preview 读取失败必须本地化并保留详情
+
+**作用域**：Search Everywhere / Find Preview 的文件读取 catch、`role="alert"` 展示和 locale 切换。
+
+**症状 / 根因**：
+
+- 两个 Preview 都直接显示 `failure.message`；
+- 中文界面因此出现纯英文 Node/Host 错误；
+- 两侧没有共享错误文案 helper，后续容易继续漂移；
+- 直接替换成笼统“读取失败”又会丢失文件或通信错误细节。
+
+**修复**：
+
+- `find-tool.ts` 增加 `searchPreviewFailureMessage(t, failure)`；
+- 统一返回 `editor.searchPreviewFailed`，并把原始 message 作为 `{message}`；
+- Search Everywhere 与 Find 共用该 helper；
+- 中英字典同步；
+- Preview effect 增加 `t` 依赖，语言变化时错误展示会重新本地化。
+
+**回归**：
+
+- 新增 `tests/search-preview-read-failure-localized.test.mjs`；
+- GREEN：Error 和普通字符串失败都保留真实 detail；
+- GREEN：两个 Preview 都调用共享 helper；
+- GREEN：字典各有一个 `searchPreviewFailed`；
+- GREEN：索引/搜索/Quick Open/Search Everywhere 定向回归 **941 pass / 0 fail**；
+- GREEN：完整 `npm test` **3729 pass / 0 fail**；
+- client build、lint/typecheck、build consistency、Prettier、pack、`git diff --check` 通过。
+
+**长期约束**：
+
+- Preview 错误必须包含用户可识别的本地化上下文；
+- 不得吞掉底层 message；
+- 所有 Preview 入口应继续复用同一 helper；
+- locale 变化必须让已显示错误重新本地化，而不是保留旧语言。
+
+## 2026-11-22 — Find Preview 必须跟随 live dirty buffer
+
+**作用域**：`FindToolWindow` 预览 effect、dirty open file、active text row 和磁盘 mtime。
+
+**症状 / 根因**：
+
+- Find 结果行以 `path:line:column` 保持身份；
+- 用户继续编辑同一文件时 rowKey 不变；
+- Preview effect 只依赖 `previewOpen / active.rowKey / loading`；
+- FindToolWindow 只持有 `openFilesRef`，ref 内容变化不会触发现有 effect；
+- Preview 因此持续显示首次捕获的旧内容，直到切换结果或重新搜索。
+
+**修复**：
+
+- FindToolWindow 改为接收响应式 `openFiles` 数组；
+- 增加 `findToolLivePreviewContent(path, openFiles)`，只从 path 匹配且 dirty 的内存文档取正文；
+- 用 memo 生成 `activeLivePreviewContent`，无关文件编辑时保持 primitive 不变，避免多余磁盘读取；
+- Preview effect 依赖 `active.rowKey`、`active.mtime`、live content revision 和 loading；
+- dirty 文档保存或关闭后 helper 返回 null，自动重新读取磁盘版本；
+- active row 的 mtime 变化也会刷新磁盘预览。
+
+**回归**：
+
+- 新增 `tests/search-find-preview-refreshes-live-open-file-content.test.mjs`；
+- GREEN：dirty content 更新后立即解析最新正文；
+- GREEN：非 dirty 或路径不匹配时回退磁盘；
+- GREEN：preview effect 依赖 live content revision 与 active mtime；
+- GREEN：索引/搜索/Quick Open/Search Everywhere 定向回归 **939 pass / 0 fail**；
+- GREEN：完整 `npm test` **3727 pass / 0 fail**；
+- client build、lint/typecheck、build consistency、Prettier、pack、`git diff --check` 通过。
+
+**长期约束**：
+
+- Find preview 不得缓存首次打开的旧 dirty buffer；
+- 无关 open-file 更新不得造成 active preview 重复磁盘读取；
+- dirty 状态清除后必须回退磁盘内容；
+- active row 变化、mtime 变化或 live buffer 内容变化都必须刷新预览；
+- 预览请求仍必须通过 AbortController 丢弃被新 active row 取代的旧响应。
+
+## 2026-11-22 — 正文 metadata 预取并发批次调优
+
+**作用域**：`searchWorkspaceText()` 冷启动 metadata 预取批次。
+
+**性能证据**：
+
+- 20,000 文件、无匹配、三轮中位：
+  - 8：**149.17 ms**
+  - 16：**126.38 ms**
+  - 32：**117.23 ms**
+  - 64：**107.84 ms**
+  - 128：**100.87 ms**
+- 64 已获得主要收益；128 只再快约 6.5%，继续增大并发收益递减且增加文件描述符压力。
+
+**修复**：
+
+- 新增正文搜索专用 `TEXT_SEARCH_STAT_CONCURRENCY=64`；
+- 文件名搜索的 `SEARCH_INDEX_STAT_CONCURRENCY` 保持 32；
+- 预取窗口、回归和 `prefetchedStats` 使用正文专用并发常量。
+
+**回归**：
+
+- RED：128 候选、`maxMatches=1` 时仍只预取 32；
+- GREEN：同一条件预取恰好 64；
+- 同数据集受控基准 **117.23 ms → 107.84 ms**，约下降 **8.0%**；
+- 源码复测中位 **111.56 ms**，存在正常磁盘波动；
+- 索引/搜索/Quick Open/Search Everywhere 定向回归 **937 pass / 0 fail**；
+- 完整 `npm test` **3725 pass / 0 fail**；
+- client build、lint/typecheck、build consistency、Prettier、pack、`git diff --check` 通过。
+
+**长期约束**：
+
+- 正文 metadata 并发与文件名候选 stat 并发必须独立；
+- batch 上限必须保持固定，不能随文件总数增长；
+- early-stop 最多丢弃一个批次；
+- 跨平台发布前需在 Linux 复测 64/128 的句柄压力和延迟。
+
+## 2026-11-22 — 正文缓存首次校验应批量并发 stat
+
+**作用域**：`searchWorkspaceText()` 的候选 metadata 校验、进程重启后的 persisted index 冷启动。
+
+**症状 / 根因**：
+
+- 进程重启后 `contentScanVerified=false`，首次搜索必须重新校验 20,000 个文件；
+- 原实现对每个候选顺序 `await stat()`；
+- 20,000 文件无匹配冷启动约 **197.6 ms**；
+- 同一 watcher 会话稳定态约 **19–20 ms**，差距全部来自串行 metadata I/O。
+
+**修复**：
+
+- 对未可信候选按 `SEARCH_INDEX_STAT_CONCURRENCY=32` 预取 metadata；
+- 批次结果只暂存当前窗口，并严格按原候选顺序消费；
+- trusted cached content 不触发 metadata 预取；
+- AbortSignal 在批次前后检查；
+- `maxMatches` 提前结束时最多浪费一个已启动批次；
+- `indexCache.prefetchedStats` 暴露真实预取数量。
+
+**性能验证**：
+
+- 20,000 文件冷启动无匹配：**197.6 ms → 118.59 ms**，下降约 **40.0%**；
+- 第二次查询仍跳过 20,000 次 `stat`，稳定态约 **20.3 ms**；
+- 命中上限场景最多预取 32 项，不扩大候选范围。
+
+**回归**：
+
+- 新增 `tests/search-index-text-provider-stat-prefetch.test.mjs`；
+- GREEN：64 文件首次校验 `prefetchedStats=64`、`skippedStats=0`；
+- GREEN：第二次查询 `prefetchedStats=0`、`skippedStats=64`；
+- GREEN：`maxMatches=1` 时 `prefetchedStats<=32`；
+- GREEN：索引/搜索/Quick Open/Search Everywhere 定向回归 **937 pass / 0 fail**；
+- GREEN：完整 `npm test` **3725 pass / 0 fail**；
+- client build、lint/typecheck、build consistency、Prettier、pack、`git diff --check` 通过。
+
+**长期约束**：
+
+- metadata 预取必须有固定并发上限；
+- 预取不得改变候选顺序、搜索预算或 early-stop 语义；
+- trusted 缓存不得再次读取 metadata；
+- 批次内每个 `stat` 失败必须保持原有“文件消失则跳过”语义；
+- 取消检查不得等到整个候选集预取完成。
+
+## 2026-11-22 — Git ignore 配置路径应按 session/revision 复用
+
+**作用域**：`listGitIgnoredSearchPrefixes()`、global excludes fingerprint、Search Everywhere/Find 文本搜索。
+
+**症状 / 根因**：
+
+- Git ignored path set 已按 `searchSessionId/searchRevision` 缓存；
+- 但同一 session/revision 的每次搜索仍执行
+  `git config --path --get core.excludesFile`；
+- 稳定态匹配查询仍有约 **12.63 ms** 固定成本，主要来自重复子进程启动。
+
+**修复**：
+
+- 增加有界配置路径缓存，key 为 `root + searchSessionId + searchRevision`；
+- 缓存 TTL 2 秒，避免外部 global gitconfig 变化永久失效；
+- 每次搜索仍读取并哈希 global excludes 文件内容；
+- 完整 fingerprint 继续参与 ignored path set cache key；
+- 无 session/revision 的直连 Host 调用保持每次重新读取；
+- 配置路径缓存最多 32 项，按最旧 entry 淘汰。
+
+**性能验证**：
+
+- 20,000 文件、稳定态、真实 UI `searchSessionId/searchRevision`；
+- 200 命中：**12.63 ms → 5.85 ms**，下降约 **53.7%**；
+- 无匹配：**27.03 ms → 22.18 ms**，下降约 **17.9%**。
+
+**回归**：
+
+- 新增 `tests/search-gitignore-global-path-cache.test.mjs`；
+- GREEN：同 session/revision 连续搜索只执行一次配置路径读取；
+- GREEN：revision 或 session 变化重新读取；
+- GREEN：相同 revision 内 global excludes 内容变化仍刷新 ignored set；
+- GREEN：索引/搜索/Quick Open/Search Everywhere 定向回归 **935 pass / 0 fail**；
+- GREEN：完整 `npm test` **3723 pass / 0 fail**；
+- client build、lint/typecheck、build consistency、Prettier、pack、`git diff --check` 通过。
+
+**长期约束**：
+
+- 配置路径缓存必须有界并按 session/revision 隔离；
+- 不得缓存 global excludes 文件内容指纹，内容变化必须仍被发现；
+- 无 session/revision 的直连调用不得复用配置路径；
+- TTL 到期必须重新确认配置路径；
+- ignored path set 与 global fingerprint 的组合 cache key 语义不能改变。
+
+## 2026-11-22 — watcher 会话内已验证正文缓存必须跳过逐文件 stat
+
+**作用域**：`searchWorkspaceText()`、正文索引 freshness、WorkspaceWatcher、Host 文件写和索引 rebuild。
+
+**症状 / 根因**：
+
+- 正文路径已从完整索引取得，但每个缓存文件仍执行 `stat`；
+- 20,000 文件无匹配查询中，目录枚举已移除，剩余固定成本主要是逐文件系统调用；
+- watcher 已提供变化信号，却没有建立“本会话内容仍可信”的内存状态。
+
+**修复**：
+
+- 索引增加仅内存的 `contentScanVerified`，从磁盘读取或模块重启后默认 `false`；
+- 有活跃 watcher 的 rebuild 完成时可建立验证；
+- 完整 workspace Scope、完整路径索引、fast path 和验证有效时，正文/二进制/大文件条目直接使用缓存元数据，跳过 `stat`；
+- path-only、stale 和未验证内容继续 `stat`、读取并更新缓存；
+- 只有一次搜索处理完所有候选后才能建立验证；
+- `maxMatches` 提前终止、字节预算跳过、读取失败、路径消失或缓存升级失败都会阻止验证；
+- watcher 事件和 Host 写/删除/重命名通过 invalidation revision 立即撤销验证；
+- rebuild 捕获开始时的 invalidation revision，期间有变化则不建立验证；
+- `indexCache.skippedStats` 暴露真实跳过数，供回归与性能审计。
+
+**性能验证**：
+
+- 20,000 文件、`maxMatches=200`；
+- 上一轮匹配查询 **50.97 ms**，本轮中位 **38.40 ms**，下降约 **24.7%**；
+- 上一轮无匹配查询 **172.21 ms**，本轮中位 **45.37 ms**，下降约 **73.7%**；
+- 使用真实 UI 相同的 `searchSessionId/searchRevision` 后，稳定态匹配 **12.63 ms**、无匹配 **27.03 ms**；
+- 匹配查询仍包含每次 Git ignore 规则读取，是下一轮固定成本。
+
+**回归**：
+
+- 新增 `tests/search-index-text-provider-watcher-freshness.test.mjs`；
+- GREEN：watcher 会话内 rebuild 后 2 个缓存文件全部跳过 `stat`；
+- GREEN：watcher 事件后首次回退重新校验，下一次 fast path 恢复；
+- GREEN：fresh module 首次完整校验，第二次查询才跳过；
+- GREEN：命中上限不会错误建立验证；
+- GREEN：Host 写入立即撤销缓存信任并读到新正文；
+- GREEN：字节预算跳过的 stale 正文不会被下一次查询误用；
+- GREEN：索引/搜索/Quick Open/Search Everywhere 定向回归 **934 pass / 0 fail**；
+- GREEN：完整 `npm test` **3722 pass / 0 fail**；
+- client build、lint/typecheck、build consistency、Prettier、pack、`git diff --check` 通过。
+
+**长期约束**：
+
+- `contentScanVerified` 只能在活跃 watcher、完整 Scope 和完整路径索引下成立；
+- 验证不得在候选未全部处理、预算不足或缓存升级失败时建立；
+- watcher/Host invalidation 必须递增独立 revision，防止并发搜索用旧快照重新标记可信；
+- 从磁盘加载的索引首次必须校验正文，不得持久化验证状态；
+- 后续优化 Git ignore 读取时，不得让缓存绕过 `.gitignore` 变化失效。
+
+## 2026-11-22 — 正文搜索的路径候选应复用完整持久索引
+
+**作用域**：`searchWorkspaceText()`、persisted path completeness、WorkspaceWatcher freshness 和实时回退收敛。
+
+**症状 / 根因**：
+
+- 正文已经优先读取持久内容缓存；
+- 但每次正文搜索仍先调用 `listWorkspaceFiles()` 枚举并排序目录；
+- 即使查询完全不读盘，也有固定目录遍历成本；
+- 索引已保存完整路径集合，却只被用于文件名搜索，没有用于正文搜索候选；
+- watcher 事件只会把索引标记为 stale，正文实时回退后原实现不会恢复 complete，后续查询会永久失去 fast path。
+
+**修复**：
+
+- 读取索引后，当 `pathScanComplete`、Scope 签名一致、watcher 活跃、未 stale、未重建且非 `includeExcluded` 时，直接以索引路径作为正文候选；
+- Git Scope、Changed Files `allowedPaths`、Search Directory Rules 签名变化或不活跃 watcher 继续实时枚举；
+- 仍逐文件 `stat` 校验 `mtime/size/dev/ino`，不绕过正文新鲜度检查；
+- 完整实时回退后用一次路径快照差分收敛新增/删除文件，并恢复 `pathScanComplete=true/pathScanStale=false`；
+- 搜索返回值增加 `indexFastPath`，用于真实行为验证。
+
+**性能验证**：
+
+- 20,000 文件、`maxMatches=200`；
+- 实时路径枚举 **50.97 ms**；
+- 索引路径中位 **41.31 ms**；
+- 下降约 **19.0%**；
+- 无匹配查询 **172.21 ms → 165.96 ms**，说明剩余成本主要在逐文件 `stat`。
+
+**回归**：
+
+- 新增 `tests/search-index-text-provider-fast-path.test.mjs`；
+- GREEN：完整索引、活跃 watcher 下 `indexFastPath=true`，2 个文件全为 cache hit；
+- GREEN：无 watcher、显式 `allowedPaths`、`includeExcluded` 正确回退；
+- GREEN：Scope Pattern 可从索引路径过滤；
+- GREEN：watcher 事件后首次回退收敛新增/删除文件，下一次查询恢复 fast path；
+- GREEN：嵌套目录结果顺序与实时 BFS 完全一致；
+- GREEN：索引/搜索/Quick Open/Search Everywhere 定向回归 **929 pass / 0 fail**；
+- GREEN：完整 `npm test` **3717 pass / 0 fail**；
+- client build、lint/typecheck、build consistency、Prettier、pack 和 `git diff --check` 通过。
+
+**长期约束**：
+
+- 索引路径只有在完整、Scope 匹配且 watcher 新鲜时才能替代实时枚举；
+- Git Scope、Changed Files 显式集合和 `includeExcluded` 不得被索引路径覆盖；
+- 正文内容新鲜度仍必须由现有 metadata identity 校验保证；
+- watcher 事件后的完整实时回退必须收敛路径集合，不能永久降级；
+- 后续若跳过 per-file `stat`，必须有等价的 watcher-backed freshness 证据。
+
+## 2026-11-22 — 大规模目录删除需要集合快照差分
+
+**作用域**：completion traversal 后的 `index.directories` 与 `liveIndexDirectories` 协调。
+
+**性能证据**：
+
+- 10,000 个空目录 rebuild 后一次性删除；
+- watcher 触发完整 live reconciliation；
+- 旧实现对每个丢失目录调用 `searchIndexDropDirectoryTree()`；
+- helper 每次都扫描整个目录 Set，形成近似 O(n²)；
+- 旧实现中位约 **231.82 ms**。
+
+**修复**：
+
+- 增加 `searchIndexApplyDirectorySnapshot()`；
+- 完整 traversal 时一次删除缺失目录、一次加入新增目录；
+- 集合变化只调用一次 `searchIndexMarkDirty()`；
+- 单路径删除仍使用祖先清理 helper。
+
+**验证**：
+
+- GREEN：10,000 目录删除核对中位 **231.82 ms → 11.67 ms**，约下降 **95.0%**；
+- GREEN：status 从 `directories:10000` 收敛到 `0`；
+- GREEN：删除目录、并发 mutation、Scope/File Mask 定向回归 **8 pass / 0 fail**；
+- GREEN：完整 `npm test` **3714 pass / 0 fail**；
+- client build、lint/typecheck、build consistency、Prettier、pack 和 `git diff --check` 通过。
+
+**长期约束**：
+
+- 完整集合协调不得对每个元素重复扫描整个集合；
+- 批量快照变化只增加一次 dirtyRevision；
+- 单目录/祖先删除的精确清理语义不能丢失。
+
+## 2026-11-22 — 删除目录必须从持久路径投影中移除
+
+**作用域**：搜索索引目录集合、目录候选验证、完整实时遍历收敛和 status。
+
+**症状 / 根因**：
+
+- 文件候选不存在时会从 index files 删除；
+- 目录候选不存在时只跳过结果，没有删除 `index.directories`；
+- watcher 后的完整实时遍历只追加 live directories，没有清理未见目录；
+- 已删除目录因此永久留在 NDJSON 和路径投影中，后续查询反复 stat 并忽略。
+
+**修复**：
+
+- 增加 `searchIndexDropDirectoryTree()`，删除目录自身与全部索引后代；
+- 目录验证失败、Host 删除、目录 rename 和完整 live reconciliation 都调用该 helper；
+- 完整 traversal 视为目录权威快照，清理本次未发现的旧目录；
+- `createEntry(directory)` 走目录失效入口，不创建错误的 file stale 条目；
+- `workspaceSearchIndexStatus()` 返回 `directories` 数量，便于验证收敛。
+
+**回归**：
+
+- `tests/search-index-file-provider-fast-path.test.mjs` 新增外部删除目录用例；
+- RED：删除后 status 仍为 `directories:1`；
+- GREEN：首次完整核对后 status 为 `directories:0`；
+- GREEN：第二次 fast path 查询不返回旧目录；
+- GREEN：fast-path 定向回归 **4 pass / 0 fail**；
+- GREEN：索引/搜索/Quick Open/Search Everywhere 定向回归 **274 pass / 0 fail**；
+- GREEN：完整 `npm test` **3714 pass / 0 fail**；
+- client build、lint/typecheck、build consistency、Prettier、pack 和 `git diff --check` 通过。
+
+**长期约束**：
+
+- 完整 live traversal 必须同时协调新增和删除的索引路径；
+- 删除目录必须连同索引后代一起清理；
+- 目录不能复用文件 stale 占位语义；
+- 状态计数只能反映当前内存索引快照，不得虚构目录。
+
+## 2026-11-22 — 搜索面板选中行的标题和次级文字必须改用白色层级
+
+**作用域**：Search Everywhere、Quick Open、Find、Show Usages、`SearchFileResultItem` 和 active option CSS。
+
+**症状 / 根因**：
+
+- active row 父级 `color` 为 `#fff`；
+- meta、category、shortcut 和文件详情仍显式使用 `--dsw-alias-label-tertiary`；
+- 真实 ego-browser 截图中，蓝色选中行右侧“最近的搜索”呈低对比浅蓝；
+- Quick Open 的选中文件行同样在右侧路径 `lib` 显示 tertiary 灰色；
+- dark mode 的 selected background 是 `rgb(122,170,255)`，白色文字对比不足；
+- 这不是数据或布局问题，而是 active 状态没有覆盖子元素层级颜色。
+
+**修复**：
+
+- name 增加 `dsh-editor-search-result-name`；
+- detail 增加 `dsh-editor-search-result-detail`，并保留 Search Everywhere meta 类；
+- 对 `[role="option"][aria-selected="true"]` 内的 name 覆盖为 `#fff`；
+- 对 detail/meta/category/shortcut 覆盖为 `#fff` 84%；
+- 使用 `light-dark(#fff, #111)` 让 dark mode 自动改用深色文字；
+- detail/meta/category/shortcut 用 `opacity:0.84` 保持次级层级；
+- 非 active row 保留原 tertiary 层级；
+- 不修改共享 palette row 的其他调用方。
+
+**验证**：
+
+- 新增 `tests/search-everywhere-active-secondary-text-contrast.test.mjs`；
+- ego-browser 1400×900 真实页面复查，Search Everywhere 与 Quick Open 选中行均清晰可读；
+- light mode：name `rgb(255,255,255)`、detail 84% white、row `rgb(65,118,230)`；
+- dark mode：root color-scheme `dark`、name/detail `rgb(17,17,17)`、detail opacity `0.84`；
+- Search / Quick Open / shared file item 定向回归 **11 pass / 0 fail**；
+- 完整 `npm test` **3714 pass / 0 fail**；
+- client build、lint/typecheck、build consistency、Prettier、pack 和 `git diff --check` 通过。
+
+**长期约束**：
+
+- active row 的所有次级文字必须有独立 active 规则，不能依赖父级继承；
+- 对比度修复不得提升非选中行的视觉权重；
+- 深色主题继续使用同一 active 规则时必须保持可读。
+
+## 2026-11-22 — Project speed search 的目录也必须持久索引
+
+**作用域**：workspace search index NDJSON、rebuild、Project speed search 和空目录查询。
+
+**症状 / 根因**：
+
+- 原索引只保存文件路径；
+- 目录结果依赖文件祖先临时推导，空目录完全缺失；
+- Project speed search 需要目录结果，所以完整文件索引仍必须全量实时遍历；
+- 20,000 文件 + 500 目录下，目录查询仍耗时中位 **67.30 ms**。
+
+**修复**：
+
+- NDJSON 在文件记录后追加 `{directory}` 记录；
+- rebuild 使用 `listWorkspaceFiles({ includeDirectories:true })` 收集允许搜索的目录；
+- header 增加 `directoriesComplete`；
+- 路径投影合并文件祖先和显式目录，空目录不会重复但也不会丢失；
+- Project speed search 在文件、目录索引都完整，watcher 活跃且 Scope 规则一致时走 fast path；
+- 文件创建、删除、移动、上传，以及目录变更都会禁用 directory scan，等待下一次实时核对。
+
+**性能验证**：
+
+- 20,000 文件 + 500 目录、目录名唯一查询；
+- live walk 中位 **67.30 ms**；
+- persisted fast path 中位 **5.43 ms**；
+- 相对下降约 **91.9%**。
+
+**回归**：
+
+- `tests/search-index-file-provider-fast-path.test.mjs` 增加空目录 fresh-module 查询；
+- 空目录通过持久索引 fast path 返回 `kind:directory`；
+- 索引/搜索/Quick Open/Search Everywhere 定向回归 **272 pass / 0 fail**；
+- 完整 `npm test` **3712 pass / 0 fail**；
+- client build、lint/typecheck、build consistency、Prettier、pack 和 `git diff --check` 通过。
+
+**长期约束**：
+
+- 旧索引缺少 directoriesComplete 时必须回退实时遍历；
+- 显式目录记录和文件祖先目录必须去重；
+- 目录 completeness 缺失时只允许 file-only fast path；
+- 目录路径索引不得改变 Project speed search 的结果顺序和 Scope 过滤。
+
+## 2026-11-22 — 完整路径索引应跳过 file-only 实时目录扫描
+
+**作用域**：Quick Open、Search Everywhere Files fallback、workspace search index header 与 WorkspaceWatcher。
+
+**症状 / 根因**：
+
+- 使用完整持久索引时，file-only 查询仍先调用 `listDirectory()`；
+- `listDirectory()` 会读取并排序整个目录，即使 `maxVisited:1`；
+- 50,000 个根目录文件下，实时遍历 + 索引补足中位约 **87.67 ms**。
+
+**修复**：
+
+- 索引 header 增加向后兼容的 `complete` 和 `scopeSignature`；
+- rebuild 在全量枚举成功时保存 `pathScanComplete:true`；
+- file-only 查询满足以下条件时直接查询路径缓存：
+  - index complete；
+  - 当前 searchDirectoryRules 签名一致；
+  - `includeExcluded` 未启用；
+  - Git ignore 过滤启用；
+  - 至少有一个活跃 WorkspaceWatcher；
+  - watcher 未标记 `pathScanStale`；
+- WorkspaceWatcher 在构造时登记活跃计数，正常关闭或递归 watcher 失败时释放；
+- 没有 watcher 时 fast path 一律降级为实时遍历，避免把陈旧索引当权威；
+- WorkspaceWatcher 记录文件事件时只把内存索引标记为 stale，不立即扫描；
+- 下一次 file-only 查询若发现 stale，则回到实时遍历并更新 complete/scope；
+- Project speed search 需要目录结果，继续走实时遍历。
+
+**性能验证**：
+
+- 50,000 文件、唯一文件名、Host session/revision 缓存：
+  - live walk 中位 **87.83 ms**；
+  - persisted fast path 中位 **6.25 ms**；
+  - 相对下降约 **92.9%**。
+
+**回归**：
+
+- `tests/search-index-file-provider-fast-path.test.mjs`；
+- complete index 在新 ESM 模块实例中仍可 fast path；
+- 没有活跃 watcher、watcher 事件或 searchDirectoryRules 变化会禁用 fast path；
+- 索引/搜索/Quick Open/Search Everywhere 定向回归 **271 pass / 0 fail**；
+- 完整 `npm test` **3711 pass / 0 fail**；
+- client build、lint/typecheck、build consistency、Prettier、pack 和 `git diff --check` 通过。
+
+**长期约束**：
+
+- fast path 只适用于无目录结果的 file-only provider；
+- 索引完整性、Scope 签名和 watcher 新鲜度任一不满足都必须回退实时遍历；
+- watcher 不可用时不得把陈旧索引当成永久权威；
+- header 扩展必须保持旧索引可读，旧索引缺少 complete 时默认降级。
+
+## 2026-11-22 — 索引文件名查询应复用路径投影
+
+**作用域**：`searchWorkspaceEntries` 的持久索引文件名/目录名候选构建。
+
+**性能证据**：
+
+- 50,000 个 path-only 文件、唯一文件名查询；
+- 优化前索引补足中位约 **91.55 ms**；
+- 完整实时遍历中位约 **96.45 ms**；
+- 主要固定成本来自每次查询重复执行 `Object.entries`、路径 `split`、`basename`、`toLowerCase` 和 candidate 字符串构造。
+
+**修复**：
+
+- 使用 `WeakMap` 按索引对象缓存路径投影；
+- 缓存项由 `dirtyRevision` 失效；
+- 投影预先保存 file/directory 顺序、lowercase name/path、hidden 和 system-generated 标记；
+- 查询先判断 needle，再构造 `kind:path` candidate identity；
+- 不改变索引 NDJSON、实时遍历或结果排序。
+
+**验证**：
+
+- GREEN：50,000 path-only 索引补足中位 **91.55 ms → 76.78 ms**，约下降 **16.1%**；
+- GREEN：完整实时遍历中位 **84.17 ms**；
+- GREEN：50,000 条目的路径投影在强制 GC 后 heap 增量约 **5.6 MiB**；
+- GREEN：外部删除文件不会因投影缓存而复活，重复查询仍为空；
+- GREEN：索引/搜索/Quick Open/Search Everywhere 定向回归 **263 pass / 0 fail**；
+- GREEN：完整 `npm test` **3708 pass / 0 fail**；
+- GREEN：client build、lint/typecheck、build consistency、Prettier、pack 和 `git diff --check` 通过。
+
+**长期约束**：
+
+- 派生路径投影只能通过 `dirtyRevision` 失效，不得绕过索引 mutation；
+- 文件与目录的 file-then-ancestor 顺序必须保留，避免同名校验变化；
+- 性能优化不能改变 matchPath、hidden、Git ignore、目录规则或 File Mask 语义；
+- 缓存是进程内派生状态，不得写入持久索引格式。
+
+## 2026-11-22 — 文件名搜索的缓存 miss 也必须创建持久索引
+
+**作用域**：Project speed search、Quick Open、Find File 共用的 `searchWorkspaceEntries`。
+
+**症状 / 根因**：
+
+- 正文搜索在 cache miss 时会创建空索引并写回；
+- 文件名搜索原实现只有在“索引已存在且结果少于 200”时才补路径；
+- 首次文件名搜索不会留下索引；
+- 当 live 结果达到 200 上限时，代码直接返回，已遍历到的路径也不会持久化；
+- 每条新增路径分别调用 `searchIndexMarkDirty()`，大项目会产生大量重复版本递增。
+
+**修复**：
+
+- 文件名搜索结束后统一读取现有索引；
+- cache miss 时创建 null-prototype path-only 索引；
+- 实时遍历发现的路径批量标记一次 dirty；
+- 结果已达到 200 上限时仍保存路径缓存，但不再继续补足结果；
+- 原有串行写队列、generation、rebuild suspend、Scope/File Mask/Git ignore 和排序语义不变。
+
+**回归**：
+
+- `tests/search-index-file-search-creates-cache.test.mjs`；
+- RED：首次搜索后 status 为 `exists:false, files:0`；
+- GREEN：首次搜索自动落盘，fresh module 在 `maxVisited:1` 时仍能从索引命中；
+- GREEN：live 结果达到 200 上限时仍会持久化 path cache；
+- GREEN：索引/搜索/Quick Open/Search Everywhere 定向回归 **236 pass / 0 fail**；
+- GREEN：完整 `npm test` **3708 pass / 0 fail**；
+- GREEN：client build、lint/typecheck、build consistency、Prettier、pack 和 `git diff --check` 通过。
+
+**验证命令**：
+
+```bash
+node --test tests/search-index-file-search-creates-cache.test.mjs
+```
+
+**长期约束**：
+
+- 缓存 miss 的实时搜索结果必须回写，不能只服务当前请求；
+- 索引写入不得绕过现有串行队列和 generation 保护；
+- 结果上限只能停止候选补足，不能阻止已经获得的路径进入缓存；
+- 批量脏标记不得改变索引内容或最终快照版本语义。
+
+## 2026-11-22 — 索引路径表不能丢失 `__proto__` 等合法文件名
+
+**作用域**：`readWorkspaceSearchIndex`、`rebuildWorkspaceSearchIndex`、空索引初始化和 legacy v1 迁移。
+
+**症状 / 根因**：
+
+- 工作区允许存在名为 `__proto__` 的普通文件；
+- 索引 `files` 使用普通对象，`files['__proto__'] = entry` 会改写原型而不是创建 own property；
+- rebuild 返回 `files: 0` 且持久 NDJSON 缺少该路径，进程重启后索引无法补足 traversal budget 外的文件名。
+
+**修复**：
+
+- 新索引、正文搜索空索引和流式 NDJSON 读取统一使用 `Object.create(null)`；
+- legacy v1 的 `files` 逐项过滤后迁移到 null-prototype 表；
+- 不改变索引格式、路径哈希、缓存失效或搜索过滤规则。
+
+**回归**：
+
+- `tests/search-index-special-path-keys-round-trip.test.mjs`；
+- 断言 rebuild/status 计入两个文件；
+- 断言正文缓存可命中 `__proto__`；
+- 新 ESM 模块实例在 `maxVisited: 1` 时仍从持久索引命中该文件名。
+
+**验证命令**：
+
+```bash
+node --test tests/search-index-special-path-keys-round-trip.test.mjs
+```
+
+**门禁**：
+
+- 索引/搜索定向回归 **55 pass / 0 fail**；
+- 完整 `npm test` **3706 pass / 0 fail**；
+- `node scripts/build-client.mjs`、client lint/typecheck、build consistency、Prettier、pack 和 `git diff --check` 均通过。
+
+**长期约束**：
+
+- 以文件路径为 key 的内存表必须使用 null-prototype 或 `Map`；
+- 索引格式兼容修复必须同时覆盖新写和 legacy 读取；
+- 特殊文件名回归必须经过持久层，不只验证当前进程内存。
+
+## 2026-11-22 — 清理索引必须移除崩溃遗留临时快照
+
+**作用域**：`clearWorkspaceSearchIndex` 与索引原子写的临时文件。
+
+**症状 / 根因**：
+
+- 写盘临时名为 `.<index-basename>.<pid>-<uuid>.tmp`；
+- 进程崩溃时 catch/finally 来不及执行，临时文件永久遗留；
+- Clear 只删除最终 `.json.gz`，未清理这些 orphan。
+
+**修复**：
+
+- Clear 等待同 workspace 在途写完成后扫描索引目录；
+- 只删除前缀为当前索引 basename 且后缀 `.tmp` 的文件；
+- 保留其他 workspace/index 的临时文件；
+- 正常原子写和 `cleared` 返回语义不变。
+
+**验证**：
+
+- RED：Clear 后匹配 orphan 仍存在；
+- GREEN：匹配 orphan 被删除；
+- GREEN：无关 `.tmp` 保持存在；
+- GREEN：clear/write 并发与最终快照完整性继续通过。
+
+**长期约束**：
+
+- 清理动作只能删除确定属于自己的临时产物；
+- 在途写必须结束后再清理，避免删除正在使用的临时文件；
+- Rebuild 清理策略若扩展，也必须保持同样前缀隔离。
+
+## 2026-11-22 — 持久索引读取必须流式解压
+
+**作用域**：`readWorkspaceSearchIndex` 的 gzip NDJSON 读取和缓存 miss 降级。
+
+**症状 / 根因**：
+
+- 旧实现先用 `readFile()` 持有完整 compressed index Buffer；
+- 再创建 gunzip 流，压缩 Buffer 与解压记录同时占用内存；
+- 大索引读取会放大 Host 峰值 RSS。
+
+**修复**：
+
+- `pipeline(createReadStream, createGunzip, Writable)`；
+- Writable 使用 `StringDecoder('utf8')` 增量保留跨 chunk 文本；
+- 按换行增量解析 NDJSON，不构造完整解压字符串；
+- 缺失文件、损坏 gzip、非法 JSON/header 仍返回 cache miss；
+- legacy v1 单行 JSON 仍可读取。
+
+**验证**：
+
+- corrupt gzip 自动回退并重建；
+- concurrent clear/rebuild、legacy v1、正常 cache hit/miss 全部通过；
+- 约 900 KiB 中文正文跨多个解压 chunk 后，末尾中文关键字仍正确命中；
+- GREEN：索引/搜索定向回归 **48 pass / 0 fail**；
+- GREEN：完整测试 **3704 pass / 0 fail**。
+
+**长期约束**：
+
+- 索引读取不得先持有完整 compressed Buffer；
+- UTF-8 多字节字符必须跨 chunk 正确拼接；
+- 流错误必须收敛为 cache miss，不能变成未处理异常；
+- legacy 兼容和 header/root 校验不可因流式实现丢失。
+
+## 2026-11-22 — 隔离 Host 三工具窗 smoke 基线
+
+**作用域**：Project、Commit、Terminal 与最新 Host 构建的运行态启动。
+
+**方法**：
+
+- 独立 `DSH_HOME=/tmp/dsh-editor-runtime-smoke`；
+- 独立最小 Web profile，`dsh-editor` 以 `link:` 指向工作区；
+- 3099 端口启动，ego-browser 操作；
+- 完成后停止 Host 并删除临时目录。
+
+**证据**：
+
+- Project 正确列出当前 `dsh-editor` 工作区顶层；
+- Commit 显示 `Change 74`、Staged/Unstaged、目录/文件行和提交表单；
+- Terminal 自动创建 zsh；
+- 在真实 `.xterm-helper-textarea` 输入 `echo smoke-ok`；
+- `.xterm-rows` 输出包含 `echo smoke-oksmoke-ok` 和下一条 prompt；
+- `1400×900` 复验 Commit 工具窗无按钮裁切，Changes 工具栏顺序与
+  IDEA `Refresh / Rollback / Show Diff / Shelve / View Options /
+  Select Opened / Expand / Collapse` 的职责分层一致；
+- Terminal 首次显示时焦点落在真实 `.xterm-helper-textarea`，
+  `Alt+F12` 隐藏后焦点回到 Changes 树，没有遗留到 BODY；
+- IDEA 2026.2 Commit 窗口对照未发现需要新增 DSH 控件的高优先级差异；
+- 3099 已关闭，临时目录已清理。
+
+**长期约束**：
+
+- UI 改动后的真实验收优先复用隔离 `DSH_HOME` + 独立端口；
+- smoke 只证明启动链路，不代替取消、键盘、并发或大数据性能回归；
+- 测试结束后必须关闭 Host 并清理临时 profile/store。
+
+## 2026-11-22 — 正文预算耗尽后不应继续逐文件 stat
+
+**作用域**：`rebuildWorkspaceSearchIndex` 达到正文预算后的剩余文件处理。
+
+**症状 / 根因**：
+
+- 到达 128 MiB 正文预算后，旧实现仍逐个 `stat()` 后续文件；
+- 这些 size/mtime/identity 对 path-only 缓存不是立即必需；
+- 在数万文件项目中会拖慢 rebuild 尾段，尽管正文 IO 已停止。
+
+**修复**：
+
+- `contentBudgetExhausted` 分支提前到 `stat()` 之前；
+- 后续文件直接保存 `{kind:'path'}`，不读正文也不 stat；
+- 触发预算上限的当前文件保留已取得的元数据；
+- 每 512 个 path-only 文件 `setImmediate()` 一次，允许进度轮询和取消插入；
+- modified 排序继续通过 path-only hydration 按需补 mtime；
+- 文件名搜索继续 stat 校验候选，不返回外部已删除路径。
+
+**验证**：
+
+- GREEN：正文预算耗尽后文件名仍可检索；
+- GREEN：path-only 正文仍可现场读取并懒升级；
+- GREEN：modified 排序仍会补齐 path-only mtime；
+- GREEN：缓存持久化与损坏恢复回归通过。
+- RED：移除协作让出后，2048 文件 tail 期间
+  `observedIntermediateProgress=false`，取消也来不及在循环中断；
+- GREEN：恢复让出后可观察到中间进度并在 tail 中 abort。
+- 基准：5,000 文件、正文预算 1 KiB；
+  - 旧实现 rebuild：88.82 / 81.77 / 81.15 ms，中位 **81.77 ms**；
+  - 加入协作让出前的新实现：55.32 / 44.96 / 45.14 ms，中位 **45.14 ms**；
+  - 加入 512 文件协作让出后：59.05 / 48.61 / 45.19 ms，中位 **48.61 ms**；
+  - 最终相对旧实现中位耗时下降约 **40.6%**。
+- GREEN：索引/搜索定向回归 **47 pass / 0 fail**；
+- GREEN：完整测试 **3703 pass / 0 fail**。
+
+**长期约束**：
+
+- 正文预算耗尽后不得继续做无收益的文件 metadata 扫描；
+- path-only 的 metadata 必须可按需补齐，不能假设始终存在；
+- 路径存在性、类型和过期删除仍由搜索候选校验负责。
+
+## 2026-11-22 — 隔离 Host 真实验证索引重建、清理和缓存复用
+
+**作用域**：Project 索引菜单、Host API、磁盘索引、Search Everywhere 文本搜索。
+
+**方法**：
+
+- 不重启用户正在使用的 3081 Host；
+- 创建独立 `DSH_HOME=/tmp/dsh-editor-verify-host` 和最小 Web profile；
+- profile `node_modules/dsh-editor` 使用 `link:` 指向当前工作区；
+- 通过 `dsh --profile dsh-editor-verify --port 3099 --no-open` 启动隔离 Host；
+- 使用 ego-browser 操作真实 Web UI，完成后停止进程并删除临时目录。
+
+**运行态证据**：
+
+- Project 标题右键菜单真实显示 Rebuild / Cancel / Clear；
+- Rebuild 后生成 1,655,346 bytes 的
+  `indexes/dsh-editor/<workspace-sha256>.json.gz`；
+- Clear 后文件被删除；
+- 再次 Rebuild 后文件重新生成；
+- Search Everywhere 查询 `Project root menu owns rebuild` 命中
+  `tests/project-search-index-root-menu-rebuild-clear.test.mjs:15:7`；
+- Clear 后直接搜索仍命中，并由现场搜索重新生成索引；
+- 第二次相同查询前后索引 `mtimeMs` 完全相同
+  `1795286647616.574`，证明纯缓存命中没有重写索引；
+- 临时 Host 和 `DSH_HOME` 已清理。
+
+**结论**：
+
+- 新 Host API、菜单接线、磁盘保存、清理、重建、实时回退和缓存复用
+  已在真实 Host 进程闭环；
+- 用户当前 3081 仍是旧进程，必须重启 Harness 才能加载相同代码；
+- 后续运行态验收优先使用隔离 `DSH_HOME` + 独立端口，避免影响用户会话。
+
+## 2026-11-22 — 正文预算耗尽后仍必须保留后续文件路径
+
+**作用域**：`rebuildWorkspaceSearchIndex` 的 128 MiB 正文上限、path-only 条目和文件名/正文回退。
+
+**症状 / 原始证据**：
+
+- 正文累计达到预算时，当前实现直接 `break`；
+- 当前及后续文件连路径元数据都不进入索引；
+- 3 文件回归中 rebuild 只保存 1 个文件，`GAMMA_UNIQUE_NAME.ts`
+  在 traversal budget=1 时无法从索引回退命中；
+- 状态虽然显示 truncated，但剩余路径没有继续参与文件名搜索。
+
+**修复**：
+
+- 到达正文预算后设置 `contentBudgetExhausted`；
+- 当前及后续普通文件保存 identity/mtime/size 和 `{kind:'path'}`，
+  不再读取正文；
+- 超过单文件上限的文件仍保存 `{kind:'large'}`；
+- `truncated=true` 保留，`contentBytes` 只统计真实读取正文；
+- 文件名搜索直接使用 path 条目，正文搜索遇到 path 条目按 cache miss
+  现场读取；
+- rebuild 增加可选 `maxContentBytes` 供小规模回归注入，上限仍受
+  128 MiB 常量收敛。
+
+**验证**：
+
+- RED：旧逻辑 `rebuiltFiles=1`、`statusFiles=1`、`gammaFound=false`；
+- GREEN：正文预算 1024B 时仍保留 3 个路径；
+- GREEN：`maxVisited=1` 时预算外文件名仍从索引命中；
+- GREEN：预算外文件正文可通过实时回退命中；
+- GREEN：首次正文搜索懒升级 path-only 条目，第二次搜索全部 cache hit；
+- GREEN：纯缓存搜索 `saved=false`，status `updatedAt` 不变，确认没有重写索引；
+- GREEN：损坏 gzip 缓存按 cache miss 回退实时搜索，并重新写成有效索引；
+- GREEN：`search-index-rebuild-retains-paths-after-content-budget` 通过。
+- GREEN：索引/搜索定向回归 **46 pass / 0 fail**；
+- GREEN：完整测试 **3702 pass / 0 fail**。
+
+**长期约束**：
+
+- 正文预算只限制正文缓存，不得让剩余文件从索引中消失；
+- path-only 条目必须可被文件名搜索使用，并能在正文搜索时懒升级；
+- truncated 必须真实，不能因为保留了路径就声称正文索引完整；
+- 单文件超限、二进制和 path-only 的 kind 不得混用。
+
+## 2026-11-22 — 旧 Host 的索引 unknown operation 必须给出重启指引
+
+**作用域**：Project 根菜单的搜索索引重建/清理失败提示。
+
+**症状 / 原始证据**：
+
+- Host 进程尚未加载新 `lib/index.js` 时，菜单点击重建会收到：
+  `unknown operation "rebuildSearchIndex"`；
+- UI 直接显示 `搜索索引操作失败：unknown operation ...`，
+  用户无法判断是参数错误、索引损坏，还是 Host 需要重启。
+
+**修复**：
+
+- 增加 `searchIndexActionFailureMessage(t,error)`；
+- 只有错误同时包含 `unknown operation` 和索引操作名时，
+  显示 `editor.searchIndexRestartRequired`；
+- 其他失败继续保留 `searchIndexActionFailed` 与原始 message；
+- rebuild 与 clear 共用同一 helper；
+- 中英文字典都提供行动明确的重启文案。
+
+**验证**：
+
+- RED：旧 Host 页面显示原始英文 unknown operation；
+- GREEN：ego-browser 在真实 3081 页面点击“重建搜索索引”后显示
+  `搜索索引服务尚未加载，请重启 Harness 后重试`；
+- GREEN：普通错误 `disk is read-only` 仍生成带原始 message 的失败文案；
+- 索引/搜索定向回归 **44 pass / 0 fail**。
+
+**长期约束**：
+
+- 可恢复的环境状态应给出下一步动作，不直接暴露 Host 内部 operation 名；
+- 只有确定是缺失索引 operation 时才替换文案，其他错误不得吞掉上下文；
+- 重启指引不得暗示索引已重建或已清理。
+
+## 2026-11-22 — 搜索取消必须中止在途索引持久化
+
+**作用域**：`searchWorkspaceText`、文件搜索、显式重建与 `writeWorkspaceSearchIndex` 的取消语义。
+
+**症状 / 原始证据**：
+
+- 正文扫描会检查 AbortSignal，但索引压缩写盘没有接收 signal；
+- 用户关闭搜索后，结果请求仍可在后台继续 gzip 和写临时文件；
+- 显式重建取消若发生在索引写盘阶段，原实现仍可能完成 rename 并替换旧索引；
+- 取消后立即重新重建时，旧请求的 `finally` 会无条件关闭新请求的
+  rebuilding/progress，旧成功回调也可能覆盖新状态。
+- Host 同时允许多个 rebuild 进入；预取消的旧 rebuild finally 会推进
+  generation，使后启动的完整 rebuild 完成后不写盘，最终 status 为不存在。
+
+**根因**：
+
+- `pipeline(..., createGzip(), output)` 没有传入 `{ signal }`；
+- 排队写和底层写盘都没有取消检查；
+- 写盘完成后、rename 前也没有再次检查取消。
+
+**修复**：
+
+- `writeWorkspaceSearchIndex(identity,index,signal)` 写盘前检查 signal；
+- Node `pipeline` 接收同一 AbortSignal；
+- pipeline 完成到 rename 之间再次检查 signal；
+- `queueWorkspaceSearchIndexWrite` 在排队后、真正写盘前检查并把 signal 传到底层；
+- 正文搜索、文件名搜索和显式重建都传入原请求 signal；
+- 取消或 pipeline 失败都删除临时文件，旧索引保持不变。
+- UI 增加单调递增的 request owner token；
+- 取消、重新开始和卸载都会推进 token；
+- 进度轮询、成功/失败提示、finally 状态清理只在 owner 仍匹配时执行；
+- 取消立即清除进度 interval，再 abort 在途 Host 请求。
+- Host 增加 per-workspace rebuild 队列；后一个 rebuild 必须等前一个
+  settle 后才建立自己的 generation/progress；
+- 队列等待者被取消时直接返回 aborted，不触碰 generation 或索引。
+
+**回归证据**：
+
+- RED：在忽略 signal 的隔离副本中，预取消写盘仍替换索引，
+  `redSignalIgnored=true`；
+- RED：owner helper 缺失时，取消后旧请求无法与新请求隔离；
+- RED：预取消 rebuild 与正常 rebuild 并发，正常调用返回 20 files，
+  但最终 status 为 `exists=false`；
+- GREEN：预取消写盘以 `AbortError` 结束，旧 gzip 内容逐字节不变；
+- GREEN：24 MB 索引在 1ms 后取消，写盘被中止，旧索引不变且无 `.tmp`；
+- GREEN：owner token 推进后旧请求所有权为 false，新请求所有权保持 true；
+- GREEN：ego-browser 在真实 3081 页面用受控 fetch 返回重建 5/10，
+  第一次重建菜单状态为 rebuild/clear disabled、cancel enabled；
+- GREEN：取消后菜单立即恢复为 rebuild/clear enabled、cancel disabled；
+- GREEN：取消后立即再次重建并等待 500ms，菜单仍保持第二次重建中，
+  旧请求没有清除新请求的 rebuilding/progress；
+- GREEN：两个 rebuild 并发时串行执行，最后完整快照持久化，status 为 20 files；
+- GREEN：索引/搜索定向回归 **44 pass / 0 fail**；
+- GREEN：完整测试 **3700 pass / 0 fail**；
+- lint、TypeScript、138 个源码模块、client build 13 个模块、Prettier、
+  `npm pack --dry-run` 152 files、`git diff --check` 通过；
+- `src/client/editor-workspace.tsx` 保持 **12,526 行**。
+
+**长期约束**：
+
+- 搜索生命周期结束后，索引持久化不得继续消耗 CPU 或磁盘 I/O；
+- 取消索引写盘不能发布半成品，也不能删除或覆盖上一份完整快照；
+- pipeline 正常结束不代表请求仍有效，rename 前必须再次检查 signal；
+- 临时索引文件必须在取消、失败和进程异常退出后的下一次清理中可回收；
+- 索引格式与正常写盘仍保持 gzip NDJSON、`0600` 和原子 rename。
+
+## 2026-11-22 — Find 空结果在截断时必须使用不完整文案
+
+**作用域**：Find popup/dock 可见空状态和 aria-live 结果状态。
+
+**症状 / 原始证据**：
+
+- 空列表始终显示“没有匹配结果”；
+- 底部同时显示扫描范围不完整；
+- 用户看到互相矛盾的绝对否定与“结果可能缺失”；
+- aria-live 也宣布绝对无匹配。
+
+**修复**：
+
+- 增加 `findToolEmptyResultMessage(t,truncated,floating)`；
+- truncated 时使用 `editor.searchNoMatchesIncomplete`；
+- 完整结果保留原 popup/dock 文案；
+- 可见空状态和 aria-live 两处共用同一 helper。
+
+**验证**：
+
+- truncated popup/dock 均返回 incomplete；
+- 完整结果返回原 no-match；
+- 新空状态回归 **2 pass / 0 fail**；
+- 完整测试 **3698 pass / 0 fail**；lint、TypeScript、build consistency、
+  Prettier、`npm pack --dry-run` 152 files、`git diff --check` 通过。
+
+**长期约束**：
+
+- 只有扫描范围完整时才允许绝对“无匹配”；
+- 可见文案与 aria-live 必须共享同一判断；
+- popup/dock 可以不同措辞，但不能不同 truthfulness；
+- 其他 truncated 区域继续按此语义审计。
+
+## 2026-11-22 — 磁盘预算耗尽后仍需继续扫描缓存命中
+
+**作用域**：`searchWorkspaceText` 的 `maxBytes` 预算、cache miss/hit 混合顺序。
+
+**症状 / 原始证据**：
+
+- 当前 miss 文件超过剩余磁盘预算时直接 break；
+- 后续文件即使正文已在索引缓存中也不会再被扫描；
+- 用户会看到“明明已缓存却无结果”的假阴性。
+
+**修复**：
+
+- 当前 miss 文件超出剩余预算时设置 truncated=true 并 continue；
+- 后续 cache-hit 仍使用内存正文匹配，不消耗磁盘预算；
+- 后续较小的 miss 文件若仍在预算内可继续读取；
+- hits/misses/scannedBytes/truncated 保持真实。
+
+**回归**：
+
+- 两个 4KiB 新文件耗尽 100B 预算；
+- 后续 cached target 仍正确返回；
+- 跳过 4KiB 大文件后，后续 17B 小文件仍能在 64B 预算内读取并命中；
+- `maxBytes=1` 时，3 个全 cache-hit 文件仍全部命中，`scannedBytes=0`、`truncated=false`；
+- `indexCache.hits=1`、`truncated=true`；
+- 缓存/预算/停止优先级定向回归 **6 pass / 0 fail**；
+- 完整测试 **3696 pass / 0 fail**；lint、TypeScript、build consistency、
+  Prettier、`npm pack --dry-run` 152 files、`git diff --check` 通过。
+
+**长期约束**：
+
+- 磁盘预算耗尽只禁止后续磁盘读取，不得禁止缓存读取；
+- 预算状态与扫描终止必须是两个概念；
+- 后续较小 miss 文件可在剩余预算内继续；
+- 结果不完整时始终保留 truncated=true。
+
+## 2026-11-22 — 极窄 Find dock 不能用固定双 pane minWidth
+
+**作用域**：Find dock Results/Preview 在 `<247px` 容器下的最小宽度和 overflow。
+
+**症状 / 原始证据**：
+
+- 两侧固定 `minWidth:120` 加 7px divider，总最小宽度约 247px；
+- 更窄容器无法满足，`overflow:hidden` 会裁掉一栏；
+- clamp 虽收敛 50/50，但 CSS minWidth 仍强制横向溢出。
+
+**修复**：
+
+- minWidth 改为 `min(120px, 45%)`；
+- 正常宽度仍获得 120px 可读下限；
+- 极窄容器每侧最多 45%，为 divider 和布局留空间；
+- <240px 百分比 clamp 保持 50/50。
+
+**验证**：
+
+- 400px clamp 30%–70%；
+- 200px clamp 50/50；
+- 240px 50/50、267px 约45/55、600px 回到20/80；
+- 347px 运行态 Preview 约127px；
+- 运行态 200px 容器：Results 103px、Preview 90px、divider 7px，无横向 overflow；
+- 分屏定向回归 **6 pass / 0 fail**；
+- 完整测试 **3693 pass / 0 fail**；lint、TypeScript、build consistency、
+  Prettier、`npm pack --dry-run` 152 files、`git diff --check` 通过。
+
+**长期约束**：
+
+- 双 pane 固定像素下限必须结合百分比上限；
+- 极窄容器优先保持两栏可见，不能只满足单栏可读；
+- 百分比 clamp 与 CSS minWidth 必须使用同一容器宽度语义；
+- divider 宽度必须计入总布局预算。
+
+## 2026-11-22 — Find Results/Preview 必须有可读像素下限
+
+**作用域**：Find dock Results/Preview 分隔、持久化比例和窄容器策略。
+
+**症状 / 原始证据**：
+
+- 分隔只按百分比 20%–80% clamp；
+- 347px dock 下 20% Preview 约 69px；
+- 用户拖到最小比例后预览只剩不可读代码条；
+- `EditorSplitDivider` 已传入容器宽度，但 Find clamp 未使用。
+
+**修复**：
+
+- `clampFindPreviewPercent(value,width)` 支持实际宽度；
+- 最小 pane 宽 `FIND_TOOL_PREVIEW_MIN_WIDTH=120`；
+- 宽容器按 120px 计算动态百分比边界；
+- 极窄容器收敛到 50/50，避免 min>max；
+- Results/Preview 两侧设置 `minWidth:120`，同时保护旧持久值。
+
+**验证**：
+
+- 400px 下 clamp 为 30%–70%；
+- 347px 运行态 Results 220px、Preview 约127px；
+- 拖动到极限后持久化 35%，不再落到20%窄条；
+- 分屏定向回归 **6 pass / 0 fail**；
+- 完整测试 **3693 pass / 0 fail**；lint、TypeScript、build consistency、
+  Prettier、`npm pack --dry-run` 152 files、`git diff --check` 通过。
+
+**长期约束**：
+
+- 百分比下限不能替代可读像素下限；
+- 分隔 clamp 必须使用实际容器宽度；
+- 旧持久比例在新布局下也要受像素 minWidth 保护；
+- 极窄容器不得产生反向 min/max 或横向溢出。
+
+## 2026-11-22 — 文本搜索停止条件不能互相伪装
+
+**作用域**：`searchWorkspaceText` 的 Abort、maxMatches、maxBytes 和候选预截断。
+
+**回归场景**：
+
+- 2,500 文件，前 2,000 候选内有多个匹配；
+- `maxMatches=3`；
+- `maxBytes=1200`、单文件约 920B；
+- 预取消 AbortSignal。
+
+**验证证据**：
+
+- 命中上限返回前 3 个，`truncated=true`；
+- 字节预算只读取首个匹配文件，`truncated=true`，`scannedBytes<=1200`；
+- 预取消返回空、`visitedFiles=0`、`scannedBytes=0`、`truncated=false`；
+- 完整测试 **3693 pass / 0 fail**；lint、TypeScript、build consistency、
+  Prettier、`npm pack --dry-run` 152 files、`git diff --check` 通过。
+
+**长期约束**：
+
+- 取消不是截断；
+- 字节预算耗尽必须保留 truncated；
+- 命中上限只返回达到上限的确定结果；
+- 候选预截断不能提前停止，也不能被忽略为完整结果。
+
+## 2026-11-22 — 候选列表预截断不能提前终止文本扫描
+
+**作用域**：`searchWorkspaceText` 候选文件列表、命中扫描、2000/5000 上限和 truncated 语义。
+
+**症状 / 原始证据**：
+
+- `truncated` 同时表示“候选列表已截断”和“扫描应立即停止”；
+- 5000 文件工作区中首个匹配文件后循环立即 break；
+- 50 个应命中的文件只返回 1 个；
+- 实时回退和索引搜索都受影响。
+
+**修复**：
+
+- 预截断仅保留为 incomplete 标志；
+- 只有达到 `maxMatches` 且仍有未扫描候选时才停止；
+- AbortSignal、64 MiB 字节预算、单文件上限和索引补足逻辑保持不变。
+
+**验证**：
+
+- RED：2500 文件、前 2000 候选内 5 个匹配，只返回 1；
+- GREEN：实时回退返回 5 个匹配且 truncated=true；
+- GREEN：索引可用时额外返回 2100 号候选，共 6 个；
+- 5000 文件基准：索引可用时返回全部 50 个命中，实时候选上限内返回 20 个；
+- 完整测试 **3692 pass / 0 fail**；lint、TypeScript、build consistency、
+  Prettier、`npm pack --dry-run` 152 files、`git diff --check` 通过。
+
+**长期约束**：
+
+- “候选范围不完整”不得等价于“停止扫描”；
+- 停止扫描只因取消、命中上限或字节预算等真实终止条件；
+- truncated 必须描述最终完整性，而不是中途退出原因；
+- 预截断、命中上限和字节预算组合仍需回归。
+
+## 2026-11-22 — 重建中的 status 不得把旧索引伪装成完整新索引
+
+**作用域**：`workspaceSearchIndexStatus` 重建中、完成后状态和 UI 进度轮询。
+
+**回归场景**：
+
+- 300 个真实文件；
+- 启动 rebuild 后立即请求 status；
+- 完成后再次请求 status。
+
+**验证证据**：
+
+- 重建中：`rebuilding=true`、`exists=false`、`files=0`、`contentBytes=0`；
+- 完成后：`rebuilding=false`、`exists=true`、`files=300`；
+- `processedFiles=totalFiles=300`；
+- 完整测试 **3691 pass / 0 fail**；lint、TypeScript、build consistency、
+  Prettier、`npm pack --dry-run` 152 files、`git diff --check` 通过。
+
+**长期约束**：
+
+- 重建中不得读取/暴露旧索引正文，也不得宣称完整文件数；
+- status 的 rebuilding 标志必须先于扫描/等待写队列出现；
+- 完成后必须返回 fresh snapshot 的 processed/total；
+- clear 阶段的短暂 status 语义仍需继续审计。
+
+## 2026-11-22 — search/clear/rebuild 三方并发不得破坏最终索引
+
+**作用域**：正文搜索索引读取、clear/rebuild suspend 与最终磁盘快照。
+
+**回归场景**：
+
+- 40 个文件均包含唯一正文关键词；
+- 同时发起正文搜索、rebuild、clear；
+- 等待全部请求与后台队列静默；
+- 检查搜索返回、最终 status、临时文件。
+
+**验证证据**：
+
+- 搜索正常返回且 `matches` 为数组；
+- 最终状态只能是 cleared，或完整 40 文件 fresh snapshot；
+- 无部分索引和 `.tmp` 残留；
+- 三方并发回归 **1 pass / 0 fail**；
+- clear/rebuild 并发完整性合计 **2 pass / 0 fail**；
+- 完整测试 **3690 pass / 0 fail**；lint、TypeScript、build consistency、
+  Prettier、`npm pack --dry-run` 152 files、`git diff --check` 通过。
+
+**长期约束**：
+
+- 搜索与索引维护并发时不得抛出缓存竞态；
+- 最终磁盘状态必须完整，不能混合旧/新快照；
+- suspend 和 generation 机制继续覆盖三条入口；
+- 运行态 Host 重启后仍需验证真实 HTTP 菜单与进度。
+
+## 2026-11-22 — clear/rebuild 并发最终状态必须完整或彻底清理
+
+**作用域**：索引 clear/rebuild 同时执行时的最终 status、文件数和临时文件。
+
+**回归**：
+
+- 40 个真实文件；
+- 同时发起 rebuild 与 clear；
+- 等待两者及后台队列静默；
+- 只允许两种最终状态：完全 cleared，或完整 40 文件 fresh snapshot。
+
+**验证证据**：
+
+- 最终 status 只能是 `exists=false/files=0` 或 `exists=true/files=40`；
+- 无部分索引或混合快照；
+- 索引目录无 `.tmp` 残留；
+- clear/rebuild/write/suspend 定向回归 **4 pass / 0 fail**；
+- 完整测试 **3689 pass / 0 fail**；lint、TypeScript、build consistency、
+  Prettier、`npm pack --dry-run` 152 files、`git diff --check` 通过。
+
+**长期约束**：
+
+- clear/rebuild 并发必须提供确定且可恢复的最终状态；
+- 原子 rename 之外还要保证没有后续过期写覆盖；
+- 测试必须检查实际 status 和临时文件，不能只看 Promise 是否 resolve；
+- 三方并发（search/clear/rebuild）仍需持续回归。
+
+## 2026-11-22 — clear/rebuild 期间必须 suspend 新索引写
+
+**作用域**：索引 clear/rebuild、后台 dirty 写队列、generation 和旧快照 rename。
+
+**风险 / 证据**：
+
+- clear/rebuild 推进 generation 后等待已有写队列；
+- 等待期间的新搜索可能捕获新 generation、读取旧磁盘索引，并排队写旧快照；
+- clear/rebuild 未等待这个新请求，旧快照可能在删除或新写之后再次 rename；
+- 形成 clear 后复活或 rebuild 后覆盖的竞态。
+
+**修复**：
+
+- 增加 per-workspace `SEARCH_INDEX_SUSPENDED`；
+- clear/rebuild 入口先 suspend，再推进 generation、等待已有写；
+- 队列执行时 suspend 直接返回 false；
+- rebuild 在等待写前即设置 building 状态；
+- finally 解除 suspend；rebuild 自身 fresh snapshot 写盘直接执行、不经队列。
+
+**验证**：
+
+- suspended dirty 写请求返回 false，且磁盘写调用次数为 0；
+- 解除 suspend 后同一请求可写入并清除 dirty；
+- clear/rebuild/write 并发定向回归 **3 pass / 0 fail**；
+- 完整测试 **3688 pass / 0 fail**；lint、TypeScript、build consistency、
+  Prettier、`npm pack --dry-run` 152 files、`git diff --check` 通过。
+
+**长期约束**：
+
+- clear/rebuild 从入口到 finally 必须保持 suspend；
+- suspend 必须早于等待写队列，不能只依赖 generation；
+- rebuild fresh write 是唯一允许绕过 suspend 的写入；
+- status、search 和 queue 对 building/suspend 的观测必须一致。
+
+## 2026-11-22 — Find 宽菜单必须有 dialog 内 maxWidth
+
+**作用域**：Find History、Session、File Mask、Filter、Group By、Result 菜单。
+
+**症状 / 原始证据**：
+
+- ContextMenu 只有 minWidth，没有 maxWidth；
+- Find left helper 固定预留 220px，但长 Session 标签菜单实际宽 1395.78px；
+- Find dock 仅 347.19px 宽，菜单横跨 Project 和 Chat；
+- 长 label 的 ellipsis 因父菜单没有 maxWidth 而无法收缩。
+
+**修复**：
+
+- 增加 `findToolMenuMaxWidth(surfaceLeft, surfaceRight)`，上限 320px、边距 8px；
+- ContextMenuModel 增加 maxWidth，ContextMenu 应用；
+- 六类 Find 菜单统一使用同一 maxWidth；
+- left helper 使用相同 maxWidth 预留右边界；
+- 菜单 label 保持 minWidth:0、overflow:hidden、text-overflow:ellipsis。
+
+**验证**：
+
+- RED：长 Session 菜单宽 1395.78px；
+- GREEN：菜单宽限制为 320px，位于 dialog `243..590.19` 内；
+- GREEN：label clientWidth 300 / scrollWidth 1304，ellipsis 生效；
+- 定向回归 **7 pass / 0 fail**；
+- 完整测试 **3687 pass / 0 fail**；lint、TypeScript、build consistency、
+  Prettier、`npm pack --dry-run` 152 files、`git diff --check` 通过。
+
+**长期约束**：
+
+- fixed 菜单只设置 minWidth 不足以保护窄 dialog；
+- 菜单 left clamp 的预留宽度必须等于实际 maxWidth；
+- 六类 Find 菜单必须共用同一宽度策略，不能分叉；
+- 长 label 应在菜单内 ellipsis，不得撑宽 dialog 或覆盖相邻面板。
+
+## 2026-11-22 — Find 固定定位菜单必须使用 viewport 坐标
+
+**作用域**：Find popup History、File Mask、Filter、Group By、Session、Result 菜单。
+
+**症状 / 原始证据**：
+
+- `findToolMenuLeft/Top` 返回 dialog-local 坐标；
+- `ContextMenu` 使用 `position: fixed`，实际需要 viewport 坐标；
+- 替换历史菜单实测 `x=34`，而 Find dialog 左边界为 `x=200`；
+- 菜单绘制到 Project 区域，超出 dialog 命中面。
+
+**修复**：
+
+- left/top clamp 后将 dialog 左/上边界加回；
+- `findToolMenuMaxHeight` 接收 viewport top，再换算 dialog-local 高度；
+- 全部 Find 菜单继续共享同一 helper；
+- 菜单仍限制在 dialog 内，只转为正确的 viewport 坐标空间。
+
+**验证**：
+
+- RED：clamp 单测仍得到 local 坐标 `356 !== 588`；
+- GREEN：helper 返回 viewport 坐标；
+- GREEN：替换历史菜单从 `x=34` 修正为 `x=234`，位于 dialog 内；
+- GREEN：File Mask/Filter/Result 菜单实测分别在 `418..606`、`446..634`、`451..639`；
+- GREEN：上述菜单位于 dialog `200..708` 内；超长 Find Session 标题在 tab 中截断且关闭按钮保留；
+- 菜单 clamp 定向回归 **7 pass / 0 fail**；
+- 完整测试 **3687 pass / 0 fail**；lint、TypeScript、build consistency、
+  Prettier、`npm pack --dry-run` 152 files、`git diff --check` 通过。
+
+**长期约束**：
+
+- fixed-position ContextMenu 的 anchor 必须是 viewport 坐标；
+- dialog 内菜单仍必须按 dialog 边界 clamp，不能退化为 viewport-only；
+- left/top/maxHeight 必须使用同一坐标空间；
+- 其他 Find 菜单需继续共用一个 helper，不能分叉实现。
+
+## 2026-11-22 — Replace row 与 Find dock 窄宽度运行态基线
+
+**作用域**：Replace in Files popup、长替换文本、Find dock 分屏和底部 Replace actions。
+
+**运行态检查**：
+
+- 真实浏览器视口 908×554；
+- `Meta+Shift+R` 正确打开“在文件中替换”；
+- query 输入约 312px，replace 输入约 349px；
+- 长替换文本保持输入可编辑，没有挤走“替换 / 全部替换”；
+- Replace/Replace All 按钮分别约 44px/66px，完整可见；
+- 转为 Find dock 后结果栏与预览栏并排，tab、计数、query/replace 和底部动作条无重叠。
+
+**结论**：
+
+- 本轮未复现 Replace 控件遮挡、按钮丢失或 dock 分隔错位；
+- 不进行无证据的样式修改；
+- 窄视口只能作为响应式回归，不能替代常宽体验判断。
+
+**长期约束**：
+
+- Replace row 必须在最小 popup 宽度内保留所有必要操作；
+- 长替换文本通过输入内部横向滚动，不得撑开工具栏；
+- dock 结果/预览分隔必须保持最小可读宽度和聚焦语义；
+- 先复现再修改，避免为窄视口引入常宽布局回归。
+
+## 2026-11-22 — Find 工具窗 908px 视口运行态基线
+
+**作用域**：Find in Files popup 顶栏、查询行、搜索选项、结果列表和预览。
+
+**运行态检查**：
+
+- 真实浏览器视口 908×554；
+- `Meta+Shift+F` 打开 Find in Files；
+- popup 约 508×438；
+- 标题、File Mask、筛选、固定窗口按钮保持单行；
+- query/history/New Line/Case/Word/Regex 控件无重叠；
+- `contextFilter` 返回 88 处匹配 / 6 个文件；
+- 结果列表约 164px，预览区约 115px；
+- 计数 `88/6` 宽 61px，无 scrollWidth/clientWidth 溢出。
+
+**结论**：
+
+- 该窄宽度下未发现新的横向溢出、控件遮挡或活动行错位；
+- 当前结果计数、高亮、位置列、路径和预览可读；
+- 无证据时不进行样式修改。
+
+**长期约束**：
+
+- UI 复查必须使用真实页面宽度，不能扩大 viewport 制造可用空间；
+- 运行态 Host 旧进程与客户端布局问题要分开判断；
+- 先复现再修改，避免为“看起来可以不同”引入布局回归。
+
+## 2026-11-22 — path-only 条目升级与 Search Everywhere 运行态复查
+
+**作用域**：持久索引 path-only 条目、正文缓存升级、Search Everywhere 查询布局。
+
+**回归**：
+
+- 构造只含 `{kind:'path'}` 的 gzip NDJSON；
+- 首次正文搜索必须读盘、返回匹配、保存正文；
+- 第二次正文搜索必须 cache hit。
+
+**验证证据**：
+
+- 首次 **0 hit / 1 miss / saved=true**；
+- 第二次 **1 hit / 0 miss**；
+- ego-browser 在 908×554 实际视口打开 Editor/Search Everywhere；
+- 对话框约 818×536，tab/toolbar 单行、query 726px，`contextFilter` 结果和活动行正常；
+- 完整测试 **3687 pass / 0 fail**；lint、TypeScript、build consistency、
+  Prettier、`npm pack --dry-run` 152 files、`git diff --check` 通过。
+
+**长期约束**：
+
+- path 占位条目不得被正文搜索当作内容命中；
+- 首次正文读取必须完成条目升级并保存；
+- UI 复查使用真实页面宽度，不通过人为扩大 viewport 制造空间；
+- 运行态 Host 旧进程问题需要与客户端布局验证区分。
+
+## 2026-11-22 — modified 排序前必须补齐 path 占位 mtime
+
+**作用域**：文件名索引 path-only 占位条目、modified/modified-asc 排序、Quick Open/Project speed search。
+
+**症状 / 原始证据**：
+
+- live-only 路径占位条目没有 mtime/size；
+- indexed modified 排序将缺失 mtime 当作 0，再按名称 tie-break；
+- `placeholder-a-old.ts` 会错误排在更新的 `placeholder-z-new.ts` 前；
+- 初始测试被 live traversal 的最新文件顺序掩盖，增加不匹配首文件后才稳定复现。
+
+**修复**：
+
+- modified/modified-asc 候选排序前收集 mtime 缺失或非正的条目；
+- 使用 32 路有界并发 stat 补齐真实 mtime；
+- 每批前后检查 AbortSignal；
+- 补齐后再调用统一 `sortEntries`，最终存在性校验保持不变。
+
+**验证**：
+
+- RED：`maxVisited=1` 且首个 live 文件不匹配查询时，旧文件错误排在前面；
+- GREEN：新文件正确排在旧文件前；
+- modified/name/type/Folders Always on Top 定向回归 **3 pass / 0 fail**；
+- 完整测试 **3687 pass / 0 fail**；lint、TypeScript、build consistency、
+  Prettier、`npm pack --dry-run` 152 files、`git diff --check` 通过。
+
+**长期约束**：
+
+- path-only 条目不得以 mtime=0 参与 modified 排序；
+- metadata 补齐必须有固定并发上限和取消检查；
+- 测试必须隔离 live traversal 顺序，确保实际覆盖 indexed candidates；
+- mtime 补齐只影响排序，不得伪造 size/content。
+
+## 2026-11-22 — 占位路径重启后必须正文 miss 并升级
+
+**作用域**：持久索引 `{ kind: 'path' }` 占位条目、进程重启后的正文搜索和缓存升级。
+
+**回归场景**：
+
+- 手工构造 gzip NDJSON，仅含 path 占位条目；
+- 首次正文搜索应读取磁盘、返回匹配并写入正文缓存；
+- 第二次正文搜索应从缓存命中。
+
+**验证证据**：
+
+- 首次搜索 **0 hit / 1 miss / saved=true**；
+- 第二次搜索 **1 hit / 0 miss**；
+- 完整测试 **3686 pass / 0 fail**；lint、TypeScript、build consistency、
+  Prettier、`npm pack --dry-run` 152 files、`git diff --check` 通过。
+
+**Quick Open 延迟采样**：
+
+- 100 目录 / 5,000 文件；
+- 选择性查询中位 7.18–7.79ms；
+- 200 命中查询中位 14.12–16.81ms；
+- 最差采样 35.52ms，低于 180ms 输入去抖周期。
+
+**长期约束**：
+
+- path 占位条目不得被当作正文缓存命中；
+- 首次正文搜索必须持久化升级后的条目；
+- Quick Open Host 查询最差值应持续低于输入去抖周期；
+- 后台写不得进入请求等待路径，除非明确需要 `saved` 结果。
+
+## 2026-11-22 — rebuild 必须等待后台索引写且保留新快照
+
+**作用域**：索引 rebuild、live-only 路径后台持久化、generation 和 gzip NDJSON 最终快照。
+
+**风险 / 证据**：
+
+- 文件名搜索可能在后台写 live-only 路径；
+- rebuild 若与后台写并发，旧快照可能在新快照之后完成 rename；
+- 需要验证重建后磁盘快照同时包含旧基线和 live-only 文件，而不是任一方覆盖另一方。
+
+**修复 / 保障**：
+
+- rebuild 推进 generation 后等待当前 workspace 写队列完成；
+- 旧 generation 后台写检测到变化后跳过；
+- rebuild 删除旧内存索引后重新构建并写入 fresh snapshot；
+- 回归直接解压最终 gzip NDJSON 检查文件内容。
+
+**验证**：
+
+- 新 rebuild/write 回归 **1 pass / 0 fail**；
+- clear/write 与 live writeback 回归 **3 pass / 0 fail**；
+- 完整测试 **3685 pass / 0 fail**；lint、TypeScript、build consistency、
+  Prettier、`npm pack --dry-run` 152 files、`git diff --check` 通过。
+
+**长期约束**：
+
+- rebuild/clear 必须与同一 workspace 的在途写串行协调；
+- 过期 generation 写不得覆盖 fresh snapshot；
+- 最终磁盘快照必须以解压后的实际内容验证，不能只看 status；
+- 后续索引状态轮询不得绕过写队列或 generation。
+
+## 2026-11-22 — 索引后台写必须串行并受 generation/dirtyRevision 保护
+
+**作用域**：live-only 路径写回、陈旧路径清理、正文缓存保存、索引 clear/rebuild 并发。
+
+**症状 / 原始证据**：
+
+- live-only 路径与陈旧路径清理原先只在内存标记 dirty，进程重启可能丢失；
+- 多个搜索可能同时写同一索引，旧内存快照可能覆盖新快照；
+- clear 删除文件后，在途写仍可能 rename 并“复活”索引；
+- 布尔 dirty 无法区分写入期间发生的新更新。
+
+**修复**：
+
+- 增加每 workspace 串行 `SEARCH_INDEX_WRITES` 队列；
+- 每个写请求捕获 generation 与 dirtyRevision；
+- generation 改变或 rebuild 进行中时，队列请求直接跳过；
+- 写完成后只有 dirtyRevision 未变化才清除 dirty；
+- clear/rebuild 先推进 generation，再等待当前写队列完成，之后删除/重建；
+- 文件名搜索 dirty 写回使用后台队列，正文搜索继续等待同一队列以返回真实 saved 状态。
+
+**回归测试**：
+
+```bash
+node --test tests/search-index-live-file-writeback-bridges-future-budget.test.mjs
+node --test tests/search-index-clear-waits-for-background-write.test.mjs
+node --test tests/search-index-persists-reuses-and-invalidates-cached-content.test.mjs
+```
+
+**验证证据**：
+
+- live-only 路径最终出现在 gzip NDJSON 索引中；
+- 后台写后立即 clear，索引文件和 status 最终均为不存在；
+- 索引相关定向回归 **18 pass / 0 fail**；
+- 完整测试 **3684 pass / 0 fail**；lint、TypeScript、build consistency、
+  Prettier、`npm pack --dry-run` 152 files、`git diff --check` 通过。
+
+**长期约束**：
+
+- 同一 workspace 的索引写入必须串行；
+- clear/rebuild 不得与在途 rename 产生复活竞态；
+- dirtyRevision 必须防止写完成时清除更新期间产生的 dirty；
+- 后台写失败只能保留 dirty，不得破坏当前搜索结果。
+
+## 2026-11-22 — 实时发现的 live-only 路径应写回内存索引
+
+**作用域**：Quick Open/Project 文件名搜索的实时目录遍历、现有持久索引和后续 traversal budget。
+
+**症状 / 原始证据**：
+
+- 实时遍历能发现索引之后新增的文件，但路径没有写回索引；
+- 下一次查询达到 traversal budget 时，仍无法从索引找到该新文件；
+- 用户要求缓存缺失时现场搜索并加入缓存，原实现只返回结果而未缓存新路径。
+
+**修复**：
+
+- 实时遍历通过目录规则与 Git ignore 的文件路径收集到 `liveIndexPaths`；
+- 加载现有索引时，为不存在的路径添加 `{ kind: 'path' }` 占位条目；
+- 占位条目不读取正文、不额外 stat，正文搜索会按 cache miss 读取并升级；
+- 标记 index dirty，由后续正文搜索或显式重建持久化；
+- modified/modified-asc 排序不写回缺少 mtime 的路径，避免排序错误。
+
+**回归测试**：
+
+```bash
+node --test tests/search-index-live-file-writeback-bridges-future-budget.test.mjs
+node --test tests/search-index-filename-lookup-uses-persisted-paths.test.mjs
+node --test tests/search-index-persists-reuses-and-invalidates-cached-content.test.mjs
+```
+
+**验证证据**：
+
+- RED：实时发现新路径后 status 仍为 1；
+- GREEN：写回后 status 为 2；
+- GREEN：后续 `maxVisited=1` 的文件名查询从索引命中新路径；
+- GREEN：索引相关定向回归 **17 pass / 0 fail**；
+- GREEN：完整测试 **3683 pass / 0 fail**；lint、TypeScript、build consistency、
+  Prettier、`npm pack --dry-run` 152 files、`git diff --check` 通过。
+
+**长期约束**：
+
+- live-only 路径只能写回现有索引，不得在普通查询里隐式创建全新索引；
+- 占位路径不得伪造 mtime/size/content；
+- 正文搜索必须把占位路径当作 cache miss 并升级；
+- 磁盘懒写盘必须串行化并受 generation/rebuild 保护。
+
+## 2026-11-22 — 索引正文搜索必须与实时回退保持 Scope/File Mask 一致
+
+**作用域**：Host `searchWorkspaceText` 的索引内容路径与实时目录遍历路径。
+
+**验证场景**：
+
+- File Mask `*.ts`；
+- 非递归与递归 Directory scope；
+- custom Scope include/exclude patterns；
+- search directory exclude + child include override；
+- Include non-project / excluded directories。
+
+**回归**：
+
+- 固定同一工作区、同一索引和查询选项；
+- 分别执行 `searchIndex:false` 和 `searchIndex:true`；
+- 将 `path:line:column` 排序后逐项比较，要求完全一致。
+
+**验证证据**：
+
+- 新一致性回归 **1 pass / 0 fail**，覆盖 6 组场景；
+- 完整测试 **3682 pass / 0 fail**；lint、TypeScript、build consistency、
+  Prettier、`npm pack --dry-run` 152 files、`git diff --check` 通过。
+
+**长期约束**：
+
+- 索引只能改变数据来源，不能改变 Scope、File Mask、忽略规则或结果位置；
+- 新增索引优化必须复用并保持这组一致性回归；
+- live-only 路径写回索引时也必须遵守同一过滤和缓存升级语义。
+
+## 2026-11-22 — 索引祖先目录候选应去重且按查询预筛
+
+**作用域**：索引文件名/目录名候选构建、`matchPath` 路径片段搜索和深层目录工作区。
+
+**性能证据**：
+
+- 同一深层目录会被大量索引文件共享；
+- 旧逻辑为每个文件重复拆分祖先路径、构造字符串并执行候选过滤；
+- 200 个嵌套目录 / 5,000 文件基准中，目录路径查询中位约 30.90ms。
+
+**修复**：
+
+- 候选构建增加 `indexedDirectories` Set，每个目录祖先只处理一次；
+- 非 `matchPath` 查询只对名称包含 needle 的祖先调用 `addCandidate`；
+- `matchPath` 仍检查完整目录路径，保留跨目录片段匹配；
+- 文件与目录候选继续共享隐藏、Git ignore、目录规则、File Mask 和 stat 校验。
+
+**验证**：
+
+- 200 目录 / 5,000 文件基准：唯一文件名 8.97ms、全部文件名 16.66ms、目录路径 30.90ms；
+- 索引路径/目录规则/External delete 定向回归 **19 pass / 0 fail**；
+- 完整测试 **3681 pass / 0 fail**；lint、TypeScript、build consistency、
+  Prettier、`npm pack --dry-run` 152 files、`git diff --check` 通过。
+
+**长期约束**：
+
+- 共享目录祖先不得按文件重复构造和过滤；
+- 查询预筛必须与最终 name/path 匹配语义一致；
+- `matchPath=true` 时不得跳过路径片段检查；
+- 目录去重只影响 CPU，不得改变候选集合、顺序或 stat 校验。
+
+## 2026-11-22 — 空 Git ignore 集合必须短路祖先路径检查
+
+**作用域**：Project/Quick Open/Find File 的索引路径过滤、目录祖先候选和 Git ignore 空集合。
+
+**性能证据**：
+
+- 5,000 文件索引选择性查询优化前中位约 **47.65ms**；
+- 全部匹配查询优化前中位约 **53.66ms**；
+- `searchPathIsGitIgnored()` 在集合为空时仍逐级拆路径并查询 Set；
+- 5,000 个索引路径和祖先反复执行空集合检查，是明显固定 CPU 成本。
+
+**修复**：
+
+- `searchPathIsGitIgnored()` 首先检查 `ignoredPrefixes.size === 0`；
+- 空集合直接返回 false，不拆路径、不进入祖先循环；
+- 非空集合继续执行原有精确 path/prefix 匹配。
+
+**验证**：
+
+- 选择性查询中位 **47.65ms → 14.06ms**；
+- 全部匹配查询中位 **53.66ms → 22.08ms**；
+- Git ignore/路径/排序定向回归 **29 pass / 0 fail**；
+- 完整测试 **3681 pass / 0 fail**；lint、TypeScript、build consistency、
+  Prettier、`npm pack --dry-run` 152 files、`git diff --check` 通过。
+
+**长期约束**：
+
+- 空集合过滤必须在进入路径祖先循环前短路；
+- 非空 ignore 集合不得跳过任何 path/prefix 检查；
+- 性能优化不能改变 Git ignore、目录规则、File Mask 或排序语义；
+- 新增长路径过滤逻辑应优先增加 size/empty fast path。
+
+## 2026-11-22 — 搜索目录遍历不应读取无关文件元数据
+
+**作用域**：Project speed search、Quick Open、Find File 和文本搜索共用的 workspace walk。
+
+**性能证据**：
+
+- 5,000 个根目录文件，`files` 搜索遍历一次中位约 43.55ms；
+- `listDirectory()` 对每个普通文件执行 `stat` 获取 size/mtime，即使搜索只需要名称和类型；
+- 只有 Project 树展示和 modified 排序需要 size/mtime。
+
+**修复**：
+
+- `listDirectory()` 新增 `metadata` 选项，默认 `true`；
+- 搜索遍历传 `metadata:false`，普通 Dirent 直接使用 `isDirectory/isFile`；
+- 符号链接仍 stat，以跟随目标、识别断链并保持既有搜索语义；
+- modified / modified-asc 排序继续读取 metadata，保持真实时间顺序；
+- Project 树调用不传新选项，行为完全不变。
+
+**验证**：
+
+- 5,000 文件 `files` 搜索中位从 **43.55ms** 降至 **11.48ms**；
+- Project 树、符号链接、断链、目录规则、File Mask、name/type/modified 排序定向回归 **13 pass / 0 fail**；
+- 完整测试 **3681 pass / 0 fail**；lint、TypeScript、build consistency、
+  Prettier、`npm pack --dry-run` 152 files、`git diff --check` 通过。
+
+**长期约束**：
+
+- 搜索目录遍历不得为纯名称/类型过滤读取 size/mtime；
+- 符号链接必须继续 stat，不能因性能优化退化为打开链接本身；
+- 依赖 mtime 的排序必须显式要求 metadata；
+- 新增 listDirectory 调用方必须明确是否真正需要文件元数据。
+
+## 2026-11-22 — 索引候选 stat 应使用有界并发
+
+**作用域**：文件名索引候选的边界/存在性/类型校验、搜索取消和命中上限。
+
+**性能证据**：
+
+- 5,000 文件、查询匹配全部候选并返回 200 项时，串行实现中位约 61.92ms；
+- 200 个真实文件的 stat 基准：串行约 1.93ms，32 路分批并发约 0.40ms；
+- 候选校验原先逐项等待磁盘响应，无法利用独立 I/O 的并行能力；
+- 无界并发会有文件描述符和内存尖峰风险。
+
+**修复**：
+
+- 增加固定上限 `SEARCH_INDEX_STAT_CONCURRENCY = 32`；
+- 已排序候选按 32 项分批，`Promise.all` 只作用于当前批次；
+- 批间顺序保持稳定，达到命中上限后停止校验后续候选；
+- 每批前后保留 AbortSignal 检查，失效路径继续清理内存索引。
+
+**验证**：
+
+- 5,000 文件 / 200 命中中位从 **61.92ms** 降至 **60.64ms**，p95 62.95ms；
+- 200 stat 基准从 **1.93ms** 降至 **0.40ms**；
+- 索引相关定向回归 **15 pass / 0 fail**；
+- 完整测试 **3681 pass / 0 fail**；lint、TypeScript、build consistency、
+  Prettier、`npm pack --dry-run` 152 files、`git diff --check` 通过。
+
+**长期约束**：
+
+- 批量文件 I/O 必须设置固定并发上限，不得使用无界 Promise；
+- 并发处理必须保持候选原有顺序和命中上限语义；
+- 取消检查必须存在于批次边界，坏路径清理不能因并发失效；
+- 5,000 文件总耗时仍需继续拆分 stat 与 Git/live traversal 固定成本。
+
+## 2026-11-22 — 文件名搜索确认陈旧后应清除内存索引项
+
+**作用域**：持久索引文件名/目录名候选最终校验、内存索引内容计数和状态接口。
+
+**症状 / 原始证据**：
+
+- 外部删除路径已从结果中过滤，但索引对象仍保留条目；
+- 搜索后 `workspaceSearchIndexStatus().files` 仍返回旧文件数；
+- 后续同一路径查询会重复执行无意义的 `stat`。
+
+**修复**：
+
+- 最终候选 `stat` 缺失或类型不符时，若对应路径存在于内存索引则调用 `searchIndexDropEntry`；
+- 同步减少 `contentBytes` 并标记 index dirty；
+- 只清理已匹配查询并进入最终候选循环的路径，不扫描全部索引；
+- 磁盘懒写盘仍留给下一次正文搜索或显式重建，避免文件名搜索阻塞。
+
+**回归测试**：
+
+```bash
+node --test tests/search-index-filename-search-skips-external-deleted-paths.test.mjs
+node --test tests/search-index-filename-lookup-uses-persisted-paths.test.mjs
+node --test tests/search-index-persists-reuses-and-invalidates-cached-content.test.mjs
+```
+
+**验证证据**：
+
+- RED：外部删除后 result 已正确为空，但 status 仍为 1 个文件；
+- GREEN：同一搜索后内存索引和 status 文件数均为 0；
+- GREEN：索引路径与正文缓存定向回归 **3 pass / 0 fail**；
+- GREEN：完整测试 **3681 pass / 0 fail**；lint、TypeScript、build consistency、
+  Prettier、`npm pack --dry-run` 152 files、`git diff --check` 通过。
+
+**长期约束**：
+
+- 文件名搜索不得把已确认缺失或类型变化的路径继续保留在内存索引；
+- 清理只针对实际 stat 过的候选，不引入全索引 I/O；
+- 内存 dirty 与磁盘持久化要区分，不能为低频路径清理阻塞当前搜索；
+- 若增加懒写盘，必须串行化并受 generation/重建状态保护。
+
+## 2026-11-22 — 索引缓存必须校验文件 identity，不能只信 mtime/size
+
+**作用域**：持久索引正文命中、大文件/二进制失效元数据、软链接文件路径和外部原子替换。
+
+**症状 / 原始证据**：
+
+- 缓存 freshness 只检查 `mtime + size`；
+- 软链接 `linked.ts` 从旧目标切换到等长、相近 mtime 的新目标后，索引仍复用旧目标正文；
+- 搜索新目标独有字符串时缓存路径返回空结果，而实时读取可命中；
+- 外部原子替换也可能产生相同 size/mtime，但 inode 已变化。
+
+**修复**：
+
+- 平台提供 `dev/ino` 时，索引条目记录文件或软链接目标 identity；
+- 正文缓存命中要求 `mtime + size + identity` 全部匹配；
+- 旧缓存缺少 identity 时首次搜索按 miss 读取并升级索引，不直接信任；
+- 当前平台没有可用 `dev/ino` 时回退到原有 `mtime + size`；
+- 大文件、二进制和正文条目统一记录 identity。
+
+**回归测试**：
+
+```bash
+node --test tests/search-index-symlink-retarget-invalidates-cache.test.mjs
+node --test tests/search-index-loads-legacy-single-json-cache.test.mjs
+node --test tests/search-index-persists-reuses-and-invalidates-cached-content.test.mjs
+```
+
+**验证证据**：
+
+- RED：重定向后的新目标字符串无法通过旧缓存命中；
+- GREEN：软链接重定向后 cache miss、读取新正文并返回匹配；
+- GREEN：v1 缓存带 identity 时仍命中；缺少 identity 时 miss、刷新并保存；
+- GREEN：索引正文、路径、Quick Open、根菜单定向回归 **15 pass / 0 fail**；
+- GREEN：完整测试 **3681 pass / 0 fail**；lint、TypeScript、build consistency、
+  Prettier、`npm pack --dry-run` 152 files、`git diff --check` 通过。
+
+**长期约束**：
+
+- 文件和软链接路径的正文缓存必须校验底层目标 identity（可用时）；
+- 不得用旧的无 identity 条目证明缓存正文新鲜；
+- 无 identity 平台必须安全回退，不能导致永久 cache miss；
+- 外部替换、重命名和原子写仍需继续做路径与缓存一致性回归。
+
+## 2026-11-22 — 索引文件名搜索不得返回外部删除的陈旧路径
+
+**作用域**：Project/Quick Open 文件名搜索的持久索引回退路径、目录祖先候选和 Host 取消语义。
+
+**症状 / 原始证据**：
+
+- `searchWorkspaceEntries()` 直接从索引增加文件及祖先目录候选，没有验证当前文件系统；
+- Host 内删除会主动更新索引，但终端、Finder、Git checkout 等外部删除不会；
+- 索引重建后删除目标文件，再用唯一文件名搜索，仍会返回已经不存在的路径。
+
+**修复**：
+
+- 索引候选进入最终结果前先通过 `resolveInside(root, entry.path)` 验证边界；
+- 对通过查询过滤的候选执行 `stat`，文件必须仍为文件、目录必须仍为目录；
+- 缺失、类型变化或越界路径直接跳过；循环中保留 AbortSignal 检查；
+- 只验证已匹配查询的候选，不扫描或 stat 全部索引条目。
+
+**回归测试**：
+
+```bash
+node --test tests/search-index-filename-search-skips-external-deleted-paths.test.mjs
+node --test tests/search-index-filename-lookup-uses-persisted-paths.test.mjs \
+  tests/search-quick-open-truncated-list-uses-index-query-fallback.test.mjs \
+  tests/project-search-index-root-menu-rebuild-clear.test.mjs
+```
+
+**验证证据**：
+
+- RED：外部删除后仍返回 `nested/EXTERNALLY_DELETED_TARGET.ts`；
+- GREEN：同一索引文件名查询不再返回该路径；
+- GREEN：索引文件名、Quick Open fallback、根菜单定向回归 **9 pass / 0 fail**；
+- GREEN：完整测试 **3679 pass / 0 fail**；lint、TypeScript、build consistency、
+  Prettier、`npm pack --dry-run` 152 files、`git diff --check` 通过；
+- GREEN：`editor-workspace.tsx` 保持 12,526 行。
+
+**长期约束**：
+
+- 索引路径只是候选，不得绕过工作区边界校验；
+- 文件名/目录名搜索候选必须与当前文件系统类型一致；
+- 陈旧路径校验应只作用于匹配候选，不把全索引 stat 引入每次搜索；
+- 外部删除、重命名和软链接变化仍需有独立回归覆盖。
+
+## 2026-11-22 — Find 选择与搜索选项状态应收敛到共享模型
+
+**作用域**：`editor-workspace.tsx` 中的 Find `onMove`、Case/Word/Regex/Include/Context/File Mask 回调。
+
+**症状 / 原始证据**：
+
+- 主文件达到 12,592 行，距离项目 12,600 行硬上限仅 8 行；
+- 6 个搜索选项回调重复清空 `files/matches/index/error/activeRowKey` 并递增 generation；
+- 选择移动的方向、绝对索引、空结果和 rowKey 逻辑嵌在 JSX 内，缺少独立行为回归。
+
+**修复**：
+
+- `find-tool.ts` 增加并导出 `moveFindToolSelection(current, direction, count, absolute, activeRowKey)`；
+- 增加 `findToolSearchOptionsTransition(current, patch)`，统一无效化旧结果和活动身份；
+- EditorWorkspace 的 Find 选择与 6 个搜索选项回调改为复用共享 helper；
+- 保留现有 Find 状态所有者和组件边界，不新增状态层。
+
+**回归测试**：
+
+```bash
+node --test tests/search-find-selection-move-model.test.mjs
+node --test tests/search-find-search-options-transition-model.test.mjs
+node --test tests/search-find-text-results-preserve-active-row.test.mjs
+```
+
+**验证证据**：
+
+- RED：两个模型各 **0 pass / 2 fail**；
+- GREEN：两个模型各 **2 pass / 0 fail**；
+- GREEN：Find 相关定向回归 **375 pass / 0 fail**；
+- GREEN：完整测试 **3678 pass / 0 fail**；lint、TypeScript、build consistency、
+  Prettier、`npm pack --dry-run` 152 files、`git diff --check` 通过；
+- GREEN：`editor-workspace.tsx` 从 12,592 行降至 **12,526 行**。
+
+**长期约束**：
+
+- Find 通用选择边界和搜索选项失效只能由 `find-tool.ts` 的共享 helper 实现；
+- 主文件接近上限时，优先抽取已有重复逻辑，而不是继续堆叠行为；
+- 抽取不得改变搜索匹配、结果顺序、Replace、Scope 或索引持久化语义。
+
+## 2026-11-22 — Find 文本结果异步刷新必须保持活动 rowKey
+
+**作用域**：Find 工具窗跨文件文本命中、Scope 保留结果、分组折叠、Rerun、Replace 推进和 Search Everywhere handoff。
+
+**症状 / 原始证据**：
+
+- Find 只保存数字 `index`；异步结果插入或删除后，同一数字会指向另一处命中；
+- Scope 变更保留旧结果等待新 generation，新结果替换后没有恢复旧 `path:line:column`；
+- 文件分组折叠会从可见 occurrences 中移除文本行，原逻辑仍只按旧 index clamp；
+- 鼠标点击、键盘移动、handoff、Rerun 和 Replace 推进没有共享的活动行身份。
+
+**修复**：
+
+- 在 `src/client/find-tool.ts` 增加 `findToolReconciledResultRow(rows, requestedIndex, activeRowKey)`；
+- rowKey 仍存在时恢复新索引；不存在时按旧索引 clamp 并返回新行 rowKey；空列表返回 `{index:0,rowKey:null}`；
+- Find 工具窗每次选择都通过 `onMove` 上报 rowKey，父状态保存 `activeRowKey`；
+- 查询变化和搜索选项变化清空 rowKey；Scope 变更保留 rowKey 等新结果恢复；
+- 恢复 effect 位于 Rerun/handoff/Replace 显式选择 effect 之前，后者的业务选择优先。
+
+**回归测试**：
+
+```bash
+node --test tests/search-find-text-results-preserve-active-row.test.mjs
+node --test tests/search-find*.test.mjs \
+  tests/editor-rerun-remembers-active-result-until-new-generation-finishes.test.mjs \
+  tests/search-handoff-maps-active-file-text-row-into-find-list.test.mjs
+```
+
+**验证证据**：
+
+- RED：helper 缺失，回归 **0 pass / 2 fail**；
+- GREEN：目标文本行从索引 1 移到 2 后保持活动；
+- GREEN：目标消失时收敛到旧索引 clamp 后的有效行；
+- GREEN：Find 文本/file/Quick Open/Search Everywhere 定向回归 **253 pass / 0 fail**；
+- GREEN：完整测试 **3674 pass / 0 fail**；lint、TypeScript、build consistency、
+  Prettier、`npm pack --dry-run` 152 files、`git diff --check` 通过；
+- GREEN：`editor-workspace.tsx` 12,592 行，仍低于 12,600 行上限。
+
+**长期约束**：
+
+- 异步结果集的当前项必须用稳定 rowKey 表达，不允许只保存数字索引；
+- 结果刷新先恢复 rowKey，再按旧索引收敛；
+- 显式业务推进（Rerun、handoff、Replace）必须优先于通用结果恢复；
+- 行数接近上限时，新增状态逻辑优先抽取到共享模型，不在 `editor-workspace.tsx` 继续堆叠。
+
+## 2026-11-22 — Find File 异步候选刷新必须保持活动文件身份
+
+**作用域**：Find 工具窗 File scope、持久索引路径搜索、候选异步加载与活动行键盘/预览状态。
+
+**症状 / 原始证据**：
+
+- Find File 的候选先由异步 `files` 请求载入，再通过 `findFilePathMatches()` 按 fuzzy score 排序；
+- 旧实现只替换 `state.files`，没有根据上一轮活动路径修正 `state.index`；
+- 候选插入或重排后，数字索引会指向另一文件，预览、键盘移动和结果 handoff 均可能跳转。
+
+**修复**：
+
+- 在 `src/client/find-tool.ts` 增加纯函数 `findToolPreservedFileIndex(previousFiles, nextFiles, requestedIndex)`；
+- 从上一轮 `files[index]` 提取活动路径，在新列表按路径恢复索引；
+- 活动文件消失时保留旧索引并 clamp 到新列表边界，空列表返回 0；
+- EditorWorkspace 的文件候选结果 effect 使用该 helper 更新 `index`。
+
+**回归测试**：
+
+```bash
+node --test tests/search-find-file-candidates-preserve-active-file.test.mjs
+node --test tests/search-find-file-scope-filters-file-paths.test.mjs \
+  tests/search-handoff-maps-active-file-text-row-into-find-list.test.mjs \
+  tests/search-quick-open-combobox-listbox-semantics.test.mjs
+```
+
+**验证证据**：
+
+- RED：helper 缺失，回归 **0 pass / 2 fail**；
+- GREEN：候选重排后活动文件从索引 1 恢复到 2；
+- GREEN：目标消失时索引收敛到 1，空列表返回 0；
+- GREEN：Find/Quick Open 定向回归 **15 pass / 0 fail**；
+- GREEN：完整测试 **3672 pass / 0 fail**；lint、build consistency、Prettier、
+  `npm pack --dry-run` 152 files、`git diff --check` 全部通过；
+- GREEN：`editor-workspace.tsx` 12,582 行，仍低于 12,600 行上限。
+
+**长期约束**：
+
+- 异步候选集合不得用裸数字索引表达活动结果身份；
+- 结果列表更新必须先尝试恢复旧路径，再按原索引收敛；
+- 新增搜索候选逻辑优先落在共享纯 helper 或已存在的搜索模型模块；
+- Find File 活动身份、预览、键盘导航和 handoff 必须继续使用同一套解析后的活动索引。
+
+## 2026-11-21 — 工作区文本搜索必须使用持久项目索引并支持根菜单维护
+
+**作用域**：Editor 工作区文本搜索、Project 根上下文菜单、`DSH_HOME` 本地缓存。
+
+**症状 / 原始证据**：
+
+- 搜索没有项目级预建索引，每次无匹配查询都重新枚举并读取候选文件；
+- 实时候选文件上限为 2000/5000，索引外文件无法通过更窄查询可靠发现；
+- 10,000 文件合成工作区中，无匹配实时搜索约 115ms，但最坏候选读取量可达 2 GiB；
+- Project 根菜单只有 Harness、文件操作和环境操作，没有索引维护入口。
+
+**修复**：
+
+- 增加 `DSH_HOME/indexes/dsh-editor/<workspace-sha256>.json.gz` 持久内容索引；
+- 索引条目保存相对路径、mtime、size 和正文；二进制/超大文件只保存失效元数据；
+- 浏览器 `searchText` 优先使用元数据仍有效的缓存内容，缺失或变化时现场读取并更新；
+- `search` 文件名/目录名回退复用持久路径；目录由文件路径祖先派生；
+- Quick Open 在基础列表截断且 query 非空时使用同一路径索引回退，并支持完整路径片段；
+- Quick Open 的活动选中项按文件路径而不是数字索引保存，异步结果合并后重新定位；
+- Search Everywhere 的活动结果按稳定 `rowKey` 保存，异步 provider 更新后重新定位；
+- Host 保存、上传、创建、删除和重命名会立即失效或迁移内存索引项，写入延迟持久化；
+- 重建索引最多 50,000 文件、128 MiB 文本；超过时返回 `truncated=true`；
+- 内存只保留最近两个工作区索引，磁盘写入使用临时文件原子替换；
+- 清理/重建递增 generation，避免旧搜索回写已经清理的索引；
+- Project 根菜单在 Harness 后增加“重建搜索索引”和“清理搜索索引”，
+  通过 `searchIndexStatus`、`rebuildSearchIndex`、`clearSearchIndex` Host 操作执行；
+- 重建期间增加“取消索引重建”；AbortSignal 会中止目录/文件遍历，
+  且中止时不会用空索引覆盖旧文件；
+- 重建进度记录总文件数、已处理文件数和已读取正文字节；
+  Project 菜单与状态栏可在重建中显示进度；
+- 重建进行中的 status 只 stat 索引文件并返回进度，不读取/反序列化旧缓存正文；
+- 300ms 的进度轮询不直接驱动 React 状态；UI 与状态栏最多每秒更新一次；
+- 搜索响应返回 `indexCache: {enabled, hits, misses, saved}`，不暴露缓存正文。
+
+**回归测试**：
+
+```bash
+node --test tests/search-index-persists-reuses-and-invalidates-cached-content.test.mjs
+node --test tests/search-index-rebuild-reaches-files-beyond-live-cap.test.mjs
+node --test tests/project-search-index-root-menu-rebuild-clear.test.mjs
+```
+
+**验证证据**：
+
+- 首次搜索 2 个文件为 cache miss，并持久化索引；
+- 第二次搜索 2 个文件全部 cache hit；
+- 修改其中一个文件后，搜索得到一个 hit、一个 miss，并刷新磁盘索引；
+- 重建 2050 个文件后，可命中实时 2000 文件枚举上限外的目标文件；
+- 实时 traversal budget 为 1 时，持久路径仍能命中文件及其祖先目录，
+  Show Hidden=false 与 Git ignore 过滤保持生效；
+- Quick Open 的 query fallback 去重合并基础列表与索引结果，并用 Host 的
+  新 truncation 状态替换旧状态；关闭时同时取消 base 与 query 请求；
+- 异步候选插入、删除或重排时，Quick Open 优先保持 activePath 选中身份；
+- Search Everywhere 的 activeRowKey 只在结果仍存在且未 disabled 时保留，
+  否则回落到边界内的启用结果；
+- Host 写入后即使把 mtime 恢复成旧值，也不会复用旧正文；
+- 索引路径重命名后仍能从新路径命中，删除后旧路径不会继续返回；
+- 5,000 文件索引基准：重建约 267ms，缓存无匹配搜索约 89ms，
+  缓存命中搜索约 53ms，5000 次内容查找不读盘；
+- 4,000 文件、30.96 MiB 正文的流式索引基准：重建约 287ms，
+  缓存无匹配搜索约 82ms，进程峰值 RSS 约 227 MiB；
+- 100 个接近 1 MiB 的大记录文件、100 MiB 正文：重建约 261ms，
+  缓存无匹配 27ms，进程峰值 RSS 约 254 MiB；
+- 预取消重建返回 `aborted=true`，旧索引仍可命中原有内容；
+- 重建完成后 status 返回 `rebuilding=false`、`processedFiles=totalFiles`；
+- 索引写入改为 gzip 流中的 NDJSON：首行为版本/工作区头，后续每行一个文件记录；
+  旧版 v1 单 JSON 缓存继续可读，下次写入自动升级；
+- 重建开始和结束都会推进 generation；重建进行中任何自动搜索都不得持久化索引；
+- 运行态：Project 标题右键菜单顺序为 Harness、重建搜索索引、清理搜索索引、
+  新建文件……，入口位置符合截图要求。
+- 运行态：菜单在“重建搜索索引”和“清理搜索索引”之间显示“取消索引重建”，
+  空闲时禁用；重建中重建/清理禁用、取消启用。
+- 运行态：重建进行中可显示 `已处理/总数`；状态栏进度最多每秒更新一次，
+  status 轮询每 300ms 最多一个在途请求。
+
+**长期约束**：
+
+- 索引必须按 workspace root 隔离，不得写入项目目录或跨工作区复用；
+- 缓存正文使用前必须校验 mtime 与 size，不允许返回过期内容；
+- 清理/重建必须使在途搜索的旧 generation 无法回写；
+- 取消重建不得把已存在索引替换成空索引；旧索引应继续服务下一次搜索；
+- 进度轮询必须是观察性请求，不能覆盖重建自身错误，也不能无限并发；
+- 进度轮询不得加载完整旧索引，否则会把重建峰值内存和 I/O 再放大一倍；
+- 进度轮询频率与 UI 更新频率必须分离，避免 300ms 级重渲染整个 EditorWorkspace；
+- 大索引写盘不得先构造完整 JSON 和完整压缩 Buffer；应使用流式或分片格式；
+- 当前 128 MiB 内容上限下，NDJSON 大记录基准峰值约 254 MiB，
+  暂不引入目录分片；若上限继续提高再重新评估；
+- 在途搜索只能在自己启动时的 generation 仍有效且无重建进行时写缓存；
+- 缓存损坏、不可写或超限只能降低命中率，不能阻断正常实时搜索；
+- 本地写操作不能依赖 mtime 精度来保证缓存新鲜度；保存、Replace、上传、
+  创建、删除和重命名必须主动失效或迁移内存索引路径；
+- 索引上限、内存占用和隐私边界发生变化时必须同步回归测试和 README。
+
+## 2026-11-21 — 文本搜索还需要独立的总读取字节预算
+
+**作用域**：无持久索引命中或索引候选缺失时的 Host `searchText` 实时回退。
+
+**症状 / 原始证据**：
+
+- 候选文件上限为 2000/5000，单文件上限 1 MiB，理论最坏一次搜索可读取 2 GiB；
+- 10,000 个文件的无匹配合成工作区中，读取 2000 个候选文件约需 115ms；
+- 文件数和命中数上限不能约束大文件项目中的实际磁盘读取量。
+
+**修复**：
+
+- 默认每次文本搜索最多从磁盘读取 64 MiB；
+- `maxBytes` 可注入更小预算用于自动化测试；
+- 返回 `scannedBytes`，区分缓存命中的 CPU 搜索与实际磁盘读取；
+- 预算耗尽时停止后续文件并返回 `truncated=true`，UI 继续显示范围不完整提示。
+
+**验证**：
+
+- 3 个普通文件在只允许读取 1 个文件的预算下提前停止，`truncated=true`；
+- 总字节恰好覆盖全部候选时不产生假截断；
+- 完整测试 **3670 pass / 0 fail**。
+
+**长期约束**：
+
+- 文件数上限不能替代总字节上限；
+- 缓存命中不应计入磁盘读取预算；
+- 预算耗尽必须保留真实截断语义，不能宣称全局无匹配。
+
+## 2026-11-21 — 搜索关闭必须取消 Host 遍历，截断空结果不得声称全局无匹配
+
+**作用域**：Search Everywhere、Find in Files、Quick Open 共用的 `files` / `search` /
+`searchText` Host 路径，以及 Search Everywhere 空结果文案。
+
+**症状 / 原始证据**：
+
+- 250 行 fixture 命中 250 次，host 返回 200 个 option；
+- 250 行、250 处匹配的临时文件只返回 200 个 option；
+- 大搜索中用户看到“没有匹配结果”，同时又看到
+  “文本搜索结果已截断；请继续输入以缩小范围”；
+- 关闭或取消 Search Everywhere 后，浏览器 fetch 已 `AbortError`，
+  但 `searchWorkspaceText()` 没有接收 `signal`，Host 仍会继续遍历和读取文件；
+- `listWorkspaceFiles()` 也没有取消检查，关闭文件候选请求后仍会完成整棵目录遍历；
+- 当前插件没有持久化的项目全文索引，搜索仍是请求期有界目录遍历和文件读取。
+
+**根因**：
+
+- HTTP 路由只把 `request.signal` 传给 `searchWorkspaceEntries()`，
+  `files` 和 `searchText` 丢失了请求生命周期；
+- 文本搜索的文件循环、目录遍历和 Git scope 枚举之间缺少协作式取消检查；
+- `truncated` 只表示“结果/候选范围不完整”，但空结果状态仍使用绝对文案
+  “没有匹配结果”，造成假阴性；
+- 截断提示暗示继续输入一定能找到更多结果，不能区分结果命中上限和候选文件预算耗尽。
+
+**修复**：
+
+- `files`、`search`、`searchText` 路由统一透传 `request.signal`；
+- `listWorkspaceFiles()`、`listGitSearchScopeFiles()`、`searchWorkspaceEntries()` 和
+  `searchWorkspaceText()` 在目录、条目、文件和异步 I/O 边界检查取消；
+- 取消后返回空结果并停止后续 `stat`、`readFile`、匹配和队列遍历；
+- Search Everywhere 在范围不完整且无结果时显示
+  “已搜索范围内没有匹配（结果不完整）”；
+- 截断文案改为说明上限/扫描范围不完整，不再承诺通过继续输入得到完整结果。
+
+**回归测试**：
+
+```bash
+node --test tests/search-text-abort-stops-host-traversal.test.mjs
+node --test tests/search-empty-state-distinguishes-incomplete-results.test.mjs
+npm test
+```
+
+**验证证据**：
+
+- RED：预取消文本搜索仍命中 2 个文件，文件枚举仍返回 `visible.txt`；
+- RED：Search Everywhere 没有不完整空结果 helper，截断文案仍是旧值；
+- GREEN：预取消文本搜索 `visitedFiles=0`，取消中的 500 文件搜索在完成前停止；
+- GREEN：完整测试 **3654 pass / 0 fail**；
+- GREEN：ESLint、TypeScript、137 个 source imports、client build、
+  Prettier、`npm pack --dry-run` 151 files、`git diff --check` 通过；
+- 运行态：Search Everywhere 输入唯一不存在字符串后关闭，浏览器 fetch 日志显示
+  `searchText` 在 97ms 时触发 `AbortError`；
+- 运行态：当前工作区 include non-project 搜索访问 1292 个文件，返回
+  `truncated=false`，因此正确显示绝对“没有匹配结果”。
+
+**长期约束**：
+
+- 任何浏览器发起的搜索请求必须把 transport signal 传到 Host 的工作循环；
+  不能只在客户端丢弃迟到响应；
+- 取消后不得继续启动新的目录读取、文件读取或匹配批次；
+- “没有匹配”只有在扫描范围完整时才可使用；
+- 当前实现没有持久全文索引，性能依赖边界、忽略规则、取消和缓存；
+  引入持久索引前必须先定义失效、磁盘成本和隐私边界。
+
 ## 2026-11-21 — Find occurrence 位置列应小号左对齐并让内容垂直居中
 
 **作用域**：Find dock 文本 occurrence 行、line:column 位置列、预览内容。

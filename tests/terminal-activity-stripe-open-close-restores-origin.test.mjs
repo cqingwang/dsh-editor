@@ -72,7 +72,7 @@ test('terminal origin capture ignores open-terminal clicks and records Project r
 test('Activity Stripe close restores the captured origin instead of dropping to body', () => {
   assert.match(
     workspaceSource,
-    /if \(terminalOpen\) \{[\s\S]*?const previous = terminalReturnFocusRef\.current;[\s\S]*?setTerminalOpen\(false\);[\s\S]*?focusWorkspaceSurface\(previous\);/u,
+    /if \(terminalOpen\) \{[\s\S]*?const previous = terminalReturnFocusRef\.current;[\s\S]*?setTerminalOpen\(false\);[\s\S]*?restoreTerminalFocusTarget\(previous, \(\) => focusWorkspaceSurface\(previous\)\);/u,
   );
   assert.match(
     workspaceSource,

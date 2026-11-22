@@ -13,7 +13,8 @@ test('Find dock opens with an explicit left results and right preview split', ()
   assert.match(findTool, /data-dsh-find-results-layout=\{floating \? 'stack' : 'split'\}/u);
   assert.match(findTool, /data-dsh-find-results-pane=''/);
   assert.match(source, /findToolDockSplit: \{[\s\S]*?display: 'flex'/);
-  assert.match(source, /findToolDockResultsPane: \{[\s\S]*?minWidth: 0/);
+  assert.match(source, /findToolDockResultsPane: \{[\s\S]*?minWidth: 'min\(120px, 45%\)'/);
+  assert.match(source, /findToolDockPreviewPane: \{[\s\S]*?minWidth: 'min\(120px, 45%\)'/);
   assert.match(
     source,
     /findToolDockPreviewPane: \{[\s\S]*?borderTop: 'none'[\s\S]*?borderLeft:/,
@@ -25,10 +26,11 @@ test('A single click focuses the dock row and updates preview without opening', 
     .map((match) => match[1]);
   assert.ok(mouseDownBlocks.length >= 3);
   for (const block of mouseDownBlocks) {
-    assert.match(block, /onMove\(0, occurrences\.length, position\)/);
+    assert.match(block, /selectOccurrence\(position\)/);
     assert.match(block, /event\.currentTarget\.focus\?\.\(\)/);
     assert.doesNotMatch(block, /openFindResult\(/);
   }
+  assert.match(findTool, /onMove\(0, occurrences\.length, index, occurrences\[index\]\?\.rowKey\)/);
 });
 
 test('Only double-click or Enter opens a Find result and closes the popup', () => {

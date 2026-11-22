@@ -55,6 +55,6 @@ test('author changes and first-page requests cancel in-flight Log pagination', a
   assert.match(workspace, /const logMoreRequestRef = React\.useRef<AbortController \| null>\(null\);/u);
   assert.match(workspace, /const cancelLogMoreRequest = React\.useCallback\(\(\): void => \{/u);
   assert.match(workspace, /const beginLogRequest = React\.useCallback\([\s\S]*?cancelLogMoreRequest\(\);/u);
-  assert.match(workspace, /logAuthorRef\.current = value;\s*cancelLogMoreRequest\(\);/u);
+  assert.match(workspace, /commitLogAuthor\.setAuthor\(value\);\s*cancelLogMoreRequest\(\);/u);
   assert.match(workspace, /op: 'log',\s*limit: LOG_PAGE,\s*skip: requestSkip,\s*author: requestAuthor,?\s*\},\s*\{ signal: controller\.signal \}/u);
 });

@@ -44,7 +44,7 @@ test('Search Everywhere reuses the shared file result item for path-backed rows'
 });
 
 test('Quick Open passes its live active row into the shared status badge', () => {
-  assert.match(quickOpen, /<GitStatusBadge\s+selected=\{position === index\}/u);
+  assert.match(quickOpen, /<GitStatusBadge\s+selected=\{position === activeIndex\}/u);
 });
 
 test('Show Usages reuses the shared path result item instead of a uniform file icon', () => {

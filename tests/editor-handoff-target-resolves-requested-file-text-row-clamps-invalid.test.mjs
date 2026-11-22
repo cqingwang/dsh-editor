@@ -88,7 +88,8 @@ test('Find expands a collapsed target group before converging the active index',
   assert.match(component, /onHandoffHandled\?\.\(handoffRevision\)/);
   assert.match(component, /setCollapsedFiles\(\(current\) => \{[\s\S]*next\.delete\(handoffTarget\.path\)/);
   assert.match(component, /if \(handoffRevision <= handoffHandledRevision\) return;/);
-  assert.match(component, /if \(state\.index !== activeIndex\) onMove\(0, occurrences\.length, activeIndex\)/);
+  assert.match(component, /findToolReconciledResultRow\(occurrences, state\.index, state\.activeRowKey\)/);
+  assert.match(component, /onMove\(0, occurrences\.length, reconciled\.index, reconciled\.rowKey \?\? undefined\)/);
 });
 
 test('replace mode keeps the same handoff and result state', () => {

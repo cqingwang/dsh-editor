@@ -31,7 +31,8 @@ test('Rerun remembers the active result until the new generation finishes', () =
 test('Rerun restores collapsed groups and preview without clearing context', () => {
   assert.match(findTool, /if \(targetIndex < 0 && collapsedFiles\.has\(target\.path\)\)[\s\S]*?next\.delete\(target\.path\)/);
   assert.match(findTool, /const restoredIndex = targetIndex >= 0 \? targetIndex : target\.index/);
-  assert.match(findTool, /onMove\(0, occurrences\.length, Math\.min\(restoredIndex, occurrences\.length - 1\)\)/);
+  assert.match(findTool, /const index = Math\.min\(restoredIndex, occurrences\.length - 1\)/);
+  assert.match(findTool, /onMove\(0, occurrences\.length, index, occurrences\[index\]\?\.rowKey\)/);
   assert.match(findTool, /rerunSelectionRef\.current !== null && state\.loading === true[\s\S]*?return undefined/);
 });
 

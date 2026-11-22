@@ -11,7 +11,7 @@ const searchEverywhere = client.slice(
 test('Search Everywhere aborts superseded Preview file reads', () => {
   const start = searchEverywhere.indexOf('React.useEffect(() => {\n    if (!previewOpen)');
   const end = searchEverywhere.indexOf(
-    '  }, [previewOpen, activeResult?.rowKey, activeResult?.dirty, openFiles]);',
+    '  }, [previewOpen, activeResult?.rowKey, activeResult?.dirty, openFiles, t]);',
     start,
   );
   assert.ok(start >= 0 && end > start, 'Preview effect is missing');

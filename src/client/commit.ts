@@ -1049,6 +1049,12 @@ export function hasFindToolContentQuery(query: unknown): boolean {
   return findToolContentQuery(query).length > 0;
 }
 
+/** Keep Find empty-state wording truthful when the scanned range is incomplete. */
+export function findToolEmptyResultMessage(t: (key: string) => string, truncated: boolean, floating: boolean): string {
+  if (truncated === true) return t('editor.searchNoMatchesIncomplete');
+  return t(floating ? 'editor.findToolNothingFound' : 'editor.findToolNoMatches');
+}
+
 /** Keep collapsed result groups only while their paths remain in the result. */
 export function pruneFindCollapsedFiles<T extends FindToolState>(current: T): T {
   if (!Array.isArray(current.collapsedFiles) || current.collapsedFiles.length === 0) return current;
@@ -1190,6 +1196,7 @@ export function findToolQueryTransition<T extends FindToolState>(
     matches: [],
     truncated: false,
     index: 0,
+    activeRowKey: null,
     loading: hasFindToolContentQuery(nextQuery),
     error: null,
     loadedGeneration: -1,
@@ -1220,6 +1227,7 @@ export function searchEverywhereTabTransition<T extends FindToolState>(
     ...current,
     tab: nextTab,
     index: 0,
+    activeRowKey: null,
     error: current.errorSource === 'files' || current.errorSource === 'text' ? current.error : null,
     textLoading: textCapable ? current.textLoading === true : false,
   } as T;
@@ -2789,7 +2797,7 @@ export function suggestFileMasks(paths: unknown, history: unknown = [], limit = 
  * @param {number} surfaceLeft - owning dialog's left edge.
  * @param {number} surfaceRight - owning dialog's right edge.
  * @param {number} [width=220] - reserved menu width.
- * @returns {number} clamped dialog-local left coordinate.
+ * @returns {number} clamped viewport left coordinate.
  */
 export function findToolMenuLeft(
   preferredLeft: number,
@@ -2805,17 +2813,17 @@ export function findToolMenuLeft(
   if (!Number.isFinite(boundaryLeft) || !Number.isFinite(right)) return Math.max(4, left);
   const localLeft = left - boundaryLeft;
   const maxLeft = Math.max(4, right - boundaryLeft - reserved - 4);
-  return Math.max(4, Math.min(localLeft, maxLeft));
+  return boundaryLeft + Math.max(4, Math.min(localLeft, maxLeft));
 }
 
 /**
- * Convert a viewport anchor into the transformed dialog's local Y space.
+ * Clamp a viewport anchor to the owning dialog's vertical space.
  * Reserve enough room for a usable menu instead of letting it fall below
  * the dialog's clipped hit-testing surface.
  * @param {number} preferredTop - desired viewport top.
  * @param {number} surfaceTop - owning dialog's top edge.
  * @param {number} surfaceBottom - owning dialog's bottom edge.
- * @returns {number} clamped dialog-local top.
+ * @returns {number} clamped viewport top.
  */
 export function findToolMenuTop(preferredTop: number, surfaceTop: number, surfaceBottom: number): number {
   const top = Number(preferredTop);
@@ -2825,24 +2833,32 @@ export function findToolMenuTop(preferredTop: number, surfaceTop: number, surfac
   if (!Number.isFinite(boundaryTop) || !Number.isFinite(boundaryBottom)) return Math.max(4, top);
   const localTop = top - boundaryTop;
   const maxTop = Math.max(4, boundaryBottom - boundaryTop - 164);
-  return Math.max(4, Math.min(localTop, maxTop));
+  return boundaryTop + Math.max(4, Math.min(localTop, maxTop));
 }
 
 /**
  * Bound a Find menu to the remaining dialog height so long histories scroll.
  * @param {number} surfaceTop - owning dialog's top edge.
  * @param {number} surfaceBottom - owning dialog's bottom edge.
- * @param {number} localTop - menu's dialog-local top.
+ * @param {number} viewportTop - menu's clamped viewport top.
  * @returns {number} maximum rendered height.
  */
-export function findToolMenuMaxHeight(surfaceTop: number, surfaceBottom: number, localTop: number): number {
+export function findToolMenuMaxHeight(surfaceTop: number, surfaceBottom: number, viewportTop: number): number {
   const top = Number(surfaceTop);
   const bottom = Number(surfaceBottom);
-  const y = Number(localTop);
+  const y = Number(viewportTop) - top;
   if (!Number.isFinite(top) || !Number.isFinite(bottom) || !Number.isFinite(y)) return 320;
   /* The menu's own padding and border are outside its content-box
          max-height, so reserve that chrome as well as the edge gutter. */
   return Math.max(120, bottom - top - y - 20);
+}
+
+/** Keep wide Find menus inside the owning dialog without collapsing labels. */
+export function findToolMenuMaxWidth(surfaceLeft: number, surfaceRight: number): number {
+  const left = Number(surfaceLeft);
+  const right = Number(surfaceRight);
+  if (!Number.isFinite(left) || !Number.isFinite(right)) return 320;
+  return Math.max(120, Math.min(320, right - left - 8));
 }
 
 /** Read recent File extension masks from browser storage. */

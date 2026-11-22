@@ -12,6 +12,10 @@ const execFileAsync = promisify(execFile);
 const host = await import('../lib/index.js');
 const commitSource = await readFile(new URL('../src/client/commit.ts', import.meta.url), 'utf8');
 const editorSource = await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8');
+const quickOpenSource = await readFile(
+  new URL('../src/client/components/search/QuickOpen.tsx', import.meta.url),
+  'utf8',
+);
 const findToolSource = await readFile(
   new URL('../src/client/components/search/FindToolWindow.tsx', import.meta.url),
   'utf8',
@@ -350,7 +354,7 @@ test('Replace confirmation releases busy and refocuses only for cancel or stale 
 });
 
 test('all search families forward directory rules and Git ignore filtering', () => {
-  assert.match(editorSource, /respectGitIgnore: true,\s*searchDirectoryRules/u);
+  assert.match(quickOpenSource, /respectGitIgnore: true,\s*searchDirectoryRules/u);
   assert.match(editorSource, /dirtyPaths: dirtyFiles\.map\(\(file\) => file\.path\),\s*searchDirectoryRules/u);
   assert.match(editorSource, /fileMask: normalizeFileExtensionFilter\(searchEverywhere\.fileMask\),\s*searchDirectoryRules/u);
   assert.match(editorSource, /scopeExcludePatterns: findToolScopeExcludePatterns,\s*searchDirectoryRules/u);

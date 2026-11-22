@@ -48,3 +48,15 @@ test('Changes keyboard navigation moves through group and file rows', () => {
   assert.match(block, /row\.getAttribute\('data-dsh-change-group'\)/);
   assert.match(block, /chooseGroup\(group\)/);
 });
+
+test('a focused Changes group delegates arrow and boundary navigation to the shared tree handler', () => {
+  const panel = source.slice(source.indexOf('function CommitPanel('), source.indexOf('function CommitLogView('));
+  const headerStart = panel.indexOf('data-dsh-change-group={group.id}');
+  const keyDownStart = panel.indexOf('onKeyDown={(event) => {', headerStart);
+  const keyDownEnd = panel.indexOf('onContextMenu={(event) => {', keyDownStart);
+  assert.ok(keyDownStart > headerStart, 'Changes group keydown is missing');
+  const handler = panel.slice(keyDownStart, keyDownEnd);
+  assert.match(handler, /event\.key === 'ArrowRight'/u);
+  assert.match(handler, /event\.key === 'ArrowLeft'/u);
+  assert.match(handler, /onChangesKeyDown\?\.\(event\);/u);
+});

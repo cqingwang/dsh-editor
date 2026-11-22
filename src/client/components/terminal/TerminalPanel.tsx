@@ -38,10 +38,12 @@ import {
   persistTerminalRestoreSnapshots,
   readClosedTerminals,
   readEditorTerminals,
+  consumePendingTerminalDockActivation,
   readmeInDirectory,
   readStoredNumber,
   readTerminalFontSize,
   readTerminalColors,
+  readTerminalDockLayout,
   readTerminalProfile,
   readTerminalRestoreSnapshots,
   reconcileTerminalDockState,
@@ -61,6 +63,7 @@ import {
   type TerminalDescription,
   writeEditorTerminals,
   writeTerminalColors,
+  writeTerminalDockLayout,
   writeTerminalRestoreSnapshots,
 } from '../../terminal';
 import { MeasuringScreen } from './MeasuringScreen';
@@ -216,7 +219,9 @@ function TerminalPanel({
      items from a render snapshot, so a `cd` right before the click would
      otherwise be missed. */
   const terminalCwdRef = React.useRef(new Map<string, string>());
-  const [activeId, setActiveId] = React.useState<string | null>(null);
+  const terminalMetadataRef = React.useRef(new Map<string, { title?: string; cwd?: string }>());
+  const initialDockLayoutRef = React.useRef(readTerminalDockLayout());
+  const [activeId, setActiveId] = React.useState<string | null>(initialDockLayoutRef.current?.activeId ?? null);
   const closingTerminalIdsRef = React.useRef(new Set<string>());
   const busyOperationCountRef = React.useRef(0);
   const createInFlightRef = React.useRef(false);
@@ -287,14 +292,16 @@ function TerminalPanel({
     setActiveId(terminal.id);
   }, []);
   /* IDEA splits the terminal dock: the right pane follows its own tab. */
-  const [splitId, setSplitId] = React.useState<string | null>(null);
+  const [splitId, setSplitId] = React.useState<string | null>(initialDockLayoutRef.current?.splitId ?? null);
   /* The split ratio survives a reload, like IDEA's dock proportions. */
   const [splitPercent, setSplitPercent] = React.useState(() =>
     readStoredNumber('dsh-editor.terminal.splitPercent', 50),
   );
   const [splitDragging, setSplitDragging] = React.useState(false);
   /* Which pane owns the keyboard; IDEA highlights that pane's tab. */
-  const [focusedPane, setFocusedPane] = React.useState<'left' | 'right'>('left');
+  const [focusedPane, setFocusedPane] = React.useState<'left' | 'right'>(
+    initialDockLayoutRef.current?.focusedPane ?? 'left',
+  );
   /* Keyboard handlers are bound once, so they read the pane through a ref. */
   const focusedPaneRef = React.useRef<'left' | 'right'>('left');
   const splitIdRef = React.useRef<string | null>(null);
@@ -605,7 +612,13 @@ function TerminalPanel({
       });
       if (refreshRequestRef.current !== requestId) return;
       const listed = Array.isArray(value?.terminals) ? value.terminals : [];
+      const decorated = listed.map((terminal) => {
+        const metadata = terminalMetadataRef.current.get(terminal.id);
+        return metadata === undefined ? terminal : { ...terminal, ...metadata };
+      });
       const reconciled = reconcileTerminalDockState(listed, editorIdsRef.current, activeRef.current);
+      const live = new Set(listed.map((terminal) => terminal.id));
+      for (const id of terminalMetadataRef.current.keys()) if (!live.has(id)) terminalMetadataRef.current.delete(id);
       pruneTerminalCwdMetadata(
         terminalCwdRef.current,
         listed.map((terminal) => terminal.id),
@@ -613,7 +626,7 @@ function TerminalPanel({
       const liveCwds = terminalLiveCwds(listed, terminalCwdRef.current);
       setReadmePaths((current) => pruneTerminalReadmeMetadata(current, liveCwds));
       setAvailable(value.available !== false);
-      setTerminals(listed);
+      setTerminals(decorated);
       setEditorIds(reconciled.editorIds);
       setActiveId(reconciled.activeId);
       setError(null);
@@ -645,6 +658,7 @@ function TerminalPanel({
     if (terminalManualRenameOwnsTitle(id, renamedRef.current, renameInFlightRef.current)) return;
     const current = terminalsRef.current.find((terminal) => terminal.id === id);
     if (current === undefined || current.title === title) return;
+    terminalMetadataRef.current.set(id, { ...terminalMetadataRef.current.get(id), title });
     setTerminals((list) =>
       list.map((terminal) =>
         terminal.id === id
@@ -693,6 +707,7 @@ function TerminalPanel({
     /* The tab menu reads `terminal.cwd` from the render snapshot; keep the host
        description in step too so a later re-read agrees. */
     terminalCwdRef.current.set(id, cwd);
+    terminalMetadataRef.current.set(id, { ...terminalMetadataRef.current.get(id), cwd });
     if (target.cwd === cwd) return;
     setTerminals((list) =>
       list.map((terminal) =>
@@ -700,6 +715,28 @@ function TerminalPanel({
           ? {
               ...terminal,
               cwd,
+            }
+          : terminal,
+      ),
+    );
+  }, []);
+
+  const applyEditorReturnMetadata = React.useCallback((id: string, title: string, cwd: string): void => {
+    const nextTitle = terminalManualRenameOwnsTitle(id, renamedRef.current, renameInFlightRef.current) ? '' : title;
+    if (cwd !== '') terminalCwdRef.current.set(id, cwd);
+    if (nextTitle === '' && cwd === '') return;
+    terminalMetadataRef.current.set(id, {
+      ...terminalMetadataRef.current.get(id),
+      ...(nextTitle === '' ? null : { title: nextTitle }),
+      ...(cwd === '' ? null : { cwd }),
+    });
+    setTerminals((current) =>
+      current.map((terminal) =>
+        terminal.id === id
+          ? {
+              ...terminal,
+              ...(nextTitle === '' ? null : { title: nextTitle }),
+              ...(cwd === '' ? null : { cwd }),
             }
           : terminal,
       ),
@@ -909,14 +946,28 @@ function TerminalPanel({
      Listened for on `window`: the editor area dispatches from its own node,
      and a host re-render can replace that node between dispatches. */
   React.useEffect(() => {
-    const onReturn = (event: CustomEvent<{ id?: unknown }>): void => {
+    const onReturn = (event: CustomEvent<{ id?: unknown; title?: unknown; cwd?: unknown }>): void => {
       const id = event.detail?.id;
       if (typeof id !== 'string' || id === '') return;
+      const title = typeof event.detail?.title === 'string' ? event.detail.title : '';
+      const cwd = typeof event.detail?.cwd === 'string' ? event.detail.cwd : '';
+      if (loaded) consumePendingTerminalDockActivation(null);
       returnTerminalToDock({ id });
+      applyEditorReturnMetadata(id, title, cwd);
     };
     window.addEventListener('dsh-editor-return-terminal', onReturn);
     return () => window.removeEventListener('dsh-editor-return-terminal', onReturn);
-  }, [returnTerminalToDock]);
+  }, [applyEditorReturnMetadata, loaded, returnTerminalToDock]);
+
+  React.useEffect(() => {
+    if (!loaded) return;
+    const request = consumePendingTerminalDockActivation(terminals.map((terminal) => terminal.id));
+    if (request === null) return;
+    applyEditorReturnMetadata(request.id, request.title ?? '', request.cwd ?? '');
+    setActiveId(request.id);
+    setSplitId((current) => (current === request.id ? null : current));
+    setFocusedPane('left');
+  }, [applyEditorReturnMetadata, loaded, terminals]);
 
   /* The first terminal starts automatically, the way IDEA opens a shell tab. */
   React.useEffect(() => {
@@ -1059,6 +1110,7 @@ function TerminalPanel({
       const focusedId = focusedPaneRef.current === 'right' ? splitIdRef.current : activeRef.current;
       if (closing !== undefined) rememberClosed(closing);
       forgetTerminalLiveBuffer(id);
+      terminalMetadataRef.current.delete(id);
       setColors((current) => {
         if (current[id] === undefined) return current;
         const next = {
@@ -1131,8 +1183,11 @@ function TerminalPanel({
     async (keepId: string): Promise<void> => {
       const current = terminalsRef.current;
       if (!current.some((terminal) => terminal.id === keepId)) return;
-      const doomed = current.filter((terminal) => terminal.id !== keepId);
-      const remaining = current.filter((terminal) => terminal.id === keepId);
+      /* The command belongs to this dock, not to terminal tabs moved into the
+         editor area. Those PTYs stay live and keep their placement. */
+      const editorIds = new Set(editorIdsRef.current);
+      const doomed = current.filter((terminal) => terminal.id !== keepId && !editorIds.has(terminal.id));
+      const remaining = current.filter((terminal) => terminal.id === keepId || editorIds.has(terminal.id));
       pruneTerminalCwdMetadata(
         terminalCwdRef.current,
         remaining.map((terminal) => terminal.id),
@@ -1143,6 +1198,7 @@ function TerminalPanel({
         closingTerminalIdsRef.current.add(terminal.id);
         rememberClosed(terminal);
         forgetTerminalLiveBuffer(terminal.id);
+        terminalMetadataRef.current.delete(terminal.id);
       }
       setColors((colors) => {
         const next = {
@@ -1183,12 +1239,20 @@ function TerminalPanel({
     cwdRef.current = active?.cwd ?? '';
   }, [active?.cwd]);
   React.useEffect(() => {
+    if (!loaded) return;
     /* A split always shows a DIFFERENT terminal: the same id would double the stream. */
     if (splitId !== null && (splitTerminal === null || splitId === activeId)) setSplitId(null);
     /* IDEA keeps the keyboard in the terminal: when the right pane closes, the
        focus goes back to the surviving one instead of being dropped. */
     if (splitId === null && focusedPane === 'right') setFocusedPane('left');
-  }, [splitId, splitTerminal, activeId, focusedPane]);
+  }, [splitId, splitTerminal, activeId, focusedPane, loaded]);
+  React.useEffect(() => {
+    writeTerminalDockLayout({
+      activeId,
+      splitId,
+      focusedPane,
+    });
+  }, [activeId, focusedPane, splitId]);
 
   /** Open the shared Terminal screen menu at a concrete viewport anchor. */
   const showScreenMenu = (

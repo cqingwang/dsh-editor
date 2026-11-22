@@ -109,6 +109,7 @@ export function useSearchEverywhereFileCandidates({
           respectGitIgnore: true,
           fileMask,
           searchDirectoryRules,
+          filesOnly: true,
         },
         { signal: searchAbort.signal },
       )
@@ -187,6 +188,7 @@ export function useSearchEverywhereFileCandidates({
           respectGitIgnore: true,
           fileMask: normalizedFileMask,
           searchDirectoryRules,
+          searchIndex: true,
         },
         { signal: searchAbort.signal },
       )
@@ -259,7 +261,9 @@ export function useSearchEverywhereFileCandidates({
   const updateQuery = React.useCallback(
     (query: string) => {
       currentQueryRef.current = query;
-      setSearchEverywhere((current) => (current === null ? current : { ...current, query, index: 0 }));
+      setSearchEverywhere((current) =>
+        current === null ? current : { ...current, query, index: 0, activeRowKey: null },
+      );
       scheduleHostQuery(query);
     },
     [scheduleHostQuery, setSearchEverywhere],

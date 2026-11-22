@@ -57,7 +57,7 @@ test('Find occurrence rows provide roving focus and synchronise the active optio
   const panel = findTool();
   assert.match(panel, /const occurrenceRefs = React\.useRef\(new Map\(\)\)/);
   assert.match(panel, /tabIndex: position === activeIndex \? 0 : -1/);
-  assert.match(panel, /onFocus: \(\) => onMove\(0, occurrences\.length, position\)/);
+  assert.match(panel, /onFocus: \(\) => selectOccurrence\(position\)/);
   assert.match(panel, /onKeyDown: \(event\) => handleOccurrenceKeyDown\(event, rowKey, position\)/);
 });
 

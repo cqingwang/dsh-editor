@@ -17,7 +17,7 @@ function historyCallbacks(callGit) {
     window: { clearTimeout: () => {} },
     setActivity: () => {},
     setPanelVisible: () => {},
-    setCommitMode: () => {},
+    switchCommitMode: () => {},
     setHistoryPath: () => {},
     setCommits: () => {},
     setLogExhausted: () => {},

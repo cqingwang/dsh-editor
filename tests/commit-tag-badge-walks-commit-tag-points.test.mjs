@@ -121,7 +121,7 @@ test('annotate rows jump into the commit log', async () => {
   const openCommitFromAnnotate = loadTypeScriptCallback(client, 'openCommitFromAnnotate', {
     setActivity: (value) => calls.push(['activity', value]),
     setPanelVisible: (value) => calls.push(['panel', value]),
-    setCommitMode: (value) => calls.push(['mode', value]),
+    switchCommitMode: (value) => calls.push(['mode', value]),
     setHistoryPath: (value) => calls.push(['history', value]),
     loadLog: async () => calls.push(['loadLog']),
     showCommit: async (hash) => calls.push(['showCommit', hash]),
@@ -140,7 +140,10 @@ test('annotate rows jump into the commit log', async () => {
 test('both log views mark the commit the detail pane shows', () => {
   const client = source;
   /* One selection, two renderings: a row picked in either view is marked in both. */
-  assert.match(client, /const \[\s*selectedCommit,\s*setSelectedCommit,\s*\] = React\.useState(?:<[^>]+>)?\(null\);/);
+  assert.match(
+    client,
+    /const \[\s*selectedCommit,\s*setSelectedCommit,\s*\] = React\.useState(?:<[^>]+>)?\(\(\) => \{[\s\S]*?readStoredText\('dsh-editor\.commit\.selected', ''\)/,
+  );
   assert.match(client, /setSelectedCommit\(hash\);/);
   assert.match(client, /selectionIncluded=\{selectedCommits\.includes\(commit\.hash\)\}/);
   assert.match(client, /aria-selected=\{selectionIncluded\}/);

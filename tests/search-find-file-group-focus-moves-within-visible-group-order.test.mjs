@@ -70,11 +70,12 @@ test('Find group keys collapse, expand, activate and move without hidden rows', 
   assert.match(panel, /focusGroupButton\(targetPath\)/);
 });
 
-test('collapsing a group re-clamps the active occurrence through the parent index', () => {
+test('collapsing a group reconciles the active occurrence through the parent index', () => {
   const panel = findTool();
   assert.match(
     panel,
-    /if \(state\.index !== activeIndex\) onMove\(0, occurrences\.length, activeIndex\)/,
+    /findToolReconciledResultRow\(occurrences, state\.index, state\.activeRowKey\)/,
   );
+  assert.match(panel, /onMove\(0, occurrences\.length, reconciled\.index, reconciled\.rowKey \?\? undefined\)/);
   assert.match(panel, /active === null \? undefined : findToolOptionId\(active\.rowKey\)/);
 });

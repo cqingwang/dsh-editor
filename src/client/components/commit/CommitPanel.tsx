@@ -656,7 +656,7 @@ function CommitPanel({
                 items: groupMenuItems,
                 owner: `group-actions:${group.id}`,
               });
-            }
+            } else onChangesKeyDown?.(event);
           }}
           onContextMenu={(event) => {
             event.preventDefault();

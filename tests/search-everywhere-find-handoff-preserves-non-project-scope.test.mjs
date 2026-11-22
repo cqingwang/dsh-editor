@@ -47,9 +47,7 @@ test('Find opens with the handed-off non-project scope and resets results when t
     source.indexOf('onFileMaskChange={', source.indexOf('onToggleIncludeExcluded={() =>')),
   );
   assert.match(toggle, /includeExcluded: current\.includeExcluded !== true/);
-  assert.match(toggle, /files: \[\]/);
-  assert.match(toggle, /matches: \[\]/);
-  assert.match(toggle, /searchGeneration: \(current\.searchGeneration \?\? 0\) \+ 1/);
+  assert.match(toggle, /findToolSearchOptionsTransition\(current, \{ includeExcluded:/);
 });
 
 test('blank Replace in Files carries the current non-project scope', () => {

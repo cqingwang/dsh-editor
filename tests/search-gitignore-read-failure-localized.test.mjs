@@ -4,7 +4,14 @@ import test from 'node:test';
 
 import { loadTypeScriptModule } from './ts-source.mjs';
 
-const [editorCoreSource, editorWorkspaceSource, projectPanelSource, fileCandidatesSource, localesSource] = await Promise.all([
+const [
+  editorCoreSource,
+  editorWorkspaceSource,
+  projectPanelSource,
+  fileCandidatesSource,
+  quickOpenSource,
+  localesSource,
+] = await Promise.all([
   readFile(new URL('../src/client/editor-core.ts', import.meta.url), 'utf8'),
   readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8'),
   readFile(new URL('../src/client/components/project/ProjectPanel.tsx', import.meta.url), 'utf8'),
@@ -12,6 +19,7 @@ const [editorCoreSource, editorWorkspaceSource, projectPanelSource, fileCandidat
     new URL('../src/client/components/search/use-search-everywhere-file-candidates.ts', import.meta.url),
     'utf8',
   ),
+  readFile(new URL('../src/client/components/search/QuickOpen.tsx', import.meta.url), 'utf8'),
   readFile(new URL('../src/client/locales.ts', import.meta.url), 'utf8'),
 ]);
 const { searchTextFailureMessage } = loadTypeScriptModule(editorCoreSource, ['searchTextFailureMessage']);
@@ -34,10 +42,7 @@ test('unrelated search failures retain their original detail', () => {
 });
 
 test('every search provider routes failures through the shared formatter', () => {
-  assert.match(
-    editorWorkspaceSource,
-    /const message = searchTextFailureMessage\(failure, t\);\s+setQuickOpen/u,
-  );
+  assert.match(quickOpenSource, /error: searchTextFailureMessage\(failure, t\),/u);
   assert.match(fileCandidatesSource, /error: searchTextFailureMessage\(failure, t\),\s+errorSource: 'files'/u);
   assert.match(editorWorkspaceSource, /error: searchTextFailureMessage\(failure, t\),\s+\},\s+\);/u);
   assert.match(editorWorkspaceSource, /searchReplaceFailureMessage\(failure, hostChanged\.length, t\)/u);

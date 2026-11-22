@@ -150,7 +150,10 @@ test('the status bar reports editor mode without rewriting user indentation', ()
 
 test('the terminal split tracks its focused pane and remembers its ratio', () => {
   const client = terminalSource;
-  assert.match(client, /const \[focusedPane, setFocusedPane\] = React\.useState<'left' \| 'right'>\('left'\);/);
+  assert.match(
+    client,
+    /const \[focusedPane, setFocusedPane\] = React\.useState<'left' \| 'right'>\([\s\S]*?initialDockLayoutRef\.current\?\.focusedPane \?\? 'left'[\s\S]*?\);/,
+  );
   assert.match(client, /data-dsh-terminal-pane-role='left'/);
   assert.match(client, /data-dsh-terminal-pane-role='right'/);
   assert.match(

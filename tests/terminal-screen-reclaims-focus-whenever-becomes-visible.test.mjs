@@ -93,15 +93,26 @@ test('Alt+F12 records the originating surface and restores it on close', () => {
   }
   const previous = new FakeElement();
   const terminalReturnFocusRef = { current: previous };
+  const timers = [];
   const restoreTerminalOrigin = loadTypeScriptExpression(
     workspaceSource,
     extractVariableInitializerExpression(workspaceSource, 'restoreTerminalOrigin'),
     {
       terminalReturnFocusRef,
       focusWorkspaceSurface: (preferred) => preferred?.focus?.(),
+      restoreTerminalFocusTarget: (preferred, fallback) => {
+        if (preferred !== null && preferred.isConnected !== false) preferred.focus({ preventScroll: true });
+        else fallback();
+      },
+      window: {
+        setTimeout: (callback, delay) => timers.push({ callback, delay }),
+      },
     },
   );
   restoreTerminalOrigin();
+  assert.equal(previous.focused, false);
+  assert.equal(timers.length, 1);
+  timers[0].callback();
   assert.equal(previous.focused, true);
   assert.equal(terminalReturnFocusRef.current, null);
 });
@@ -114,5 +125,5 @@ test('closing the dock through its own toolbar restores focus too', () => {
   assert.match(panel, /onRequestClose=\{\(\) => \{/);
   assert.match(panel, /setTerminalOpen\(false\);/);
   assert.match(panel, /terminalReturnFocusRef\.current = null;/);
-  assert.match(panel, /focusWorkspaceSurface\(previous\);/);
+  assert.match(panel, /restoreTerminalFocusTarget\(previous, \(\) => focusWorkspaceSurface\(previous\)\);/);
 });

@@ -67,5 +67,5 @@ test('the palette receives a status map built from the loaded git status', () =>
     block,
     /changes: new Map\(\(git\?\.changes \?\? \[\]\)\.map\(\(change\) => \[change\.path, change\.status\]\)\)/,
   );
-  assert.match(quickOpenSource, /<GitStatusBadge\s+selected=\{position === index\}\s+info=\{badge\}/u);
+  assert.match(quickOpenSource, /<GitStatusBadge\s+selected=\{position === activeIndex\}\s+info=\{badge\}/u);
 });

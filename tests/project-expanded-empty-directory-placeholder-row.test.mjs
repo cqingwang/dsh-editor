@@ -164,7 +164,7 @@ test('a commit switches to the log and marks the new row', () => {
     /const \[\s*highlightedCommit,\s*setHighlightedCommit,\s*\] = React\.useState(?:<[^>]+>)?\(null\);/,
   );
   assert.match(source, /setHighlightedCommit\(head\);/);
-  assert.match(source, /setCommitMode\('log'\);/);
+  assert.match(source, /switchCommitMode\('log'\);/);
   assert.match(source, /\.\.\.\(highlighted\s+\? \{\s+'data-dsh-log-new': '',\s+\}\s+: null\)/s);
   assert.match(source, /\[data-dsh-log-new\] \{ background:/);
 });

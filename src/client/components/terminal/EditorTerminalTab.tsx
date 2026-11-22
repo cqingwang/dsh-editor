@@ -1,7 +1,7 @@
 import React from 'react';
 import { styles } from '../../ui/styles';
-import { Icon } from '../ui/Icon';
 import { ToolbarButton } from '../ui/ToolbarButton';
+import { editorTerminalTabTargetIndex } from './editor-terminal-tabs';
 import { TerminalScreen } from './TerminalScreen';
 import type { TerminalEmulator } from '../../find-tool';
 
@@ -16,6 +16,10 @@ export interface EditorTerminalDescriptor {
 export interface EditorTerminalTabProps {
   t: Translate;
   terminal: EditorTerminalDescriptor;
+  terminals?: EditorTerminalDescriptor[];
+  activeTerminalId?: string;
+  onSelectTerminal?: (id: string) => void;
+  onSelectTerminalFromKeyboard?: (id: string) => void;
   fontSize: number;
   onGrid: (size: { cols: number; rows: number }) => void;
   onError: (message: string) => void;
@@ -25,12 +29,17 @@ export interface EditorTerminalTabProps {
   onExit: (code: number | null) => void;
   onReturnToDock: (terminal: EditorTerminalDescriptor) => void;
   getCwd: () => string;
+  focusGeneration?: number;
 }
 
 /** One terminal living in the editor area (IDEA's Move to Editor). */
 function EditorTerminalTab({
   t,
   terminal,
+  terminals = [terminal],
+  activeTerminalId = terminal.id,
+  onSelectTerminal,
+  onSelectTerminalFromKeyboard,
   fontSize,
   onGrid,
   onError,
@@ -40,6 +49,7 @@ function EditorTerminalTab({
   onExit,
   onReturnToDock,
   getCwd,
+  focusGeneration = 0,
 }: EditorTerminalTabProps) {
   const [emulator, setEmulator] = React.useState<TerminalEmulator | null>(null);
   return (
@@ -47,15 +57,52 @@ function EditorTerminalTab({
       style={styles.editorTerminalPane}
       data-dsh-editor-terminal-tab={terminal.id}>
       <div style={styles.editorTerminalToolbar}>
-        <Icon
-          name='terminal'
-          size={12}
-        />
-        <span
-          style={styles.editorTerminalTitle}
-          title={`${terminal.title} — ${terminal.cwd}`}>
-          {terminal.title}
-        </span>
+        <div
+          style={styles.terminalTabs}
+          role='tablist'
+          aria-label={t('editor.terminalTabs')}
+          data-dsh-editor-terminal-tabs=''>
+          {terminals.map((entry) => (
+            <button
+              key={entry.id}
+              type='button'
+              className='dsh-editor-terminal-tab'
+              role='tab'
+              aria-selected={entry.id === activeTerminalId}
+              tabIndex={entry.id === activeTerminalId ? 0 : -1}
+              data-dsh-editor-terminal-tab-id={entry.id}
+              title={`${entry.title} — ${entry.cwd}`}
+              style={{
+                ...styles.terminalTab,
+                ...(entry.id === activeTerminalId ? styles.terminalTabActive : null),
+              }}
+              onClick={() => onSelectTerminal?.(entry.id)}
+              onKeyDown={(event) => {
+                if (event.target !== event.currentTarget) return;
+                if (event.key === 'Escape') {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  emulator?.focus();
+                  return;
+                }
+                const index = terminals.findIndex((candidate) => candidate.id === entry.id);
+                const nextIndex = editorTerminalTabTargetIndex(index, terminals.length, event.key);
+                if (nextIndex === null) return;
+                event.preventDefault();
+                event.stopPropagation();
+                const next = terminals[nextIndex];
+                onSelectTerminalFromKeyboard?.(next.id);
+                window.setTimeout(() => {
+                  const nextTab = [...document.querySelectorAll<HTMLElement>('[role="tab"]')].find(
+                    (candidate) => candidate.dataset.dshEditorTerminalTabId === next.id,
+                  );
+                  nextTab?.focus({ preventScroll: true });
+                }, 0);
+              }}>
+              <span style={styles.editorTerminalTitle}>{entry.title}</span>
+            </button>
+          ))}
+        </div>
         <span style={styles.toolbarSpacer} />
         <ToolbarButton
           icon='collapse'
@@ -82,6 +129,7 @@ function EditorTerminalTab({
           onInput={(data) => onInput(terminal.id, data)}
           onTitle={(title) => onTitle(terminal.id, title)}
           onCwd={(cwd) => onCwd(terminal.id, cwd)}
+          focusGeneration={focusGeneration}
         />
       </div>
     </div>

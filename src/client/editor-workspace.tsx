@@ -31,6 +31,8 @@ import {
   projectTreeSelectionAfterPointer,
   type ProjectTreeSelectionModifiers,
 } from './components/project/project-selection-model';
+import { useProjectSelectionPersistence } from './components/project/project-selection-persistence';
+import { projectSearchIndexMenuItems, useProjectSearchIndexActions } from './components/project/project-search-index';
 import { changeModel } from './components/ui/git-change-model';
 import { ContextMenu, type ContextMenuModel } from './components/ui/Menu';
 import {
@@ -144,6 +146,11 @@ import { changesViewOptionsMenu, commitOptionsMenu } from './components/commit/c
 import { shelveMenu, stashMenu, type ShelfEntry } from './components/commit/stash-shelve-menu';
 import { commitLogMenu } from './components/commit/log-menu';
 import { commitFileMenu } from './components/commit/file-menu';
+import {
+  commitLogStorage,
+  useCommitLogAuthor,
+  useCommitLogInitialLoad,
+} from './components/commit/commit-log-view-preferences';
 import { currentSessionId } from './components/editor/editor-path-model';
 import { EditorAnnotateArea } from './components/editor/EditorAnnotateArea';
 import { EditorConflictBars } from './components/editor/EditorConflictBars';
@@ -172,7 +179,12 @@ import { FindToolDock } from './components/search/FindToolDock';
 import { FloatingToolPopup } from './components/search/FindToolPopup';
 import { FindToolWindow } from './components/search/FindToolWindow';
 import { confirmSearchReplace } from './components/search/search-replace-confirmation';
-import { QuickOpen, type QuickOpenState, useQuickOpenShortcut } from './components/search/QuickOpen';
+import {
+  QuickOpen,
+  useQuickOpenFileCandidates,
+  useQuickOpenShortcut,
+  type QuickOpenState,
+} from './components/search/QuickOpen';
 import { SearchEverywhere, type SearchEverywhereState } from './components/search/SearchEverywhere';
 import { ShowUsagesPopup } from './components/search/ShowUsagesPopup';
 import {
@@ -242,7 +254,10 @@ import {
   commitRelationTargets,
   type FindToolDraft,
   findFilePathMatches,
+  findToolPreservedFileIndex,
   findToolDraftFromState,
+  findToolSearchOptionsTransition,
+  moveFindToolSelection,
   findToolReopenDraft,
   findToolResultsAreCurrent,
   normalizeFileExtensionFilter,
@@ -314,6 +329,8 @@ import {
   remapProjectExpandedPaths,
   remapProjectManualOrder,
   reorderProjectManualPaths,
+  requestTerminalDockActivation,
+  restoreTerminalFocusTarget,
   textOffsetAtLineColumn,
   TERMINAL_DOCK_MAX_HEIGHT,
   TERMINAL_DOCK_MIN_HEIGHT,
@@ -327,6 +344,7 @@ import {
   writeProjectManualOrder,
   writeRecentFiles,
   writeStoredNumber,
+  writeStoredText,
   writeToolWidth,
 } from './terminal';
 import type * as Monaco from 'monaco-editor';
@@ -443,6 +461,7 @@ type FindToolState = NonNullable<React.ComponentProps<typeof FindToolWindow>['st
   loading?: boolean;
   error?: string | null;
   truncated?: boolean;
+  activeRowKey?: string | null;
   searchScopeMode?: string;
   searchScopePreset?: string;
   searchScopeDirectory?: string;
@@ -693,11 +712,7 @@ function EditorWorkspace({
       const next = editorTerminals.filter((entry) => entry.id !== terminal.id);
       setEditorTerminals(next);
       writeEditorTerminals(next.map((entry) => entry.id));
-      window.dispatchEvent(
-        new CustomEvent('dsh-editor-return-terminal', {
-          detail: { id: terminal.id },
-        }),
-      );
+      requestTerminalDockActivation(terminal.id, terminal);
       setTerminalOpen(true);
       setTerminalFocusGeneration((generation) => generation + 1);
     },
@@ -1208,9 +1223,8 @@ function EditorWorkspace({
     [root],
   );
   const [quickOpen, setQuickOpen] = React.useState<QuickOpenState | null>(null);
+  const quickOpenFileCandidates = useQuickOpenFileCandidates({ setQuickOpen, searchDirectoryRules, t });
   const quickOpenReturnFocusRef = React.useRef<HTMLElement | null>(null);
-  const quickOpenFilesRequestRef = React.useRef(0);
-  const quickOpenFilesAbortRef = React.useRef<AbortController | null>(null);
   const paletteReturnFocusRef = React.useRef<HTMLElement | null>(null);
   /* IDEA's double-Shift search reuses existing file, text and action data. */
   const [searchEverywhere, setSearchEverywhere] = React.useState<SearchEverywhereState | null>(null);
@@ -1302,7 +1316,9 @@ function EditorWorkspace({
     React.useState<MoveToPickerState | null>(null);
   const moveToRequestRef = React.useRef(0);
   const moveToAbortRef = React.useRef<AbortController | null>(null);
-  const [commitMode, setCommitMode] = React.useState<'changes' | 'log'>('changes');
+  const [commitMode, setCommitMode] = React.useState<'changes' | 'log'>(() =>
+    readStoredText('dsh-editor.commit.mode', 'changes') === 'log' ? 'log' : 'changes',
+  );
   /* IDEA's "Group by" for the change list; persisted because it is a
          preference about how the user reads changes, not about one session. */ const [groupBy, setGroupBy] =
     React.useState(() => readStoredText('dsh-editor.commit.groupBy', 'directory'));
@@ -1343,6 +1359,7 @@ function EditorWorkspace({
     (next: CommitMode) => {
       const node = commitMode === 'changes' ? commitChangesRef.current : commitLogRef.current;
       if (node !== null && node !== undefined) commitScrollRef.current[commitMode] = node.scrollTop;
+      writeStoredText('dsh-editor.commit.mode', next);
       setCommitMode(next);
     },
     [commitMode],
@@ -1375,7 +1392,11 @@ function EditorWorkspace({
   /* The commit chosen in either the flat list or the graph; both views mark it. */ const [
     selectedCommit,
     setSelectedCommit,
-  ] = React.useState<string | null>(null);
+  ] = React.useState<string | null>(() => {
+    const stored = readStoredText('dsh-editor.commit.selected', '');
+    return stored === '' ? null : stored;
+  });
+  const selectedCommitRequestRef = React.useRef<string | null>(null);
   const [logSelectedCommits, setLogSelectedCommits] = React.useState<string[]>([]);
   const containerRef = React.useRef<HTMLDivElement | null>(null);
   const editorRef = React.useRef<Monaco.editor.IStandaloneCodeEditor | null>(null);
@@ -1755,6 +1776,13 @@ function EditorWorkspace({
   const expansionReady = root !== '' && expandedReadyRoot === root;
   const visibleProjectRows = expansionReady ? rows : [];
   const visibleProjectSourceRows = expansionReady ? projectRows : [];
+  useProjectSelectionPersistence({
+    root,
+    ready: expansionReady,
+    rows,
+    selectedPath,
+    onSelect: setSelectedPath,
+  });
   /* Mirror the flattened rows for the loader (which runs outside render). */ React.useEffect(() => {
     rowsRef.current = projectRows;
   }, [projectRows]);
@@ -1969,11 +1997,9 @@ function EditorWorkspace({
   ] = React.useState(false);
   /* Why the last log/graph request failed; null while the view is healthy. */ const [logError, setLogError] =
     React.useState(null);
-  const [logAuthor, setLogAuthor] = React.useState('');
-  const logAuthorRef = React.useRef('');
-  React.useEffect(() => {
-    logAuthorRef.current = logAuthor;
-  }, [logAuthor]);
+  const commitLogAuthor = useCommitLogAuthor(root);
+  const logAuthor = commitLogAuthor.author;
+  const logAuthorRef = commitLogAuthor.ref;
   const loadingMoreRef = React.useRef(false);
   const logMoreRequestRef = React.useRef<AbortController | null>(null);
   const cancelLogMoreRequest = React.useCallback((): void => {
@@ -2100,8 +2126,10 @@ function EditorWorkspace({
    */ const [graph, setGraph] = React.useState<CommitGraphPayload | null>(null);
   const loadGraph = React.useCallback(
     async (branch?: string, at?: string) => {
-      const branchValue = typeof branch === 'string' ? branch : '';
-      const atValue = typeof at === 'string' ? at : '';
+      const storedScope = branch === undefined && at === undefined ? commitLogStorage.readGraphScope(root) : null;
+      const branchValue = typeof branch === 'string' ? branch : (storedScope?.branch ?? '');
+      const atValue = typeof at === 'string' ? at : (storedScope?.at ?? '');
+      commitLogStorage.writeGraphScope(root, branchValue, atValue);
       if (git?.isRepo === false) {
         setGraph({
           entries: [],
@@ -2162,7 +2190,7 @@ function EditorWorkspace({
         finishLogRequest(controller);
       }
     },
-    [beginLogRequest, finishLogRequest, git?.isRepo, reportGitFailure],
+    [beginLogRequest, finishLogRequest, git?.isRepo, reportGitFailure, root],
   );
   /* A repository can disappear while the tool window is already open. Clear
      every Git-owned view at the state boundary so stale notices, commit rows,
@@ -2180,6 +2208,7 @@ function EditorWorkspace({
     preAmendMessage.current = null;
     setDiffTarget(null);
     setDiffActive(false);
+    selectedCommitRequestRef.current = null;
     setSelectedCommit(null);
     setHistoryPath(null);
     setCommits([]);
@@ -2189,6 +2218,24 @@ function EditorWorkspace({
     setLogLoading(false);
     setGraph(null);
   }, [cancelLogMoreRequest, git?.isRepo]);
+  React.useEffect(() => {
+    writeStoredText('dsh-editor.commit.selected', selectedCommit ?? '');
+  }, [selectedCommit]);
+  useCommitLogInitialLoad(
+    {
+      activity,
+      authorReady: commitLogAuthor.ready,
+      panelVisible,
+      mode: commitMode,
+      gitReady: git !== null,
+      isRepo: git?.isRepo !== false,
+      commitCount: commits.length,
+      exhausted: logExhausted,
+      loading: logLoading,
+      failed: logError !== null,
+    },
+    loadLog,
+  );
   /**
    * Select one commit: load the detail AND keep the list on that row.
    *
@@ -2200,6 +2247,7 @@ function EditorWorkspace({
    * @returns {Promise<void>} resolves once the detail is set.
    */ const showCommit = React.useCallback(
     async (hash: string) => {
+      selectedCommitRequestRef.current = hash;
       setSelectedCommit(hash);
       try {
         setLogDetail(await callGit({ op: 'show', hash }));
@@ -2209,6 +2257,21 @@ function EditorWorkspace({
     },
     [reportGitFailure],
   );
+  React.useEffect(() => {
+    if (selectedCommit === null || commits.length === 0) return;
+    if (!commits.some((commit) => commit.hash === selectedCommit)) {
+      if (!logLoading && logExhausted) {
+        selectedCommitRequestRef.current = null;
+        setSelectedCommit(null);
+        setLogDetail(null);
+      }
+      return;
+    }
+    if (logDetail?.hash === selectedCommit) return;
+    if (selectedCommitRequestRef.current === selectedCommit) return;
+    selectedCommitRequestRef.current = selectedCommit;
+    void showCommit(selectedCommit);
+  }, [commits, logDetail?.hash, logExhausted, logLoading, selectedCommit, showCommit]);
   /**
    * Open one file's version inside one commit as a diff in the editor area.
    *
@@ -2355,7 +2418,7 @@ function EditorWorkspace({
       }
       /* IDEA answers "Show History" by opening the Commit tool window's Log tab. */ setActivity('commit');
       setPanelVisible(true);
-      setCommitMode('log');
+      switchCommitMode('log');
       setHistoryPath(path);
       if (git?.isRepo === false) {
         setCommits([]);
@@ -2381,7 +2444,7 @@ function EditorWorkspace({
         finishLogRequest(controller);
       }
     },
-    [beginLogRequest, finishLogRequest, git?.isRepo, reportGitFailure],
+    [beginLogRequest, finishLogRequest, git?.isRepo, reportGitFailure, switchCommitMode],
   );
   /**
    * Apply the log's author filter, debounced so typing does not spawn a git per key.
@@ -2391,8 +2454,7 @@ function EditorWorkspace({
    */
   const changeLogAuthor = React.useCallback(
     (value: string) => {
-      setLogAuthor(value);
-      logAuthorRef.current = value;
+      commitLogAuthor.setAuthor(value);
       cancelLogMoreRequest();
       if (authorTimer.current !== null) window.clearTimeout(authorTimer.current);
       authorTimer.current = window.setTimeout(() => {
@@ -2401,7 +2463,7 @@ function EditorWorkspace({
         void loadLog();
       }, 350);
     },
-    [cancelLogMoreRequest, loadLog],
+    [cancelLogMoreRequest, commitLogAuthor.setAuthor, loadLog],
   );
   React.useEffect(
     () => () => {
@@ -3152,12 +3214,12 @@ function EditorWorkspace({
       if (typeof hash !== 'string' || hash === '') return;
       setActivity('commit');
       setPanelVisible(true);
-      setCommitMode('log');
+      switchCommitMode('log');
       setHistoryPath(null);
       void loadLog();
       void showCommit(hash);
     },
-    [loadLog, showCommit],
+    [loadLog, showCommit, switchCommitMode],
   );
   /* Reveal a line requested by a terminal link once the model is bound. */ const pendingReveal = React.useRef<{
     path: string;
@@ -3242,6 +3304,7 @@ function EditorWorkspace({
       setStatusNotice(null);
     }, 4000);
   }, []);
+  const projectSearchIndexActions = useProjectSearchIndexActions(flashStatus, t, searchDirectoryRules);
   const copyStatusPath = React.useCallback(async () => {
     if (statusPath === '') return;
     try {
@@ -4248,42 +4311,12 @@ function EditorWorkspace({
         : null;
     if (activeElement !== null && activeElement !== document.body) quickOpenReturnFocusRef.current = activeElement;
   }, []);
-  /* Load the palette's candidate list lazily, once per open. */ const openQuickOpen = React.useCallback(async () => {
+  /* Load the palette's candidate list lazily, once per open. */ const openQuickOpen = React.useCallback(() => {
     rememberQuickOpenOrigin();
-    const requestId = ++quickOpenFilesRequestRef.current;
-    quickOpenFilesAbortRef.current?.abort();
-    const searchAbort = new AbortController();
-    quickOpenFilesAbortRef.current = searchAbort;
     setPaletteMode('files');
-    setQuickOpen({ query: '', index: 0, truncated: false, loading: true, error: null });
-    try {
-      const value = await callFs<FileListResponse>(
-        { op: 'files', respectGitIgnore: true, searchDirectoryRules },
-        { signal: searchAbort.signal },
-      );
-      if (quickOpenFilesRequestRef.current !== requestId) return;
-      setQuickOpen((current) =>
-        current === null
-          ? current
-          : {
-              ...current,
-              files: value.files ?? [],
-              truncated: value.truncated === true,
-              loading: false,
-              error: null,
-            },
-      );
-    } catch (failure) {
-      if (failure?.name === 'AbortError' || failure?.name === 'CanceledError') return;
-      if (quickOpenFilesRequestRef.current !== requestId) return;
-      const message = searchTextFailureMessage(failure, t);
-      setQuickOpen((current) =>
-        current === null ? current : { ...current, files: [], truncated: false, loading: false, error: message },
-      );
-    } finally {
-      if (quickOpenFilesAbortRef.current === searchAbort) quickOpenFilesAbortRef.current = null;
-    }
-  }, [rememberQuickOpenOrigin, searchDirectoryRules, t]);
+    setQuickOpen({ query: '', index: 0, activePath: null, truncated: false, loading: true, error: null });
+    quickOpenFileCandidates.requestFiles();
+  }, [quickOpenFileCandidates, rememberQuickOpenOrigin]);
   useQuickOpenShortcut(openQuickOpen);
   const requestSearchEverywhereFilesForActiveMask = React.useCallback(
     (includeNonProject: boolean) =>
@@ -4327,6 +4360,7 @@ function EditorWorkspace({
         tab,
         query,
         index: 0,
+        activeRowKey: null,
         withReplace,
         replace: '',
         files: cachedFilesMatchScope ? searchEverywhereFilesRef.current : [],
@@ -4378,6 +4412,10 @@ function EditorWorkspace({
   const searchEverywhereOpen = searchEverywhere !== null;
   const searchEverywhereTextActive =
     searchEverywhere !== null && (searchEverywhere.tab === 'all' || searchEverywhere.tab === 'text');
+  React.useEffect(() => {
+    if (searchEverywhereOpen) return;
+    abortSearchEverywhereFileRequests();
+  }, [abortSearchEverywhereFileRequests, searchEverywhereOpen]);
   React.useEffect(() => {
     if (!searchEverywhereTextActive) return undefined;
     const requestId = ++searchTextRequestRef.current;
@@ -4525,6 +4563,7 @@ function EditorWorkspace({
         loading: false,
         error: null,
         index: Math.max(0, Math.min(initialCount - 1, Number(initial?.index) || 0)),
+        activeRowKey: null,
         handoffRevision: ++findToolHandoffSequenceRef.current,
         replaceBusy: false,
         includeExcluded: initial !== null ? initial.includeExcluded === true : savedOptions.includeExcluded === true,
@@ -5011,6 +5050,7 @@ function EditorWorkspace({
         ...current,
         files,
         matches: [],
+        index: findToolPreservedFileIndex(current.files, files, current.index),
         truncated: findToolFileCandidatesTruncated,
         loading: false,
         error: null,
@@ -5206,9 +5246,7 @@ function EditorWorkspace({
   }, [currentCodeEditor, openSearchEverywhere]);
   const cancelWorkspaceSearchRequests = React.useCallback(() => {
     abortSearchEverywhereFileRequests();
-    quickOpenFilesRequestRef.current += 1;
-    quickOpenFilesAbortRef.current?.abort();
-    quickOpenFilesAbortRef.current = null;
+    quickOpenFileCandidates.abortRequests();
     revisionPickerRequestRef.current += 1;
     revisionPickerAbortRef.current?.abort();
     revisionPickerAbortRef.current = null;
@@ -5224,7 +5262,7 @@ function EditorWorkspace({
     findToolFileRequestRef.current += 1;
     findToolFileAbortRef.current?.abort();
     findToolFileAbortRef.current = null;
-  }, [abortSearchEverywhereFileRequests]);
+  }, [abortSearchEverywhereFileRequests, quickOpenFileCandidates]);
   const previousWorkspaceSearchRootRef = React.useRef(root);
   React.useEffect(() => {
     const previousWorkspaceRoot = previousWorkspaceSearchRootRef.current;
@@ -5282,19 +5320,18 @@ function EditorWorkspace({
    */ const openRecent = React.useCallback(() => {
     if (rootRef.current === '') return;
     rememberQuickOpenOrigin();
+    quickOpenFileCandidates.abortRequests();
     setPaletteMode('recent');
     /* Read through the ref: the keydown handler closes over an older render. */ const list = readRecentFiles(
       rootRef.current,
     );
     setRecentFiles(list);
-    setQuickOpen({ query: '', index: 0, files: list, loading: false });
-  }, [rememberQuickOpenOrigin]);
+    setQuickOpen({ query: '', index: 0, activePath: null, files: list, loading: false });
+  }, [quickOpenFileCandidates, rememberQuickOpenOrigin]);
   const closeQuickOpen = React.useCallback(() => {
     const previous = quickOpenReturnFocusRef.current;
     quickOpenReturnFocusRef.current = null;
-    quickOpenFilesRequestRef.current += 1;
-    quickOpenFilesAbortRef.current?.abort();
-    quickOpenFilesAbortRef.current = null;
+    quickOpenFileCandidates.abortRequests();
     setQuickOpen(null);
     window.setTimeout(() => {
       if (previous !== null && previous.isConnected) {
@@ -6436,7 +6473,7 @@ function EditorWorkspace({
   const closeFind = React.useCallback(() => {
     setReplaceState(null);
     currentCodeEditor()?.focus();
-  }, [currentCodeEditor]);
+  }, [currentCodeEditor, quickOpenFileCandidates]);
   /* Discard local edits and take the on-disk contents, IDEA's "Load File from Disk". */ /**
    * Re-read one open tab from disk, keeping it open and clean.
    *
@@ -8506,6 +8543,7 @@ function EditorWorkspace({
           batch.length > 1 ? t('editor.selectionCount', { count: batch.length }) : null,
         items: [
           buildHarnessPathAction(harnessEntries),
+          ...(isRoot ? projectSearchIndexMenuItems(t, projectSearchIndexActions) : []),
           null,
           {
             id: 'newFile',
@@ -8674,6 +8712,7 @@ function EditorWorkspace({
       openInRightSplit,
       openInTerminal,
       openMoveTo,
+      projectSearchIndexActions,
       refreshTree,
       removeEntries,
       removeEntry,
@@ -9951,13 +9990,18 @@ function EditorWorkspace({
   );
   const rememberActivityToolWindowOrigin = React.useCallback(
     (id: string) => {
-      if (id !== 'terminal' || terminalOpen) return;
+      if (id !== 'terminal') return;
       const current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
       const editorNode = editorRef.current?.getDomNode?.() ?? null;
-      terminalReturnFocusRef.current =
+      const externalSurface =
         current !== null && current.closest('[data-dsh-editor-terminal], [data-dsh-editor-activity-stripe]') === null
           ? current
-          : editorNode;
+          : null;
+      if (terminalOpen) {
+        if (externalSurface !== null) terminalReturnFocusRef.current = externalSurface;
+        return;
+      }
+      terminalReturnFocusRef.current = externalSurface ?? editorNode;
     },
     [terminalOpen],
   );
@@ -9973,7 +10017,9 @@ function EditorWorkspace({
           const previous = terminalReturnFocusRef.current;
           terminalReturnFocusRef.current = null;
           setTerminalOpen(false);
-          focusWorkspaceSurface(previous);
+          window.setTimeout(() => {
+            restoreTerminalFocusTarget(previous, () => focusWorkspaceSurface(previous));
+          }, 0);
           return;
         }
         if (terminalReturnFocusRef.current === null) {
@@ -10046,12 +10092,15 @@ function EditorWorkspace({
     const restoreTerminalOrigin = () => {
       const previous = terminalReturnFocusRef.current;
       terminalReturnFocusRef.current = null;
-      focusWorkspaceSurface(previous);
+      window.setTimeout(() => {
+        restoreTerminalFocusTarget(previous, () => focusWorkspaceSurface(previous));
+      }, 0);
     };
     const toggleTerminalDock = () => {
       const current = document.activeElement instanceof Element ? document.activeElement : null;
       const action = terminalShortcutAction(terminalOpen, current?.closest('[data-dsh-editor-terminal]') !== null);
       if (action.focus) {
+        rememberTerminalOrigin();
         setFindTool(null);
         setTerminalFocusGeneration((value) => value + 1);
         return;
@@ -10871,7 +10920,7 @@ function EditorWorkspace({
         /* Remember which commit we just made so the list can point at it. */ const head = value?.lastCommit?.hash;
         if (typeof head === 'string' && head !== '') {
           setHighlightedCommit(head);
-          setCommitMode('log');
+          switchCommitMode('log');
         }
       } catch (failure) {
         reportGitFailure(failure);
@@ -10879,7 +10928,7 @@ function EditorWorkspace({
         endCommitOperation();
       }
     },
-    [amend, commitMessage, commitSelection, git, loadLog, reportGitFailure, root, t],
+    [amend, commitMessage, commitSelection, git, loadLog, reportGitFailure, root, switchCommitMode, t],
   );
   const tabs = openFiles.map((file) => {
     const fileTabActive = diffActive === false && file.path === activePath;
@@ -11303,7 +11352,7 @@ function EditorWorkspace({
         openFilePaths={openFiles.map((file) => file.path)}
         recentFilePaths={recentFiles}
         gitAvailable={git !== null && typeof git.branch === 'string' && git.branch !== ''}
-        openFilesRef={openFilesRef}
+        openFiles={openFiles}
         changedFilePaths={(git?.changes ?? []).map((change) => change.path)}
         customScopes={customFindScopes}
         onWriteScopeXml={writeFindScopeXml}
@@ -11317,49 +11366,26 @@ function EditorWorkspace({
           setFindTool((current) =>
             current === null
               ? current
-              : {
-                  ...current,
-                  caseSensitive: current.caseSensitive !== true,
-                  files: [],
-                  matches: [],
-                  index: 0,
-                  error: null,
-                  loadedGeneration: -1,
-                  searchGeneration: (current.searchGeneration ?? 0) + 1,
-                },
+              : findToolSearchOptionsTransition(current, { caseSensitive: current.caseSensitive !== true }),
           )
         }
         onToggleWholeWords={() =>
           setFindTool((current) =>
             current === null
               ? current
-              : {
-                  ...current,
+              : findToolSearchOptionsTransition(current, {
                   wholeWords: current.regex !== true && current.wholeWords !== true,
-                  files: [],
-                  matches: [],
-                  index: 0,
-                  error: null,
-                  loadedGeneration: -1,
-                  searchGeneration: (current.searchGeneration ?? 0) + 1,
-                },
+                }),
           )
         }
         onToggleRegex={() =>
           setFindTool((current) =>
             current === null
               ? current
-              : {
-                  ...current,
+              : findToolSearchOptionsTransition(current, {
                   regex: current.regex !== true,
                   wholeWords: false,
-                  files: [],
-                  matches: [],
-                  index: 0,
-                  error: null,
-                  loadedGeneration: -1,
-                  searchGeneration: (current.searchGeneration ?? 0) + 1,
-                },
+                }),
           )
         }
         onTogglePreserveCase={() =>
@@ -11371,67 +11397,30 @@ function EditorWorkspace({
           setFindTool((current) =>
             current === null
               ? current
-              : {
-                  ...current,
-                  includeExcluded: current.includeExcluded !== true,
-                  files: [],
-                  matches: [],
-                  index: 0,
-                  error: null,
-                  loadedGeneration: -1,
-                  searchGeneration: (current.searchGeneration ?? 0) + 1,
-                },
+              : findToolSearchOptionsTransition(current, { includeExcluded: current.includeExcluded !== true }),
           )
         }
         onContextFilterChange={(contextFilter) =>
           setFindTool((current) =>
             current === null
               ? current
-              : {
-                  ...current,
+              : findToolSearchOptionsTransition(current, {
                   contextFilter: normalizeTextSearchContextFilter(contextFilter),
-                  files: [],
-                  matches: [],
-                  index: 0,
-                  error: null,
-                  loadedGeneration: -1,
-                  searchGeneration: (current.searchGeneration ?? 0) + 1,
-                },
+                }),
           )
         }
         onFileMaskChange={(fileMask) =>
           setFindTool((current) =>
-            current === null
-              ? current
-              : {
-                  ...current,
-                  fileMask,
-                  files: [],
-                  matches: [],
-                  index: 0,
-                  error: null,
-                  loadedGeneration: -1,
-                  searchGeneration: (current.searchGeneration ?? 0) + 1,
-                },
+            current === null ? current : findToolSearchOptionsTransition(current, { fileMask }),
           )
         }
         onScopeChange={changeFindToolScope}
         onDirectoryRecursiveChange={changeFindDirectoryRecursive}
         onCustomScopesChange={changeCustomFindScopes}
-        onMove={(direction, count, absolute = null) =>
-          setFindTool((current) => {
-            if (current === null) return current;
-            if (count === 0) return { ...current, index: 0 };
-            if (Number.isFinite(absolute))
-              return {
-                ...current,
-                index: Math.max(0, Math.min(count - 1, absolute)),
-              };
-            return {
-              ...current,
-              index: (current.index + direction + count) % count,
-            };
-          })
+        onMove={(direction, count, absolute = null, activeRowKey) =>
+          setFindTool((current) =>
+            current === null ? current : moveFindToolSelection(current, direction, count, absolute, activeRowKey),
+          )
         }
         onOpen={(result, openInNewTab = false) => {
           if (openInNewTab) {
@@ -11571,18 +11560,20 @@ function EditorWorkspace({
                 current === null ? current : searchEverywhereTabTransition(current, tab),
               )
             }
-            onMove={(direction, count, absolute = null) =>
+            onMove={(direction, count, absolute = null, activeRowKey) =>
               setSearchEverywhere((current) => {
                 if (current === null) return current;
-                if (count === 0) return { ...current, index: 0 };
+                if (count === 0) return { ...current, index: 0, activeRowKey: null };
                 if (Number.isFinite(absolute))
                   return {
                     ...current,
                     index: Math.max(0, Math.min(count - 1, absolute)),
+                    activeRowKey: activeRowKey ?? null,
                   };
                 return {
                   ...current,
                   index: (current.index + direction + count) % count,
+                  activeRowKey: activeRowKey ?? null,
                 };
               })
             }
@@ -11693,14 +11684,22 @@ function EditorWorkspace({
           error={quickOpen.error ?? null}
           query={quickOpen.query}
           index={quickOpen.index}
-          onQuery={(query) => setQuickOpen((current) => (current === null ? current : { ...current, query, index: 0 }))}
-          onMove={(direction, count) =>
+          activePath={quickOpen.activePath}
+          onQuery={(query) =>
+            paletteMode === 'files'
+              ? quickOpenFileCandidates.updateQuery(query)
+              : setQuickOpen((current) =>
+                  current === null ? current : { ...current, query, index: 0, activePath: null },
+                )
+          }
+          onMove={(direction, count, activePath) =>
             setQuickOpen((current) =>
               current === null
                 ? current
                 : {
                     ...current,
                     index: count === 0 ? 0 : (current.index + direction + count) % count,
+                    activePath: activePath ?? null,
                   },
             )
           }
@@ -12123,7 +12122,7 @@ function EditorWorkspace({
                 }}
                 highlightedCommit={highlightedCommit}
                 graph={graph}
-                onLoadGraph={() => void loadGraph(graph?.branch ?? '', graph?.at ?? '')}
+                onLoadGraph={() => void loadGraph(graph?.branch, graph?.at)}
                 onGraphBranch={(branch) => void loadGraph(branch, '')}
                 selected={selectedCommit}
                 selectedCommits={logSelectedCommits}
@@ -12376,7 +12375,7 @@ function EditorWorkspace({
             </EditorFileSurface>
             <EditorTerminalArea
               active={editorTerminals.length > 0 && diffOpen === false && annotateTarget === null}
-              terminal={editorTerminals[editorTerminals.length - 1] ?? null}
+              terminals={editorTerminals}
               t={t}
               onError={(message) => setEditorError(message)}
               onInput={(id, data) => {
@@ -12505,7 +12504,9 @@ function EditorWorkspace({
                   const previous = terminalReturnFocusRef.current;
                   terminalReturnFocusRef.current = null;
                   setTerminalOpen(false);
-                  focusWorkspaceSurface(previous);
+                  window.setTimeout(() => {
+                    restoreTerminalFocusTarget(previous, () => focusWorkspaceSurface(previous));
+                  }, 0);
                 }}
                 onEditorTerminals={(list) =>
                   setEditorTerminals(

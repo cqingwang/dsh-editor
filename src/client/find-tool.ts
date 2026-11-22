@@ -17,12 +17,19 @@ export interface FindToolDraft {
 export const FIND_TOOL_PREVIEW_MIN_PERCENT = 20;
 export const FIND_TOOL_PREVIEW_MAX_PERCENT = 80;
 export const FIND_TOOL_PREVIEW_DEFAULT_PERCENT = 46;
+export const FIND_TOOL_PREVIEW_MIN_WIDTH = 120;
 
 /** Keep the remembered result/preview split reachable at every dock width. */
-export function clampFindPreviewPercent(value: unknown): number {
+export function clampFindPreviewPercent(value: unknown, width?: unknown): number {
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) return FIND_TOOL_PREVIEW_DEFAULT_PERCENT;
-  return Math.max(FIND_TOOL_PREVIEW_MIN_PERCENT, Math.min(FIND_TOOL_PREVIEW_MAX_PERCENT, numeric));
+  const measuredWidth = Number(width);
+  const minPercent =
+    Number.isFinite(measuredWidth) && measuredWidth > 0
+      ? Math.min(50, Math.max(FIND_TOOL_PREVIEW_MIN_PERCENT, (FIND_TOOL_PREVIEW_MIN_WIDTH / measuredWidth) * 100))
+      : FIND_TOOL_PREVIEW_MIN_PERCENT;
+  const maxPercent = Math.max(50, 100 - minPercent);
+  return Math.max(minPercent, Math.min(maxPercent, numeric));
 }
 
 /** Preserve the reopen draft and the generation that owns it. */
@@ -266,6 +273,137 @@ export function findToolReplaceAdvanceIndex(
   if (replacedIndex >= 0) return (replacedIndex + 1) % rows.length;
   const requested = Math.trunc(Number(fallbackIndex) || 0);
   return Math.max(0, Math.min(rows.length - 1, requested));
+}
+
+/**
+ * Resolve the live dirty-buffer content that should own a Find preview.
+ *
+ * A Find row keeps its identity while the user edits the same file. The
+ * preview must therefore read the current dirty model instead of keeping the
+ * content captured when the row was first opened.
+ * @param path - active Find result path.
+ * @param openFiles - current editor documents with dirty/content state.
+ * @returns live content for a dirty matching file, otherwise null.
+ */
+export function findToolLivePreviewContent(path: unknown, openFiles: unknown): string | null {
+  if (typeof path !== 'string' || path === '' || !Array.isArray(openFiles)) return null;
+  const file = openFiles.find(
+    (entry) => entry?.path === path && entry?.dirty === true && typeof entry?.content === 'string',
+  );
+  return typeof file?.content === 'string' ? file.content : null;
+}
+
+/**
+ * Give Preview read failures a localized action context without hiding the
+ * underlying file or host error.
+ * @param t - active locale translator.
+ * @param failure - rejected preview read.
+ * @returns localized message containing the original detail.
+ */
+export function searchPreviewFailureMessage(
+  t: (key: string, params?: Record<string, unknown>) => string,
+  failure: unknown,
+): string {
+  const message = failure instanceof Error ? failure.message : String(failure);
+  return t('editor.searchPreviewFailed', { message });
+}
+
+/**
+ * Recover the active Find row after an asynchronous result set changes.
+ *
+ * The stable rowKey is authoritative while that row still exists. If it was
+ * removed, retain the previous numeric location and clamp it to the new list
+ * so focus, preview and handoff all converge on the same valid row.
+ * @param rows - current visible file/text rows.
+ * @param requestedIndex - numeric selection from the previous row set.
+ * @param activeRowKey - stable identity selected before the refresh.
+ * @returns the reconciled zero-based index and row identity.
+ */
+export function findToolReconciledResultRow(
+  rows: unknown,
+  requestedIndex: unknown,
+  activeRowKey: unknown,
+): { index: number; rowKey: string | null } {
+  const list = Array.isArray(rows) ? rows : [];
+  if (list.length === 0) return { index: 0, rowKey: null };
+  const activeKey = typeof activeRowKey === 'string' ? activeRowKey : '';
+  if (activeKey !== '') {
+    const preserved = list.findIndex((row) => row?.rowKey === activeKey);
+    if (preserved >= 0) return { index: preserved, rowKey: activeKey };
+  }
+  const index = Math.max(0, Math.min(list.length - 1, Math.trunc(Number(requestedIndex) || 0)));
+  const rowKey = typeof list[index]?.rowKey === 'string' ? list[index].rowKey : null;
+  return { index, rowKey };
+}
+
+interface FindToolSelectionState {
+  index?: unknown;
+  activeRowKey?: unknown;
+  [key: string]: unknown;
+}
+
+interface FindToolOptionState extends Record<string, unknown> {
+  files?: unknown;
+  matches?: unknown;
+  index?: unknown;
+  activeRowKey?: unknown;
+  error?: unknown;
+  loadedGeneration?: unknown;
+  searchGeneration?: unknown;
+}
+
+/**
+ * Apply one bounded Find selection movement while retaining its row identity.
+ * @param current - current Find surface state.
+ * @param direction - relative movement when no absolute row is supplied.
+ * @param count - current number of visible result rows.
+ * @param absolute - optional zero-based destination row.
+ * @param activeRowKey - stable identity of the destination row.
+ * @returns updated state with a valid index and row identity.
+ */
+export function moveFindToolSelection<T extends FindToolSelectionState>(
+  current: T,
+  direction: unknown,
+  count: unknown,
+  absolute: unknown = null,
+  activeRowKey: unknown = null,
+): T {
+  const total = Math.max(0, Math.trunc(Number(count) || 0));
+  if (total === 0) return { ...current, index: 0, activeRowKey: null } as T;
+  const requested = Number(absolute);
+  const index =
+    absolute !== null && absolute !== undefined && Number.isFinite(requested)
+      ? Math.max(0, Math.min(total - 1, requested))
+      : (((Math.trunc(Number(current.index) || 0) + Math.trunc(Number(direction) || 0) + total) % total) + total) %
+        total;
+  return {
+    ...current,
+    index,
+    activeRowKey: typeof activeRowKey === 'string' ? activeRowKey : null,
+  } as T;
+}
+
+/**
+ * Invalidate results after one search option changes.
+ * @param current - current Find surface state.
+ * @param patch - option values owned by the changed control.
+ * @returns state with a new search generation and no stale rows or identity.
+ */
+export function findToolSearchOptionsTransition<T extends FindToolOptionState>(
+  current: T,
+  patch: Partial<FindToolOptionState>,
+): T {
+  return {
+    ...current,
+    ...patch,
+    files: [],
+    matches: [],
+    index: 0,
+    activeRowKey: null,
+    error: null,
+    loadedGeneration: -1,
+    searchGeneration: (Number(current.searchGeneration) || 0) + 1,
+  } as T;
 }
 
 interface FindReplaceDisabledReasonOptions {
@@ -551,6 +689,35 @@ interface FindFilePathMatchOptions {
   wholeWords?: boolean;
   fileMask?: unknown;
   limit?: number;
+}
+
+/**
+ * Keep the selected Find File path stable while indexed candidates arrive.
+ *
+ * File-scope results are re-sorted as the asynchronous candidate list grows.
+ * A numeric index would then point at a different file, so recover the path
+ * selected in the previous list and fall back to the bounded prior index only
+ * when that file disappeared from the new result set.
+ * @param {unknown} previousFiles - file rows from the previous render.
+ * @param {unknown} nextFiles - file rows from the refreshed candidate list.
+ * @param {unknown} requestedIndex - numeric selection before the refresh.
+ * @returns {number} index that preserves the selected file when possible.
+ */
+export function findToolPreservedFileIndex(
+  previousFiles: unknown,
+  nextFiles: unknown,
+  requestedIndex: unknown,
+): number {
+  const previous = Array.isArray(previousFiles) ? previousFiles : [];
+  const next = Array.isArray(nextFiles) ? nextFiles : [];
+  if (next.length === 0) return 0;
+  const requested = Math.max(0, Math.min(previous.length - 1, Math.trunc(Number(requestedIndex) || 0)));
+  const activePath = typeof previous[requested]?.path === 'string' ? previous[requested].path : '';
+  if (activePath !== '') {
+    const preserved = next.findIndex((file) => file?.path === activePath);
+    if (preserved >= 0) return preserved;
+  }
+  return Math.max(0, Math.min(next.length - 1, requested));
 }
 
 /**

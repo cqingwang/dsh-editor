@@ -10,7 +10,10 @@ const findTool = client.slice(
 
 test('Find Preview aborts superseded file reads', () => {
   const start = findTool.indexOf('React.useEffect(() => {\n    if (!previewOpen || active === null');
-  const end = findTool.indexOf('  }, [previewOpen, active?.rowKey, state.loading]);', start);
+  const end = findTool.indexOf(
+    '  }, [previewOpen, active?.rowKey, active?.mtime, activeLivePreviewContent, state.loading, t]);',
+    start,
+  );
   assert.ok(start >= 0 && end > start, 'Find Preview effect is missing');
   const effect = findTool.slice(start, end);
   assert.match(effect, /const previewAbort = new AbortController\(\);/u);

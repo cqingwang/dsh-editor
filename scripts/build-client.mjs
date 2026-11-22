@@ -411,6 +411,30 @@ const indentedProjectOptionsMenu = projectOptionsMenuBody
   .join('\n');
 const projectOptionsMenuModule = `\n    /* ─────────────────────── components/project/project-options-menu.ts ─────────────────────── */\n${indentedProjectOptionsMenu}\n`;
 
+const projectSearchIndexResult = await transformAsync(
+  readFileSync(join(partsDir, 'components', 'project', 'project-search-index.ts'), 'utf8'),
+  {
+    filename: 'project-search-index.ts',
+    plugins: [['@babel/plugin-transform-typescript', { isTSX: false, allExtensions: true }]],
+    generatorOpts: {
+      retainLines: true,
+      jsescOption: { quotes: 'single', minimal: true },
+    },
+    configFile: false,
+    babelrc: false,
+  },
+);
+const projectSearchIndexBody = stripModuleSyntax(projectSearchIndexResult.code ?? '').trimEnd();
+if (projectSearchIndexBody === '') {
+  console.error('build-client: Babel produced an empty project search index module');
+  process.exit(1);
+}
+const indentedProjectSearchIndex = projectSearchIndexBody
+  .split('\n')
+  .map((line) => (line === '' ? '' : `    ${line}`))
+  .join('\n');
+const projectSearchIndexModule = `\n    /* ─────────────────────── components/project/project-search-index.ts ─────────────────────── */\n${indentedProjectSearchIndex}\n`;
+
 const projectUploadDropResult = await transformAsync(
   readFileSync(join(partsDir, 'components', 'project', 'use-project-upload-drop.ts'), 'utf8'),
   {
@@ -1364,6 +1388,54 @@ const indentedProjectSelectionModel = projectSelectionModelBody
   .map((line) => (line === '' ? '' : `    ${line}`))
   .join('\n');
 const projectSelectionModelModule = `\n    /* ─────────────────────── components/project/project-selection-model.ts ─────────────────────── */\n${indentedProjectSelectionModel}\n`;
+
+const projectSelectionPersistenceResult = await transformAsync(
+  readFileSync(join(partsDir, 'components', 'project', 'project-selection-persistence.ts'), 'utf8'),
+  {
+    filename: 'project-selection-persistence.ts',
+    plugins: [['@babel/plugin-transform-typescript', { isTSX: false, allExtensions: true }]],
+    generatorOpts: {
+      retainLines: true,
+      jsescOption: { quotes: 'single', minimal: true },
+    },
+    configFile: false,
+    babelrc: false,
+  },
+);
+const projectSelectionPersistenceBody = stripModuleSyntax(projectSelectionPersistenceResult.code ?? '').trimEnd();
+if (projectSelectionPersistenceBody === '') {
+  console.error('build-client: Babel produced an empty project selection persistence module');
+  process.exit(1);
+}
+const indentedProjectSelectionPersistence = projectSelectionPersistenceBody
+  .split('\n')
+  .map((line) => (line === '' ? '' : `    ${line}`))
+  .join('\n');
+const projectSelectionPersistenceModule = `\n    /* ─────────────────────── components/project/project-selection-persistence.ts ─────────────────────── */\n${indentedProjectSelectionPersistence}\n`;
+
+const editorTerminalTabsResult = await transformAsync(
+  readFileSync(join(partsDir, 'components', 'terminal', 'editor-terminal-tabs.ts'), 'utf8'),
+  {
+    filename: 'editor-terminal-tabs.ts',
+    plugins: [['@babel/plugin-transform-typescript', { isTSX: false, allExtensions: true }]],
+    generatorOpts: {
+      retainLines: true,
+      jsescOption: { quotes: 'single', minimal: true },
+    },
+    configFile: false,
+    babelrc: false,
+  },
+);
+const editorTerminalTabsBody = stripModuleSyntax(editorTerminalTabsResult.code ?? '').trimEnd();
+if (editorTerminalTabsBody === '') {
+  console.error('build-client: Babel produced an empty Editor Terminal tabs model');
+  process.exit(1);
+}
+const indentedEditorTerminalTabs = editorTerminalTabsBody
+  .split('\n')
+  .map((line) => (line === '' ? '' : `    ${line}`))
+  .join('\n');
+const editorTerminalTabsModule = `\n    /* ─────────────────────── components/terminal/editor-terminal-tabs.ts ─────────────────────── */\n${indentedEditorTerminalTabs}\n`;
 
 const terminalScreenResult = await transformAsync(
   readFileSync(join(partsDir, 'components', 'terminal', 'TerminalScreen.tsx'), 'utf8'),
@@ -2746,7 +2818,7 @@ const footer = `
 });
 `;
 
-const output = `${header}${editorTabModelModule}${editorStyleModelModule}${editorThemeModelModule}${body}${workspaceDirectoryModelModule}${fileTreeViewModule}${projectPanelModule}${projectOptionsMenuModule}${projectUploadDropModule}${commitPanelModule}${commitOptionsMenuModule}${gitActionFailureReporterModule}${stashShelveMenuModule}${commitLogMenuModule}${commitFileMenuModule}${commitLogGraphControllerModule}${commitLogFlatControllerModule}${commitLogListCommandModelModule}${commitLogScopeAnnouncementModule}${commitLogShortcutModelModule}${commitLogSelectionModelModule}${commitLogViewModelModule}${commitLogViewPreferencesModule}${namePromptModule}${commitSearchModelModule}${revisionPickerModule}${moveToPickerModule}${codePreviewCodeModule}${editorStatusFactsModule}${markdownModeSwitchModule}${imagePreviewPaneModule}${markdownPreviewPaneModule}${workspaceFileModelModule}${workspaceImagePreviewModule}${editorPathModelModule}${editorDocumentModelModule}${markdownScrollModelModule}${editorNavigationModelModule}${editorFileTemplateModelModule}${editorLanguageModelModule}${editorDefinitionNavigationModule}${findDockSlotStateModule}${annotatePreviewModule}${repositoryVersionPreviewModule}${combinedDiffColorModelModule}${conflictMarkerModelModule}${diffPreviewModule}${projectSelectionModelModule}${terminalScreenModule}${editorTerminalTabModule}${editorTerminalAreaModule}${editorTerminalDockModule}${persistentTerminalDockOpenModule}${terminalPanelModule}${searchFileResultItemModule}${searchEverywhereModule}${showUsagesPopupModule}${quickOpenModule}${findScopeEditorModule}${findToolSessionsModule}${findToolWindowModule}${searchReplaceConfirmationModule}${searchScopeInvalidationModule}${searchEverywhereFileCandidatesModule}${commitGraphStateModelModule}${commitGraphFoldBarModule}${commitGraphRowModule}${commitGraphModule}${commitLogModule}${commitLogDetailPaneModule}${commitLogToolbarModule}${commitLogFlatRowModule}${commitLogListStateModule}${measuringScreenModule}${editorErrorBoundaryModule}${editorMountModule}${editorGotoLinePopupModule}${editorFindBarModule}${editorStatusBarModule}${editorFileTabModule}${editorTabStripModule}${editorDiffTabModule}${editorConflictBarsModule}${editorSplitHeaderModule}${editorSplitPaneModule}${editorMainPaneModule}${editorSplitDividerModule}${editorDiffAreaModule}${editorAnnotateAreaModule}${findToolDockModule}${findToolPopupModule}${workspaceDirectoryPickerModule}${editorFileSurfaceModule}${editorWorkspaceShellModule}${editorWorkspaceBodyModule}${editorToolWindowPanelModule}${editorToolWindowResizerModule}${editorWorkspaceMainColumnModule}${editorWorkspaceSurfaceModule}${editorErrorBannerModule}${uiPrelude}${footer}`;
+const output = `${header}${editorTabModelModule}${editorStyleModelModule}${editorThemeModelModule}${body}${workspaceDirectoryModelModule}${fileTreeViewModule}${projectPanelModule}${projectOptionsMenuModule}${projectSearchIndexModule}${projectUploadDropModule}${commitPanelModule}${commitOptionsMenuModule}${gitActionFailureReporterModule}${stashShelveMenuModule}${commitLogMenuModule}${commitFileMenuModule}${commitLogGraphControllerModule}${commitLogFlatControllerModule}${commitLogListCommandModelModule}${commitLogScopeAnnouncementModule}${commitLogShortcutModelModule}${commitLogSelectionModelModule}${commitLogViewModelModule}${commitLogViewPreferencesModule}${namePromptModule}${commitSearchModelModule}${revisionPickerModule}${moveToPickerModule}${codePreviewCodeModule}${editorStatusFactsModule}${markdownModeSwitchModule}${imagePreviewPaneModule}${markdownPreviewPaneModule}${workspaceFileModelModule}${workspaceImagePreviewModule}${editorPathModelModule}${editorDocumentModelModule}${markdownScrollModelModule}${editorNavigationModelModule}${editorFileTemplateModelModule}${editorLanguageModelModule}${editorDefinitionNavigationModule}${findDockSlotStateModule}${annotatePreviewModule}${repositoryVersionPreviewModule}${combinedDiffColorModelModule}${conflictMarkerModelModule}${diffPreviewModule}${projectSelectionModelModule}${projectSelectionPersistenceModule}${editorTerminalTabsModule}${terminalScreenModule}${editorTerminalTabModule}${editorTerminalAreaModule}${editorTerminalDockModule}${persistentTerminalDockOpenModule}${terminalPanelModule}${searchFileResultItemModule}${searchEverywhereModule}${showUsagesPopupModule}${quickOpenModule}${findScopeEditorModule}${findToolSessionsModule}${findToolWindowModule}${searchReplaceConfirmationModule}${searchScopeInvalidationModule}${searchEverywhereFileCandidatesModule}${commitGraphStateModelModule}${commitGraphFoldBarModule}${commitGraphRowModule}${commitGraphModule}${commitLogModule}${commitLogDetailPaneModule}${commitLogToolbarModule}${commitLogFlatRowModule}${commitLogListStateModule}${measuringScreenModule}${editorErrorBoundaryModule}${editorMountModule}${editorGotoLinePopupModule}${editorFindBarModule}${editorStatusBarModule}${editorFileTabModule}${editorTabStripModule}${editorDiffTabModule}${editorConflictBarsModule}${editorSplitHeaderModule}${editorSplitPaneModule}${editorMainPaneModule}${editorSplitDividerModule}${editorDiffAreaModule}${editorAnnotateAreaModule}${findToolDockModule}${findToolPopupModule}${workspaceDirectoryPickerModule}${editorFileSurfaceModule}${editorWorkspaceShellModule}${editorWorkspaceBodyModule}${editorToolWindowPanelModule}${editorToolWindowResizerModule}${editorWorkspaceMainColumnModule}${editorWorkspaceSurfaceModule}${editorErrorBannerModule}${uiPrelude}${footer}`;
 const emittedModuleNames = [...output.matchAll(/\/\* ─+ ([^\s]+\.(?:ts|tsx)) ─+ \*\//gu)].map((match) => match[1]);
 const unbundledRuntimeModules = findUnbundledRuntimeModules({
   clientDir: partsDir,

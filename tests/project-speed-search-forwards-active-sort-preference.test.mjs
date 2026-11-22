@@ -17,6 +17,7 @@ test('Project speed search forwards the active sort preference', () => {
 test('the host recursive search reuses listDirectory ordering', () => {
   const start = host.indexOf('async function searchWorkspaceEntries(');
   const block = host.slice(start, host.indexOf('/**', start + 10));
-  assert.match(block, /sort: typeof options\.sort === 'string' \? options\.sort : 'name'/);
+  assert.match(block, /const sortMode = typeof options\.sort === 'string' \? options\.sort : 'name'/);
+  assert.match(block, /sort: sortMode/);
   assert.match(block, /foldersFirst: options\.foldersFirst !== false/);
 });

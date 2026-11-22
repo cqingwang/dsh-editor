@@ -26,6 +26,10 @@ const mergeFileCandidates = loadTypeScriptFunction(
 );
 const t = (key) => key;
 
+test('Search Everywhere marks its filename query fallback as file-only', () => {
+  assert.match(fileCandidatesSource, /filesOnly: true,/);
+});
+
 test('Search Everywhere file candidates apply File Mask before the file budget', async (t) => {
   const root = await mkdtemp(join(tmpdir(), 'dsh-editor-search-files-mask-budget-'));
   t.after(() => rm(root, { recursive: true, force: true }));

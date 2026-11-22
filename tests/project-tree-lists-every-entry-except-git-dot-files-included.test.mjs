@@ -84,7 +84,10 @@ test('the workspace walks still skip heavy directories so scanning stays bounded
   assert.match(walk, /VCS_METADATA_DIRECTORIES/);
   /* Dot-directories must survive that skip, or `.github/` is unreachable. */
   const dirs = host.slice(host.indexOf('async function listWorkspaceDirectories('), host.indexOf('async function describePaths('));
-  assert.match(dirs, /listDirectory\(root, directory, \{ showHidden: true \}\)/);
+  assert.match(
+    dirs,
+    /listDirectory\(root, directory, \{ showHidden: true, metadata: false \}\)/,
+  );
   /* Round 152: the watcher no longer reuses that bound. The tree SHOWS and
      expands `node_modules`, so skipping it in the watcher meant its contents
      never followed the disk. It hides only what the tree hides, and caps the

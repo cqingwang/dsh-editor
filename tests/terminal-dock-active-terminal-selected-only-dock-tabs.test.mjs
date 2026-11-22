@@ -57,6 +57,6 @@ test('returning from the editor does not depend on a mounted, open dock', () => 
   assert.match(helper, /filter\(\(entry\) => entry\.id !== terminal\.id\)/);
   assert.match(helper, /writeEditorTerminals\(next\.map/);
   assert.match(helper, /setTerminalOpen\(true\)/);
-  assert.match(helper, /dsh-editor-return-terminal/);
+  assert.match(helper, /requestTerminalDockActivation\(terminal\.id, terminal\)/);
   assert.match(workspace, /onReturnToDock=\{\(terminal\) => returnEditorTerminalToDock\(terminal\)\}/);
 });

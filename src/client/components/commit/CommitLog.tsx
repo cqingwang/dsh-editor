@@ -8,7 +8,7 @@ import { commitLogGraphCursor, commitLogGraphKeyIntent, commitLogGraphMove } fro
 import { commitLogFlatListCommand, commitLogGraphListCommand } from './commit-log-list-command-model';
 import { commitLogContextSelection, commitSelectionAfterClick } from './commit-log-selection-model';
 import { commitLogShortcutAction } from './commit-log-shortcut-model';
-import { commitLogFilterCommits } from './commit-log-view-model';
+import { commitLogFilterCommits, commitLogOptionId } from './commit-log-view-model';
 import { commitLogGraphFoldToggle, commitLogGraphToggle } from './commit-log-view-preferences';
 import { CommitLogDetailPane } from './CommitLogDetailPane';
 import { CommitLogFlatRow } from './CommitLogFlatRow';
@@ -256,6 +256,18 @@ function CommitLogView({
   );
   const listedCommitCount = graphMode ? graphEntries.length : commits.length;
   const listedVisibleCount = graphMode ? graphRows.length : visible.length;
+  const graphActiveHash = graphCursor ?? selected;
+  const flatActiveHash = selected;
+  const commitLogActiveOptionId = graphMode
+    ? graphActiveHash !== null &&
+      graphActiveHash !== '' &&
+      filteredGraphEntries.some((entry) => entry.hash === graphActiveHash) &&
+      graphRows.some((entry) => entry.hash === graphActiveHash)
+      ? commitLogOptionId(graphActiveHash)
+      : null
+    : flatActiveHash !== null && flatActiveHash !== '' && visible.some((commit) => commit.hash === flatActiveHash)
+      ? commitLogOptionId(flatActiveHash)
+      : null;
   React.useEffect(() => {
     if (hidden || graphMode || logFailure === null || listedCommitCount === 0) return;
     const node = listRef.current;
@@ -422,6 +434,7 @@ function CommitLogView({
           tabIndex={0}
           role='listbox'
           aria-label={t('editor.tabLog')}
+          aria-activedescendant={commitLogActiveOptionId === null ? undefined : commitLogActiveOptionId}
           onScroll={(event) => {
             const node = event.currentTarget;
             if (logFailure !== null) return;

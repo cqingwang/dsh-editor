@@ -15,7 +15,6 @@ import {
   centerPreviewLineInContainer,
   defaultSearchEverywhereFilters,
   nextEnabledSearchResultIndex,
-  normalizeSearchResultIndex,
   rankSearchActions,
   replaceInputAction,
   searchEverywhereActionCategory,
@@ -39,7 +38,12 @@ import {
   useCodePreviewColorizedLines,
 } from '../../commit';
 import { basename, callFs } from '../../editor-core';
-import { fileExtensionFilterMatches, fuzzyScore, normalizeFileExtensionFilter } from '../../find-tool';
+import {
+  fileExtensionFilterMatches,
+  fuzzyScore,
+  normalizeFileExtensionFilter,
+  searchPreviewFailureMessage,
+} from '../../find-tool';
 
 type Translate = (key: string, params?: Record<string, unknown>) => string;
 
@@ -54,6 +58,32 @@ type Translate = (key: string, params?: Record<string, unknown>) => string;
  */
 export function searchEverywhereEscapeTarget(resultInfoOpen: boolean): 'close-result-info' | 'dismiss' {
   return resultInfoOpen ? 'close-result-info' : 'dismiss';
+}
+
+/**
+ * Let the dialog dismiss even if a global shortcut or assistive technology
+ * moves focus behind it. Inner handlers and nested transient surfaces keep the
+ * first Escape; this is only the modal-level fallback.
+ * @param options - focus ownership, transient surface state and event guards.
+ * @returns the surface Escape should close, or null when another owner wins.
+ */
+export function searchEverywhereOutsideEscapeTarget({
+  targetInsideDialog,
+  activeInsideDialog,
+  resultInfoOpen,
+  defaultPrevented,
+  isComposing,
+  nestedSurfaceOpen,
+}: {
+  targetInsideDialog: boolean;
+  activeInsideDialog: boolean;
+  resultInfoOpen: boolean;
+  defaultPrevented: boolean;
+  isComposing: boolean;
+  nestedSurfaceOpen: boolean;
+}): 'close-result-info' | 'dismiss' | null {
+  if (targetInsideDialog || activeInsideDialog || defaultPrevented || isComposing || nestedSurfaceOpen) return null;
+  return searchEverywhereEscapeTarget(resultInfoOpen);
 }
 
 /**
@@ -86,10 +116,83 @@ export function searchEverywhereEmptyResultKind(tab: string, queryLength: number
   return tab === 'text' && queryLength < 2 ? 'text-hint' : 'no-matches';
 }
 
+/** Preserve an active row identity while async providers replace the list. */
+export function searchEverywhereActiveResultIndex(
+  results: Array<{ rowKey: string; disabled?: boolean }>,
+  requestedIndex: number,
+  activeRowKey?: string | null,
+): number {
+  if (typeof activeRowKey === 'string' && activeRowKey !== '') {
+    const preserved = results.findIndex((result) => result.rowKey === activeRowKey);
+    if (preserved >= 0 && results[preserved].disabled !== true) return preserved;
+  }
+  if (results.length === 0) return 0;
+  const requested = Number.isFinite(Number(requestedIndex)) ? Math.trunc(Number(requestedIndex)) : 0;
+  const start = Math.min(results.length - 1, Math.max(0, requested));
+  for (let index = start; index < results.length; index += 1) {
+    if (results[index].disabled !== true) return index;
+  }
+  for (let index = 0; index < start; index += 1) {
+    if (results[index].disabled !== true) return index;
+  }
+  return start;
+}
+
+/**
+ * Avoid claiming that the entire workspace has no match when the provider only
+ * exhausted a bounded candidate set or result budget.
+ * @param {object} options - active tab, query length and provider truncation.
+ * @param {Translate} t - locale lookup.
+ * @returns {string} truthful empty-state label.
+ */
+export function searchEverywhereEmptyResultLabel(
+  {
+    tab,
+    queryLength,
+    textTruncated,
+    filesTruncated,
+  }: {
+    tab: string;
+    queryLength: number;
+    textTruncated: boolean;
+    filesTruncated: boolean;
+  },
+  t: Translate,
+): string {
+  if (tab === 'text' && queryLength < 2) return t('editor.searchTextHint');
+  const incomplete =
+    tab === 'text'
+      ? textTruncated
+      : tab === 'files'
+        ? filesTruncated
+        : tab === 'all'
+          ? textTruncated || filesTruncated
+          : false;
+  return t(incomplete ? 'editor.searchNoMatchesIncomplete' : 'editor.searchNoMatches');
+}
+
+/**
+ * Only the provider that owns the active tab may announce its truncation.
+ * @param {object} options - active tab, provider and All-tab provider filters.
+ * @returns {boolean} whether this provider's truncation is user-visible.
+ */
+export function searchEverywhereTruncationMessageIsVisible({
+  tab,
+  provider,
+  filters,
+}: {
+  tab: string;
+  provider: 'text' | 'files';
+  filters: { text?: boolean; files?: boolean };
+}): boolean {
+  return tab === provider || (tab === 'all' && filters[provider] !== false);
+}
+
 export interface SearchEverywhereState {
   query: string;
   tab: string;
   index: number;
+  activeRowKey?: string | null;
   filesScope?: boolean;
   filesTruncated?: boolean;
   files: SearchFile[];
@@ -204,7 +307,7 @@ export interface SearchEverywhereProps {
   onRetryText: () => void;
   onQuery: (query: string) => void;
   onTab: (tab: string) => void;
-  onMove: (delta: number, total?: number, index?: number) => void;
+  onMove: (delta: number, total?: number, index?: number, activeRowKey?: string) => void;
   onActivate: (result: SearchResult) => void;
   onClose: () => void;
   onDismiss?: () => void;
@@ -269,6 +372,7 @@ function SearchEverywhere({
   onNotify,
   onPopupDragStart,
 }: SearchEverywhereProps) {
+  const searchEverywhereRootRef = React.useRef<HTMLDivElement | null>(null);
   const listRef = React.useRef(null);
   const previewBodyRef = React.useRef(null);
   const searchInputRef = React.useRef(null);
@@ -482,12 +586,19 @@ function SearchEverywhere({
     searchFilters.text,
     textResults,
   ]);
-  const activeIndex = normalizeSearchResultIndex(results, state.index);
+  const activeIndex = searchEverywhereActiveResultIndex(results, state.index, state.activeRowKey);
   const activeResult = results[activeIndex] ?? null;
   const visibleError =
     error !== null && searchEverywhereErrorIsVisible(state.errorSource, effectiveTab, searchFilters) ? error : null;
-  const emptyResultKind = searchEverywhereEmptyResultKind(effectiveTab, effectiveQuery.length);
-  const emptyResultLabel = emptyResultKind === 'text-hint' ? t('editor.searchTextHint') : t('editor.searchNoMatches');
+  const emptyResultLabel = searchEverywhereEmptyResultLabel(
+    {
+      tab: effectiveTab,
+      queryLength: effectiveQuery.length,
+      textTruncated: searchFilters.text ? textTruncated : false,
+      filesTruncated: searchFilters.files ? state.filesTruncated === true : false,
+    },
+    t,
+  );
   const searchResultStatus =
     visibleError !== null
       ? ''
@@ -535,8 +646,16 @@ function SearchEverywhere({
     .map((id) => activeSearchOptionLabels[id])
     .filter((label) => typeof label === 'string' && label !== '')
     .join(' · ');
-  const showFilesTruncated =
-    state.filesTruncated === true && (effectiveTab === 'files' || (effectiveTab === 'all' && searchFilters.files));
+  const showTextTruncated = searchEverywhereTruncationMessageIsVisible({
+    tab: effectiveTab,
+    provider: 'text',
+    filters: searchFilters,
+  });
+  const showFilesTruncated = searchEverywhereTruncationMessageIsVisible({
+    tab: effectiveTab,
+    provider: 'files',
+    filters: searchFilters,
+  });
   const clearSearchOptions = () => {
     if (state.caseSensitive === true) onToggleCaseSensitive();
     if (state.wholeWords === true) onToggleWholeWords();
@@ -640,14 +759,14 @@ function SearchEverywhere({
           path: activeResult.path,
           content: '',
           line: activeResult.line ?? 1,
-          error: failure instanceof Error ? failure.message : String(failure),
+          error: searchPreviewFailureMessage(t, failure),
         });
       });
     return () => {
       cancelled = true;
       previewAbort.abort();
     };
-  }, [previewOpen, activeResult?.rowKey, activeResult?.dirty, openFiles]);
+  }, [previewOpen, activeResult?.rowKey, activeResult?.dirty, openFiles, t]);
   React.useLayoutEffect(() => {
     if (
       previewOpen !== true ||
@@ -696,8 +815,10 @@ function SearchEverywhere({
     });
   }, [activeIndex, effectiveTab, effectiveQuery]);
   React.useEffect(() => {
-    if (state.index !== activeIndex) onMove(0, results.length, activeIndex);
-  }, [state.index, activeIndex, results.length]);
+    if (state.index !== activeIndex || state.activeRowKey !== results[activeIndex]?.rowKey) {
+      onMove(0, results.length, activeIndex, results[activeIndex]?.rowKey);
+    }
+  }, [state.index, state.activeRowKey, activeIndex, results]);
   const cycleTab = (direction: number): void => {
     const targetId = searchEverywhereTabTarget(tabs, effectiveTab, direction < 0 ? 'ArrowLeft' : 'ArrowRight');
     if (targetId !== null) onTab(targetId);
@@ -719,7 +840,7 @@ function SearchEverywhere({
   };
   const moveSearchSelection = (direction: number): void => {
     const next = nextEnabledSearchResultIndex(results, activeIndex, direction);
-    if (next !== null) onMove(0, results.length, next);
+    if (next !== null) onMove(0, results.length, next, results[next]?.rowKey);
   };
   const activateResult = (result: SearchResult | null): void => {
     if (result === null || result.disabled === true) return;
@@ -955,7 +1076,7 @@ function SearchEverywhere({
       const nextGroup = searchEverywhereGroupTargetIndex(results, activeIndex, groupDirection);
       event.preventDefault();
       event.stopPropagation();
-      if (nextGroup !== null) onMove(0, results.length, nextGroup);
+      if (nextGroup !== null) onMove(0, results.length, nextGroup, results[nextGroup]?.rowKey);
       return;
     }
     if ((event.key === 'ContextMenu' || (event.shiftKey === true && event.key === 'F10')) && activeResult !== null) {
@@ -1078,6 +1199,33 @@ function SearchEverywhere({
     window.addEventListener('keydown', onKeyDown, true);
     return () => window.removeEventListener('keydown', onKeyDown, true);
   }, [onQuery, onTab]);
+  React.useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      const root = searchEverywhereRootRef.current;
+      const eventTarget = event.target instanceof Node ? event.target : null;
+      const activeElement = document.activeElement;
+      const eventTargetOutsideDialog = root === null || eventTarget === null || !root.contains(eventTarget);
+      const eventActiveOutsideDialog = root === null || activeElement === null || !root.contains(activeElement);
+      const nestedSurfaceOpen =
+        document.querySelector<HTMLElement>('[role="menu"], [role="alertdialog"][aria-modal="true"]') !== null;
+      const escapeTarget = searchEverywhereOutsideEscapeTarget({
+        targetInsideDialog: !eventTargetOutsideDialog,
+        activeInsideDialog: !eventActiveOutsideDialog,
+        resultInfoOpen: resultInfo !== null,
+        defaultPrevented: event.defaultPrevented,
+        isComposing: event.isComposing,
+        nestedSurfaceOpen,
+      });
+      if (escapeTarget === null) return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (escapeTarget === 'close-result-info') closeResultInfo();
+      else dismissSearchEverywhere();
+    };
+    window.addEventListener('keydown', onKeyDown, true);
+    return () => window.removeEventListener('keydown', onKeyDown, true);
+  }, [closeResultInfo, dismissSearchEverywhere, resultInfo]);
   const headerActions: ToolbarActionLike[] = [
     {
       id: 'include',
@@ -1172,6 +1320,7 @@ function SearchEverywhere({
   ];
   return (
     <div
+      ref={searchEverywhereRootRef}
       style={{
         ...styles.searchEverywhere,
         width: '100%',
@@ -1534,7 +1683,7 @@ function SearchEverywhere({
                   : null),
               }}
               onMouseEnter={(event) => {
-                onMove(position - activeIndex, results.length, position);
+                onMove(position - activeIndex, results.length, position, result.rowKey);
                 scheduleResultTooltip(event, result);
               }}
               onMouseLeave={clearResultTooltip}
@@ -1560,13 +1709,18 @@ function SearchEverywhere({
                     size={POPUP_ICON_SIZE}
                   />
                   <span
+                    className='dsh-editor-search-result-name'
                     style={{
                       ...styles.paletteName,
                       flex: '1 1 auto',
                     }}>
                     {result.title ?? result.label}
                   </span>
-                  <span style={styles.searchEverywhereMeta}>{result.subtitle ?? ''}</span>
+                  <span
+                    className='dsh-editor-search-result-detail dsh-editor-search-everywhere-meta'
+                    style={styles.searchEverywhereMeta}>
+                    {result.subtitle ?? ''}
+                  </span>
                 </React.Fragment>
               )}
               {result.category ? (
@@ -1594,7 +1748,7 @@ function SearchEverywhere({
             </React.Fragment>
           );
         })}
-        {textTruncated && effectiveTab !== 'actions' ? (
+        {textTruncated && showTextTruncated ? (
           <div
             style={styles.searchEverywhereMessage}
             role='status'
@@ -1602,7 +1756,7 @@ function SearchEverywhere({
             {t('editor.searchTextTruncated')}
           </div>
         ) : null}
-        {showFilesTruncated ? (
+        {state.filesTruncated === true && showFilesTruncated ? (
           <div
             style={styles.searchEverywhereMessage}
             role='status'

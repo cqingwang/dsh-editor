@@ -1343,6 +1343,14 @@ export function readStoredText(key: string, fallback: string): string {
   }
 }
 
+export function writeStoredText(key: string, value: string): void {
+  try {
+    window.localStorage.setItem(key, value);
+  } catch {
+    /* a storage-less browser keeps the in-memory preference */
+  }
+}
+
 /**
  * One tool window's remembered width for one workspace.
  *
@@ -1473,6 +1481,117 @@ export function writeEditorTerminals(ids: string[]): void {
   } catch {
     /* a storage-less browser keeps the in-memory placement */
   }
+}
+
+export interface TerminalDockActivationRequest {
+  id: string;
+  title?: string;
+  cwd?: string;
+}
+
+const terminalDockActivationState: { request: TerminalDockActivationRequest | null } = { request: null };
+
+/**
+ * Ask the owning Terminal dock to activate one returning editor terminal.
+ *
+ * The dock can be unmounted while closed, so the window event alone is not
+ * durable. Keep the request in module state until a mounted panel with an
+ * authoritative Host terminal list can consume it.
+ * @param {string} id - terminal returning to the dock.
+ * @returns {void}
+ */
+export function requestTerminalDockActivation(id: string, metadata?: { title?: unknown; cwd?: unknown }): void {
+  if (typeof id !== 'string' || id === '') return;
+  const request: TerminalDockActivationRequest = {
+    id,
+    ...(typeof metadata?.title === 'string' && metadata.title !== '' ? { title: metadata.title } : null),
+    ...(typeof metadata?.cwd === 'string' && metadata.cwd !== '' ? { cwd: metadata.cwd } : null),
+  };
+  terminalDockActivationState.request = request;
+  window.dispatchEvent(new CustomEvent('dsh-editor-return-terminal', { detail: request }));
+}
+
+/**
+ * Consume the pending return request once its terminal is genuinely live.
+ * @param {string[]|null} liveIds - authoritative Host ids, or null for immediate ownership.
+ * @returns {string|null} terminal id to activate, or null while still pending.
+ */
+export function consumePendingTerminalDockActivation(liveIds: string[] | null): TerminalDockActivationRequest | null {
+  const request = terminalDockActivationState.request;
+  if (request === null) return null;
+  if (liveIds !== null && !liveIds.includes(request.id)) {
+    terminalDockActivationState.request = null;
+    return null;
+  }
+  terminalDockActivationState.request = null;
+  return request;
+}
+
+export function readEditorTerminalActiveId(): string | null {
+  try {
+    const value = window.localStorage.getItem(`dsh-editor.terminal.editorActive:${currentTerminalScope()}`);
+    return typeof value === 'string' && value !== '' ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+export function writeEditorTerminalActiveId(id: string | null): void {
+  try {
+    const key = `dsh-editor.terminal.editorActive:${currentTerminalScope()}`;
+    if (typeof id === 'string' && id !== '') window.localStorage.setItem(key, id);
+    else window.localStorage.removeItem(key);
+  } catch {
+    /* a storage-less browser keeps the in-memory selection */
+  }
+}
+
+export interface TerminalDockLayout {
+  activeId: string | null;
+  splitId: string | null;
+  focusedPane: 'left' | 'right';
+}
+
+export function normalizeTerminalDockLayout(value: unknown): TerminalDockLayout | null {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  const activeId = typeof record.activeId === 'string' && record.activeId !== '' ? record.activeId : null;
+  if (activeId === null) return null;
+  const splitId =
+    typeof record.splitId === 'string' && record.splitId !== '' && record.splitId !== activeId ? record.splitId : null;
+  return {
+    activeId,
+    splitId,
+    focusedPane: splitId !== null && record.focusedPane === 'right' ? 'right' : 'left',
+  };
+}
+
+export function readTerminalDockLayout(): TerminalDockLayout | null {
+  try {
+    const raw = window.localStorage.getItem(`dsh-editor.terminal.dockLayout:${currentTerminalScope()}`);
+    return raw === null ? null : normalizeTerminalDockLayout(JSON.parse(raw));
+  } catch {
+    return null;
+  }
+}
+
+export function writeTerminalDockLayout(layout: TerminalDockLayout | null): void {
+  const normalized = normalizeTerminalDockLayout(layout);
+  try {
+    const key = `dsh-editor.terminal.dockLayout:${currentTerminalScope()}`;
+    if (normalized === null) window.localStorage.removeItem(key);
+    else window.localStorage.setItem(key, JSON.stringify(normalized));
+  } catch {
+    /* a storage-less browser keeps the in-memory pane state */
+  }
+}
+
+export function restoreTerminalFocusTarget(preferred: HTMLElement | null, fallback: () => void): void {
+  if (preferred !== null && preferred.isConnected !== false) {
+    preferred.focus({ preventScroll: true });
+    return;
+  }
+  fallback();
 }
 
 export const TERMINAL_DEFAULT_FONT_SIZE = 9;

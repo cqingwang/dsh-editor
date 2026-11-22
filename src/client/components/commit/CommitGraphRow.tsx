@@ -3,6 +3,7 @@ import { styles } from '../../ui/styles';
 import { Icon } from '../ui/Icon';
 import type { CommitGraphEntryData, CommitGraphMenuPayload } from './CommitGraph';
 import { formatCommitDate } from '../../find-tool';
+import { commitLogOptionId } from './commit-log-view-model';
 
 type Translate = (key: string, params?: Record<string, unknown>) => string;
 
@@ -60,6 +61,7 @@ function CommitGraphRow({
     <div
       ref={rowRef}
       className='dsh-editor-commit-row dsh-editor-graph-row'
+      id={commitLogOptionId(entry.hash)}
       role='option'
       data-dsh-graph-hash={entry.hash}
       aria-haspopup='menu'

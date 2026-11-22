@@ -94,7 +94,10 @@ test('commit asks before leaving unversioned files behind', () => {
   );
   assert.match(client, /!window\.confirm\(t\('editor\.commitUntracked', \{ count: untrackedLeft\.length \}\)\)/);
   /* The reminder must not block a commit that the user confirms. */
-  assert.match(client, /\[amend, commitMessage, commitSelection, git, loadLog, reportGitFailure, root, t\]/);
+  assert.match(
+    client,
+    /\[amend, commitMessage, commitSelection, git, loadLog, reportGitFailure, root, switchCommitMode, t\]/,
+  );
 });
 
 test('the log pages in on scroll and shows its end', () => {

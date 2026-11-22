@@ -20,12 +20,14 @@ import {
   findShouldRestoreFocusAfterResultsChange,
   findToolDisplayGroups,
   findToolCompactCount,
+  findToolEmptyResultMessage,
   findToolGroupBoundaryTarget,
   findToolGroupId,
   findToolGroupTarget,
   findToolHandoffTarget,
   findToolMenuLeft,
   findToolMenuMaxHeight,
+  findToolMenuMaxWidth,
   findToolMenuTop,
   findToolNextTextGroupPath,
   findToolOptionId,
@@ -52,9 +54,12 @@ import { basename, callFs } from '../../editor-core';
 import {
   findReplaceDisabledReasons,
   findSearchOptionShortcutAction,
+  findToolLivePreviewContent,
+  findToolReconciledResultRow,
   findToolReplaceHistoryActionPinned,
   findToolReplaceAdvanceIndex,
   findToolResultsAreCurrent,
+  searchPreviewFailureMessage,
   FIND_TOOL_PREVIEW_DEFAULT_PERCENT,
   clampFindPreviewPercent,
 } from '../../find-tool';
@@ -85,6 +90,7 @@ interface FindToolWindowState {
   includeExcluded?: boolean;
   searchGeneration?: number;
   loadedGeneration?: number;
+  activeRowKey?: string | null;
   replaceAdvanceRowKey?: string | null;
   collapsedFiles?: string[];
   handoffHandledRevision?: number;
@@ -168,7 +174,7 @@ export interface FindToolWindowProps {
   customScopes?: FindCustomScope[];
   onCustomScopesChange?: (scopes: FindCustomScope[]) => FindCustomScope[];
   onWriteScopeXml: (path: string, content: string) => Promise<void>;
-  onMove: (direction: number, count: number, index?: number) => void;
+  onMove: (direction: number, count: number, index?: number, activeRowKey?: string) => void;
   onOpen: (result: SearchTextResult | SearchFileResult, openInNewTab: boolean) => void;
   onReplaceOccurrence: (result: SearchTextResult, index: number) => void;
   onReplaceAll: (paths: Set<string>) => void;
@@ -193,12 +199,12 @@ export interface FindToolWindowProps {
   openFilePaths?: string[];
   recentFilePaths?: string[];
   gitAvailable?: boolean;
-  openFilesRef: React.MutableRefObject<
-    Array<{
-      path: string;
-      content?: string;
-    }>
-  >;
+  openFiles: Array<{
+    path: string;
+    content?: string;
+    dirty?: boolean;
+    mtime?: number | null;
+  }>;
   changedFilePaths?: string[];
 }
 function FindToolWindowView({
@@ -249,7 +255,7 @@ function FindToolWindowView({
   openFilePaths = [],
   recentFilePaths = [],
   gitAvailable = false,
-  openFilesRef,
+  openFiles = [],
   changedFilePaths = [],
 }: FindToolWindowProps) {
   const listRef = React.useRef(null);
@@ -514,6 +520,30 @@ function FindToolWindowView({
   const activeIndex = Math.max(0, Math.min(Number(state.index) || 0, Math.max(0, occurrences.length - 1)));
   const active = occurrences[activeIndex] ?? null;
   const activeTextOccurrence = active?.kind === 'text' ? active : null;
+  const activeLivePreviewContent = React.useMemo(
+    () => findToolLivePreviewContent(active?.path, openFiles),
+    [active?.path, openFiles],
+  );
+  const selectOccurrence = (position: number): void => {
+    if (occurrences.length === 0) {
+      onMove(0, 0, 0);
+      return;
+    }
+    const index = Math.max(0, Math.min(occurrences.length - 1, Math.trunc(position) || 0));
+    onMove(0, occurrences.length, index, occurrences[index]?.rowKey);
+  };
+  const stepOccurrence = (direction: number): void => {
+    if (occurrences.length === 0) {
+      onMove(direction, 0, 0);
+      return;
+    }
+    selectOccurrence((activeIndex + direction + occurrences.length) % occurrences.length);
+  };
+  React.useEffect(() => {
+    const reconciled = findToolReconciledResultRow(occurrences, state.index, state.activeRowKey);
+    if (state.index === reconciled.index && state.activeRowKey === reconciled.rowKey) return;
+    onMove(0, occurrences.length, reconciled.index, reconciled.rowKey ?? undefined);
+  }, [occurrences, state.activeRowKey, state.index, onMove]);
   const replaceDisabledReasons = findReplaceDisabledReasons({
     replaceBusy: state.replaceBusy,
     searchGeneration: state.searchGeneration,
@@ -564,7 +594,8 @@ function FindToolWindowView({
     }
     const restoredIndex = targetIndex >= 0 ? targetIndex : target.index;
     if (occurrences.length > 0) {
-      onMove(0, occurrences.length, Math.min(restoredIndex, occurrences.length - 1));
+      const index = Math.min(restoredIndex, occurrences.length - 1);
+      onMove(0, occurrences.length, index, occurrences[index]?.rowKey);
     }
     rerunSelectionRef.current = null;
   }, [collapsedFiles, occurrenceIndexByKey, occurrences, onMove, state.loadedGeneration, state.searchGeneration]);
@@ -637,7 +668,7 @@ function FindToolWindowView({
         : !hasFindToolContentQuery(query)
           ? t('editor.findToolEmptyQuery')
           : occurrences.length === 0
-            ? t('editor.findToolNoMatches')
+            ? findToolEmptyResultMessage(t, state.truncated === true, floating)
             : fileFilterMode
               ? t(state.truncated === true ? 'editor.searchResultCountTruncated' : 'editor.searchResultCount', {
                   count: occurrences.length,
@@ -786,10 +817,12 @@ function FindToolWindowView({
           ? replaceHistory
           : [];
     const menuTop = findToolMenuTop(rect.bottom + 4, surfaceRect?.top ?? 0, surfaceRect?.bottom ?? window.innerHeight);
+    const menuMaxWidth = findToolMenuMaxWidth(surfaceRect?.left ?? 0, surfaceRect?.right ?? window.innerWidth);
     setHistoryMenu({
-      x: findToolMenuLeft(rect.left, surfaceRect?.left ?? 0, surfaceRect?.right ?? window.innerWidth),
+      x: findToolMenuLeft(rect.left, surfaceRect?.left ?? 0, surfaceRect?.right ?? window.innerWidth, menuMaxWidth),
       y: menuTop,
       maxHeight: findToolMenuMaxHeight(surfaceRect?.top ?? 0, surfaceRect?.bottom ?? window.innerHeight, menuTop),
+      maxWidth: menuMaxWidth,
       title: kind === 'query' ? t('editor.findSearchHistory') : t('editor.findReplaceHistory'),
       fallbackFocus:
         kind === 'query'
@@ -832,10 +865,17 @@ function FindToolWindowView({
       surfaceRect?.top ?? 0,
       surfaceRect?.bottom ?? window.innerHeight,
     );
+    const menuMaxWidth = findToolMenuMaxWidth(surfaceRect?.left ?? 0, surfaceRect?.right ?? window.innerWidth);
     setSessionMenu({
-      x: findToolMenuLeft(anchor.right - 220, surfaceRect?.left ?? 0, surfaceRect?.right ?? window.innerWidth),
+      x: findToolMenuLeft(
+        anchor.right - menuMaxWidth,
+        surfaceRect?.left ?? 0,
+        surfaceRect?.right ?? window.innerWidth,
+        menuMaxWidth,
+      ),
       y: menuTop,
       maxHeight: findToolMenuMaxHeight(surfaceRect?.top ?? 0, surfaceRect?.bottom ?? window.innerHeight, menuTop),
+      maxWidth: menuMaxWidth,
       title: t('editor.findToolSessionsMenu'),
       fallbackFocus: () => rootRef.current?.querySelector<HTMLElement>('[data-dsh-find-session-overflow]')?.focus?.(),
       items: tabs.map((tab) => {
@@ -967,10 +1007,17 @@ function FindToolWindowView({
       },
     }));
     const menuTop = findToolMenuTop(rect.bottom + 4, surfaceRect?.top ?? 0, surfaceRect?.bottom ?? window.innerHeight);
+    const menuMaxWidth = findToolMenuMaxWidth(surfaceRect?.left ?? 0, surfaceRect?.right ?? window.innerWidth);
     setFileMaskMenu({
-      x: findToolMenuLeft(rect.right - 220, surfaceRect?.left ?? 0, surfaceRect?.right ?? window.innerWidth),
+      x: findToolMenuLeft(
+        rect.right - menuMaxWidth,
+        surfaceRect?.left ?? 0,
+        surfaceRect?.right ?? window.innerWidth,
+        menuMaxWidth,
+      ),
       y: menuTop,
       maxHeight: findToolMenuMaxHeight(surfaceRect?.top ?? 0, surfaceRect?.bottom ?? window.innerHeight, menuTop),
+      maxWidth: menuMaxWidth,
       title: t('editor.searchFileMaskLabel'),
       fallbackFocus: () => fileMaskInputRef.current?.focus?.(),
       items: [
@@ -1013,10 +1060,17 @@ function FindToolWindowView({
       window.setTimeout(() => queryInputRef.current?.focus?.(), 0);
     };
     const menuTop = findToolMenuTop(rect.bottom + 4, surfaceRect?.top ?? 0, surfaceRect?.bottom ?? window.innerHeight);
+    const menuMaxWidth = findToolMenuMaxWidth(surfaceRect?.left ?? 0, surfaceRect?.right ?? window.innerWidth);
     setFilterMenu({
-      x: findToolMenuLeft(rect.right - 220, surfaceRect?.left ?? 0, surfaceRect?.right ?? window.innerWidth),
+      x: findToolMenuLeft(
+        rect.right - menuMaxWidth,
+        surfaceRect?.left ?? 0,
+        surfaceRect?.right ?? window.innerWidth,
+        menuMaxWidth,
+      ),
       y: menuTop,
       maxHeight: findToolMenuMaxHeight(surfaceRect?.top ?? 0, surfaceRect?.bottom ?? window.innerHeight, menuTop),
+      maxWidth: menuMaxWidth,
       title: t('editor.findFilterResults'),
       items: [
         {
@@ -1074,9 +1128,19 @@ function FindToolWindowView({
     event.preventDefault();
     event.stopPropagation();
     const rect = event.currentTarget.getBoundingClientRect();
+    const surfaceRect = event.currentTarget.closest('[data-dsh-find-tool-window]')?.getBoundingClientRect?.();
+    const menuMaxWidth = findToolMenuMaxWidth(surfaceRect?.left ?? 0, surfaceRect?.right ?? window.innerWidth);
+    const menuTop = findToolMenuTop(rect.bottom + 4, surfaceRect?.top ?? 0, surfaceRect?.bottom ?? window.innerHeight);
     setGroupByMenu({
-      x: Math.max(4, rect.right - 240),
-      y: rect.bottom + 4,
+      x: findToolMenuLeft(
+        rect.right - menuMaxWidth,
+        surfaceRect?.left ?? 0,
+        surfaceRect?.right ?? window.innerWidth,
+        menuMaxWidth,
+      ),
+      y: menuTop,
+      maxHeight: findToolMenuMaxHeight(surfaceRect?.top ?? 0, surfaceRect?.bottom ?? window.innerHeight, menuTop),
+      maxWidth: menuMaxWidth,
       title: t('editor.findGroupByMenu'),
       fallbackFocus: () => queryInputRef.current?.focus?.(),
       items: [
@@ -1189,9 +1253,14 @@ function FindToolWindowView({
   }, [activeTabId, floating]);
   const openFindResultMenuAt = (x: number, y: number, result: FindToolOccurrenceRow | null): void => {
     if (result?.kind !== 'file' && result?.kind !== 'text') return;
+    const surfaceRect = rootRef.current?.getBoundingClientRect();
+    const menuMaxWidth = findToolMenuMaxWidth(surfaceRect?.left ?? 0, surfaceRect?.right ?? window.innerWidth);
+    const menuTop = findToolMenuTop(y, surfaceRect?.top ?? 0, surfaceRect?.bottom ?? window.innerHeight);
     setResultMenu({
-      x,
-      y,
+      x: findToolMenuLeft(x, surfaceRect?.left ?? 0, surfaceRect?.right ?? window.innerWidth, menuMaxWidth),
+      y: menuTop,
+      maxHeight: findToolMenuMaxHeight(surfaceRect?.top ?? 0, surfaceRect?.bottom ?? window.innerHeight, menuTop),
+      maxWidth: menuMaxWidth,
       title: basename(result.path),
       fallbackFocus: () => queryInputRef.current?.focus?.(),
       items: searchResultContextItems({
@@ -1234,7 +1303,7 @@ function FindToolWindowView({
     const next = Math.max(0, Math.min(occurrences.length - 1, position));
     const rowKey = occurrences[next]?.rowKey;
     if (typeof rowKey !== 'string' || rowKey === '') return;
-    onMove(0, occurrences.length, next);
+    onMove(0, occurrences.length, next, rowKey);
     window.setTimeout(() => occurrenceRefs.current.get(rowKey)?.focus?.(), 0);
   };
   const focusAdjacentOccurrence = (position: number, direction: number): void => {
@@ -1407,7 +1476,7 @@ function FindToolWindowView({
         icon: 'chevronUp',
         label: t('editor.previousOccurrence'),
         disabled: occurrences.length === 0,
-        onClick: () => onMove(-1, occurrences.length),
+        onClick: () => stepOccurrence(-1),
         group: 'navigate',
       },
       {
@@ -1415,7 +1484,7 @@ function FindToolWindowView({
         icon: 'chevronDown',
         label: t('editor.nextOccurrence'),
         disabled: occurrences.length === 0,
-        onClick: () => onMove(1, occurrences.length),
+        onClick: () => stepOccurrence(1),
         group: 'navigate',
       },
       ...(floating
@@ -1520,7 +1589,8 @@ function FindToolWindowView({
     }
     const visiblePosition = occurrenceIndexByKey.get(handoffTarget.rowKey) ?? -1;
     if (visiblePosition < 0) return;
-    if (state.index !== visiblePosition) onMove(0, occurrences.length, visiblePosition);
+    if (state.index !== visiblePosition)
+      onMove(0, occurrences.length, visiblePosition, occurrences[visiblePosition]?.rowKey);
     onHandoffHandled?.(handoffRevision);
   }, [
     collapsedFiles,
@@ -1539,7 +1609,7 @@ function FindToolWindowView({
     replaceAdvanceReadyRef.current = replaceAdvanceRevision;
     if (occurrences.length === 0) return;
     const nextIndex = findToolReplaceAdvanceIndex(occurrences, state.replaceAdvanceRowKey, state.index);
-    onMove(0, occurrences.length, nextIndex);
+    onMove(0, occurrences.length, nextIndex, occurrences[nextIndex]?.rowKey);
   }, [
     occurrences,
     onMove,
@@ -1555,10 +1625,6 @@ function FindToolWindowView({
       block: 'nearest',
     });
   }, [activeIndex, query, scopeMode, scopePreset, state.matches, state.files, collapsedFiles]);
-  React.useEffect(() => {
-    if (handoffRevision > handoffHandledRevision) return;
-    if (state.index !== activeIndex) onMove(0, occurrences.length, activeIndex);
-  }, [handoffHandledRevision, handoffRevision, state.index, activeIndex, occurrences.length, onMove]);
   React.useEffect(() => {
     if (state.loading === true || state.loadedGeneration !== state.searchGeneration) return;
     const target =
@@ -1589,13 +1655,11 @@ function FindToolWindowView({
       line: active.line ?? 1,
       error: null,
     });
-    if (active.dirty === true) {
-      const entry = openFilesRef.current.find((file) => file.path === active.path);
-      const content = entry?.content ?? '';
+    if (activeLivePreviewContent !== null) {
       setPreviewState({
         loading: false,
         path: active.path,
-        content,
+        content: activeLivePreviewContent,
         line: active.line ?? 1,
         error: null,
       });
@@ -1629,14 +1693,14 @@ function FindToolWindowView({
           path: active.path,
           content: '',
           line: active.line ?? 1,
-          error: failure instanceof Error ? failure.message : String(failure),
+          error: searchPreviewFailureMessage(t, failure),
         });
       });
     return () => {
       cancelled = true;
       previewAbort.abort();
     };
-  }, [previewOpen, active?.rowKey, state.loading]);
+  }, [previewOpen, active?.rowKey, active?.mtime, activeLivePreviewContent, state.loading, t]);
   React.useLayoutEffect(() => {
     if (
       previewOpen !== true ||
@@ -1681,10 +1745,10 @@ function FindToolWindowView({
   const handleListKeyDown = (event: React.KeyboardEvent<HTMLElement>): void => {
     if (event.key === 'ArrowDown') {
       event.preventDefault();
-      onMove(1, occurrences.length);
+      stepOccurrence(1);
     } else if (event.key === 'ArrowUp') {
       event.preventDefault();
-      onMove(-1, occurrences.length);
+      stepOccurrence(-1);
     } else if (event.key === 'Enter') {
       event.preventDefault();
       if (active !== null) openFindResult(active);
@@ -2445,7 +2509,7 @@ function FindToolWindowView({
             ) : null}
             {showEmptyFindResult ? (
               <div style={floating ? styles.findToolPopupMessage : styles.findToolMessage}>
-                {floating ? t('editor.findToolNothingFound') : t('editor.findToolNoMatches')}
+                {findToolEmptyResultMessage(t, state.truncated === true, floating)}
                 {showFindSearchOptionSummary ? (
                   <div
                     style={styles.searchEverywhereUsedOptions}
@@ -2491,17 +2555,17 @@ function FindToolWindowView({
                       ...styles.findToolPopupResult,
                       ...(position === activeIndex ? styles.findToolPopupResultActive : null),
                     }}
-                    onFocus={() => onMove(0, occurrences.length, position)}
+                    onFocus={() => selectOccurrence(position)}
                     onKeyDown={(event) => handleOccurrenceKeyDown(event, rowKey, position)}
                     onContextMenu={(event) => {
                       event.preventDefault();
                       event.stopPropagation();
-                      onMove(0, occurrences.length, position);
+                      selectOccurrence(position);
                       openFindResultMenuAt(event.clientX, event.clientY, occurrences[position]);
                     }}
                     onMouseDown={(event) => {
                       event.preventDefault();
-                      onMove(0, occurrences.length, position);
+                      selectOccurrence(position);
                       event.currentTarget.focus?.();
                     }}
                     onDoubleClick={() => openFindResult(result)}>
@@ -2543,17 +2607,17 @@ function FindToolWindowView({
                             ...styles.findToolOccurrence,
                             ...(position === activeIndex ? styles.findToolOccurrenceActive : null),
                           }}
-                          onFocus={() => onMove(0, occurrences.length, position)}
+                          onFocus={() => selectOccurrence(position)}
                           onKeyDown={(event) => handleOccurrenceKeyDown(event, rowKey, position)}
                           onContextMenu={(event) => {
                             event.preventDefault();
                             event.stopPropagation();
-                            onMove(0, occurrences.length, position);
+                            selectOccurrence(position);
                             openFindResultMenuAt(event.clientX, event.clientY, occurrences[position]);
                           }}
                           onMouseDown={(event) => {
                             event.preventDefault();
-                            onMove(0, occurrences.length, position);
+                            selectOccurrence(position);
                             event.currentTarget.focus?.();
                           }}
                           onDoubleClick={() =>
@@ -2664,17 +2728,17 @@ function FindToolWindowView({
                                   ...styles.findToolOccurrence,
                                   ...(position === activeIndex ? styles.findToolOccurrenceActive : null),
                                 }}
-                                onFocus={() => onMove(0, occurrences.length, position)}
+                                onFocus={() => selectOccurrence(position)}
                                 onKeyDown={(event) => handleOccurrenceKeyDown(event, rowKey, position)}
                                 onContextMenu={(event) => {
                                   event.preventDefault();
                                   event.stopPropagation();
-                                  onMove(0, occurrences.length, position);
+                                  selectOccurrence(position);
                                   openFindResultMenuAt(event.clientX, event.clientY, occurrences[position]);
                                 }}
                                 onMouseDown={(event) => {
                                   event.preventDefault();
-                                  onMove(0, occurrences.length, position);
+                                  selectOccurrence(position);
                                   event.currentTarget.focus?.();
                                 }}
                                 onDoubleClick={() =>
@@ -2711,7 +2775,7 @@ function FindToolWindowView({
             percent={100 - dockPreviewPercent}
             dragging={dockPreviewDragging}
             title={t('editor.findPreviewSplitter')}
-            clampPercent={(value) => clampFindPreviewPercent(value)}
+            clampPercent={(value, width) => clampFindPreviewPercent(value, width)}
             onChange={(next) => setDockPreviewPercent(100 - next)}
             onDraggingChange={setDockPreviewDragging}
             onCommit={(final) =>

@@ -36,8 +36,7 @@ test('closing QuickOpen restores a connected Project tree instead of BODY', () =
   let editorRequested = false;
   const closeQuickOpen = loadTypeScriptCallback(workspaceSource, 'closeQuickOpen', {
     quickOpenReturnFocusRef,
-    quickOpenFilesRequestRef: { current: 0 },
-    quickOpenFilesAbortRef: { current: null },
+    quickOpenFileCandidates: { abortRequests: () => {} },
     setQuickOpen: (value) => {
       closed = value === null;
     },

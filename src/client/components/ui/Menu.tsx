@@ -33,6 +33,7 @@ export interface ContextMenuModel {
   items: MenuEntry[];
   title?: string;
   maxHeight?: number;
+  maxWidth?: number;
   fallbackFocus?: () => void;
   escapeFocus?: () => void;
 }
@@ -242,6 +243,7 @@ export function ContextMenu({ menu, onClose }: ContextMenuProps) {
         left: position.left,
         top: position.top,
         maxHeight: menuHeight,
+        maxWidth: menu.maxWidth,
       }}
       role='menu'
       onContextMenu={(event) => event.preventDefault()}>

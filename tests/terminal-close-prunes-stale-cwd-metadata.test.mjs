@@ -4,10 +4,7 @@ import test from 'node:test';
 
 import { loadTypeScriptCallback, loadTypeScriptFunction } from './ts-source.mjs';
 
-const source = await readFile(
-  new URL('../src/client/components/terminal/TerminalPanel.tsx', import.meta.url),
-  'utf8',
-);
+const source = await readFile(new URL('../src/client/components/terminal/TerminalPanel.tsx', import.meta.url), 'utf8');
 
 test('terminal cwd pruning keeps only live terminal identities', () => {
   const pruneTerminalCwdMetadata = loadTypeScriptFunction(source, 'pruneTerminalCwdMetadata');
@@ -21,10 +18,13 @@ test('terminal cwd pruning keeps only live terminal identities', () => {
 
   pruneTerminalCwdMetadata(cwdById, ['alive-a', 'alive-b']);
 
-  assert.deepEqual([...cwdById], [
-    ['alive-a', '/repo/a'],
-    ['alive-b', '/repo/b'],
-  ]);
+  assert.deepEqual(
+    [...cwdById],
+    [
+      ['alive-a', '/repo/a'],
+      ['alive-b', '/repo/b'],
+    ],
+  );
 });
 
 test('closing a terminal prunes its cwd metadata immediately', async () => {
@@ -84,9 +84,14 @@ test('Close Other Terminals prunes every doomed cwd entry', async () => {
     ['keep', '/repo/keep'],
     ['closed-a', '/repo/a'],
     ['closed-b', '/repo/b'],
+    ['editor', '/repo/editor'],
   ]);
+  const closed = [];
   const closeOtherTerminals = loadTypeScriptCallback(source, 'closeOtherTerminals', {
-    terminalsRef: { current: [{ id: 'keep' }, { id: 'closed-a' }, { id: 'closed-b' }] },
+    terminalsRef: {
+      current: [{ id: 'keep' }, { id: 'closed-a' }, { id: 'closed-b' }, { id: 'editor' }],
+    },
+    editorIdsRef: { current: ['editor'] },
     terminalCwdRef: { current: cwdById },
     pruneTerminalCwdMetadata,
     terminalLiveCwds,
@@ -109,12 +114,22 @@ test('Close Other Terminals prunes every doomed cwd entry', async () => {
       },
     },
     emulatorRef: { current: { focus: () => {} } },
-    callTerminal: async () => ({}),
+    callTerminal: async (request) => {
+      closed.push(request.id);
+      return {};
+    },
   });
 
   await closeOtherTerminals('keep');
 
-  assert.deepEqual([...cwdById], [['keep', '/repo/keep']]);
+  assert.deepEqual(
+    [...cwdById],
+    [
+      ['keep', '/repo/keep'],
+      ['editor', '/repo/editor'],
+    ],
+  );
+  assert.deepEqual(closed.sort(), ['closed-a', 'closed-b']);
 });
 
 test('host terminal refresh prunes cwd metadata for reaped identities', async () => {
