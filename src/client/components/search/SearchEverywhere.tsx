@@ -12,6 +12,8 @@ import { trapDialogFocus } from '../ui/focus-trap';
 import type { ToolbarActionLike } from '../ui/toolbar-model';
 import { SearchFileResultItem } from './SearchFileResultItem';
 import {
+  SEARCH_EVERYWHERE_ALL_FILE_RESULT_LIMIT,
+  SEARCH_EVERYWHERE_ALL_TEXT_RESULT_LIMIT,
   centerPreviewLineInContainer,
   defaultSearchEverywhereFilters,
   nextEnabledSearchResultIndex,
@@ -188,6 +190,23 @@ export function searchEverywhereTruncationMessageIsVisible({
   return tab === provider || (tab === 'all' && filters[provider] !== false);
 }
 
+/**
+ * The initial transport cap only describes the empty-query candidate list.
+ * Once a typed query owns the provider, that warning must disappear because
+ * the Host searches the complete persisted path index.
+ */
+export function searchEverywhereFileListTruncationIsVisible({
+  query,
+  tab,
+  filters,
+}: {
+  query: string;
+  tab: string;
+  filters: { text?: boolean; files?: boolean };
+}): boolean {
+  return query.trim() === '' && (tab === 'files' || (tab === 'all' && filters.files !== false));
+}
+
 export interface SearchEverywhereState {
   query: string;
   tab: string;
@@ -195,6 +214,7 @@ export interface SearchEverywhereState {
   activeRowKey?: string | null;
   filesScope?: boolean;
   filesTruncated?: boolean;
+  filesScopeComplete?: boolean;
   files: SearchFile[];
   textMatches: SearchTextResult[];
   textLoading: boolean;
@@ -572,8 +592,8 @@ function SearchEverywhere({
       return [...historyResults.slice(0, 8), ...(searchFilters.actions ? actionMatches.slice(0, 12) : [])];
     return [
       ...(searchFilters.actions ? actionMatches.slice(0, 8) : []),
-      ...(searchFilters.files ? fileMatches.slice(0, 24) : []),
-      ...(searchFilters.text ? textResults.slice(0, 40) : []),
+      ...(searchFilters.files ? fileMatches.slice(0, SEARCH_EVERYWHERE_ALL_FILE_RESULT_LIMIT) : []),
+      ...(searchFilters.text ? textResults.slice(0, SEARCH_EVERYWHERE_ALL_TEXT_RESULT_LIMIT) : []),
     ];
   }, [
     actionMatches,
@@ -651,9 +671,9 @@ function SearchEverywhere({
     provider: 'text',
     filters: searchFilters,
   });
-  const showFilesTruncated = searchEverywhereTruncationMessageIsVisible({
+  const showFilesTruncated = searchEverywhereFileListTruncationIsVisible({
+    query: effectiveQuery,
     tab: effectiveTab,
-    provider: 'files',
     filters: searchFilters,
   });
   const clearSearchOptions = () => {

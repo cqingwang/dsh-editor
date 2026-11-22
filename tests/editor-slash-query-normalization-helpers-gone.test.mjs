@@ -38,7 +38,7 @@ test('/replace no longer collapses All into Actions-only results', () => {
 test('background text search uses the literal query from the active tab', () => {
   assert.match(
     source,
-    /const searchEverywhereTextQuery = searchEverywhereRawQuery/,
+    /const searchEverywhereTextQuery = searchEverywhere\?\.query\.trim\(\) \?\? ''/,
   );
   assert.doesNotMatch(source, /searchEverywhereTextQuery\.startsWith\('\/'\)/);
 });

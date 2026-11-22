@@ -66,3 +66,22 @@ test('a provider truncation message is visible only on its owning tab', () => {
   assert.equal(visible({ tab: 'all', provider: 'text', filters: { ...filters, text: false } }), false);
   assert.equal(visible({ tab: 'actions', provider: 'files', filters }), false);
 });
+
+test('the initial file-list cap warning disappears once a typed query owns the provider', () => {
+  const providerTruncationVisible = source.slice(
+    source.indexOf('export function searchEverywhereTruncationMessageIsVisible('),
+    source.indexOf('\n}\n', source.indexOf('export function searchEverywhereTruncationMessageIsVisible(')) + 2,
+  );
+  const visible = loadTypeScriptFunction(
+    `${providerTruncationVisible}\n${source.slice(
+      source.indexOf('export function searchEverywhereFileListTruncationIsVisible('),
+      source.indexOf('\n}\n', source.indexOf('export function searchEverywhereFileListTruncationIsVisible(')) + 2,
+    )}`,
+    'searchEverywhereFileListTruncationIsVisible',
+  );
+  const filters = { files: true, text: true };
+
+  assert.equal(visible({ query: '', tab: 'files', filters }), true);
+  assert.equal(visible({ query: 'application', tab: 'files', filters }), false);
+  assert.equal(visible({ query: 'application', tab: 'all', filters }), false);
+});

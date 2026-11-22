@@ -20,6 +20,10 @@ const searchEverywhereSource = await readFile(
   'utf8',
 );
 const { searchTextFailureMessage } = loadTypeScriptModule(editorCoreSource, ['searchTextFailureMessage']);
+const mergeFileCandidates = loadTypeScriptFunction(
+  extractFunctionSource(fileCandidatesSource, 'mergeFileCandidates'),
+  'mergeFileCandidates',
+);
 const t = (key) => key;
 
 test('Search Everywhere preserves file-candidate truncation from the host', async () => {
@@ -61,6 +65,49 @@ test('Search Everywhere preserves file-candidate truncation from the host', asyn
   assert.deepEqual(state.files, [{ path: 'src/app.ts' }]);
   assert.equal(state.filesScope, true);
   assert.equal(state.filesTruncated, true);
+});
+
+test('a bounded response over a complete search scope does not report missing project files', async () => {
+  let state = {
+    includeNonProject: false,
+    files: [],
+    filesTruncated: false,
+    error: null,
+  };
+  const truncatedRef = { current: false };
+  const requestFiles = loadTypeScriptCallback(fileCandidatesSource, 'requestFiles', {
+    requestRef: { current: 0 },
+    abortRef: { current: null },
+    filesRef: { current: [] },
+    truncatedRef,
+    scopeRef: { current: null },
+    fileMaskRef: { current: '' },
+    currentQueryRef: { current: '' },
+    remoteFilesRef: { current: [] },
+    cancelPendingQuery: () => {},
+    searchEverywhereFilesRequestState: (current) => current,
+    searchDirectoryRules: {
+      excludedDirectories: [],
+      includedDirectories: [],
+    },
+    setSearchEverywhere(update) {
+      state = typeof update === 'function' ? update(state) : update;
+    },
+    callFs: async () => ({
+      files: ['src/app.ts'],
+      truncated: true,
+      scopeComplete: true,
+    }),
+    searchTextFailureMessage,
+    t,
+  });
+
+  requestFiles(false);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assert.equal(truncatedRef.current, true);
+  assert.equal(state.filesScopeComplete, true);
+  assert.equal(state.filesTruncated, false);
 });
 
 test('Search Everywhere hides cached files until they belong to the active scope', () => {
@@ -114,4 +161,89 @@ test('Search Everywhere marks file-provider failures so only that provider can r
 
   assert.equal(state.error, 'file enumeration failed');
   assert.equal(state.errorSource, 'files');
+});
+
+test('a complete typed file query clears the base-list truncation warning', async () => {
+  let state = {
+    query: 'application.java',
+    files: [{ path: 'base.ts' }],
+    filesTruncated: true,
+    error: null,
+    errorSource: null,
+  };
+  const requestHostQueryFiles = loadTypeScriptCallback(fileCandidatesSource, 'requestHostQueryFiles', {
+    queryRequestRef: { current: 0 },
+    queryAbortRef: { current: null },
+    truncatedRef: { current: true },
+    filesRef: { current: [{ path: 'base.ts' }] },
+    remoteFilesRef: { current: [] },
+    currentQueryRef: { current: 'application.java' },
+    scopeRef: { current: false },
+    fileMaskRef: { current: '' },
+    mergeFileCandidates,
+    searchDirectoryRules: {
+      excludedDirectories: [],
+      includedDirectories: [],
+    },
+    setSearchEverywhere(update) {
+      state = typeof update === 'function' ? update(state) : update;
+    },
+    callFs: async () => ({
+      entries: [{ path: 'Application.java', kind: 'file' }],
+      truncated: false,
+    }),
+    searchTextFailureMessage,
+    t,
+  });
+
+  requestHostQueryFiles('application.java', false, '');
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assert.equal(state.filesTruncated, false);
+  assert.deepEqual(state.files, [{ path: 'base.ts' }, { path: 'Application.java' }]);
+});
+
+test('a typed file query runs against the complete host index before the base list settles', async () => {
+  const requests = [];
+  let state = {
+    query: 'Application.java',
+    files: [],
+    filesTruncated: false,
+    error: null,
+    errorSource: null,
+  };
+  const requestHostQueryFiles = loadTypeScriptCallback(fileCandidatesSource, 'requestHostQueryFiles', {
+    queryRequestRef: { current: 0 },
+    queryAbortRef: { current: null },
+    truncatedRef: { current: false },
+    filesRef: { current: [] },
+    remoteFilesRef: { current: [] },
+    currentQueryRef: { current: 'Application.java' },
+    scopeRef: { current: false },
+    fileMaskRef: { current: '' },
+    mergeFileCandidates,
+    searchDirectoryRules: {
+      excludedDirectories: [],
+      includedDirectories: [],
+    },
+    setSearchEverywhere(update) {
+      state = typeof update === 'function' ? update(state) : update;
+    },
+    callFs: async (payload) => {
+      requests.push(payload);
+      return {
+        entries: [{ path: 'src/Application.java', kind: 'file' }],
+        truncated: false,
+      };
+    },
+    searchTextFailureMessage,
+    t,
+  });
+
+  requestHostQueryFiles('Application.java', false, '');
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].op, 'search');
+  assert.deepEqual(state.files, [{ path: 'src/Application.java' }]);
 });

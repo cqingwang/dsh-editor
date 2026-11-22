@@ -87,7 +87,10 @@ test('two same-turn Save All requests enter only one write batch', async () => {
 });
 
 test('Search Everywhere text requests invalidate stale responses after open-file changes', () => {
-  const effect = source.slice(source.indexOf('const searchEverywhereRawQuery'), source.indexOf('const openFindTool ='));
+  const effect = source.slice(
+    source.indexOf('const searchEverywhereTextQuery'),
+    source.indexOf('const openFindTool ='),
+  );
   assert.match(effect, /const requestId = \+\+searchTextRequestRef\.current/u);
   assert.match(effect, /if \(searchTextRequestRef\.current !== requestId\) return;/gu);
   assert.match(effect, /searchEverywhere\?\.fileMask,\s+searchDirectoryRules,\s+openFiles,\s+t,/u);

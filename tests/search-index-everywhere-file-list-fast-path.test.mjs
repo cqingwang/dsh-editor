@@ -59,6 +59,7 @@ test('a complete fresh index supplies the bounded initial file list without a li
   assert.equal(cached.files.length, 1);
   assert.equal(cached.files.every((path) => path.startsWith('src/') && path.endsWith('.ts')), true);
   assert.equal(cached.truncated, true);
+  assert.equal(cached.scopeComplete, true);
 });
 
 test('without a live watcher the file list falls back to a fresh walk', async (t) => {

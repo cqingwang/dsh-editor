@@ -27,6 +27,7 @@ interface SearchEverywhereFileCandidates {
 interface FileListResponse {
   files?: string[];
   truncated?: boolean;
+  scopeComplete?: boolean;
 }
 
 interface SearchEntryResult {
@@ -85,7 +86,7 @@ export function useSearchEverywhereFileCandidates({
   const requestHostQueryFiles = React.useCallback(
     (query: string, includeNonProject: boolean, fileMask: string) => {
       const normalizedQuery = query.trim();
-      if (normalizedQuery === '' || !truncatedRef.current) {
+      if (normalizedQuery === '') {
         remoteFilesRef.current = [];
         setSearchEverywhere((current) =>
           current === null || (normalizedQuery !== '' && current.query.trim() !== normalizedQuery)
@@ -128,7 +129,13 @@ export function useSearchEverywhereFileCandidates({
           setSearchEverywhere((current) =>
             current === null || current.query.trim() !== normalizedQuery
               ? current
-              : { ...current, files, error: null, errorSource: null },
+              : {
+                  ...current,
+                  files,
+                  filesTruncated: value?.truncated === true,
+                  error: null,
+                  errorSource: null,
+                },
           );
         })
         .catch((failure) => {
@@ -154,7 +161,7 @@ export function useSearchEverywhereFileCandidates({
     (query: string) => {
       cancelPendingQuery();
       const normalizedQuery = query.trim();
-      if (normalizedQuery === '' || !truncatedRef.current) {
+      if (normalizedQuery === '') {
         remoteFilesRef.current = [];
         setSearchEverywhere((current) =>
           current === null || (normalizedQuery !== '' && current.query.trim() !== normalizedQuery)
@@ -200,14 +207,17 @@ export function useSearchEverywhereFileCandidates({
           filesRef.current = files;
           truncatedRef.current = value?.truncated === true;
           remoteFilesRef.current = [];
+          const filesScopeComplete = value?.scopeComplete === true;
+          const queryOwnsFiles = currentQueryRef.current.trim() !== '';
           setSearchEverywhere((current) =>
             current === null || current.includeNonProject !== (includeNonProject === true)
               ? current
               : {
                   ...current,
-                  files,
+                  files: queryOwnsFiles ? current.files : files,
                   filesScope: includeNonProject === true,
-                  filesTruncated: value?.truncated === true,
+                  filesScopeComplete,
+                  filesTruncated: queryOwnsFiles ? false : value?.truncated === true && filesScopeComplete !== true,
                   error: null,
                   errorSource: null,
                 },
@@ -262,7 +272,15 @@ export function useSearchEverywhereFileCandidates({
     (query: string) => {
       currentQueryRef.current = query;
       setSearchEverywhere((current) =>
-        current === null ? current : { ...current, query, index: 0, activeRowKey: null },
+        current === null
+          ? current
+          : {
+              ...current,
+              query,
+              filesTruncated: query.trim() === '' ? current.filesTruncated : false,
+              index: 0,
+              activeRowKey: null,
+            },
       );
       scheduleHostQuery(query);
     },

@@ -55,6 +55,7 @@ test('an aborted clear leaves the existing index intact', async (t) => {
   assert.equal(cleared.cleared, false);
 
   const files = (await readdir(indexDirectory)).filter((name) => name.endsWith('.json.gz'));
-  assert.equal(files.length, 1);
+  assert.equal(files.length, 2);
   assert.equal((await stat(join(indexDirectory, files[0]))).size > 0, true);
+  assert.equal((await stat(join(indexDirectory, files[1]))).size > 0, true);
 });

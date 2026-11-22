@@ -11,11 +11,10 @@ import {
   workspaceSearchIndexStatus,
 } from '../lib/index.js';
 
-async function waitForPersistedIndex(indexDirectory, expected) {
+async function waitForPersistedPathIndex(indexDirectory, expected) {
   for (let attempt = 0; attempt < 100; attempt += 1) {
     const files = await readdir(indexDirectory).catch(() => []);
-    const indexFile = files.find((name) => name.endsWith('.json.gz'));
-    if (indexFile !== undefined) {
+    for (const indexFile of files.filter((name) => name.endsWith('.json.gz'))) {
       const content = gunzipSync(await readFile(join(indexDirectory, indexFile))).toString('utf8');
       if (content.includes(expected)) return content;
     }
@@ -41,7 +40,7 @@ test('live-discovered paths are retained for later index-only filename queries',
   });
   assert.ok(liveSearch.entries.some((entry) => entry.path === 'base.ts'));
 
-  const persisted = await waitForPersistedIndex(indexDirectory, 'nested/NEW_LIVE_TARGET.ts');
+  const persisted = await waitForPersistedPathIndex(indexDirectory, 'nested/NEW_LIVE_TARGET.ts');
   assert.notEqual(persisted, '');
   const status = await workspaceSearchIndexStatus(root, { searchIndexDirectory: indexDirectory });
   assert.equal(status.files, 2);

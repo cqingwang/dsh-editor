@@ -118,6 +118,7 @@ import {
   searchReplaceAttemptIsCurrent,
   searchEverywhereTabTransition,
   searchEverywhereTextIdleState,
+  searchEverywhereTextRequestLimit,
   searchEverywhereTextRetryState,
   searchDirectoryEffectiveState,
   searchDirectoryToggleDisabledReason,
@@ -256,6 +257,7 @@ import {
   findFilePathMatches,
   findToolPreservedFileIndex,
   findToolDraftFromState,
+  findToolRefreshHandoff,
   findToolSearchOptionsTransition,
   moveFindToolSelection,
   findToolReopenDraft,
@@ -596,7 +598,6 @@ export function focusWorkspaceFallback(host: Document | Element | null): boolean
   target.focus({ preventScroll: true });
   return true;
 }
-
 function EditorWorkspace({
   t,
   workspaceId = '',
@@ -3304,7 +3305,7 @@ function EditorWorkspace({
       setStatusNotice(null);
     }, 4000);
   }, []);
-  const projectSearchIndexActions = useProjectSearchIndexActions(flashStatus, t, searchDirectoryRules);
+  const projectSearchIndexActions = useProjectSearchIndexActions(flashStatus, t, searchDirectoryRules, root);
   const copyStatusPath = React.useCallback(async () => {
     if (statusPath === '') return;
     try {
@@ -4407,17 +4408,15 @@ function EditorWorkspace({
     (fileMask: string) => scheduleSearchEverywhereFileMask(fileMask, searchEverywhere?.includeNonProject === true),
     [scheduleSearchEverywhereFileMask, searchEverywhere?.includeNonProject],
   );
-  const searchEverywhereRawQuery = searchEverywhere?.query.trim() ?? '';
-  const searchEverywhereTextQuery = searchEverywhereRawQuery;
+  const searchEverywhereTextQuery = searchEverywhere?.query.trim() ?? '';
   const searchEverywhereOpen = searchEverywhere !== null;
-  const searchEverywhereTextActive =
-    searchEverywhere !== null && (searchEverywhere.tab === 'all' || searchEverywhere.tab === 'text');
   React.useEffect(() => {
     if (searchEverywhereOpen) return;
     abortSearchEverywhereFileRequests();
   }, [abortSearchEverywhereFileRequests, searchEverywhereOpen]);
   React.useEffect(() => {
-    if (!searchEverywhereTextActive) return undefined;
+    if (searchEverywhere === null || (searchEverywhere.tab !== 'all' && searchEverywhere.tab !== 'text'))
+      return undefined;
     const requestId = ++searchTextRequestRef.current;
     if (searchEverywhereTextQuery.length < 2) {
       setSearchEverywhere(searchEverywhereTextIdleState);
@@ -4433,7 +4432,7 @@ function EditorWorkspace({
         {
           op: 'searchText',
           query: searchEverywhereTextQuery,
-          maxMatches: 200,
+          maxMatches: searchEverywhereTextRequestLimit(searchEverywhere?.tab),
           includeExcluded: searchEverywhere?.includeNonProject === true,
           caseSensitive: searchEverywhere?.caseSensitive === true ? true : undefined,
           wholeWords: searchEverywhere?.wholeWords === true,
@@ -4441,6 +4440,7 @@ function EditorWorkspace({
           fileMask: normalizeFileExtensionFilter(searchEverywhere?.fileMask),
           dirtyPaths: dirtyFiles.map((file) => file.path),
           searchDirectoryRules,
+          fastPartialTextSearch: searchEverywhere?.tab === 'all',
         },
         { signal: searchAbort.signal },
       )
@@ -4472,7 +4472,7 @@ function EditorWorkspace({
               preset: 'projectFiles',
               allowedPaths: null,
             },
-            200,
+            searchEverywhereTextRequestLimit(searchEverywhere?.tab),
           );
           setSearchEverywhere((current) =>
             current === null
@@ -4508,8 +4508,8 @@ function EditorWorkspace({
       searchAbort.abort();
     };
   }, [
-    searchEverywhereTextActive,
     searchEverywhereTextQuery,
+    searchEverywhere?.tab,
     root,
     searchEverywhere?.textRevision,
     searchEverywhere?.includeNonProject,
@@ -11603,7 +11603,7 @@ function EditorWorkspace({
               openFindTool(
                 initial?.query ?? searchEverywhere.query,
                 initial?.mode === 'replace' ? 'replace' : 'find',
-                initial,
+                findToolRefreshHandoff(initial),
                 'query',
                 'dock',
               )
@@ -11915,6 +11915,10 @@ function EditorWorkspace({
                 }}
                 uploadBusy={uploadBusy}
                 uploadProgress={uploadProgress}
+                searchIndexRebuilding={projectSearchIndexActions.rebuilding}
+                searchIndexClearing={projectSearchIndexActions.clearing}
+                searchIndexProgress={projectSearchIndexActions.progress}
+                onCancelSearchIndex={projectSearchIndexActions.cancel}
                 showHidden={showHidden}
                 searchDirectoryRules={searchDirectoryRules}
                 searchRevision={searchRevision}

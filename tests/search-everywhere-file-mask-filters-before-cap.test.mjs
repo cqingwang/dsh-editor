@@ -297,6 +297,7 @@ test('Search Everywhere query edits schedule the host fallback', () => {
   updateQuery('beyond-cap');
 
   assert.equal(state.query, 'beyond-cap');
+  assert.equal(state.filesTruncated, false);
   assert.equal(state.index, 0);
   assert.deepEqual(scheduled, ['beyond-cap']);
 });

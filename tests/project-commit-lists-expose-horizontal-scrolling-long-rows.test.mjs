@@ -31,7 +31,10 @@ test('Project and Changes scroll surfaces remain keyboard-focusable trees', () =
     source,
     /role='tree'[\s\S]*?aria-busy=\{ariaBusy \? 'true' : undefined\}[\s\S]*?aria-label=\{ariaLabel\}/,
   );
-  assert.match(source, /ariaBusy=\{uploadBusy \|\| loading \|\| searchPending\}/);
+  assert.match(
+    source,
+    /ariaBusy=\{uploadBusy \|\| searchIndexRebuilding \|\| searchIndexClearing \|\| loading \|\| searchPending\}/,
+  );
   assert.match(
     source,
     /tabIndex: 0,\s+role: 'tree',\s+'aria-multiselectable': true,\s+'aria-busy': busy \? 'true' : undefined,\s+'data-dsh-changes-list': ''/,

@@ -63,7 +63,10 @@ test('A drop rejected while another upload is busy is surfaced instead of silent
 test('The Project tree announces upload activity with aria-busy', () => {
   const panel = source.slice(source.indexOf('function ProjectPanel('), source.indexOf('function ContextMenu('));
   assert.match(panel, /uploadBusy,/u);
-  assert.match(panel, /ariaBusy=\{uploadBusy \|\| loading \|\| searchPending\}/u);
+  assert.match(
+    panel,
+    /ariaBusy=\{uploadBusy \|\| searchIndexRebuilding \|\| searchIndexClearing \|\| loading \|\| searchPending\}/u,
+  );
   assert.match(source, /'aria-busy': ariaBusy \? 'true' : undefined/u);
   assert.match(source, /uploadBusy: '已有上传正在进行，请等待完成后再拖入'/u);
   assert.match(source, /uploadBusy: 'An upload is already in progress; wait for it to finish before dropping again'/u);

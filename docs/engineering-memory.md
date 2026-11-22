@@ -97,15 +97,94 @@
 
 ### 持久索引
 
-- 索引位置：`DSH_HOME/indexes/dsh-editor/<workspace-sha256>.json.gz`。
-- 文件名 NDJSON + gzip；读取必须流式解压，特殊文件名不得经对象原型键丢失。
+- 索引位置：`DSH_HOME/indexes/dsh-editor/<workspace-sha256>.json.gz`；正文索引
+  旁的 `<workspace-sha256>.paths.json.gz` 是路径投影 sidecar，正文与路径分账。
+- 正文索引是 NDJSON + gzip，路径 sidecar 是紧凑 NUL 分隔路径流 + gzip；特殊
+  文件名不得经对象原型键丢失。文件名/路径查询只读 sidecar，不得为路径命中解码
+  128 MiB 正文缓存。正文搜索可以合并 sidecar 路径与被验证的正文缓存。
+- 同一 workspace 的索引读取按 key 单飞；Search Everywhere 的文件查询与正文查询
+  并发时只能解码一次，不能重复争用 CPU 与内存。
 - 缓存优先；miss / invalid / 不完整时才实时搜索，并在可取消生命周期内回写。
 - Scope、Git ignore、file identity、symlink target、mtime/size 变化都必须失效。
+- Project 打开后先等待 workspace watcher 就绪，再执行一次增量索引更新；已有
+  索引只重读变化/新增文件，未变化正文直接复用，禁止每次打开都全量重读。
+- 默认索引范围与搜索排除共用同一路径过滤：`.git` / `.hg` / `.svn`、Git 元数据
+  文件（`.gitignore`、`.gitattributes`、`.gitmodules` 等）、Git ignore 路径、
+  重目录和系统生成文件默认不进入索引；Project 树仍可显示与打开它们。
+- 首次重建没有可用快照时搜索降级为实时扫描；已有完整索引的增量更新允许继续
+  使用持久快照。新进程尚未完成正文校验时，正文搜索先使用持久内容并明确标记为
+  incomplete，后台更新完成后再进入已验证快路径。Project 顶部进度条只展示 Host
+  真实 files/bytes，未知总量不伪造百分比。
+- workspace watcher 必须把任意路径段中的 `.git` 识别为 Git 元数据；嵌套仓库 /
+  submodule 的 `index.lock` churn 不得撤销搜索索引新鲜度，否则真实大仓库会持续
+  被降级。回归：`tests/search-index-text-provider-watcher-freshness.test.mjs`。
+- 目录遍历确实被系统资源或调用方预算截断时，必须保存受限索引并报告
+  `pathScanComplete=false`；不能把截断快照当成完整索引，也不能因为正文缓存
+  预算耗尽就重复全量重建。
+- 文件路径索引不设 50,000 文件数硬上限；`pathTruncated` 与
+  `contentTruncated` 必须分开。正文缓存 128 MiB 预算耗尽只产生 path-only 条目，
+  后续正文查询按需读取，不能因此把完整路径索引报告成文件列表截断。
+- 浏览器初始文件候选响应可以有传输上限，但 Host 必须返回 `scopeComplete`：
+  完整索引上的 typed query 通过索引继续搜索全部路径，UI 不得显示“项目文件缺失”。
+- 文件名查询不得先把 `.paths.json.gz` 展开成数十万个对象后再过滤。Interactive
+  query 直接在已解码的 NUL 分隔路径流上做转义后的 Unicode 正则扫描，只提取命中
+  记录；宽泛查询用 max-heap 只保留最优的 `maxMatches + 2 * statBatch` 条，避免
+  对几十万命中执行全量 `localeCompare` 排序。回归：
+  `tests/search-index-path-query-stream-fast-path.test.mjs`。
+- 正文查询缓存只能绑定 active watcher、browser search session、search revision
+  和 index generation；命中时返回同一完整快照，watcher 失效或 Host 写入后必须
+  重新扫描。零命中查询不进入缓存，避免把一次 bounded/incomplete 扫描误当永久结论。
+- Search Everywhere 的 All 页只渲染 24 个文件行和 40 个正文行，Host 请求必须
+  使用同一可见预算，不能继续扫描到 200 条再丢弃 160 条。Text 页仍使用 200
+  条正文预算；切换页签时按新预算重新请求。回归：
+  `tests/search-everywhere-all-text-budget-matches-visible-cap.test.mjs`。
+- All 页可先使用 Git 工作树/未跟踪索引做有界正文预览：`git grep -l` 只负责
+  找出正命中文件，Host 再读取这些文件生成真实行列与预览。只要得到正结果即可
+  返回，但必须 `truncated=true` 并标记 `fastPartialTextSearch=true`，不得写入
+  持久查询缓存；Git 未命中、非 Git workspace、存在 dirty buffer、正则、整词、
+  Directory/Scope/Mask 等复杂条件时回退完整扫描。回归：
+  `tests/search-git-index-partial-text-fast-path.test.mjs`。
+- 正文正结果还会持久化到 `<workspace-sha256>.queries.v8.gz`。持久键只包含
+  完整查询与搜索选项，不能包含浏览器 `searchSessionId` / `searchRevision`；
+  读取门槛是 watcher 已验证、路径与正文快照均未更新且项目打开增量更新已结束。
+  文件指纹同时绑定正文 `updatedAt/files/contentBytes/scopeSignature` 和路径
+  sidecar 的 `updatedAt/complete`，原子写入、权限 `0600`，零结果不落盘，
+  watcher、Host 写入、rebuild 或 clear 都必须使旧缓存失效。回归：
+  `tests/search-text-query-cache-persists-across-processes.test.mjs`。
+- 查询缓存 v2 还保存正文/路径 sidecar 的 `mtimeMs/size/dev/ino` snapshot。
+  项目打开增量验证完成后才 arm 该 snapshot；跨进程命中时只 `stat` 两个 sidecar
+  并读取小型 `.queries.v8.gz`，不得为了验证缓存再解码 200+ MiB 正文 V8 或
+  60 MiB 路径流。watcher、Host 写入、rebuild、clear、索引更新开始和 snapshot
+  变化都必须同步 disarm。ZygiskSdk 实测跨重启命中由约 2 s 降到约 6 ms。
+- 正文遍历与索引正文预算跳过已知图片、压缩包、音视频、字体、编译产物和数据库
+  扩展名；文件名搜索仍保留这些路径。未知扩展名不得被启发式排除。
+- 正文搜索默认不设 64 MiB 单请求总读取预算，也不使用旧的 2,000 文件实时候选
+  上限；已知路径与 live 发现路径都必须进入同一无上限候选集合。
+- 正文搜索默认不因单文件超过 1 MiB 而跳过文本；
+  显式 `maxBytes` 仍可用于测试或调用方限定。大文件只探测前缀排除二进制，文本文件
+  按需读取搜索但不进入 128 MiB 热缓存。匹配数仍是 UI 上限，达到后使用“至少 N 个
+  结果”语义，不得冒充文件路径不完整。回归：
+  `tests/search-text-has-no-default-aggregate-byte-cap.test.mjs`。
 - 索引写入按 workspace 串行；generation + dirtyRevision 阻止 stale write。
 - rebuild / clear 期间 suspend 新写入；最终状态只能是完整快照或明确清理。
 - rebuild 保留 Project search scope；clear 删除索引和崩溃遗留临时文件。
 - 后台 status 不得把 “rebuild 中” 或旧索引伪装成完整新索引。
 - Clear 是删除文件，客户端 abort 无法回滚已提交删除；UI 不提供虚假 Cancel。
+- Search Everywhere 的 “Open in Find Tool Window” 只转移 query/options，并从
+  空结果集启动一次新 Find 搜索；不得把 transient 结果数组直接塞入 dock 造成
+  handoff/render 竞争。回归：
+  `tests/search-everywhere-open-find-refresh-avoids-stale-handoff.test.mjs`。
+- ZygiskSdk 实测优化前文件名冷查询约 2.1 s、heap +190 MiB；改为路径流扫描后
+  约 0.20 s、heap 约 63 MiB。初始 2,000 文件列表由约 2 s 降到约 0.18 s。
+  同一正文查询首次仍需读取未缓存文本，重复查询在 watcher-protected 页面内命中
+  query cache 后接近 0 ms；缓存不得用于证明首次扫描完整。
+- 增量更新仍需遍历目录并 stat 每个已知文件以发现外部修改。ZygiskSdk 当前
+  434,220 文件在 `/mnt/fs` 上约 19.5～30.5 s；无变化时 `reusedFiles=434220`，
+  `changedFiles=0` 且 `updatedAt` 不变，不得误报为正文全量重建。
+- 不要用 SQLite FTS5 `trigram` 直接保存 ZygiskSdk 全量正文：包含 symlink/ROM
+  重复路径时约 6.7 GiB 文本在未完成构建时已产生 12 GiB 主库与 WAL，单个文件
+  仍可能继续增长。该方案已实测否决并清理。正文候选索引必须采用紧凑 sketch、
+  token/gram 后置表或按唯一 inode 去重的方案，不能复制完整正文。
 
 ## 8. Commit 与 Git
 

@@ -94,8 +94,11 @@ test('Project root menu owns rebuild and clear search-index actions', () => {
   );
   assert.match(component, /if \(!searchIndexRequestOwns\(requestSequenceRef\.current, requestId\)\) return;/u);
   assert.match(component, /requestSequenceRef\.current = advanceSearchIndexRequest\(requestSequenceRef\.current\);/u);
-  assert.match(component, /op: 'rebuildSearchIndex', searchDirectoryRules/u);
-  assert.match(workspace, /useProjectSearchIndexActions\(flashStatus, t, searchDirectoryRules\)/u);
+  assert.match(component, /op: operation, searchDirectoryRules/u);
+  assert.match(
+    workspace,
+    /useProjectSearchIndexActions\(flashStatus, t, searchDirectoryRules, root\)/u,
+  );
   assert.match(workspace, /\.\.\.\(isRoot \? projectSearchIndexMenuItems\(t, projectSearchIndexActions\) : \[\]\)/);
 });
 
@@ -331,13 +334,20 @@ test('browser text search consumes the project index and Host exposes its mainte
   assert.match(host, /case 'searchIndexStatus':\s+return ok\(await workspaceSearchIndexStatus\(root\)\);/);
   assert.match(
     host,
+    /case 'updateSearchIndex':\s+return ok\(await updateWorkspaceSearchIndex\(root, \{\s+searchDirectoryRules: body\?\.searchDirectoryRules,\s+signal: request\.signal,\s+\}\)\);/,
+  );
+  assert.match(
+    host,
     /case 'rebuildSearchIndex':\s+return ok\(await rebuildWorkspaceSearchIndex\(root, \{\s+searchDirectoryRules: body\?\.searchDirectoryRules,\s+signal: request\.signal,\s+\}\)\);/,
   );
   assert.match(
     host,
     /case 'clearSearchIndex':\s+return ok\(await clearWorkspaceSearchIndex\(root, \{ signal: request\.signal \}\)\);/,
   );
-  assert.match(host, /searchIndex: true,\s+signal: request\.signal/);
+  assert.match(
+    host,
+    /searchIndex: true,\s+(?:fastPartialTextSearch: body\?\.fastPartialTextSearch === true,\s+)?signal: request\.signal/,
+  );
   assert.match(host, /filesOnly: body\?\.filesOnly === true/);
 });
 

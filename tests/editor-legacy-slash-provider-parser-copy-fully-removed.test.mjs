@@ -45,8 +45,9 @@ test('workspace changes still reset transient search surfaces', () => {
 });
 
 test('stale text-search responses cannot overwrite a newer query', () => {
-  const start = source.indexOf('React.useEffect(() => {\n        if (!searchEverywhereTextActive)');
-  const end = source.indexOf('/**\n       * Move a Search Everywhere result set', start);
+  const requestMarker = source.indexOf('const requestId = ++searchTextRequestRef.current');
+  const start = source.lastIndexOf('React.useEffect(() => {', requestMarker);
+  const end = source.indexOf('/**\n       * Move a Search Everywhere result set', requestMarker);
   const effect = source.slice(start, end);
   assert.ok((effect.match(/searchTextRequestRef\.current !== requestId/g) ?? []).length >= 2);
   assert.match(effect, /const requestId = \+\+searchTextRequestRef\.current/);

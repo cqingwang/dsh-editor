@@ -45,7 +45,8 @@ test('a .git/index watcher turns a stage/reset into a normal change frame', () =
   const watcher = host.slice(host.indexOf('class WorkspaceWatcher'), host.indexOf('function workspaceWatchResponse'));
   assert.match(watcher, /watchGitIndex\(\)/);
   assert.match(watcher, /rev-parse', '--git-path', 'index'/);
-  assert.match(watcher, /this\.watchImpl\(absolute, \{ persistent: false \}, \(\) => this\.record\('', '\.git\/index'\)\)/);
-  assert.match(watcher, /normalized === '\.git' \|\| normalized\.startsWith\('\.git\/'\)/);
+  assert.match(watcher, /this\.watchImpl\(absolute, \{ persistent: false \}, \(\) =>/);
+  assert.match(watcher, /this\.record\('', '\.git\/index', false, false\)/);
+  assert.match(watcher, /normalized\.split\('\/'\)\.includes\('\.git'\)/);
   assert.match(watcher, /this\.gitIndexWatcher\?\.close\(\)/);
 });

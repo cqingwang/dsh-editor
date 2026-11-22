@@ -1233,6 +1233,16 @@ export function searchEverywhereTabTransition<T extends FindToolState>(
   } as T;
 }
 
+/** All-tab rows remain quick-navigation previews; the Text tab owns the full result set. */
+export const SEARCH_EVERYWHERE_ALL_FILE_RESULT_LIMIT = 24;
+export const SEARCH_EVERYWHERE_ALL_TEXT_RESULT_LIMIT = 40;
+export const SEARCH_EVERYWHERE_TEXT_TAB_RESULT_LIMIT = 200;
+
+/** Match the Host text budget to what the active tab can actually render. */
+export function searchEverywhereTextRequestLimit(tab: unknown): number {
+  return tab === 'text' ? SEARCH_EVERYWHERE_TEXT_TAB_RESULT_LIMIT : SEARCH_EVERYWHERE_ALL_TEXT_RESULT_LIMIT;
+}
+
 /** Clear the current files-provider error as soon as its owning request starts. */
 export function searchEverywhereFilesRequestState<T extends { includeNonProject?: unknown }>(
   current: T | null,

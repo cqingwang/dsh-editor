@@ -129,7 +129,7 @@ test('system-generated files do not consume file or text-search budgets', async 
     includeExcluded: true,
     respectGitIgnore: true,
   });
-  assert.deepEqual(files.files, ['.gitignore', 'visible.txt']);
+  assert.deepEqual(files.files, ['visible.txt']);
   assert.equal(files.truncated, false);
 
   const text = await host.searchWorkspaceText(root, 'SYSTEM_CACHE_NEEDLE', {

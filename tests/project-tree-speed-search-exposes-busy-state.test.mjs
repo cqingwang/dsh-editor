@@ -8,7 +8,10 @@ const component =
   (await readFile(new URL('../src/client/components/project/FileTreeView.tsx', import.meta.url), 'utf8'));
 
 test('Project tree exposes recursive speed search as busy', () => {
-  assert.match(component, /ariaBusy=\{uploadBusy \|\| loading \|\| searchPending\}/u);
+  assert.match(
+    component,
+    /ariaBusy=\{uploadBusy \|\| searchIndexRebuilding \|\| searchIndexClearing \|\| loading \|\| searchPending\}/u,
+  );
   assert.match(component, /aria-busy=\{ariaBusy \? 'true' : undefined\}/u);
   assert.match(component, /setSearchPending\(true\)/u);
   assert.match(component, /setSearchPending\(false\)/u);

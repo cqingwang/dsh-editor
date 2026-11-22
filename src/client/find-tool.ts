@@ -57,6 +57,28 @@ export function findToolReopenDraft(
   };
 }
 
+/**
+ * Re-run Search Everywhere's handoff inside the persistent Find surface.
+ *
+ * Reusing the transient result arrays as the dock's initial state makes the
+ * handoff lifecycle and the first host search compete for rendering/focus.
+ * Keep the query and options, but start from an empty, explicitly refreshed
+ * result set so the dock owns exactly one search.
+ * @param initial - transient Search Everywhere request.
+ * @returns a refresh request without copied result rows.
+ */
+export function findToolRefreshHandoff<T extends { query?: unknown }>(initial: T | null): T | null {
+  if (initial === null) return null;
+  return {
+    ...initial,
+    files: [],
+    matches: [],
+    index: 0,
+    truncated: false,
+    refresh: String(initial.query ?? '').trim() !== '',
+  } as T;
+}
+
 interface FindShortcutEvent {
   key?: unknown;
   ctrlKey?: unknown;

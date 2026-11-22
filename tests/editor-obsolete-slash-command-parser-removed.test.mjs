@@ -39,7 +39,7 @@ test('slash content stays literal under the active tab', () => {
   const dialog = source.slice(source.indexOf('function SearchEverywhere('), source.lastIndexOf('function QuickOpen('));
   assert.match(dialog, /const effectiveQuery = query;/);
   assert.match(dialog, /rankSearchActions\(actions, effectiveQuery, recentCommands, \{/);
-  assert.match(source, /const searchEverywhereTextQuery = searchEverywhereRawQuery/);
+  assert.match(source, /const searchEverywhereTextQuery = searchEverywhere\?\.query\.trim\(\) \?\? ''/);
   assert.doesNotMatch(source, /searchEverywhereTextQuery\.startsWith\('\/'\)/);
 });
 

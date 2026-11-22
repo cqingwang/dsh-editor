@@ -81,7 +81,7 @@ test('Editor passes the shared dirty-state reference into Search Everywhere', ()
   );
 });
 
-test('Dirty merge keeps the same options and bounded cap as Find in Files', () => {
+test('Dirty merge keeps the same options and request budget as the Host text provider', () => {
   const merge = source.slice(
     source.indexOf('const merged = mergeFindToolDirtyMatches('),
     source.indexOf('setSearchEverywhere((current) =>', source.indexOf('const merged = mergeFindToolDirtyMatches(')),
@@ -90,5 +90,5 @@ test('Dirty merge keeps the same options and bounded cap as Find in Files', () =
   assert.match(merge, /wholeWords: searchEverywhere\?\.wholeWords === true/u);
   assert.match(merge, /regex: searchEverywhere\?\.regex === true/u);
   assert.match(merge, /fileMask: searchEverywhere\?\.fileMask/u);
-  assert.match(merge, /200,/u);
+  assert.match(merge, /searchEverywhereTextRequestLimit\(searchEverywhere\?\.tab\),/u);
 });

@@ -6,7 +6,7 @@ import test from 'node:test';
 
 import { rebuildWorkspaceSearchIndex, searchWorkspaceText } from '../lib/index.js';
 
-test('a truncated candidate list does not stop text search after the first matching file', async (t) => {
+test('text search scans every live and indexed candidate instead of stopping at the former file cap', async (t) => {
   const root = await mkdtemp(join(tmpdir(), 'dsh-editor-text-truncated-scan-'));
   const indexDirectory = await mkdtemp(join(tmpdir(), 'dsh-editor-text-truncated-scan-store-'));
   t.after(() => rm(root, { recursive: true, force: true }));
@@ -27,10 +27,10 @@ test('a truncated candidate list does not stop text search after the first match
     maxMatches: 200,
     searchIndex: false,
   });
-  assert.equal(result.truncated, true);
+  assert.equal(result.truncated, false);
   assert.deepEqual(
     result.matches.map((match) => match.path),
-    ['scan-0000.ts', 'scan-0100.ts', 'scan-0200.ts', 'scan-0300.ts', 'scan-0400.ts'],
+    ['scan-0000.ts', 'scan-0100.ts', 'scan-0200.ts', 'scan-0300.ts', 'scan-0400.ts', 'scan-2100.ts'],
   );
 
   await rebuildWorkspaceSearchIndex(root, { searchIndexDirectory: indexDirectory });
@@ -39,7 +39,7 @@ test('a truncated candidate list does not stop text search after the first match
     searchIndex: true,
     searchIndexDirectory: indexDirectory,
   });
-  assert.equal(indexed.truncated, true);
+  assert.equal(indexed.truncated, false);
   assert.deepEqual(
     indexed.matches.map((match) => match.path),
     [

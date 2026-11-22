@@ -7,6 +7,7 @@ import { PanelToolbar } from '../ui/PanelToolbar';
 import { ToolbarButton } from '../ui/ToolbarButton';
 import { TreeMessage } from '../ui/TreeMessage';
 import { FileTreeView, type FileTreeViewRowDecoration, type FileTreeViewRowState } from './FileTreeView';
+import { searchIndexProgressPercent } from './project-search-index';
 import {
   projectContextMenuRowAfterKeyboard,
   projectPrimaryHiddenByCollapse,
@@ -71,6 +72,11 @@ interface UploadProgress {
   count: number;
   loaded: number;
   total: number;
+}
+interface SearchIndexProgress {
+  processedFiles: number;
+  totalFiles: number;
+  contentBytes: number;
 }
 interface CreateState {
   kind?: 'file' | 'directory';
@@ -137,6 +143,10 @@ export interface ProjectPanelProps {
   onCancelUpload: () => void;
   uploadBusy: boolean;
   uploadProgress: UploadProgress | null;
+  searchIndexRebuilding: boolean;
+  searchIndexClearing: boolean;
+  searchIndexProgress: SearchIndexProgress;
+  onCancelSearchIndex: () => void;
   showHidden: boolean;
   searchDirectoryRules: SearchDirectoryRules;
   searchRevision: number;
@@ -208,6 +218,10 @@ function ProjectPanel({
   onCancelUpload,
   uploadBusy,
   uploadProgress,
+  searchIndexRebuilding,
+  searchIndexClearing,
+  searchIndexProgress,
+  onCancelSearchIndex,
   showHidden,
   searchDirectoryRules,
   searchRevision,
@@ -233,6 +247,28 @@ function ProjectPanel({
     uploadProgress === null || uploadProgress === undefined
       ? 0
       : uploadProgressPercent(uploadProgress.loaded, uploadProgress.total);
+  const searchIndexHasKnownTotal = searchIndexProgress.totalFiles > 0;
+  const searchIndexPercent = searchIndexProgressPercent(
+    searchIndexProgress.processedFiles,
+    searchIndexProgress.totalFiles,
+  );
+  const searchIndexLabel = searchIndexClearing
+    ? t('editor.searchIndexClearing')
+    : searchIndexHasKnownTotal
+      ? t('editor.searchIndexPrebuildProgress', {
+          processed: searchIndexProgress.processedFiles,
+          total: searchIndexProgress.totalFiles,
+          bytes: formatUploadBytes(searchIndexProgress.contentBytes),
+        })
+      : t('editor.searchIndexPrebuilding');
+  const searchIndexVisibleLabel = searchIndexClearing
+    ? t('editor.searchIndexClearing')
+    : searchIndexHasKnownTotal
+      ? t('editor.searchIndexProgressShort', {
+          processed: searchIndexProgress.processedFiles,
+          total: searchIndexProgress.totalFiles,
+        })
+      : t('editor.searchIndexPrebuildingShort');
   const [search, setSearch] = React.useState('');
   const [viewMenu, setViewMenu] = React.useState(null);
   /* IDEA highlights the tree when a dragged row would land on the root. */
@@ -1016,6 +1052,88 @@ function ProjectPanel({
         onDragOver={handleToolbarDragOver}
         onDrop={handleToolbarDrop}
       />
+      {searchIndexRebuilding || searchIndexClearing ? (
+        <div
+          data-dsh-project-index-progress=''
+          style={{
+            padding: '5px 8px',
+            borderBottom: '1px solid var(--dsw-alias-separator-secondary, rgba(127,127,127,0.22))',
+          }}>
+          <div
+            role='status'
+            aria-label={searchIndexLabel}
+            style={{
+              color: 'var(--dsw-alias-label-secondary)',
+              ...EDITOR_TEXT_STYLE.label,
+              lineHeight: '16px',
+              display: 'flex',
+              gap: 6,
+            }}>
+            <span
+              title={searchIndexLabel}
+              style={{
+                minWidth: 0,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}>
+              {searchIndexVisibleLabel}
+            </span>
+            {searchIndexRebuilding && searchIndexHasKnownTotal ? (
+              <span
+                style={{
+                  flex: '0 0 auto',
+                }}>{`${searchIndexPercent}%`}</span>
+            ) : null}
+            {searchIndexRebuilding ? (
+              <button
+                type='button'
+                data-dsh-index-cancel=''
+                aria-label={t('editor.searchIndexCancelRebuild')}
+                title={t('editor.searchIndexCancelRebuild')}
+                onClick={onCancelSearchIndex}
+                style={{
+                  flex: '0 0 auto',
+                  border: '1px solid var(--dsw-alias-separator-secondary, rgba(127,127,127,0.35))',
+                  background: 'transparent',
+                  color: 'inherit',
+                  borderRadius: 4,
+                  padding: '0 6px',
+                  font: 'inherit',
+                  cursor: 'pointer',
+                }}>
+                {t('editor.searchIndexCancelShort')}
+              </button>
+            ) : null}
+          </div>
+          <div
+            role='progressbar'
+            aria-label={searchIndexLabel}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={searchIndexRebuilding && searchIndexHasKnownTotal ? searchIndexPercent : undefined}
+            aria-valuetext={searchIndexLabel}
+            data-indeterminate={searchIndexHasKnownTotal ? undefined : 'true'}
+            style={{
+              height: 2,
+              marginTop: 3,
+              background: 'var(--dsw-alias-bg-hover, rgba(127,127,127,0.18))',
+              borderRadius: 2,
+              overflow: 'hidden',
+              position: 'relative',
+            }}>
+            <div
+              className={searchIndexHasKnownTotal ? undefined : 'dsh-editor-project-index-progress-indeterminate'}
+              style={{
+                width: searchIndexHasKnownTotal ? `${searchIndexPercent}%` : '36%',
+                height: '100%',
+                background: 'var(--dsw-alias-state-business-primary)',
+                transition: searchIndexHasKnownTotal ? 'width 120ms linear' : undefined,
+              }}
+            />
+          </div>
+        </div>
+      ) : null}
       {uploadProgress === null || uploadProgress === undefined ? null : (
         <div
           style={{
@@ -1234,7 +1352,7 @@ function ProjectPanel({
         primaryPath={selectedPath}
         treeRef={treeRef}
         rowRefs={rowRefs}
-        ariaBusy={uploadBusy || loading || searchPending}
+        ariaBusy={uploadBusy || searchIndexRebuilding || searchIndexClearing || loading || searchPending}
         treeStyle={rootDropActive ? styles.treeRootDrop : undefined}
         treeDataAttributes={{
           'data-dsh-project-tree': '',

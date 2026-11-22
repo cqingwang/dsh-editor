@@ -2,7 +2,12 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = (await readFile(new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
+const source =
+  (await readFile(new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url), 'utf8')) +
+  '\n' +
+  (await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8')) +
+  '\n' +
+  (await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'));
 
 function extractFunction(name) {
   const start = source.indexOf(`function ${name}(`);
@@ -35,11 +40,14 @@ test('the selected tab owns provider scope and query text stays literal', () => 
 });
 
 test('background Text search consumes the literal active-tab query', () => {
-  const start = source.indexOf('const searchEverywhereRawQuery');
+  const start = source.indexOf('const searchEverywhereTextQuery');
   const end = source.indexOf('/**\n       * Move a Search Everywhere result set', start);
   const block = source.slice(start, end);
-  assert.match(block, /const searchEverywhereTextQuery = searchEverywhereRawQuery;/);
-  assert.match(block, /searchEverywhere\.tab === 'all' \|\| searchEverywhere\.tab === 'text'/);
+  assert.match(block, /const searchEverywhereTextQuery = searchEverywhere\?\.query\.trim\(\) \?\? '';/);
+  assert.match(
+    block,
+    /searchEverywhere === null \|\| \(searchEverywhere\.tab !== 'all' && searchEverywhere\.tab !== 'text'\)/,
+  );
   assert.doesNotMatch(block, /searchEverywhereProvider/);
 });
 
@@ -48,5 +56,8 @@ test('Text action returns focus to the Search Everywhere query field', () => {
   const end = source.indexOf("id: 'showSearchHistory'", start);
   const action = source.slice(start, end);
   assert.match(action, /data-dsh-search-query/);
-  assert.match(action, /window\.setTimeout\(\(\) => document\.querySelector\('\[data-dsh-search-query\]'\)\?\.focus\?\.\(\), 0\)/);
+  assert.match(
+    action,
+    /window\.setTimeout\(\(\) => document\.querySelector(?:<HTMLElement>)?\('\[data-dsh-search-query\]'\)\?\.focus\?\.\(\), 0\)/,
+  );
 });

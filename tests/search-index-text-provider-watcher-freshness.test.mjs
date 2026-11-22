@@ -124,6 +124,44 @@ test('a Host write invalidates watcher-verified cached content', async (t) => {
   );
 });
 
+test('Git metadata churn does not revoke watcher-verified search content', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'dsh-editor-text-watcher-git-'));
+  const indexDirectory = await mkdtemp(join(tmpdir(), 'dsh-editor-text-watcher-git-store-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(() => rm(indexDirectory, { recursive: true, force: true }));
+  await writeFile(join(root, 'alpha.ts'), 'GIT_METADATA_NEEDLE alpha\n', 'utf8');
+  const freshHost = await import(
+    new URL(`../lib/index.js?text-watcher-git=${Date.now()}`, import.meta.url)
+  );
+  let fireWatcher = null;
+  const watcher = new freshHost.WorkspaceWatcher(root, () => {}, {
+    watchImpl(_path, options, callback) {
+      if (options?.recursive === true) fireWatcher = callback;
+      return { close() {}, on() {} };
+    },
+  });
+  t.after(() => watcher.close());
+  watcher.start();
+  await freshHost.rebuildWorkspaceSearchIndex(root, { searchIndexDirectory: indexDirectory });
+  const request = { searchIndex: true, searchIndexDirectory: indexDirectory };
+  const status = () => freshHost.workspaceSearchIndexStatus(root, { searchIndexDirectory: indexDirectory });
+  assert.equal((await status()).contentScanVerified, true);
+
+  fireWatcher('rename', 'packages/plugin/.git/index.lock');
+  fireWatcher('rename', 'packages/plugin/.git/modules/sdk/index.lock');
+  fireWatcher('rename', 'packages/plugin/.git/index');
+  fireWatcher('rename', '.git/index');
+  await new Promise((resolve) => setTimeout(resolve, 180));
+  assert.equal((await status()).contentScanVerified, true);
+  const cached = await freshHost.searchWorkspaceText(root, 'GIT_METADATA_NEEDLE', request);
+  assert.equal(cached.indexFastPath, true);
+  assert.equal(cached.indexCache.hits, 1);
+
+  fireWatcher('change', 'alpha.ts');
+  await new Promise((resolve) => setTimeout(resolve, 180));
+  assert.equal((await status()).contentScanVerified, false);
+});
+
 test('a budget-skipped stale cache entry is not promoted to watcher freshness', async (t) => {
   const root = await mkdtemp(join(tmpdir(), 'dsh-editor-text-watcher-budget-'));
   const indexDirectory = await mkdtemp(join(tmpdir(), 'dsh-editor-text-watcher-budget-store-'));

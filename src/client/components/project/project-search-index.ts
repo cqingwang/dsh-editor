@@ -15,6 +15,7 @@ interface ProjectSearchIndexActions {
     contentBytes: number;
   };
   rebuild: () => void;
+  update: () => void;
   cancel: () => void;
   clear: () => void;
 }
@@ -22,14 +23,23 @@ interface ProjectSearchIndexActions {
 interface SearchIndexMutationResult {
   files?: number;
   truncated?: boolean;
+  pathTruncated?: boolean;
+  contentTruncated?: boolean;
   cleared?: boolean;
 }
 
-interface SearchIndexStatusResult extends SearchIndexMutationResult {
+export interface SearchIndexStatusResult extends SearchIndexMutationResult {
   rebuilding?: boolean;
   processedFiles?: number;
   totalFiles?: number;
   rebuiltContentBytes?: number;
+  exists?: boolean;
+  pathScanComplete?: boolean;
+  directoryScanComplete?: boolean;
+  truncated?: boolean;
+  pathTruncated?: boolean;
+  contentTruncated?: boolean;
+  watcherActive?: boolean;
 }
 
 /** Advance the owner token so an older rebuild cannot mutate the next one's UI state. */
@@ -42,11 +52,19 @@ export function searchIndexRequestOwns(current: number, request: number): boolea
   return current === request;
 }
 
+/** Clamp Host file counters into the percentage used by the Project progress strip. */
+export function searchIndexProgressPercent(processedFiles: number, totalFiles: number): number {
+  const processed = Math.max(0, Number(processedFiles) || 0);
+  const total = Math.max(0, Number(totalFiles) || 0);
+  if (total === 0) return 0;
+  return Math.max(0, Math.min(100, Math.floor((processed / total) * 100)));
+}
+
 /** Turn a stale Host operation table into actionable recovery instead of raw English. */
 export function searchIndexActionFailureMessage(t: Translate, error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
   return /unknown operation/iu.test(message) &&
-    /(?:rebuildSearchIndex|clearSearchIndex|searchIndexStatus)/u.test(message)
+    /(?:updateSearchIndex|rebuildSearchIndex|clearSearchIndex|searchIndexStatus)/u.test(message)
     ? t('editor.searchIndexRestartRequired')
     : t('editor.searchIndexActionFailed', { message });
 }
@@ -56,92 +74,146 @@ export function useProjectSearchIndexActions(
   notify: (message: string) => void,
   t: Translate,
   searchDirectoryRules: SearchDirectoryRules,
+  root = '',
 ): ProjectSearchIndexActions {
   const abortRef = React.useRef<AbortController | null>(null);
   const clearAbortRef = React.useRef<AbortController | null>(null);
   const requestSequenceRef = React.useRef(0);
   const progressTimerRef = React.useRef<ReturnType<typeof globalThis.setInterval> | null>(null);
+  const autoUpdateRootsRef = React.useRef(new Set<string>());
   const [rebuilding, setRebuilding] = React.useState(false);
   const [clearing, setClearing] = React.useState(false);
   const [progress, setProgress] = React.useState({ processedFiles: 0, totalFiles: 0, contentBytes: 0 });
-  const rebuild = React.useCallback(() => {
-    if (abortRef.current !== null || clearAbortRef.current !== null) return;
-    const controller = new AbortController();
-    const requestId = advanceSearchIndexRequest(requestSequenceRef.current);
-    requestSequenceRef.current = requestId;
-    abortRef.current = controller;
-    setRebuilding(true);
-    setProgress({ processedFiles: 0, totalFiles: 0, contentBytes: 0 });
-    notify(t('editor.searchIndexRebuilding'));
-    let lastProgressUpdate = 0;
-    let active = true;
-    let polling = false;
-    const pollProgress = () => {
-      if (polling) return;
-      polling = true;
-      void callFs<SearchIndexStatusResult>({ op: 'searchIndexStatus' }, { signal: controller.signal })
+  const beginBuild = React.useCallback(
+    (operation: 'updateSearchIndex' | 'rebuildSearchIndex') => {
+      if (abortRef.current !== null || clearAbortRef.current !== null) return;
+      const updating = operation === 'updateSearchIndex';
+      const controller = new AbortController();
+      const requestId = advanceSearchIndexRequest(requestSequenceRef.current);
+      requestSequenceRef.current = requestId;
+      abortRef.current = controller;
+      setRebuilding(true);
+      setProgress({ processedFiles: 0, totalFiles: 0, contentBytes: 0 });
+      notify(t(updating ? 'editor.searchIndexUpdating' : 'editor.searchIndexRebuilding'));
+      let lastProgressUpdate = 0;
+      let active = true;
+      let polling = false;
+      const pollProgress = () => {
+        if (polling) return;
+        polling = true;
+        void callFs<SearchIndexStatusResult>({ op: 'searchIndexStatus' }, { signal: controller.signal })
+          .then((value) => {
+            if (!active || controller.signal.aborted || !searchIndexRequestOwns(requestSequenceRef.current, requestId))
+              return;
+            const next = {
+              processedFiles: Math.max(0, Number(value.processedFiles) || 0),
+              totalFiles: Math.max(0, Number(value.totalFiles) || 0),
+              contentBytes: Math.max(0, Number(value.rebuiltContentBytes) || 0),
+            };
+            const now = Date.now();
+            if (next.totalFiles > 0) setProgress(next);
+            if (now - lastProgressUpdate >= 1000 && next.totalFiles > 0) {
+              lastProgressUpdate = now;
+              notify(
+                t(updating ? 'editor.searchIndexUpdateProgress' : 'editor.searchIndexRebuildingProgress', {
+                  processed: next.processedFiles,
+                  total: next.totalFiles,
+                }),
+              );
+            }
+          })
+          .catch((error) => {
+            if (error?.name !== 'AbortError' && error?.name !== 'CanceledError') {
+              /* Progress polling is observational; the rebuild owns final errors. */
+            }
+          })
+          .finally(() => {
+            polling = false;
+          });
+      };
+      pollProgress();
+      const progressTimer = globalThis.setInterval(pollProgress, 300);
+      progressTimerRef.current = progressTimer;
+      void callFs<SearchIndexMutationResult>({ op: operation, searchDirectoryRules }, { signal: controller.signal })
         .then((value) => {
-          if (!active || controller.signal.aborted || !searchIndexRequestOwns(requestSequenceRef.current, requestId))
-            return;
-          const next = {
-            processedFiles: Math.max(0, Number(value.processedFiles) || 0),
-            totalFiles: Math.max(0, Number(value.totalFiles) || 0),
-            contentBytes: Math.max(0, Number(value.rebuiltContentBytes) || 0),
-          };
-          const now = Date.now();
-          if (now - lastProgressUpdate >= 1000 && next.totalFiles > 0) {
-            lastProgressUpdate = now;
-            setProgress(next);
-            notify(
-              t('editor.searchIndexRebuildingProgress', {
-                processed: next.processedFiles,
-                total: next.totalFiles,
-              }),
-            );
-          }
+          if (!searchIndexRequestOwns(requestSequenceRef.current, requestId)) return;
+          const doneKey = updating
+            ? value.pathTruncated === true
+              ? 'editor.searchIndexUpdateTruncated'
+              : 'editor.searchIndexUpdateDone'
+            : value.pathTruncated === true
+              ? 'editor.searchIndexRebuildTruncated'
+              : 'editor.searchIndexRebuildDone';
+          notify(
+            t(doneKey, {
+              files: Number(value.files) || 0,
+            }),
+          );
         })
         .catch((error) => {
-          if (error?.name !== 'AbortError' && error?.name !== 'CanceledError') {
-            /* Progress polling is observational; the rebuild owns final errors. */
+          if (!searchIndexRequestOwns(requestSequenceRef.current, requestId)) return;
+          if (error?.name === 'AbortError' || error?.name === 'CanceledError') {
+            notify(t('editor.searchIndexRebuildCancelled'));
+            return;
           }
+          notify(searchIndexActionFailureMessage(t, error));
         })
         .finally(() => {
-          polling = false;
+          active = false;
+          globalThis.clearInterval(progressTimer);
+          if (progressTimerRef.current === progressTimer) progressTimerRef.current = null;
+          if (!searchIndexRequestOwns(requestSequenceRef.current, requestId)) return;
+          if (abortRef.current === controller) abortRef.current = null;
+          setRebuilding(false);
+          setProgress({ processedFiles: 0, totalFiles: 0, contentBytes: 0 });
+        });
+    },
+    [notify, searchDirectoryRules, t],
+  );
+  const rebuild = React.useCallback(() => beginBuild('rebuildSearchIndex'), [beginBuild]);
+  const update = React.useCallback(() => beginBuild('updateSearchIndex'), [beginBuild]);
+  React.useEffect(() => {
+    if (root === '' || autoUpdateRootsRef.current.has(root)) return;
+    /* Wait briefly for the workspace watcher. Its freshness proof is what lets
+       the completed increment participate in indexed search without dropping
+       the filename/content cache straight back to live scanning. */
+    const controller = new AbortController();
+    let active = true;
+    let attempts = 0;
+    let timer: ReturnType<typeof globalThis.setTimeout> | null = null;
+    const begin = () => {
+      if (!active || autoUpdateRootsRef.current.has(root)) return;
+      autoUpdateRootsRef.current.add(root);
+      update();
+    };
+    const probe = () => {
+      if (!active) return;
+      attempts += 1;
+      void callFs<SearchIndexStatusResult>({ op: 'searchIndexStatus' }, { signal: controller.signal })
+        .then((value) => {
+          if (!active) return;
+          if (value.watcherActive === true || attempts >= 8) {
+            begin();
+            return;
+          }
+          timer = globalThis.setTimeout(probe, 150);
+        })
+        .catch((error) => {
+          if (!active || error?.name === 'AbortError' || error?.name === 'CanceledError') return;
+          if (attempts >= 8) {
+            begin();
+            return;
+          }
+          timer = globalThis.setTimeout(probe, 150);
         });
     };
-    pollProgress();
-    const progressTimer = globalThis.setInterval(pollProgress, 300);
-    progressTimerRef.current = progressTimer;
-    void callFs<SearchIndexMutationResult>(
-      { op: 'rebuildSearchIndex', searchDirectoryRules },
-      { signal: controller.signal },
-    )
-      .then((value) => {
-        if (!searchIndexRequestOwns(requestSequenceRef.current, requestId)) return;
-        notify(
-          t(value.truncated === true ? 'editor.searchIndexRebuildTruncated' : 'editor.searchIndexRebuildDone', {
-            files: Number(value.files) || 0,
-          }),
-        );
-      })
-      .catch((error) => {
-        if (!searchIndexRequestOwns(requestSequenceRef.current, requestId)) return;
-        if (error?.name === 'AbortError' || error?.name === 'CanceledError') {
-          notify(t('editor.searchIndexRebuildCancelled'));
-          return;
-        }
-        notify(searchIndexActionFailureMessage(t, error));
-      })
-      .finally(() => {
-        active = false;
-        globalThis.clearInterval(progressTimer);
-        if (progressTimerRef.current === progressTimer) progressTimerRef.current = null;
-        if (!searchIndexRequestOwns(requestSequenceRef.current, requestId)) return;
-        if (abortRef.current === controller) abortRef.current = null;
-        setRebuilding(false);
-        setProgress({ processedFiles: 0, totalFiles: 0, contentBytes: 0 });
-      });
-  }, [notify, searchDirectoryRules, t]);
+    probe();
+    return () => {
+      active = false;
+      controller.abort();
+      if (timer !== null) globalThis.clearTimeout(timer);
+    };
+  }, [root, update]);
   const cancel = React.useCallback(() => {
     const controller = abortRef.current;
     if (controller === null) return;
@@ -193,8 +265,8 @@ export function useProjectSearchIndexActions(
     [],
   );
   return React.useMemo(
-    () => ({ rebuilding, clearing, progress, rebuild, cancel, clear }),
-    [cancel, clear, clearing, progress, rebuild, rebuilding],
+    () => ({ rebuilding, clearing, progress, rebuild, update, cancel, clear }),
+    [cancel, clear, clearing, progress, rebuild, rebuilding, update],
   );
 }
 
