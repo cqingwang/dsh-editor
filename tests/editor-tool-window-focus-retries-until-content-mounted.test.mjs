@@ -157,7 +157,7 @@ test('cancelling a pending focus request prevents a stale activity steal', () =>
 test('tool-window shortcuts retry their mounted content instead of focusing BODY', () => {
   assert.match(
     workspaceSource,
-    /import \{ focusSurfaceWhenReady, resolveFocusSurface \} from '\.\/components\/ui\/focus-surface';/u,
+    /import \{\s+focusEditorOnNextFrame,\s+focusSurfaceWhenReady,\s+focusWorkspaceFallback,\s+resolveFocusSurface,\s+\} from '\.\/components\/ui\/focus-surface';/u,
   );
   assert.match(
     uiSource,
@@ -186,7 +186,7 @@ test('tool-window shortcuts retry their mounted content instead of focusing BODY
   assert.doesNotMatch(hideBlock, /setTimeout/u);
 
   const editorStart = workspaceSource.indexOf('const focusWorkspaceSurface = React.useCallback(');
-  const editorEnd = workspaceSource.indexOf("/* IDEA's combined diff can walk", editorStart);
+  const editorEnd = workspaceSource.indexOf('const diffChangeSequence =', editorStart);
   assert.ok(editorStart > 0 && editorEnd > editorStart);
   const editorBlock = workspaceSource.slice(editorStart, editorEnd);
   assert.match(editorBlock, /cancelFocusRequestRef\.current\?\.\(\);/u);

@@ -19,9 +19,9 @@ test('CommitLogListState owns loading, errors, empty states and footer', async (
   assert.match(state, /aria-disabled=\{loading \? true : undefined\}/u);
   assert.match(state, /if \(!loading\) onRetry\?\.\(\)/u);
   assert.match(state, /loading \? t\('editor\.loading'\) : t\('editor\.logRetry'\)/u);
-  assert.match(state, /!loading && commitCount > 0 && visibleCount === 0/u);
-  assert.match(state, /commitCount === 0 && !loading && logFailure === null/u);
-  assert.match(state, /section === 'footer' && exhausted && visibleCount > 0 && logFailure === null/u);
+  assert.match(state, /!loading && visibleCount === 0 && \(commitCount > 0 \|\| searchMode\)/u);
+  assert.match(state, /!searchMode && !graphMode && commitCount === 0 && !loading && logFailure === null/u);
+  assert.match(state, /!searchMode && exhausted && visibleCount > 0 && logFailure === null/u);
   assert.doesNotMatch(state, /React\.createElement/u);
   assert.match(state, /export \{ CommitLogListState \};/u);
 });
@@ -33,7 +33,7 @@ test('CommitLog uses status and footer list-state sections', async () => {
 
   assert.match(log, /import \{ CommitLogListState \} from '\.\/CommitLogListState'/u);
   assert.match(log, /<CommitLogListState\s+section='status'[\s\S]*?onRetry=\{retryList\}/u);
-  assert.match(log, /<CommitLogListState\s+section='footer'[\s\S]*?exhausted=\{exhausted === true\}/u);
+  assert.match(log, /<CommitLogListState\s+section='footer'[\s\S]*?exhausted=\{displayedExhausted\}/u);
   assert.doesNotMatch(log, /t\('editor\.noMatches'\)/u);
   assert.doesNotMatch(log, /t\('editor\.noCommits'\)/u);
   assert.doesNotMatch(log, /t\('editor\.logEnd'\)/u);

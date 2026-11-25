@@ -49,8 +49,14 @@ test('DiffPreview renders the included state only for local Commit changes', () 
   assert.match(diff, /target\?\.combined !== true/);
   assert.match(diff, /diffIncludedSummaryState\(hunks\.total, includedInCommit\)/);
   assert.match(diff, /diffSummaryVisibleForWidth\(diffToolbarWidth\)/);
-  assert.match(diff, /includedState === 'all'[\s\S]{0,80}?t\('editor\.diffSummaryAll'/);
-  assert.match(diff, /includedState === 'none'[\s\S]{0,80}?t\('editor\.diffSummaryNone'/);
+  assert.match(
+    diff,
+    /includedState === 'all'[\s\S]{0,160}?t\(hunks\.total === 1 \? 'editor\.diffSummaryAllOne' : 'editor\.diffSummaryAll'/u,
+  );
+  assert.match(
+    diff,
+    /includedState === 'none'[\s\S]{0,160}?t\(hunks\.total === 1 \? 'editor\.diffSummaryNoneOne' : 'editor\.diffSummaryNone'/u,
+  );
 });
 
 test('EditorWorkspace passes the real commit checkbox state into the diff', () => {

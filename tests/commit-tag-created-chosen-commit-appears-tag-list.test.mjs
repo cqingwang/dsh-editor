@@ -60,7 +60,7 @@ test('the log menu offers Create Tag and the client prompts for a name', () => {
   const client = read('lib/client.js');
   const start = client.indexOf('const buildLogMenu = React.useCallback(');
   assert.notEqual(start, -1);
-  const end = client.indexOf('/* Rollback discards edits', start);
+  const end = client.indexOf('const rollback = React.useCallback(', start);
   assert.notEqual(end, -1);
   const block = client.slice(start, end);
   assert.match(block, /t\('editor\.createTagAction'\)/);

@@ -6,5 +6,5 @@ const source = await readFile(new URL('../src/client/components/commit/CommitLog
 
 test('a hidden Commit Log never focuses its list after a background recovery', () => {
   assert.match(source, /const recovered = logFailedRef\.current && !failed;[\s\S]*?if \(recovered && !hidden\)/u);
-  assert.match(source, /\}, \[hidden, logFailure\]\);/u);
+  assert.match(source, /\}, \[displayedFailure, hidden\]\);/u);
 });

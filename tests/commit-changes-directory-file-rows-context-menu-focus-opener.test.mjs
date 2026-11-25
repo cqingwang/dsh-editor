@@ -2,10 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const commitPanel = await readFile(
-  new URL('../src/client/components/commit/CommitPanel.tsx', import.meta.url),
-  'utf8',
-);
+const commitPanel = await readFile(new URL('../src/client/components/commit/CommitPanel.tsx', import.meta.url), 'utf8');
 const terminalPanel = await readFile(
   new URL('../src/client/components/terminal/TerminalPanel.tsx', import.meta.url),
   'utf8',
@@ -25,7 +22,7 @@ test('Changes directory and file rows are the context-menu focus opener', () => 
 test('Terminal tabs and overflow are the context-menu focus opener', () => {
   assert.match(
     terminalPanel,
-    /event\.currentTarget\.focus\?\.\(\);\s+openTerminalTabMenu\(terminal, event\.clientX, event\.clientY\);/u,
+    /event\.currentTarget\.focus\?\.\(\);\s+void openTerminalTabMenu\(terminal, event\.clientX, event\.clientY\);/u,
   );
   assert.match(
     terminalPanel,

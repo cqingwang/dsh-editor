@@ -2,30 +2,17 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
+import { loadTypeScriptFunction } from './ts-source.mjs';
+
 const panel =
   (await readFile(new URL('../src/client/components/project/ProjectPanel.tsx', import.meta.url), 'utf8')) +
   '\n' +
   (await readFile(new URL('../src/client/components/project/FileTreeView.tsx', import.meta.url), 'utf8'));
 const workspace = await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8');
-const client = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
-
-function extractFunction(name) {
-  const marker = `function ${name}(`;
-  const start = client.indexOf(marker);
-  assert.notEqual(start, -1, `${name} should exist`);
-  let index = client.indexOf('{', start);
-  let depth = 0;
-  for (; index < client.length; index += 1) {
-    if (client[index] === '{') depth += 1;
-    else if (client[index] === '}') {
-      depth -= 1;
-      if (depth === 0) {
-        return new Function(`${client.slice(start, index + 1)}; return ${name};`)();
-      }
-    }
-  }
-  assert.fail(`${name} has no closing brace`);
-}
+const focusSurface = await readFile(
+  new URL('../src/client/components/ui/focus-surface.ts', import.meta.url),
+  'utf8',
+);
 
 test('double-clicking a Project file opens EditSource and focuses the editor', () => {
   const rowStart = panel.indexOf('onRowDoubleClick={(state, event) => {');
@@ -47,7 +34,7 @@ test('single-click selection and speed-search keep their existing focus boundari
 });
 
 test('EditSource waits for Monaco to mount before taking keyboard focus', () => {
-  const focusOnNextFrame = extractFunction('focusEditorOnNextFrame');
+  const focusOnNextFrame = loadTypeScriptFunction(focusSurface, 'focusEditorOnNextFrame');
   const frames = [];
   const editorRef = { current: null };
   const focused = [];

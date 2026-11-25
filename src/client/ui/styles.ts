@@ -2323,6 +2323,15 @@ export const styles: Record<string, CSSProperties> = {
     fontVariantNumeric: 'tabular-nums',
     whiteSpace: 'nowrap',
   },
+  diffRollbackInclude: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    flex: 'none',
+    gap: 4,
+    color: 'var(--dsw-alias-label-secondary)',
+    fontSize: EDITOR_FONT_SIZE_SCALE.caption,
+    whiteSpace: 'nowrap',
+  },
   fileNav: {
     display: 'inline-flex',
     alignItems: 'center',

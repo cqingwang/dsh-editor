@@ -23,8 +23,8 @@ test('the menu action calls the host reveal endpoint with the terminal cwd', () 
   const start = source.indexOf('terminalTabMenu(t, terminal, {');
   assert.notEqual(start, -1);
   const block = source.slice(start, source.indexOf('colors[terminal.id] === undefined', start));
-  /* Round 122 prefers the OSC 7 directory with `terminal.cwd` as fallback. */
-  assert.match(block, /revealCwd: \(\) => void revealTerminalDirectory\(terminalCwdRef\.current\.get\(terminal\.id\) \?\? terminal\.cwd\)/);
+  /* The menu resolves the live cwd through OSC 7 or the Host process fallback. */
+  assert.match(block, /revealCwd: \(\) => void revealTerminalDirectory\(cwd\)/);
   assert.match(source, /const revealTerminalDirectory = React\.useCallback\(/);
 });
 

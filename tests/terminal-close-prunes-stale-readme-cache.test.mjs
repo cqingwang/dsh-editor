@@ -58,6 +58,7 @@ test('closing the last terminal using a cwd clears that README entry', async () 
     activeRef: { current: 'a' },
     editorIdsRef: { current: [] },
     terminalCwdRef: { current: cwdById },
+    terminalMetadataRef: { current: new Map() },
     pruneTerminalCwdMetadata,
     terminalLiveCwds,
     pruneTerminalReadmeMetadata,

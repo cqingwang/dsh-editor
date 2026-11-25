@@ -25,13 +25,7 @@ const boundedReplaceHistory = new Function(
 
 async function replaceOnce(root, relativePath, query, replacement) {
   const info = await stat(join(root, relativePath));
-  return host.replaceWorkspaceText(
-    root,
-    query,
-    replacement,
-    [{ path: relativePath, mtime: info.mtimeMs }],
-    {},
-  );
+  return host.replaceWorkspaceText(root, query, replacement, [{ path: relativePath, mtime: info.mtimeMs }], {});
 }
 
 test('client history retains only the latest 20 operations', () => {
@@ -39,26 +33,42 @@ test('client history retains only the latest 20 operations', () => {
   for (let index = 0; index < 21; index += 1) {
     history = boundedReplaceHistory(history, { id: String(index), dirty: [] });
   }
-  assert.deepEqual(history.map((operation) => operation.id), Array.from({ length: 20 }, (_, index) => String(index + 1)));
+  assert.deepEqual(
+    history.map((operation) => operation.id),
+    Array.from({ length: 20 }, (_, index) => String(index + 1)),
+  );
 });
 
 test('client history enforces the byte budget and drops an oversized latest operation', () => {
-  const history = boundedReplaceHistory([], {
-    id: 'oversized',
-    dirty: [{ beforeContent: '123456', afterContent: '' }],
-  }, 20, 5);
+  const history = boundedReplaceHistory(
+    [],
+    {
+      id: 'oversized',
+      dirty: [{ beforeContent: '123456', afterContent: '' }],
+    },
+    20,
+    5,
+  );
   assert.deepEqual(history, []);
 
-  const retained = boundedReplaceHistory([
+  const retained = boundedReplaceHistory(
+    [
+      {
+        id: 'old',
+        dirty: [{ beforeContent: '1234', afterContent: '' }],
+      },
+    ],
     {
-      id: 'old',
-      dirty: [{ beforeContent: '1234', afterContent: '' }],
+      id: 'latest',
+      dirty: [{ beforeContent: '1234567', afterContent: '' }],
     },
-  ], {
-    id: 'latest',
-    dirty: [{ beforeContent: '1234567', afterContent: '' }],
-  }, 20, 10);
-  assert.deepEqual(retained.map((operation) => operation.id), ['latest']);
+    20,
+    10,
+  );
+  assert.deepEqual(
+    retained.map((operation) => operation.id),
+    ['latest'],
+  );
 });
 
 test('host clean operations support continuous Undo and Redo with operation ids', async (t) => {
@@ -181,13 +191,20 @@ test('client replace records gate host Undo on a stable operation id', () => {
     source.indexOf('const undoFindReplace = React.useCallback'),
   );
   assert.match(replaceAll, /dirtyReplaceUndo\(dirtyPlans\)/);
-  assert.match(replaceAll, /replaceOperationState\(/);
-  assert.match(replaceAll, /boundedReplaceHistory\(current, operation\)/);
-  assert.match(replaceOne, /const operationId = typeof value\?\.operationId === 'string' \? value\.operationId : ''/);
-  assert.match(replaceOne, /operationId,/);
-  assert.match(replaceOne, /clean: operationId !== '' &&/);
-  assert.match(replaceOne, /clean: operationId !== '' && dirtyFile === undefined && changed\.length > 0/);
-  assert.match(replaceOne, /dirty:\s*dirtyFile !== undefined && dirtyRewrite !== null && dirtyBeforeContent !== null/);
+  assert.match(replaceAll, /committedReplaceOperationFromTracker\(commitTracker\)/);
+  assert.match(
+    replaceAll,
+    /recordCommittedReplaceOperation\(operation, setFindReplaceRedoStack, setFindReplaceUndoStack\)/,
+  );
+  assert.match(
+    replaceOne,
+    /trackSingleDirtyReplace\(commitTracker, match\.path, dirtyBeforeContent, dirtyRewrite\.text\)/,
+  );
+  assert.match(replaceOne, /committedReplaceOperationFromTracker\(commitTracker\)/);
+  assert.match(
+    replaceOne,
+    /recordCommittedReplaceOperation\(operation, setFindReplaceRedoStack, setFindReplaceUndoStack\)/,
+  );
 });
 
 test('Undo and Redo status messages use the plural-aware count placeholders', () => {
@@ -212,12 +229,13 @@ test('starting a new branch releases redo bytes before applying the history budg
     }
   }
   assert.notEqual(end, -1, 'clearReplaceHistoryRedo has no closing brace');
-  const clearReplaceHistoryRedo = new Function(
-    `${hostSource.slice(start, end)}; return clearReplaceHistoryRedo;`,
-  )();
+  const clearReplaceHistoryRedo = new Function(`${hostSource.slice(start, end)}; return clearReplaceHistoryRedo;`)();
   const history = {
     undo: [{ id: 'kept', bytes: 7 }],
-    redo: [{ id: 'branch', bytes: 3 }, { id: 'older', bytes: 2 }],
+    redo: [
+      { id: 'branch', bytes: 3 },
+      { id: 'older', bytes: 2 },
+    ],
     bytes: 12,
   };
   clearReplaceHistoryRedo(history);

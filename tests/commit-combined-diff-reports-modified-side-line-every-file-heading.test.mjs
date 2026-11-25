@@ -10,7 +10,10 @@ import test from 'node:test';
 import { gitCombinedDiff } from '../lib/index.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = (readFileSync(join(root, 'src/client/components/diff/DiffPreview.tsx'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
+const source =
+  readFileSync(join(root, 'src/client/components/diff/DiffPreview.tsx'), 'utf8') +
+  '\n' +
+  readFileSync(join(root, 'lib/client.js'), 'utf8');
 
 function extractFunction(name) {
   const start = source.indexOf(`function ${name}(`);
@@ -68,10 +71,13 @@ test('combinedFileIndexAtLine clamps before, between and after file headings', (
 test('combined diff file navigation reuses the toolbar and keyboard path', () => {
   const diff = source.slice(source.indexOf('function DiffPreview('), source.indexOf('export { DiffPreview };'));
   assert.match(diff, /const \[combinedFiles, setCombinedFiles\] = React\.useState(?:<[^>]+>)?\(\[\]\)/);
-  assert.match(diff, /const \[combinedPosition, setCombinedPosition\] = React\.useState\(\{\s+index: 0,\s+total: 0,\s+\}\)/u);
+  assert.match(
+    diff,
+    /const \[combinedPosition, setCombinedPosition\] = React\.useState\(\{\s+index: 0,\s+total: 0,\s+\}\)/u,
+  );
   assert.match(diff, /const navigationPosition = target\?\.combined === true \? combinedPosition : filePosition;/);
   assert.match(diff, /const jumpToCombinedFile = React\.useCallback\(/);
   assert.match(diff, /combinedFileIndexAtLine\(combinedFilesRef\.current, line\)/);
-  assert.match(diff, /if \(target\?\.combined === true && navigationPosition !== null\)/);
+  assert.match(diff, /if \(navigationPosition !== null\)/);
   assert.match(diff, /filePosition === null[\s\S]*?navigationPosition/);
 });

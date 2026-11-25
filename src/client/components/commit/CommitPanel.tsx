@@ -5,6 +5,7 @@ import { selectionStateOf, subtotalOf } from '../ui/commit-model';
 import { CompactActionBar } from '../ui/CompactActionBar';
 import { ContextMenu } from '../ui/Menu';
 import { EntryIcon } from '../ui/EntryIcon';
+import { focusSurfaceWhenReady } from '../ui/focus-surface';
 import { pathsScheduledForRemoval } from '../ui/git-change-model';
 import { Icon } from '../ui/Icon';
 import { LineCounts } from '../ui/LineCounts';
@@ -30,6 +31,7 @@ import { parentDirLabel } from '../../editor-core';
 import { bindShiftWheelScroll } from '../../injected-css';
 import { branchLabel } from '../../terminal';
 import { CommitLog } from './CommitLog';
+import type { CommitLogSearchController } from './use-commit-log-search';
 
 type Translate = (key: string, params?: Record<string, unknown>) => string;
 type CommitLogComponentProps = React.ComponentProps<typeof CommitLog>;
@@ -150,6 +152,7 @@ export interface CommitPanelProps {
   onClearHistory?: () => void;
   logAuthor: string;
   onLogAuthor: (value: string) => void;
+  logSearch?: CommitLogSearchController;
   onLoadMoreLog?: () => void;
   logExhausted: boolean;
   onLogContextMenu?: CommitLogComponentProps['onContextMenu'];
@@ -253,6 +256,7 @@ function CommitPanel({
   onClearHistory,
   logAuthor,
   onLogAuthor,
+  logSearch,
   onLoadMoreLog,
   logExhausted,
   onLogContextMenu,
@@ -491,12 +495,11 @@ function CommitPanel({
       selectedChange === null
         ? null
         : `${selectedChange.staged === true ? 'staged' : 'unstaged'}:${selectedChange.path}`;
-    const row = key === null ? null : (changeRowRefs?.current?.get(key) ?? null);
     const tree = scrollRefs?.changes?.current ?? null;
-    window.setTimeout(() => {
-      const target = row !== null && row.isConnected ? row : tree;
-      target?.focus?.();
-    }, 0);
+    focusSurfaceWhenReady(() => (key === null ? null : (changeRowRefs?.current?.get(key) ?? null)), {
+      maxAttempts: 60,
+      fallbackSurface: () => tree,
+    });
   };
   const renderGroup = (group: CommitGroup, groupIndex: number): React.ReactNode => {
     const tree = groupTrees.get(group.id);
@@ -910,7 +913,7 @@ function CommitPanel({
               <div
                 key={`${group.id}:${change.path}`}
                 ref={(element) => {
-                  const key = `${group.id}:${change.path}`;
+                  const key = changeKey;
                   if (element === null) changeRowRefs.current.delete(key);
                   else changeRowRefs.current.set(key, element);
                 }}
@@ -1308,6 +1311,7 @@ function CommitPanel({
         onClearHistory={onClearHistory}
         author={logAuthor}
         onAuthor={onLogAuthor}
+        search={logSearch}
         onLoadMore={onLoadMoreLog}
         exhausted={logExhausted === true}
         onContextMenu={onLogContextMenu}
@@ -1347,12 +1351,12 @@ function CommitPanel({
                   group: 'local',
                   icon: 'undo',
                   label:
-                    chosenChangeList.filter((entry) => entry.staged !== true).length > 1
-                      ? t('editor.rollbackWorkingCount', {
-                          count: chosenChangeList.filter((entry) => entry.staged !== true).length,
+                    chosenChangeList.length > 1
+                      ? t('editor.rollbackSelectedCount', {
+                          count: chosenChangeList.length,
                         })
                       : t('editor.rollbackSelected'),
-                  disabled: gitNotManaged || chosenChangeList.filter((entry) => entry.staged !== true).length === 0,
+                  disabled: gitNotManaged || chosenChangeList.length === 0,
                   onClick: () => {
                     if (chosenChangeList.length > 0) onRollbackSelected?.(chosenChangeList);
                   },
@@ -1493,6 +1497,7 @@ function CommitPanel({
                 title={t('editor.changeFilterHint')}
                 value={pathQuery}
                 aria-label={t('editor.changeFilter')}
+                data-dsh-changes-filter=''
                 onChange={(event) => onPathQuery?.(event.target.value)}
                 onKeyDown={(event) => {
                   if (event.nativeEvent.isComposing === true) return;
@@ -1691,9 +1696,11 @@ function CommitPanel({
               <div style={styles.commitNotice}>
                 {allSelected
                   ? t('editor.allSelected')
-                  : t(selectedPaths.size === 1 ? 'editor.partialSelectedOne' : 'editor.partialSelected', {
-                      count: selectedPaths.size,
-                    })}
+                  : selectedPaths.size === 0
+                    ? t('editor.noneSelected')
+                    : t(selectedPaths.size === 1 ? 'editor.partialSelectedOne' : 'editor.partialSelected', {
+                        count: selectedPaths.size,
+                      })}
               </div>
             </div>
           </div>

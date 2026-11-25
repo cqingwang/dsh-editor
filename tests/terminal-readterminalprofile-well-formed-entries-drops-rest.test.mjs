@@ -43,11 +43,7 @@ function loadWithStorage(name, storage, sessionId) {
     }
   }
   const body = source.slice(start, end);
-  const factory = new Function(
-    'window',
-    'currentTerminalScope',
-    `'use strict';\n${body}\nreturn ${name};`,
-  );
+  const factory = new Function('window', 'currentTerminalScope', `'use strict';\n${body}\nreturn ${name};`);
   return factory({ localStorage: storage }, () => sessionId);
 }
 
@@ -84,27 +80,67 @@ test('readTerminalProfile keeps well-formed entries and drops the rest', () => {
 });
 
 test('readTerminalProfile survives corrupt JSON and a missing key', () => {
-  const corrupt = loadWithStorage('readTerminalProfile', storageOf({ 'dsh-editor.terminal.profile:s1': '{not json' }), 's1');
+  const corrupt = loadWithStorage(
+    'readTerminalProfile',
+    storageOf({ 'dsh-editor.terminal.profile:s1': '{not json' }),
+    's1',
+  );
   assert.deepEqual(corrupt(), []);
   const empty = loadWithStorage('readTerminalProfile', storageOf(), 's1');
   assert.deepEqual(empty(), []);
   /* A different Session must not see another Session's tabs. */
-  const other = loadWithStorage('readTerminalProfile', storageOf({ 'dsh-editor.terminal.profile:s2': JSON.stringify([{ shell: '/bin/sh' }]) }), 's1');
+  const other = loadWithStorage(
+    'readTerminalProfile',
+    storageOf({ 'dsh-editor.terminal.profile:s2': JSON.stringify([{ shell: '/bin/sh' }]) }),
+    's1',
+  );
   assert.deepEqual(other(), []);
 });
 
 test('readTerminalProfile never restores more than four tabs', () => {
   const many = Array.from({ length: 9 }, (_, index) => ({ shell: `/bin/sh${index}` }));
-  const read = loadWithStorage('readTerminalProfile', storageOf({ 'dsh-editor.terminal.profile:s1': JSON.stringify(many) }), 's1');
+  const read = loadWithStorage(
+    'readTerminalProfile',
+    storageOf({ 'dsh-editor.terminal.profile:s1': JSON.stringify(many) }),
+    's1',
+  );
   assert.equal(read().length, 4);
 });
 
 test('readClosedTerminals honours the same trust rules and caps the history', () => {
   const many = Array.from({ length: 12 }, (_, index) => ({ shell: `/bin/sh${index}`, cwd: '/w' }));
-  const read = loadWithStorage('readClosedTerminals', storageOf({ 'dsh-editor.terminal.closed:s1': JSON.stringify(many) }), 's1');
+  const read = loadWithStorage(
+    'readClosedTerminals',
+    storageOf({ 'dsh-editor.terminal.closed:s1': JSON.stringify(many) }),
+    's1',
+  );
   assert.equal(read().length, 8);
-  const bad = loadWithStorage('readClosedTerminals', storageOf({ 'dsh-editor.terminal.closed:s1': JSON.stringify([{ shell: 42 }, { shell: '/bin/zsh' }]) }), 's1');
-  assert.deepEqual(bad().map((entry) => entry.shell), ['/bin/zsh']);
+  const bad = loadWithStorage(
+    'readClosedTerminals',
+    storageOf({ 'dsh-editor.terminal.closed:s1': JSON.stringify([{ shell: 42 }, { shell: '/bin/zsh' }]) }),
+    's1',
+  );
+  assert.deepEqual(
+    bad().map((entry) => entry.shell),
+    ['/bin/zsh'],
+  );
+});
+
+test('readClosedTerminals preserves whether the title was manually renamed', () => {
+  const read = loadWithStorage(
+    'readClosedTerminals',
+    storageOf({
+      'dsh-editor.terminal.closed:s1': JSON.stringify([
+        { shell: '/bin/zsh', manualTitle: true },
+        { shell: '/bin/bash' },
+      ]),
+    }),
+    's1',
+  );
+  assert.deepEqual(read(), [
+    { shell: '/bin/zsh', cwd: '', title: '', manualTitle: true },
+    { shell: '/bin/bash', cwd: '', title: '', manualTitle: false },
+  ]);
 });
 
 test('a deleted open file is announced as deleted and offers recreation', () => {
@@ -126,7 +162,10 @@ test('a file that vanished is struck through in the project tree', () => {
      so React skips the re-render and a no-op refresh cannot flash the tree. */
   assert.match(source, /setDeletedPaths\(\(current\) => \{/);
   assert.match(source, /return vanished;/);
-  assert.match(source, /deletedPaths\?\.has\?\.\(row\.path\)\s+\? \{\s+textDecoration: 'line-through',\s+opacity: 0\.6,\s+\}\s+: null/s);
+  assert.match(
+    source,
+    /deletedPaths\?\.has\?\.\(row\.path\)\s+\? \{\s+textDecoration: 'line-through',\s+opacity: 0\.6,\s+\}\s+: null/s,
+  );
 });
 
 test('closing a terminal records it for reopening', () => {

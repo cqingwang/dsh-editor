@@ -16,9 +16,7 @@ test('project-open update repairs a stale path-sidecar header from the complete 
   t.after(() => rm(searchIndexDirectory, { recursive: true, force: true }));
   await writeFile(join(root, 'source.ts'), 'export const pathHeaderRepair = true;\n', 'utf8');
 
-  const buildHost = await import(
-    new URL(`../lib/index.js?path-header-repair-build=${Date.now()}`, import.meta.url)
-  );
+  const buildHost = await import(new URL(`../lib/index.js?path-header-repair-build=${Date.now()}`, import.meta.url));
   await buildHost.rebuildWorkspaceSearchIndex(root, { searchIndexDirectory });
   const identity = buildHost.searchIndexIdentity(root, { searchIndexDirectory });
   const pathPayload = await readFile(identity.pathFile);
@@ -29,22 +27,33 @@ test('project-open update repairs a stale path-sidecar header from the complete 
   header.complete = false;
   header.directoriesComplete = false;
   header.contentScanVerified = false;
-  await writeFile(
-    identity.pathFile,
-    await gzipAsync(`${JSON.stringify(header)}\n${pathText.slice(newline + 1)}`),
-  );
+  await writeFile(identity.pathFile, await gzipAsync(`${JSON.stringify(header)}\n${pathText.slice(newline + 1)}`));
 
-  const freshHost = await import(
-    new URL(`../lib/index.js?path-header-repair-fresh=${Date.now()}`, import.meta.url)
-  );
-  const watcher = new freshHost.WorkspaceWatcher(root, () => {});
+  const freshHost = await import(new URL(`../lib/index.js?path-header-repair-fresh=${Date.now()}`, import.meta.url));
+  /* This test owns index-header repair, not OS watcher availability. A stable
+     in-process watcher keeps the freshness gate deterministic under load. */
+  const watcher = new freshHost.WorkspaceWatcher(root, () => {}, {
+    watchImpl: () => ({ on() {}, close() {} }),
+  });
   t.after(() => watcher.close());
   watcher.start();
 
   const updated = await freshHost.updateWorkspaceSearchIndex(root, { searchIndexDirectory });
   assert.equal(updated.changedFiles, 0);
 
-  const status = await freshHost.workspaceSearchIndexStatus(root, { searchIndexDirectory });
+  let status = null;
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    status = await freshHost.workspaceSearchIndexStatus(root, { searchIndexDirectory });
+    if (
+      status.pathScanComplete === true &&
+      status.directoryScanComplete === true &&
+      status.contentScanVerified === true
+    ) {
+      break;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  assert.equal(status.watcherActive, true);
   assert.equal(status.pathScanComplete, true);
   assert.equal(status.directoryScanComplete, true);
   assert.equal(status.contentScanVerified, true);

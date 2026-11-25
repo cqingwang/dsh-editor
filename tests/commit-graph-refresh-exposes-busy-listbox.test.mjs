@@ -11,5 +11,5 @@ test('an existing Graph exposes busy state while its refresh is loading', async 
 
   assert.match(graph, /busy\?: boolean;/u);
   assert.match(graph, /aria-busy=\{busy \? true : undefined\}/u);
-  assert.match(log, /<CommitGraph[\s\S]*?busy=\{loading\}/u);
+  assert.match(log, /<CommitGraph[\s\S]*?busy=\{displayedLoading\}/u);
 });

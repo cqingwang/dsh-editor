@@ -9,6 +9,7 @@ const log = await readFile(new URL('src/client/components/commit/CommitLog.tsx',
 const logToolbar = await readFile(new URL('src/client/components/commit/CommitLogToolbar.tsx', root), 'utf8');
 const locales = await readFile(new URL('src/client/locales.ts', root), 'utf8');
 const workspace = await readFile(new URL('src/client/editor-workspace.tsx', root), 'utf8');
+const editorCore = await readFile(new URL('src/client/editor-core.ts', root), 'utf8');
 const commit = await readFile(new URL('src/client/commit.ts', root), 'utf8');
 const reporter = await readFile(
   new URL('src/client/components/commit/use-git-action-failure-reporter.ts', root),
@@ -17,13 +18,10 @@ const reporter = await readFile(
 const isGitRepositoryMissingMessage = loadTypeScriptFunction(commit, 'isGitRepositoryMissingMessage');
 
 test('Commit treats a non-git workspace as a normal state', () => {
-  assert.match(workspace, /isRepo\?: boolean/u);
+  assert.match(editorCore, /isRepo\?: boolean/u);
   assert.match(panel, /isRepo\?: boolean/u);
   assert.match(panel, /const gitNotManaged = git\?\.isRepo === false;/u);
-  assert.match(
-    panel,
-    /gitNotManaged \? \([\s\S]*?role='status'[\s\S]*?\{t\('editor\.gitNotManaged'\)\}/u,
-  );
+  assert.match(panel, /gitNotManaged \? \([\s\S]*?role='status'[\s\S]*?\{t\('editor\.gitNotManaged'\)\}/u);
   assert.match(locales, /gitNotManaged: '当前不受git管理'/u);
   assert.match(locales, /gitNotManaged: 'This workspace is not managed by Git'/u);
   assert.equal(
@@ -68,7 +66,7 @@ test('Git-only Commit actions are inert without a repository', () => {
   );
   assert.match(log, /disabled\?: boolean/u);
   assert.match(logToolbar, /disabled\?: boolean/u);
-  assert.match(logToolbar, /label=\{t\('editor\.logGraph'\)\}[\s\S]*?disabled=\{disabled\}/u);
+  assert.match(logToolbar, /label=\{t\('editor\.logGraph'\)\}[\s\S]*?disabled=\{disabled \|\| searchMode\}/u);
   assert.match(logToolbar, /disabled=\{disabled \|\| loading\}/u);
 });
 

@@ -21,6 +21,13 @@ export interface ProjectTreeSelectionResult {
   anchor: string | null;
 }
 
+/** Scroll one rendered Project row into view and return keyboard ownership to the tree. */
+export function revealProjectRowElement(rowRefs: { current: Map<string, HTMLElement> }, path: string): void {
+  const row = rowRefs.current.get(path);
+  row?.scrollIntoView({ block: 'center' });
+  document.querySelector<HTMLElement>('[data-dsh-project-tree]')?.focus({ preventScroll: true });
+}
+
 export type ProjectTreeSelectionModifiers = Pick<ProjectTreeSelectionRequest, 'metaKey' | 'ctrlKey' | 'shiftKey'>;
 
 export interface ProjectFileComparisonActionOptions {

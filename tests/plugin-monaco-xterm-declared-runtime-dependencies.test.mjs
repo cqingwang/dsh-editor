@@ -101,7 +101,7 @@ test('npm pack carries code and the shared grammar, not the runtimes', async (t)
      The migrated TSX component graph legitimately grows the owned source list,
      so keep this guard against the vendored-runtime explosion rather than the
      old component-count ceiling. */
-  assert.ok(files.length < 160, `pack has ${files.length} files`);
+  assert.ok(files.length < 200, `pack has ${files.length} files`);
 });
 
 test('the install shape pnpm produces still resolves every asset', async (t) => {
@@ -139,7 +139,10 @@ test('the install shape pnpm produces still resolves every asset', async (t) => 
   const dir = await mkdtemp(join(tmpdir(), 'dsh-editor-r151-'));
   t.after(() => rm(dir, { recursive: true, force: true }));
   await mkdir(dir, { recursive: true });
-  await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'probe', private: true, dependencies: { 'dsh-editor': `file:${root}` } }));
+  await writeFile(
+    join(dir, 'package.json'),
+    JSON.stringify({ name: 'probe', private: true, dependencies: { 'dsh-editor': `file:${root}` } }),
+  );
   try {
     runPnpm(['install', '--no-frozen-lockfile']);
   } catch {

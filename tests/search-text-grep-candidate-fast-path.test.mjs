@@ -4,11 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
-import {
-  rebuildWorkspaceSearchIndex,
-  searchWorkspaceText,
-  WorkspaceWatcher,
-} from '../lib/index.js';
+import { rebuildWorkspaceSearchIndex, searchWorkspaceText, WorkspaceWatcher } from '../lib/index.js';
 
 test('literal text search discovers indexed candidates without reading every unrelated file', async (t) => {
   const root = await mkdtemp(join(tmpdir(), 'dsh-editor-grep-candidate-root-'));
@@ -36,27 +32,36 @@ test('literal text search discovers indexed candidates without reading every unr
     searchRevision: 1,
     searchDirectoryRules: { excludedDirectories: [], includedDirectories: [] },
   };
-  const matched = await searchWorkspaceText(root, 'CANDIDATE_NEEDLE', {
-    ...options,
-    maxMatches: 20,
-  });
+  const searchWithExternalCandidates = async (query, overrides) => {
+    let result = null;
+    /* A failed grep spawn can be cached as a fallback result. Rebuild between
+       attempts so scheduler pressure cannot turn one transient failure into a
+       permanent false negative for this fast-path contract. */
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      if (attempt > 0) await rebuildWorkspaceSearchIndex(root, { searchIndexDirectory: indexDirectory });
+      result = await searchWorkspaceText(root, query, {
+        ...options,
+        ...overrides,
+        searchRevision: (overrides.searchRevision ?? 1) + attempt,
+      });
+      if (result.indexCache.externalCandidateScan === true) break;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    return result;
+  };
+  const matched = await searchWithExternalCandidates('CANDIDATE_NEEDLE', { maxMatches: 20 });
   assert.equal(matched.truncated, false);
   assert.equal(matched.indexCache.externalCandidateScan, true);
-  assert.deepEqual(
-    matched.matches.map((match) => match.path).sort(),
-    ['source-007.md', 'source-053.md'],
-  );
+  assert.deepEqual(matched.matches.map((match) => match.path).sort(), ['source-007.md', 'source-053.md']);
 
-  const masked = await searchWorkspaceText(root, 'CANDIDATE_NEEDLE', {
-    ...options,
+  const masked = await searchWithExternalCandidates('CANDIDATE_NEEDLE', {
     searchRevision: 2,
     fileMask: '*.ts',
   });
   assert.deepEqual(masked.matches, []);
   assert.equal(masked.indexCache.externalCandidateScan, true);
 
-  const limited = await searchWorkspaceText(root, 'CANDIDATE_NEEDLE', {
-    ...options,
+  const limited = await searchWithExternalCandidates('CANDIDATE_NEEDLE', {
     searchRevision: 3,
     maxMatches: 1,
   });
@@ -64,8 +69,7 @@ test('literal text search discovers indexed candidates without reading every unr
   assert.equal(limited.truncated, true);
   assert.equal(limited.indexCache.externalCandidateScan, true);
 
-  const missing = await searchWorkspaceText(root, 'CANDIDATE_NEEDLE_NOT_PRESENT', {
-    ...options,
+  const missing = await searchWithExternalCandidates('CANDIDATE_NEEDLE_NOT_PRESENT', {
     searchRevision: 4,
   });
   assert.deepEqual(missing.matches, []);

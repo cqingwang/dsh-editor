@@ -16,7 +16,8 @@ test('"Duplicate Terminal" opens in the SAME directory, not the workspace root',
   const line = source.slice(start, source.indexOf('\n', start));
   assert.match(line, /createTerminal\(/);
   /* The call must carry the directory as well as the shell. */
-  assert.match(line, /terminal\.cwd|terminalCwdRef/);
+  assert.match(line, /createTerminal\(terminal\.shell, cwd\)/);
+  assert.match(source, /await refreshTerminalCwd\(terminal\.id,/);
 });
 
 test('createTerminal accepts an explicit start directory', () => {

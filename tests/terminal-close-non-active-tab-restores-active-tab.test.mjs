@@ -48,6 +48,7 @@ function closeTerminalHarness({ activeElement, tabs }) {
     activeRef: { current: 'a' },
     editorIdsRef: { current: [] },
     terminalCwdRef: { current: new Map() },
+    terminalMetadataRef: { current: new Map() },
     pruneTerminalCwdMetadata,
     terminalLiveCwds,
     pruneTerminalReadmeMetadata,

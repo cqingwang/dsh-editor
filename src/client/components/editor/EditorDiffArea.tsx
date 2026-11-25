@@ -11,6 +11,9 @@ export interface EditorDiffAreaProps {
   target: DiffTarget;
   monacoReady: boolean;
   includedInCommit: boolean;
+  rollbackInclusion?: { included: boolean; onToggle: (included: boolean) => void };
+  focusMode?: boolean;
+  onToggleFocus?: () => void;
   onClose: () => void;
   onRestored?: (value: unknown) => void;
   onStatus?: (value: unknown) => void;
@@ -32,6 +35,9 @@ function EditorDiffArea({
   target,
   monacoReady,
   includedInCommit,
+  rollbackInclusion,
+  focusMode = false,
+  onToggleFocus,
   onClose,
   onRestored,
   onStatus,
@@ -63,7 +69,10 @@ function EditorDiffArea({
       t={t}
       target={target}
       includedInCommit={includedInCommit}
+      rollbackInclusion={rollbackInclusion}
       monacoReady={monacoReady}
+      focusMode={focusMode}
+      onToggleFocus={onToggleFocus}
       onClose={onClose}
       onRestored={onRestored}
       onStatus={onStatus}

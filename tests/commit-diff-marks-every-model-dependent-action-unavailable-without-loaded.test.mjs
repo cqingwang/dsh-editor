@@ -22,8 +22,8 @@ test('Diff marks every model-dependent action unavailable without a loaded diff'
   assert.match(diff, /id: 'swapSides',[\s\S]*?disabled: diffUnavailable,/);
   assert.match(diff, /id: 'disableEditing',[\s\S]*?disabled: swapSides \|\| diffUnavailable,/);
   assert.match(diff, /id: 'settings',[\s\S]*?disabled: diffUnavailable,/);
-  assert.match(diff, /id: 'undo',[\s\S]*?disabled: editLocked \|\| diffUnavailable,/);
-  assert.match(diff, /id: 'redo',[\s\S]*?disabled: editLocked \|\| diffUnavailable,/);
+  assert.match(diff, /id: 'undo',[\s\S]*?disabled: editLocked \|\| diffUnavailable \|\| !canUndo,/);
+  assert.match(diff, /id: 'redo',[\s\S]*?disabled: editLocked \|\| diffUnavailable \|\| !canRedo,/);
 });
 
 test('reload and local-source recovery remain available without a loaded diff', () => {

@@ -8,6 +8,10 @@ import { transpileTypeScriptFunction } from './ts-source.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const diffSource = readFileSync(join(root, 'src/client/diff.ts'), 'utf8');
+const projectSelectionModelSource = readFileSync(
+  join(root, 'src/client/components/project/project-selection-model.ts'),
+  'utf8',
+);
 const source = [
   readFileSync(join(root, 'src/client/editor-workspace.tsx'), 'utf8'),
   diffSource,
@@ -48,6 +52,46 @@ test('the reveal callback is exposed through a stable ref without changing the s
   assert.match(source, /const revealActiveRef = React\.useRef\(null\);/);
   assert.match(source, /revealActiveRef\.current = revealActive;/);
   assert.match(source, /\}, \[focusWorkspaceSurface, selectActivity, terminalOpen\]\);/);
+});
+
+test('Select Opened File selects and focuses the row in filtered and tree views', () => {
+  const revealRow = source.slice(
+    source.indexOf('const revealProjectRow = React.useCallback('),
+    source.indexOf('const selectRow = React.useCallback('),
+  );
+  assert.match(revealRow, /revealProjectRowElement\(rowRefs, path\)/);
+  assert.match(projectSelectionModelSource, /row\?\.scrollIntoView\(\{ block: 'center' \}\)/);
+  assert.match(
+    projectSelectionModelSource,
+    /document\.querySelector<HTMLElement>\('\[data-dsh-project-tree\]'\)\?\.focus\(\{ preventScroll: true \}\)/,
+  );
+  const revealTree = source.slice(
+    source.indexOf('const revealInProjectTree = React.useCallback('),
+    source.indexOf('const revealPath = React.useCallback('),
+  );
+  assert.match(revealTree, /revealProjectRow\(path\)/);
+  const active = source.slice(
+    source.indexOf('const revealActive = React.useCallback('),
+    source.indexOf('const revealActiveRef = React.useRef(null)'),
+  );
+  assert.match(active, /await revealProjectRow\(path\)/);
+  assert.match(active, /await revealPath\(path\)/);
+});
+
+test('filtered Project views reveal the row without expanding the real tree', () => {
+  const revealRow = source.slice(
+    source.indexOf('const revealProjectRow = React.useCallback('),
+    source.indexOf('const selectRow = React.useCallback('),
+  );
+  assert.match(revealRow, /setSelectedPath\(path\)/);
+  assert.match(revealRow, /revealProjectRowElement\(rowRefs, path\)/);
+  assert.doesNotMatch(revealRow, /callFs|setExpanded/);
+  const active = source.slice(
+    source.indexOf('const revealActive = React.useCallback('),
+    source.indexOf('const revealActiveRef = React.useRef(null)'),
+  );
+  assert.match(active, /await revealProjectRow\(path\)/);
+  assert.doesNotMatch(active, /await revealInProjectTree\(path\)/);
 });
 
 test('Project Select Opened File advertises IDEA shortcut in both languages', () => {

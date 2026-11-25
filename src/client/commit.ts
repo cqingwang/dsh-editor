@@ -149,6 +149,8 @@ interface FindToolState extends Record<string, unknown> {
   textLoading?: unknown;
   replaceBusy?: unknown;
   replaceFocusRequest?: unknown;
+  replacePartialFailure?: unknown;
+  replacePartialFailureMessage?: unknown;
 }
 
 interface FindSearchOptionsInput extends Record<string, unknown> {
@@ -1199,6 +1201,8 @@ export function findToolQueryTransition<T extends FindToolState>(
     activeRowKey: null,
     loading: hasFindToolContentQuery(nextQuery),
     error: null,
+    replacePartialFailure: false,
+    replacePartialFailureMessage: null,
     loadedGeneration: -1,
     searchGeneration: (Number(current.searchGeneration) || 0) + 1,
     collapsedFiles: [],
@@ -1298,10 +1302,7 @@ export function searchEverywhereTextIdleState<T extends FindToolState>(current: 
  * @param {unknown} query - next raw query text.
  * @returns {object|null} query-scoped state.
  */
-export function searchEverywhereQueryTransition<T extends FindToolState>(
-  current: T | null,
-  query: unknown,
-): T | null {
+export function searchEverywhereQueryTransition<T extends FindToolState>(current: T | null, query: unknown): T | null {
   if (current === null) return null;
   const nextQuery = typeof query === 'string' ? query : String(query ?? '');
   const normalizedQuery = nextQuery.trim();
@@ -1873,10 +1874,91 @@ export function replaceFailureSettlement<T extends FindToolState>(
     replaceBusy: false,
     error: isCurrent ? message : null,
     errorSource: null,
+    replacePartialFailure: false,
+    replacePartialFailureMessage: null,
     replaceFocusRequest: isCurrent
       ? (Number(current.replaceFocusRequest) || 0) + 1
       : Number(current.replaceFocusRequest) || 0,
   } as T;
+}
+
+/**
+ * Invalidate Search Everywhere rows after a partial replacement.
+ *
+ * Some files already changed, so the retained result rows and preview no
+ * longer describe the workspace. Keep the failure visible while advancing the
+ * text revision so the provider reruns against the new contents.
+ */
+export function searchEverywherePartialReplaceState<T extends FindToolState>(
+  current: T | null,
+  isCurrent: boolean,
+  message: unknown,
+): T | null {
+  const settled = replaceFailureSettlement(current, isCurrent, message);
+  if (settled === null || !isCurrent) return settled;
+  return {
+    ...settled,
+    textMatches: [],
+    index: 0,
+    activeRowKey: null,
+    replacePartialFailure: true,
+    replacePartialFailureMessage: message,
+    textLoading: false,
+    textTruncated: false,
+    textRevision: (Number(current?.textRevision) || 0) + 1,
+  } as T;
+}
+
+/**
+ * Invalidate Find rows after a partial replacement.
+ *
+ * The next generation reloads the remaining matches and clears the active
+ * row/preview instead of leaving a row that points at text already replaced.
+ */
+export function findToolPartialReplaceState<T extends FindToolState>(
+  current: T | null,
+  requestGeneration: number,
+  message: unknown,
+): T | null {
+  const settled = replaceFailureState(current, requestGeneration, message);
+  if (settled === null || !replaceGenerationIsCurrent(current, requestGeneration)) return settled;
+  return {
+    ...settled,
+    matches: [],
+    files: [],
+    index: 0,
+    activeRowKey: null,
+    replacePartialFailure: true,
+    replacePartialFailureMessage: message,
+    searchGeneration: (Number(current?.searchGeneration) || 0) + 1,
+    loadedGeneration: -1,
+    replaceAdvanceRowKey: null,
+    replaceAdvanceRevision: (Number(current?.replaceAdvanceRevision) || 0) + 1,
+  } as T;
+}
+
+/** Choose the correct Search Everywhere failure state after a partial write. */
+export function searchEverywhereReplaceFailureState<T extends FindToolState>(
+  current: T | null,
+  isCurrent: boolean,
+  message: unknown,
+  tracker: ReplaceCommitTracker,
+): T | null {
+  return replaceCommitTrackerHasChanges(tracker)
+    ? searchEverywherePartialReplaceState(current, isCurrent, message)
+    : replaceFailureSettlement(current, isCurrent, message);
+}
+
+/** Choose the correct Find failure state after a partial write. */
+export function findToolReplaceFailureState<T extends FindToolState>(
+  current: T | null,
+  requestGeneration: number,
+  message: unknown,
+  tracker: ReplaceCommitTracker,
+): T | null {
+  return replaceCommitTrackerHasChanges(tracker)
+    ? findToolPartialReplaceState(current, requestGeneration, message)
+    : replaceFailureState(current, requestGeneration, message);
 }
 
 /**
@@ -1900,9 +1982,28 @@ export function searchEverywhereReplaceSuccessState<T extends FindToolState>(
           textRevision: (Number(current.textRevision) || 0) + 1,
           error: null,
           errorSource: null,
+          replacePartialFailure: false,
+          replacePartialFailureMessage: null,
+          replaceFocusRequest:
+            current.withReplace === true
+              ? (Number(current.replaceFocusRequest) || 0) + 1
+              : Number(current.replaceFocusRequest) || 0,
         }
       : null),
     replaceBusy: false,
+  } as T;
+}
+
+/** Toggle Search Everywhere's replace row and focus it when it opens. */
+export function searchEverywhereReplaceToggleState<T extends FindToolState>(current: T | null): T | null {
+  if (current === null) return null;
+  const withReplace = current.withReplace !== true;
+  return {
+    ...current,
+    withReplace,
+    replaceFocusRequest: withReplace
+      ? (Number(current.replaceFocusRequest) || 0) + 1
+      : Number(current.replaceFocusRequest) || 0,
   } as T;
 }
 
@@ -2028,6 +2129,148 @@ export function replaceOperationState(
       replacements: replacedCount,
     },
   };
+}
+
+/**
+ * Build the Undo record for a replacement that failed after some writes landed.
+ *
+ * A dirty plan is only undoable after its model commit succeeded. Keeping the
+ * uncommitted plans out of the record prevents Undo from reverting text that
+ * never changed, while still preserving clean-host and dirty-only partial
+ * successes.
+ * @param value - host replacement summary, when the host half ran.
+ * @param hostChanged - clean files the host reported as written.
+ * @param dirtyCommitted - whether the dirty model commit completed.
+ * @param dirtyChanged - dirty paths reported by the commit.
+ * @param dirtyReplacements - replacement count reported by the dirty commit.
+ * @param dirtyUndo - dirty pre/post images captured before the write.
+ * @returns the committed operation, or null when nothing landed.
+ */
+export function committedReplaceOperation(
+  value: { operationId?: unknown; replacements?: unknown } | null | undefined,
+  hostChanged: string[],
+  dirtyCommitted: boolean,
+  dirtyChanged: string[],
+  dirtyReplacements: unknown,
+  dirtyUndo: DirtyReplaceUndoEntry[],
+): ReplaceHistoryOperation | null {
+  const operationId = typeof value?.operationId === 'string' ? value.operationId : '';
+  const committedHost = operationId === '' ? [] : hostChanged;
+  const committedDirty = dirtyCommitted === true ? dirtyUndo : [];
+  const committedDirtyPaths = dirtyCommitted === true ? dirtyChanged : [];
+  const committedDirtyCount = dirtyCommitted === true ? dirtyReplacements : 0;
+  const state = replaceOperationState(
+    operationId === '' ? null : value,
+    committedHost,
+    committedDirtyPaths,
+    committedDirtyCount,
+    committedDirty,
+  );
+  return state.changed.length === 0 ? null : state.operation;
+}
+
+export interface ReplaceCommitTracker {
+  hostChanged: string[];
+  hostResult: { operationId?: unknown; replacements?: unknown } | null;
+  dirtyCommitted: boolean;
+  dirtyChanged: string[];
+  dirtyReplacements: number;
+  dirtyUndo: DirtyReplaceUndoEntry[];
+}
+
+/** Create the mutable commit boundary shared by Replace All and single Replace. */
+export function createReplaceCommitTracker(): ReplaceCommitTracker {
+  return {
+    hostChanged: [],
+    hostResult: null,
+    dirtyCommitted: false,
+    dirtyChanged: [],
+    dirtyReplacements: 0,
+    dirtyUndo: [],
+  };
+}
+
+/** Record the clean host half after its guarded write returns. */
+export function trackHostReplace(
+  tracker: ReplaceCommitTracker,
+  value: { files?: unknown; operationId?: unknown; replacements?: unknown } | null | undefined,
+): void {
+  tracker.hostChanged = Array.isArray(value?.files)
+    ? value.files.filter((path): path is string => typeof path === 'string' && path !== '')
+    : [];
+  tracker.hostResult = value ?? null;
+}
+
+/** Record the dirty half only after its model commit completed. */
+export function trackDirtyReplace(
+  tracker: ReplaceCommitTracker,
+  commit: { count?: unknown; paths?: unknown } | null | undefined,
+  undo: DirtyReplaceUndoEntry[],
+): void {
+  tracker.dirtyCommitted = true;
+  tracker.dirtyChanged = Array.isArray(commit?.paths)
+    ? commit.paths.filter((path): path is string => typeof path === 'string' && path !== '')
+    : [];
+  tracker.dirtyReplacements = Math.max(0, Number(commit?.count) || 0);
+  tracker.dirtyUndo = Array.isArray(undo) ? undo : [];
+}
+
+/** Record one committed dirty occurrence without rebuilding its undo shape. */
+export function trackSingleDirtyReplace(
+  tracker: ReplaceCommitTracker,
+  path: string,
+  beforeContent: string | null,
+  afterContent: string,
+): void {
+  trackDirtyReplace(
+    tracker,
+    { count: 1, paths: [path] },
+    beforeContent === null ? [] : [{ path, beforeContent, afterContent }],
+  );
+}
+
+/** Build the committed operation from the tracker's actual write boundary. */
+export function committedReplaceOperationFromTracker(tracker: ReplaceCommitTracker): ReplaceHistoryOperation | null {
+  return committedReplaceOperation(
+    tracker.hostResult,
+    tracker.hostChanged,
+    tracker.dirtyCommitted,
+    tracker.dirtyChanged,
+    tracker.dirtyReplacements,
+    tracker.dirtyUndo,
+  );
+}
+
+/** Whether any clean or dirty replacement actually landed. */
+export function replaceCommitTrackerHasChanges(tracker: ReplaceCommitTracker): boolean {
+  return tracker.hostChanged.length > 0 || tracker.dirtyCommitted;
+}
+
+export type ReplaceHistorySetter = (updater: (current: ReplaceHistoryOperation[]) => ReplaceHistoryOperation[]) => void;
+
+/** Append one committed operation and invalidate the redo branch. */
+export function recordCommittedReplaceOperation(
+  operation: ReplaceHistoryOperation | null,
+  setRedo: ReplaceHistorySetter,
+  setUndo: ReplaceHistorySetter,
+): number {
+  if (operation === null) return 0;
+  setRedo(() => []);
+  setUndo((current) => boundedReplaceHistory(current, operation));
+  return operation.files.length;
+}
+
+/** Localize a failed replacement and retain every write that actually landed. */
+export function settleCommittedReplaceFailure(
+  failure: unknown,
+  tracker: ReplaceCommitTracker,
+  setRedo: ReplaceHistorySetter,
+  setUndo: ReplaceHistorySetter,
+  t: (key: string, params?: Record<string, unknown>) => string,
+): string {
+  const operation = committedReplaceOperationFromTracker(tracker);
+  const changedCount = recordCommittedReplaceOperation(operation, setRedo, setUndo);
+  return searchReplaceFailureMessage(failure, changedCount, t);
 }
 
 /**

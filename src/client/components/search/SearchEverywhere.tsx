@@ -228,6 +228,7 @@ export interface SearchEverywhereState {
   textRevision: number;
   error: string | null;
   errorSource?: 'files' | 'text' | null;
+  replacePartialFailure?: boolean;
   replaceBusy: boolean;
   replaceFocusRequest: number;
   replace?: string;
@@ -339,6 +340,7 @@ export interface SearchEverywhereProps {
   onActivate: (result: SearchResult) => void;
   onClose: () => void;
   onDismiss?: () => void;
+  onToggleReplace: () => void;
   onReplaceChange: (value: string) => void;
   onReplaceAll: () => void;
   onRememberQuery: (query: string) => void;
@@ -383,6 +385,7 @@ function SearchEverywhere({
   onActivate,
   onClose,
   onDismiss,
+  onToggleReplace,
   onReplaceChange,
   onReplaceAll,
   onRememberQuery,
@@ -501,10 +504,22 @@ function SearchEverywhere({
   }, [resultInfo]);
   const query = state.query.trim();
   const replaceFocusRequest = Math.max(0, Number(state.replaceFocusRequest) || 0);
+  const previousReplaceBusyRef = React.useRef(replaceBusy);
+  const toggleReplace = (): void => {
+    const next = state.withReplace !== true;
+    onToggleReplace();
+    if (!next) window.setTimeout(() => searchInputRef.current?.focus?.(), 0);
+  };
   React.useEffect(() => {
     if (state.withReplace !== true || replaceFocusRequest === 0) return;
     window.setTimeout(() => replaceInputRef.current?.focus?.(), 0);
   }, [replaceFocusRequest, state.withReplace]);
+  React.useEffect(() => {
+    const wasBusy = previousReplaceBusyRef.current;
+    previousReplaceBusyRef.current = replaceBusy;
+    if (!wasBusy || replaceBusy || state.withReplace !== true) return;
+    window.setTimeout(() => replaceInputRef.current?.focus?.(), 0);
+  }, [replaceBusy, state.withReplace]);
   /* Basic tab ownership: the selected tab alone decides the provider.
      Query text is ordinary content, never an implicit category/provider
      language, so `/actions` stays a literal query instead of switching tab. */
@@ -1332,6 +1347,15 @@ function SearchEverywhere({
       label: t('editor.searchPreview'),
       active: previewOpen,
       onClick: () => setPreviewOpen((value) => !value),
+      group: 'view',
+    },
+    {
+      id: 'replace',
+      icon: 'replace',
+      label: t('editor.searchReplaceToggle'),
+      active: state.withReplace === true,
+      disabled: effectiveTab !== 'all' && effectiveTab !== 'text',
+      onClick: toggleReplace,
       group: 'view',
     },
     {

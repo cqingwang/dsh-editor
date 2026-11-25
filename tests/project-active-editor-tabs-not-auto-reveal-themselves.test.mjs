@@ -22,6 +22,11 @@ test('Select Opened File remains the only active-tab tree locator', () => {
   const revealCalls = editor.match(/await revealInProjectTree\(/g) ?? [];
   assert.equal(revealCalls.length, 1);
   assert.match(editor, /const revealActive = React\.useCallback\(async \(\) =>/u);
+  assert.match(
+    editor,
+    /const revealActive = React\.useCallback\(async \(\) =>[\s\S]*?await revealProjectRow\(path\)/u,
+  );
+  assert.match(editor, /const revealPath = React\.useCallback\([\s\S]*?await revealInProjectTree\(path\)/u);
   assert.match(editor, /await revealPath\(path\)/u);
   assert.match(editor, /onReveal: revealActive/u);
   assert.match(client, /id: 'reveal',[\s\S]*?icon: 'target'[\s\S]*?onClick: onReveal/u);

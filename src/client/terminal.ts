@@ -13,6 +13,7 @@ export interface TerminalDescription {
   id: string;
   state?: string;
   title?: string;
+  manualTitle?: boolean;
   shell?: string;
   cwd?: string;
   exitCode?: number | null;
@@ -1671,6 +1672,10 @@ interface TerminalResizeRequest extends TerminalOperationRequest {
   op: 'resize';
 }
 
+interface TerminalCwdRequest extends TerminalOperationRequest {
+  op: 'cwd';
+}
+
 interface TerminalRenameRequest extends TerminalOperationRequest {
   op: 'rename';
 }
@@ -1705,6 +1710,10 @@ export interface TerminalResizeResponse {
   resized: true;
 }
 
+export interface TerminalCwdResponse {
+  cwd: string;
+}
+
 export interface TerminalRenameResponse {
   terminal: TerminalDescription;
 }
@@ -1723,6 +1732,7 @@ export function callTerminal(payload: TerminalShellsRequest): Promise<TerminalSh
 export function callTerminal(payload: TerminalCreateRequest): Promise<TerminalCreateResponse>;
 export function callTerminal(payload: TerminalWriteRequest): Promise<TerminalWriteResponse>;
 export function callTerminal(payload: TerminalResizeRequest): Promise<TerminalResizeResponse>;
+export function callTerminal(payload: TerminalCwdRequest): Promise<TerminalCwdResponse>;
 export function callTerminal(payload: TerminalRenameRequest): Promise<TerminalRenameResponse>;
 export function callTerminal(payload: TerminalReorderRequest): Promise<TerminalReorderResponse>;
 export function callTerminal(payload: TerminalCloseRequest): Promise<TerminalCloseResponse>;
@@ -1895,6 +1905,7 @@ export function readClosedTerminals() {
         shell: entry.shell,
         cwd: typeof entry.cwd === 'string' ? entry.cwd : '',
         title: typeof entry.title === 'string' ? entry.title : '',
+        manualTitle: entry.manualTitle === true,
       }))
       .slice(0, 8);
   } catch {
@@ -3062,6 +3073,43 @@ export function cwdFromOsc7(payload: unknown): string | null {
     /* A malformed escape keeps the raw path rather than dropping the report. */
     return match[1];
   }
+}
+
+export interface TerminalSnapshotMetadata {
+  title?: string;
+  cwd?: string;
+}
+
+/**
+ * Read the final title and working directory from a retained terminal screen.
+ *
+ * The host replays raw PTY output when a view attaches. That output contains
+ * every historical OSC 0/2/7 sequence, so feeding it through the live handlers
+ * would let an old directory overwrite the state the user just returned with.
+ * Replay suppresses those callbacks and applies only the last values instead.
+ * @param data - retained terminal output.
+ * @returns the final title/cwd reported by the snapshot, when present.
+ */
+export function terminalSnapshotMetadata(data: unknown): TerminalSnapshotMetadata {
+  if (typeof data !== 'string' || data === '') return {};
+  const pattern = /\x1b\]([02]|7);([^\x07\x1b]*)(?:\x07|\x1b\\)/g;
+  let title = '';
+  let cwd = '';
+  for (const match of data.matchAll(pattern)) {
+    const code = match[1];
+    const payload = match[2];
+    if (code === '7') {
+      const parsed = cwdFromOsc7(payload);
+      if (parsed !== null) cwd = parsed;
+      continue;
+    }
+    const cleaned = payload.trim();
+    if (cleaned !== '') title = cleaned;
+  }
+  return {
+    ...(title === '' ? null : { title }),
+    ...(cwd === '' ? null : { cwd }),
+  };
 }
 
 /**

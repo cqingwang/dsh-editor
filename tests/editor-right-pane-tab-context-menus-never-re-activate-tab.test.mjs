@@ -22,10 +22,16 @@ test('right-pane tab context menus never re-activate that tab in the left pane',
 });
 
 test('tab context menu uses the pane-aware focus decision before opening actions', () => {
-  assert.match(source, /onContextMenu=\{\(event\) => \{\s+event\.preventDefault\(\);\s+event\.stopPropagation\(\);\s+event\.currentTarget\.focus\?\.\(\);\s+openTerminalTabMenu\(terminal, event\.clientX, event\.clientY\);/s);
+  assert.match(
+    source,
+    /onContextMenu=\{\(event\) => \{\s+event\.preventDefault\(\);\s+event\.stopPropagation\(\);\s+event\.currentTarget\.focus\?\.\(\);\s+void openTerminalTabMenu\(terminal, event\.clientX, event\.clientY\);/s,
+  );
   const helper = source.slice(
-    source.indexOf('const openTerminalTabMenu = (terminal'),
-    source.indexOf('/**\n   * Open the hidden-terminal list', source.indexOf('const openTerminalTabMenu = (terminal')),
+    source.indexOf('const openTerminalTabMenu = async (terminal'),
+    source.indexOf(
+      '/**\n   * Open the hidden-terminal list',
+      source.indexOf('const openTerminalTabMenu = async (terminal'),
+    ),
   );
   assert.match(helper, /const focus = terminalTabContextFocus\(terminal\.id, activeId, splitId\)/);
   assert.match(helper, /if \(focus\.activate\) setActiveId\(terminal\.id\)/);
@@ -35,8 +41,11 @@ test('tab context menu uses the pane-aware focus decision before opening actions
 
 test('a tab already shown in the right pane is not offered Split Right again', () => {
   const block = source.slice(
-    source.indexOf('const openTerminalTabMenu = (terminal'),
-    source.indexOf('/**\n   * Open the hidden-terminal list', source.indexOf('const openTerminalTabMenu = (terminal')),
+    source.indexOf('const openTerminalTabMenu = async (terminal'),
+    source.indexOf(
+      '/**\n   * Open the hidden-terminal list',
+      source.indexOf('const openTerminalTabMenu = async (terminal'),
+    ),
   );
   assert.match(block, /splitRight:\s+terminal\.id === activeId \|\| terminal\.id === splitId\s+\? null\s+: \(\) =>/s);
 });

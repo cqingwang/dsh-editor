@@ -7,9 +7,9 @@ const log = await readFile(new URL('../src/client/components/commit/CommitLog.ts
 test('Commit Log memoizes the active flat filter', () => {
   assert.match(
     log,
-    /const visible = React\.useMemo\(\(\) => commitLogFilterCommits\(commits, filter\), \[commits, filter\]\);/u,
+    /const visible = React\.useMemo\(\s*\(\) => \(searchMode \? displayedCommits : commitLogFilterCommits\(displayedCommits, filter\)\),\s*\[displayedCommits, filter, searchMode\],\s*\);/u,
   );
-  assert.doesNotMatch(log, /const visible = commitLogFilterCommits\(commits, filter\);/u);
+  assert.doesNotMatch(log, /const visible = commitLogFilterCommits\(displayedCommits, filter\);/u);
 });
 
 test('Commit Log filters and folds Graph entries only while Graph mode is active', () => {

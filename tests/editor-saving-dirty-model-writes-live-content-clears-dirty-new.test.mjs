@@ -111,7 +111,7 @@ test('Dirty text preview reads the live buffer and the exact match line', () => 
     dialog,
     /content: typeof liveFile\?\.content === 'string' \? liveFile\.content : '',\s+line: activeResult\.line \?\? 1/u,
   );
-  assert.match(dialog, /previewState\.content,\s+previewState\.line/u);
+  assert.match(dialog, /previewState\.(?:content,\s+previewState\.line|line,\s+previewState\.content)/u);
 });
 
 test('402-line files retain the final match inside the bounded preview window', () => {

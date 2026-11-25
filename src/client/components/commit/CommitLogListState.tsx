@@ -1,5 +1,6 @@
 import React from 'react';
 import { styles } from '../../ui/styles';
+import { commitLogLoadMorePlacement } from './commit-log-view-model';
 
 type Translate = (key: string, params?: Record<string, unknown>) => string;
 
@@ -12,6 +13,9 @@ interface CommitLogListStateProps {
   commitCount: number;
   visibleCount: number;
   exhausted: boolean;
+  searchMode?: boolean;
+  searchTruncated?: boolean;
+  onLoadMore?: () => void;
   onRetry?: () => void;
 }
 
@@ -24,8 +28,30 @@ function CommitLogListState({
   commitCount,
   visibleCount,
   exhausted,
+  searchMode = false,
+  searchTruncated = false,
+  onLoadMore,
   onRetry,
 }: CommitLogListStateProps) {
+  const loadMorePlacement = commitLogLoadMorePlacement({
+    graphMode,
+    loading,
+    exhausted,
+    failed: logFailure !== null,
+    commitCount,
+    visibleCount,
+    searchMode,
+  });
+  const loadMoreButton =
+    loadMorePlacement === 'none' ? null : (
+      <button
+        type='button'
+        className='dsh-editor-log-load-more'
+        style={styles.conflictAction}
+        onClick={() => onLoadMore?.()}>
+        {t('editor.logLoadMore')}
+      </button>
+    );
   const retryError =
     logFailure === null ? null : (
       <div
@@ -63,7 +89,7 @@ function CommitLogListState({
         </div>
       ) : null}
       {section === 'status' && logFailure !== null && (graphMode || commitCount === 0) ? retryError : null}
-      {section === 'status' && !loading && commitCount > 0 && visibleCount === 0 ? (
+      {section === 'status' && !loading && visibleCount === 0 && (commitCount > 0 || searchMode) ? (
         <div
           style={styles.treeMessage}
           role='status'
@@ -73,7 +99,8 @@ function CommitLogListState({
           {t('editor.noMatches')}
         </div>
       ) : null}
-      {section === 'status' && !graphMode && commitCount === 0 && !loading && logFailure === null ? (
+      {section === 'status' && loadMorePlacement === 'no-matches' ? loadMoreButton : null}
+      {section === 'status' && !searchMode && !graphMode && commitCount === 0 && !loading && logFailure === null ? (
         <div
           style={styles.treeMessage}
           role='status'
@@ -84,9 +111,13 @@ function CommitLogListState({
         </div>
       ) : null}
       {section === 'footer' && logFailure !== null && !graphMode && commitCount > 0 ? retryError : null}
-      {section === 'footer' && exhausted && visibleCount > 0 && logFailure === null ? (
+      {section === 'footer' && !searchMode && exhausted && visibleCount > 0 && logFailure === null ? (
         <div style={styles.treeMessage}>{t('editor.logEnd')}</div>
       ) : null}
+      {section === 'footer' && searchMode && searchTruncated && visibleCount > 0 && logFailure === null ? (
+        <div style={styles.treeMessage}>{t('editor.logSearchTruncated')}</div>
+      ) : null}
+      {section === 'footer' && loadMorePlacement === 'footer' ? loadMoreButton : null}
     </>
   );
 }

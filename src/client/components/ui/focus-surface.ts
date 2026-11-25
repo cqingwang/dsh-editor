@@ -11,6 +11,55 @@ export interface FocusableSurface {
   contains?: (node: Node) => boolean;
 }
 
+export interface EditorFocusRef {
+  current: { focus?: () => void } | null;
+}
+
+/**
+ * Focus Monaco only after the file surface has mounted.
+ *
+ * `openFile()` resolves when the read completes, not when React has committed
+ * the editor. Retry for a bounded number of animation frames until the editor
+ * ref is available.
+ */
+export function focusEditorOnNextFrame(
+  editorRef: EditorFocusRef,
+  requestFrame = window.requestAnimationFrame,
+  maxAttempts = 60,
+): void {
+  let remaining = Math.max(0, Math.floor(Number(maxAttempts) || 0));
+  const attempt = () => {
+    const editor = editorRef?.current ?? null;
+    if (editor !== null && typeof editor.focus === 'function') {
+      editor.focus();
+      return;
+    }
+    if (remaining <= 0) return;
+    remaining -= 1;
+    requestFrame(attempt);
+  };
+  requestFrame(attempt);
+}
+
+/**
+ * Recover a stable keyboard surface when the preferred opener/editor is gone.
+ *
+ * Tool-window rows and Monaco instances can both unmount while a diff is
+ * closing. Leaving focus on BODY disables the workspace's keyboard model, so
+ * fall back through the visible search/tree surfaces and finally the Activity
+ * Stripe that can reopen the source tool window.
+ */
+export function focusWorkspaceFallback(host: Document | Element | null): boolean {
+  const target =
+    host?.querySelector<HTMLElement>('[data-dsh-changes-list], [data-dsh-project-tree]') ??
+    host?.querySelector<HTMLElement>('[data-dsh-activity-id="commit"]') ??
+    host?.querySelector<HTMLElement>('[data-dsh-activity-id="project"]') ??
+    null;
+  if (target === null || typeof target.focus !== 'function') return false;
+  target.focus({ preventScroll: true });
+  return true;
+}
+
 export interface FocusSurfaceWhenReadyOptions {
   requestFrame?: (callback: (timestamp: number) => void) => number;
   cancelFrame?: (handle: number) => void;

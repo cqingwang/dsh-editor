@@ -80,5 +80,5 @@ test('Graph error state remains an alert with retry', async () => {
 test('CommitLog suppresses Graph empty placeholders while an error is visible', async () => {
   const log = await read('src/client/components/commit/CommitLog.tsx');
 
-  assert.match(log, /<CommitGraph[\s\S]*?error=\{logFailure\}/u);
+  assert.match(log, /<CommitGraph[\s\S]*?error=\{displayedFailure\}/u);
 });

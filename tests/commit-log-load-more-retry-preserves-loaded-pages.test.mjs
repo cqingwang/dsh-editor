@@ -14,10 +14,10 @@ test('retrying a failed Load More resumes paging instead of reloading page zero'
   assert.match(workspace, /onRetry=\{retryVisibleLog\}/u);
   assert.match(
     log,
-    /const node = event\.currentTarget;\s+if \(logFailure !== null\) return;\s+if \(node\.scrollHeight - node\.scrollTop - node\.clientHeight > 48\) return;/u,
+    /const node = event\.currentTarget;\s+if \(displayedFailure !== null\) return;\s+if \(node\.scrollHeight - node\.scrollTop - node\.clientHeight > 48\) return;/u,
   );
   assert.match(
     log,
-    /if \(hidden \|\| graphMode \|\| logFailure === null \|\| listedCommitCount === 0\) return;[\s\S]*?node\.scrollTop = Math\.max\(0, node\.scrollHeight - node\.clientHeight\);/u,
+    /if \(hidden \|\| graphMode \|\| displayedFailure === null \|\| listedCommitCount === 0\) return;[\s\S]*?node\.scrollTop = Math\.max\(0, node\.scrollHeight - node\.clientHeight\);/u,
   );
 });

@@ -30,7 +30,7 @@ const redoFindReplace = source.slice(
 );
 const workspaceSearchReset = source.slice(
   source.indexOf('React.useEffect(() => {\n    const previousWorkspaceRoot'),
-  source.indexOf('setRecentSearches(root === \'\' ? [] : readSearchHistory(root));'),
+  source.indexOf("setRecentSearches(root === '' ? [] : readSearchHistory(root));"),
 );
 const { hostOnlyReplaceOperation } = loadTypeScriptModule(commitSource, ['hostOnlyReplaceOperation']);
 
@@ -38,25 +38,25 @@ test('host-success/dirty-failure refreshes clean files through one shared helper
   assert.match(refreshHost, /await reloadFile\(path\)/u);
   assert.match(refreshHost, /await loadGit\(\)/u);
   for (const block of [replaceInFiles, replaceInFind]) {
-    const hostDeclaration = block.indexOf('let hostChanged: string[] = []');
+    const hostDeclaration = block.indexOf('const commitTracker = createReplaceCommitTracker()');
     const writeTry = block.indexOf('try {', hostDeclaration);
-    const hostChanged = block.indexOf('hostChanged = Array.isArray(value?.files)');
+    const hostChanged = block.indexOf('trackHostReplace(commitTracker, value)');
     const dirtyCommit = block.indexOf('commitFindToolDirtyPlans(dirtyPlans)');
-    const refresh = block.indexOf('await refreshHostReplaceChanges(hostChanged)', dirtyCommit);
+    const refresh = block.indexOf('await refreshHostReplaceChanges(commitTracker.hostChanged)', dirtyCommit);
     const catchAt = block.indexOf('} catch (failure) {', refresh);
     assert.ok(hostDeclaration >= 0 && hostDeclaration < writeTry);
     assert.ok(hostChanged >= 0);
     assert.ok(hostChanged < dirtyCommit && dirtyCommit < refresh && refresh < catchAt);
     assert.match(
       block.slice(catchAt),
-      /set(?:SearchEverywhere|FindTool)\([\s\S]*?if \(hostChanged\.length > 0\) void refreshHostReplaceChanges\(hostChanged\)\.catch\(\(\) => \{\}\);/u,
+      /set(?:SearchEverywhere|FindTool)\([\s\S]*?void refreshHostReplaceChanges\(commitTracker\.hostChanged\)\.catch\(\(\) => \{\}\);/u,
     );
   }
 });
 
 test('host-success/dirty-failure reports that clean files were already changed', () => {
   for (const block of [replaceInFiles, replaceInFind]) {
-    assert.match(block, /searchReplaceFailureMessage\(failure, hostChanged\.length, t\)/u);
+    assert.match(block, /settleCommittedReplaceFailure\(/u);
   }
   assert.ok(source.includes("searchReplacePartialFailure: '替换未完整完成：{message}。已完成修改的磁盘文件已刷新。'"));
   assert.ok(
@@ -66,7 +66,7 @@ test('host-success/dirty-failure reports that clean files were already changed',
   );
 });
 
-test('host-success/dirty-failure records the clean host transaction for Undo Last Replace', () => {
+test('host-success/dirty-failure records the committed transaction for Undo Last Replace', () => {
   const operation = hostOnlyReplaceOperation({ operationId: 'host-op-1', replacements: 2 }, [
     'clean-a.ts',
     '',
@@ -84,10 +84,10 @@ test('host-success/dirty-failure records the clean host transaction for Undo Las
   for (const block of [replaceInFiles, replaceInFind]) {
     const catchAt = block.indexOf('} catch (failure) {');
     const catchBlock = block.slice(catchAt);
-    assert.match(catchBlock, /const hostUndo = hostOnlyReplaceOperation\(hostResult, hostChanged\);/u);
-    assert.match(catchBlock, /if \(hostUndo !== null\) setFindReplaceUndoStack/u);
-    assert.match(catchBlock, /setFindReplaceUndoStack\(\(current\) => boundedReplaceHistory\(current,/u);
+    assert.match(catchBlock, /settleCommittedReplaceFailure\(/u);
   }
+  assert.match(commitSource, /export function settleCommittedReplaceFailure\(/u);
+  assert.match(commitSource, /recordCommittedReplaceOperation\(operation, setRedo, setUndo\)/u);
 });
 
 test('partial-success Redo replays only the clean host transaction', () => {

@@ -208,7 +208,7 @@ export interface TerminalEmulator {
   selectAll: () => void;
   selectLines: (start: number, end: number) => void;
   scrollToLine: (line: number) => void;
-  write: (data: string) => void;
+  write: (data: string, callback?: () => void) => void;
 }
 
 interface TerminalConstructor {
@@ -452,6 +452,8 @@ export function findToolSearchOptionsTransition<T extends FindToolOptionState>(
     index: 0,
     activeRowKey: null,
     error: null,
+    replacePartialFailure: false,
+    replacePartialFailureMessage: null,
     loadedGeneration: -1,
     searchGeneration: (Number(current.searchGeneration) || 0) + 1,
   } as T;

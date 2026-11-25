@@ -22,7 +22,7 @@ test('scope establishment and clear each produce one polite announcement', async
   assert.match(toolbar, /aria-atomic='true'/u);
   assert.match(toolbar, /commitLogScopeAnnouncement\(t, scopeHash, previous\)/u);
   assert.match(toolbar, /if \(announcement === null\) return;/u);
-  assert.match(locales, /graphScopeAnnouncement: '提交图已限定为标签 \{hash\} 的历史'/u);
+  assert.match(locales, /graphScopeAnnouncement: '提交图已限定为提交 \{hash\} 的历史'/u);
   assert.match(locales, /graphScopeClearedAnnouncement: '已清除提交图的标签范围'/u);
   assert.match(
     injectedCss,

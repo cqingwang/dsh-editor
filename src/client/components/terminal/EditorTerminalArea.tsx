@@ -57,6 +57,8 @@ function EditorTerminalArea({ active, terminals, t, onError, onInput, onReturnTo
     setMetadata((current) => updateEditorTerminalMetadata(current, id, patch));
   };
   const updateTitle = (id: string, title: string): void => {
+    const target = resolvedTerminals.find((entry) => entry.id === id);
+    if (target?.manualTitle === true) return;
     const cleaned = title.trim();
     if (cleaned === '') return;
     updateMetadata(id, { title: cleaned });

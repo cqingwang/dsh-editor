@@ -11,6 +11,7 @@ export interface EditorTerminalDescriptor {
   id: string;
   title: string;
   cwd: string;
+  manualTitle?: boolean;
 }
 
 export interface EditorTerminalTabProps {

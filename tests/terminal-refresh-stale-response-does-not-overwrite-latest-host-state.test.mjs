@@ -33,6 +33,7 @@ function loadRefresh() {
     }),
     pruneTerminalCwdMetadata: () => {},
     terminalCwdRef: { current: new Map() },
+    terminalMetadataRef: { current: new Map() },
     terminalLiveCwds: () => [],
     pruneTerminalReadmeMetadata: (current) => current,
     setReadmePaths: () => {},

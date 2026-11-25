@@ -26,6 +26,10 @@ test('the diff position and file sequence are both derived from the filtered cha
   const start = source.indexOf('const diffChangeSequence =');
   const end = source.indexOf('const navigateDiffFile = React.useCallback(', start);
   const block = source.slice(start, end);
-  assert.match(block, /filterChangeSequence\(changeSequenceOf\(git\?\.changes \?\? \[\], groupBy\), pathQuery\)/);
-  assert.match(block, /\[git, groupBy, pathQuery\]/);
+  assert.match(
+    block,
+    /diffChangeSequenceFor\(diffTarget\?\.navigationEntries, git\?\.changes \?\? \[\], groupBy, pathQuery\)/,
+  );
+  assert.match(block, /\[diffTarget\?\.navigationEntries, git, groupBy, pathQuery\]/);
+  assert.match(diffModelSource, /filterChangeSequence\(changeSequenceOf\(changes, groupBy\), pathQuery\)/);
 });

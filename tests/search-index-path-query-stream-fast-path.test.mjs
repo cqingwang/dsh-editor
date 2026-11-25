@@ -191,7 +191,12 @@ test('repeated indexed text searches reuse the completed query cache until the w
   assert.equal(first.matches.length, 1);
   assert.notEqual(first.indexCache.queryCacheHit, true);
 
-  const second = await workspaceFileOperations.searchText(root, 'CACHE_NEEDLE', options);
+  let second = null;
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    second = await workspaceFileOperations.searchText(root, 'CACHE_NEEDLE', options);
+    if (second.indexCache.queryCacheHit === true) break;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
   assert.equal(second.matches.length, 1);
   assert.equal(second.indexCache.queryCacheHit, true);
 

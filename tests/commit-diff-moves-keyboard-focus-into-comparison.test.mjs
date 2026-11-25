@@ -8,11 +8,25 @@ import { loadTypeScriptCallback } from './ts-source.mjs';
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const workspaceSource = readFileSync(join(root, 'src/client/editor-workspace.tsx'), 'utf8');
 
-function closeDiffHarness({ activePath, selectedChange = null, rememberedRow = null, focusRow = null }) {
+function closeDiffHarness({
+  activePath,
+  selectedChange = null,
+  rememberedRow = null,
+  focusRow = null,
+  rollbackSession = null,
+}) {
   const focused = [];
   const closeDiff = loadTypeScriptCallback(workspaceSource, 'closeDiff', {
     setDiffTarget: () => {},
     setDiffActive: () => {},
+    rollbackDiff: { take: () => rollbackSession },
+    resumeRollbackDiffSession: (session) =>
+      session.resume({
+        selectedKeys: session.selectedKeys,
+        deleteAdded: session.deleteAdded,
+        selectedKey: session.selectedKey,
+        scrollTop: session.scrollTop,
+      }),
     activePathRef: { current: activePath },
     editorRef: { current: { focus: () => focused.push('editor') } },
     selectedChangeRef: { current: selectedChange },
@@ -61,4 +75,30 @@ test('closing a diff prefers the row that originally opened it', () => {
     focusRow: selectedRow,
   });
   assert.deepEqual(focused, ['remembered-row']);
+});
+
+test('closing a rollback diff resumes the dialog instead of focusing the editor', () => {
+  const resumed = [];
+  const focused = closeDiffHarness({
+    activePath: 'a.ts',
+    rollbackSession: {
+      selectedKeys: new Set(['unstaged:a.ts']),
+      deleteAdded: false,
+      selectedKey: 'unstaged:a.ts',
+      scrollTop: 48,
+      resume: (initial) => resumed.push({ action: 'rollback-dialog', initial }),
+    },
+  });
+  assert.deepEqual(resumed, [
+    {
+      action: 'rollback-dialog',
+      initial: {
+        selectedKeys: new Set(['unstaged:a.ts']),
+        deleteAdded: false,
+        selectedKey: 'unstaged:a.ts',
+        scrollTop: 48,
+      },
+    },
+  ]);
+  assert.deepEqual(focused, []);
 });

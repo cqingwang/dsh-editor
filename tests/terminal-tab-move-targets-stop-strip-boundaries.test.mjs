@@ -60,7 +60,7 @@ test('Terminal tab menu exposes IDEA Move Tab Left/Right with boundary disable',
 });
 
 test('the tab menu computes real neighbours and reuses moveTab', () => {
-  const helperStart = source.indexOf('const openTerminalTabMenu = (terminal, x, y) => {');
+  const helperStart = source.indexOf('const openTerminalTabMenu = async (terminal, x, y) => {');
   assert.notEqual(helperStart, -1);
   const body = source.slice(helperStart, source.indexOf('return React.createElement(', helperStart));
   assert.match(body, /const leftTarget = terminalMoveTarget\(terminals, terminal\.id, 'left'\);/);

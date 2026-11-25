@@ -19,7 +19,7 @@ test('Graph retry keeps the alert visible and disables Retry while loading', asy
 test('Graph retry success restores keyboard ownership to the log list', async () => {
   const log = await read('src/client/components/commit/CommitLog.tsx');
 
-  assert.match(log, /const logFailedRef = React\.useRef\(logFailure !== null\)/u);
+  assert.match(log, /const logFailedRef = React\.useRef\(displayedFailure !== null\)/u);
   assert.match(
     log,
     /const recovered = logFailedRef\.current && !failed;[\s\S]*?logFailedRef\.current = failed;[\s\S]*?if \(recovered && !hidden\)[\s\S]*?listRef\.current\?\.focus\?\.\(\{ preventScroll: true \}\)/u,
@@ -31,7 +31,7 @@ test('Graph mode retries only the graph request, not the flat log', async () => 
 
   assert.match(
     log,
-    /const retryList = \(\) => \{[\s\S]*?if \(graphMode && onLoadGraph !== undefined\) \{[\s\S]*?onLoadGraph\(graph\?\.branch \?\? '', graph\?\.at \?\? ''\);[\s\S]*?onRetry\?\.\(\);/u,
+    /const retryList = \(\) => \{[\s\S]*?if \(graphMode && onLoadGraph !== undefined\) \{[\s\S]*?onLoadGraph\(graph\?\.branch \?\? '', graph\?\.at \?\? ''\);[\s\S]*?displayedRetry\?\.\(\);/u,
   );
   assert.match(log, /onRetry=\{retryList\}/u);
 });

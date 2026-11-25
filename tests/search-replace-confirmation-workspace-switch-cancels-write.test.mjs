@@ -120,18 +120,18 @@ test('both Replace All confirmations bind the request to workspace and search id
 
 test('late Replace completion cannot update another workspace', () => {
   for (const block of [replaceInFiles, replaceInFindTool]) {
-    const hostResultAt = block.indexOf('hostResult = value;');
+    const hostResultAt = block.indexOf('trackHostReplace(commitTracker, value);');
     const dirtyCommitAt = block.indexOf('commitFindToolDirtyPlans(dirtyPlans)', hostResultAt);
     assert.ok(hostResultAt >= 0 && dirtyCommitAt > hostResultAt);
     assert.match(block.slice(hostResultAt, dirtyCommitAt), /if \(!requestWorkspaceIsCurrent\(\)\) return;/u);
 
-    const refreshAt = block.indexOf('await refreshHostReplaceChanges(hostChanged)', dirtyCommitAt);
+    const refreshAt = block.indexOf('await refreshHostReplaceChanges(commitTracker.hostChanged)', dirtyCommitAt);
     const rememberAt = block.indexOf('rememberCurrent', refreshAt);
     assert.ok(refreshAt >= 0 && rememberAt > refreshAt);
     assert.match(block.slice(refreshAt, rememberAt), /if \(!requestWorkspaceIsCurrent\(\)\) return;/u);
 
     const catchAt = block.indexOf('} catch (failure) {');
-    const catchMessageAt = block.indexOf('const message = searchReplaceFailureMessage', catchAt);
+    const catchMessageAt = block.indexOf('const message = settleCommittedReplaceFailure', catchAt);
     assert.ok(catchAt >= 0 && catchMessageAt > catchAt);
     assert.match(block.slice(catchAt, catchMessageAt), /if \(!requestWorkspaceIsCurrent\(\)\) return;/u);
     assert.match(

@@ -52,7 +52,10 @@ test('a tag badge walks the commit the tag points at', async (t) => {
 
   const tagged = await gitGraph(dir, { limit: 50, at: second });
   assert.equal(tagged.at, second);
-  assert.deepEqual(tagged.entries.map((entry) => entry.subject), ['commit two', 'commit one']);
+  assert.deepEqual(
+    tagged.entries.map((entry) => entry.subject),
+    ['commit two', 'commit one'],
+  );
   /* Revisions must be full object ids, or a ref name would become an argument. */
   await assert.rejects(() => gitGraph(dir, { limit: 20, at: 'main' }), /bad revision/);
   await assert.rejects(() => gitGraph(dir, { limit: 20, at: '--all' }), /bad revision/);
@@ -67,15 +70,15 @@ test('a tag scope wins over a branch scope when both arrive', async (t) => {
   const scoped = await gitGraph(dir, { limit: 50, branch: 'main', at: second });
   assert.equal(scoped.branch, 'main');
   assert.equal(scoped.at, second);
-  assert.deepEqual(scoped.entries.map((entry) => entry.subject), ['commit two', 'commit one']);
+  assert.deepEqual(
+    scoped.entries.map((entry) => entry.subject),
+    ['commit two', 'commit one'],
+  );
 });
 
 /** Load the shipping `refScopeOf` so badge semantics are asserted, not strings. */
 function loadRefScope() {
-  return loadTypeScriptFunction(
-    readFileSync(join(root, 'src/client/find-tool.ts'), 'utf8'),
-    'refScopeOf',
-  );
+  return loadTypeScriptFunction(readFileSync(join(root, 'src/client/find-tool.ts'), 'utf8'), 'refScopeOf');
 }
 
 const refScopeOf = loadRefScope();
@@ -142,7 +145,7 @@ test('both log views mark the commit the detail pane shows', () => {
   /* One selection, two renderings: a row picked in either view is marked in both. */
   assert.match(
     client,
-    /const \[\s*selectedCommit,\s*setSelectedCommit,\s*\] = React\.useState(?:<[^>]+>)?\(\(\) => \{[\s\S]*?readStoredText\('dsh-editor\.commit\.selected', ''\)/,
+    /const \[\s*selectedCommit,\s*setSelectedCommit,?\s*\] = React\.useState<string \| null>\(readStoredCommitSelection\)/,
   );
   assert.match(client, /setSelectedCommit\(hash\);/);
   assert.match(client, /selectionIncluded=\{selectedCommits\.includes\(commit\.hash\)\}/);

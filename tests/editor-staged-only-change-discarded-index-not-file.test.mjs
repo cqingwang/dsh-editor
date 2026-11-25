@@ -33,7 +33,10 @@ test('a staged-only change is discarded from the index, not from the file', asyn
   const after = await gitRollback(dir, { paths: ['tracked.txt'], staged: true });
   assert.equal(await readFile(join(dir, 'tracked.txt'), 'utf8'), 'staged edit\n');
   assert.equal(git(dir, 'diff', '--cached', '--name-only'), '');
-  assert.equal(after.changes.some((change) => change.path === 'tracked.txt' && change.staged), false);
+  assert.equal(
+    after.changes.some((change) => change.path === 'tracked.txt' && change.staged),
+    false,
+  );
 });
 
 test('discarding the staged copy restores the committed content in the index', async (t) => {
@@ -53,6 +56,40 @@ test('discarding the working copy restores the file from the index', async (t) =
   await writeFile(join(dir, 'tracked.txt'), 'worktree edit\n');
   await gitRollback(dir, { paths: ['tracked.txt'] });
   assert.equal(await readFile(join(dir, 'tracked.txt'), 'utf8'), 'base\n');
+});
+
+test('toolbar rollback discards both staged and working-tree edits', async (t) => {
+  const { dir, cleanup } = await fixture();
+  t.after(cleanup);
+  await writeFile(join(dir, 'tracked.txt'), 'staged edit\n');
+  git(dir, 'add', 'tracked.txt');
+  await writeFile(join(dir, 'tracked.txt'), 'staged and working edit\n');
+  const after = await gitRollback(dir, { paths: ['tracked.txt'], all: true });
+  assert.equal(await readFile(join(dir, 'tracked.txt'), 'utf8'), 'base\n');
+  assert.deepEqual(after.changes, []);
+});
+
+test('toolbar rollback unstages an added file without deleting it', async (t) => {
+  const { dir, cleanup } = await fixture();
+  t.after(cleanup);
+  await writeFile(join(dir, 'added.txt'), 'new file\n');
+  git(dir, 'add', 'added.txt');
+  const after = await gitRollback(dir, { paths: ['added.txt'], all: true });
+  assert.equal(await readFile(join(dir, 'added.txt'), 'utf8'), 'new file\n');
+  assert.deepEqual(
+    after.changes.map((change) => ({ path: change.path, status: change.status })),
+    [{ path: 'added.txt', status: '??' }],
+  );
+});
+
+test('toolbar rollback can delete an added file when explicitly requested', async (t) => {
+  const { dir, cleanup } = await fixture();
+  t.after(cleanup);
+  await writeFile(join(dir, 'added.txt'), 'new file\n');
+  git(dir, 'add', 'added.txt');
+  const after = await gitRollback(dir, { paths: ['added.txt'], all: true, deleteAdded: true });
+  assert.deepEqual(after.changes, []);
+  await assert.rejects(() => readFile(join(dir, 'added.txt'), 'utf8'));
 });
 
 test('the change menu offers both discards, worded apart', () => {

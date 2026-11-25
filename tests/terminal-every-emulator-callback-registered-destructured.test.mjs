@@ -20,25 +20,29 @@ test('every emulator callback is registered AND destructured', () => {
   assert.notEqual(terminalStart, -1);
   const refLine = /handlersRef\.current = \{([\s\S]*?)\};/.exec(source.slice(terminalStart));
   assert.notEqual(refLine, null);
-  const registered = refLine[1].split(',').map((name) => name.trim()).filter(Boolean);
+  const registered = refLine[1]
+    .split(',')
+    .map((name) => name.trim())
+    .filter(Boolean);
   assert.ok(registered.includes('onCwd'), `handlersRef must include onCwd: ${registered.join(', ')}`);
 
   const destructure = /function TerminalScreen\(\{([\s\S]*?)\}: TerminalScreenProps\) \{/.exec(source);
   assert.notEqual(destructure, null);
-  const params = destructure[1].split(',').map((line) => line.replace(/\/\*[\s\S]*?\*\//g, '').trim()).filter(Boolean);
+  const params = destructure[1]
+    .split(',')
+    .map((line) => line.replace(/\/\*[\s\S]*?\*\//g, '').trim())
+    .filter(Boolean);
   assert.ok(params.includes('onCwd'), `TerminalScreen must destructure onCwd: ${params.join(', ')}`);
 });
 
 test('the menu actions read the live directory', () => {
   /* A `cd` right before the click must be honoured: the render snapshot predates it. */
-  assert.match(panelSource, /terminalCwdRef\.current\.get\(terminal\.id\) \?\? terminal\.cwd/);
-  assert.match(panelSource, /cwd: terminalCwdRef\.current\.get\(terminal\.id\) \?\? terminal\.cwd/);
   assert.match(
     panelSource,
-    /duplicate: \(\) => void createTerminal\(terminal\.shell, terminalCwdRef\.current\.get\(terminal\.id\) \?\? terminal\.cwd\)/,
+    /await refreshTerminalCwd\(terminal\.id, terminalCwdRef\.current\.get\(terminal\.id\) \?\? terminal\.cwd\)/,
   );
-  assert.match(
-    panelSource,
-    /openReadme: \(\) => void openTerminalReadme\(terminalCwdRef\.current\.get\(terminal\.id\) \?\? terminal\.cwd\)/,
-  );
+  assert.match(panelSource, /cwd,/);
+  assert.match(panelSource, /duplicate: \(\) => void createTerminal\(terminal\.shell, cwd\)/);
+  assert.match(panelSource, /openReadme: \(\) => void openTerminalReadme\(cwd\)/);
+  assert.match(panelSource, /revealCwd: \(\) => void revealTerminalDirectory\(cwd\)/);
 });

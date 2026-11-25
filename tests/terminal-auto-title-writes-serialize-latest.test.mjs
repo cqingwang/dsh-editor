@@ -17,6 +17,7 @@ function titleHarness() {
     renamedRef: { current: new Set() },
     renameInFlightRef: { current: null },
     autoTitleRequestChainRef: { current: new Map() },
+    terminalMetadataRef: { current: new Map() },
     terminalManualRenameOwnsTitle: () => false,
     terminalsRef: { current: terminals },
     setTerminals: (update) => {

@@ -5,7 +5,12 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = (readFileSync(join(root, 'src/client/components/commit/CommitPanel.tsx'), 'utf8') + '\n' + readFileSync(join(root, 'src/client/components/diff/DiffPreview.tsx'), 'utf8') + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
+const source =
+  readFileSync(join(root, 'src/client/components/commit/CommitPanel.tsx'), 'utf8') +
+  '\n' +
+  readFileSync(join(root, 'src/client/components/diff/DiffPreview.tsx'), 'utf8') +
+  '\n' +
+  readFileSync(join(root, 'lib/client.js'), 'utf8');
 
 function commitPanel() {
   return source.slice(source.indexOf('function CommitPanel('), source.indexOf('export { CommitPanel };'));
@@ -24,16 +29,22 @@ test('the Changes toolbar exposes IDEA Show Diff for the selected row', () => {
 });
 
 test('Show Diff opens the selected change without toggling the existing diff closed', () => {
-  const workspace = source.slice(source.indexOf('function EditorWorkspace('), source.indexOf('function clampChatPercent('));
-  const call = workspace.slice(workspace.indexOf('React.createElement(CommitPanel'), workspace.indexOf('onStage: (paths)', workspace.indexOf('React.createElement(CommitPanel')));
+  const workspace = source.slice(
+    source.indexOf('function EditorWorkspace('),
+    source.indexOf('function clampChatPercent('),
+  );
+  const call = workspace.slice(
+    workspace.indexOf('React.createElement(CommitPanel'),
+    workspace.indexOf('onStage: (paths)', workspace.indexOf('React.createElement(CommitPanel')),
+  );
   const action = call.slice(call.indexOf('onShowDiff: (target) => {'), call.indexOf('onRollbackSelected:'));
   assert.match(action, /setDiffTarget\(target\);/);
   assert.match(action, /setDiffActive\(true\);/);
   assert.doesNotMatch(action, /setDiffTarget\(\(current\)/);
-  /* Round 179 moved the action-bar Rollback onto the whole Changes selection. */
+  /* The action-bar Rollback owns the whole Changes selection, including staged rows. */
   assert.match(call, /onRollbackSelected: \(picked\) => \{/);
-  assert.match(call, /entry\.staged !== true/);
-  assert.match(call, /void rollback\(working\)/);
+  assert.match(call, /const selected = \[\.\.\.new Set\(picked\.map\(\(entry\) => entry\.path\)\)\];/);
+  assert.match(call, /void rollback\(selected, \{ all: true \}\)/);
 });
 
 test('read-only diff column heads name their actual sides', () => {

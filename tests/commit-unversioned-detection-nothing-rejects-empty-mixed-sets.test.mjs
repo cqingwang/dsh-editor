@@ -40,7 +40,6 @@ test('the rollback confirmation selects the unversioned wording only for that mo
   const start = source.indexOf('const rollback =');
   assert.notEqual(start, -1);
   const block = source.slice(start, source.indexOf('const buildChangeMenu = React.useCallback(', start));
-  assert.match(block, /const unversionedOnly = options\?\.unversioned === true;/);
-  assert.match(block, /const confirmKey = stagedOnly/);
-  assert.match(block, /unversionedOnly\s+\? 'editor\.rollbackUnversionedConfirm'\s+: 'editor\.rollbackConfirm'/);
+  assert.match(block, /rollbackDialogOptions\(options\)/u);
+  assert.match(block, /const confirmKey = rollbackDialogConfirmKey\(entries, all, stagedOnly, unversionedOnly\);/u);
 });

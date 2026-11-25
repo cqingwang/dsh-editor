@@ -27,7 +27,7 @@ test('a block restore is undoable from the diff toolbar and ⌘Z', () => {
   assert.match(client, /restoreUndoRef\.current\.pop\(\)/);
   assert.match(
     client,
-    /label: t\('editor\.diffUndoRestore'\),\s+group: 'history',\s+shortcut: '⌘Z',\s+disabled: editLocked \|\| diffUnavailable,\s+run: undoRestore/u,
+    /label: t\('editor\.diffUndoRestore'\),\s+group: 'history',\s+shortcut: '⌘Z',\s+disabled: editLocked \|\| diffUnavailable \|\| !canUndo,\s+run: undoRestore/u,
   );
   assert.match(iconSource, /case 'undo':/);
   assert.match(client, /icon: 'undo',\s+label: t\('editor\.diffUndoRestore'\)/u);

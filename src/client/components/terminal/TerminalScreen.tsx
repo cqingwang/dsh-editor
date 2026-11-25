@@ -14,6 +14,7 @@ import {
   cwdFromOsc7,
   resetTerminalLiveBuffer,
   takeTerminalRestoreBuffer,
+  terminalSnapshotMetadata,
   terminalTheme,
 } from '../../terminal';
 import { currentEditorWorkspaceId, currentSessionId } from '../editor/editor-path-model';
@@ -82,6 +83,10 @@ function TerminalScreen({
     cols: 80,
     rows: 24,
   });
+  const replayingRef = React.useRef(false);
+  const replayQueueRef = React.useRef<string[]>([]);
+  const replayMetadataRef = React.useRef<ReturnType<typeof terminalSnapshotMetadata>>({});
+  const suppressMetadataRef = React.useRef(false);
   const handlersRef = React.useRef<TerminalScreenHandlers>({});
   /* Every callback the emulator mount may call must be registered here; a new one
      that is passed in but not listed stays `undefined` and fails silently (round
@@ -165,13 +170,17 @@ function TerminalScreen({
         emulator.open(node);
         emulator.onData((data) => handlersRef.current.onInput?.(data));
         /* Shells publish their title over OSC 0/2; follow it like IDEA's terminal tabs. */
-        emulator.onTitleChange((title) => handlersRef.current.onTitle?.(title));
+        emulator.onTitleChange((title) => {
+          if (suppressMetadataRef.current) return;
+          handlersRef.current.onTitle?.(title);
+        });
         /* OSC 7 is how a shell reports `cd`; without it every menu action kept
          pointing at the tab's original directory. */
         /* `parser.registerOscHandler` exists on xterm 5.x; guard anyway, because a
          missing method here would take the whole emulator mount down. */
         if (typeof emulator.parser?.registerOscHandler === 'function') {
           emulator.parser.registerOscHandler(7, (payload) => {
+            if (suppressMetadataRef.current) return true;
             const cwd = cwdFromOsc7(payload);
             if (cwd !== null) handlersRef.current.onCwd?.(cwd);
             return true;
@@ -204,6 +213,18 @@ function TerminalScreen({
     if (!ready || terminalId === null || emulator === null) return;
     const controller = new AbortController();
     emulator.reset();
+    const finishReplay = (): void => {
+      if (!replayingRef.current) return;
+      replayingRef.current = false;
+      suppressMetadataRef.current = false;
+      const metadata = replayMetadataRef.current;
+      replayMetadataRef.current = {};
+      if (metadata.title !== undefined) handlersRef.current.onTitle?.(metadata.title);
+      if (metadata.cwd !== undefined) handlersRef.current.onCwd?.(metadata.cwd);
+      const queued = replayQueueRef.current;
+      replayQueueRef.current = [];
+      for (const data of queued) emulator.write(data);
+    };
     const sessionId = currentSessionId();
     const workspaceId = currentEditorWorkspaceId();
     const url = `api/dsh-editor/terminal/stream?sessionId=${encodeURIComponent(sessionId)}&workspaceId=${encodeURIComponent(workspaceId)}&id=${encodeURIComponent(terminalId)}`;
@@ -222,15 +243,25 @@ function TerminalScreen({
               const restored = takeTerminalRestoreBuffer(terminalId);
               resetTerminalLiveBuffer(terminalId, event.data, restored);
               emulator.reset();
+              replayingRef.current = true;
+              suppressMetadataRef.current = true;
+              replayQueueRef.current = [];
+              replayMetadataRef.current = terminalSnapshotMetadata(event.data);
               if (restored !== '') emulator.write(restored);
-              emulator.write(event.data);
+              if (event.data === '') finishReplay();
+              else emulator.write(event.data, finishReplay);
             } else if (event.type === 'data') {
               appendTerminalLiveBuffer(terminalId, event.data);
+              if (replayingRef.current) {
+                replayQueueRef.current.push(event.data);
+                return;
+              }
               emulator.write(event.data);
             } else if (event.type === 'exit') {
               const exitText = `\r\n[process exited${event.code === null ? '' : ` with code ${event.code}`}]\r\n`;
               appendTerminalLiveBuffer(terminalId, exitText);
-              emulator.write(exitText);
+              if (replayingRef.current) replayQueueRef.current.push(exitText);
+              else emulator.write(exitText);
               handlersRef.current.onExit?.(event.code ?? null);
             } else if (event.type === 'error') {
               handlersRef.current.onError?.(event.message);
@@ -243,7 +274,13 @@ function TerminalScreen({
         if (controller.signal.aborted) return;
         handlersRef.current.onError?.(failure instanceof Error ? failure.message : String(failure));
       });
-    return () => controller.abort();
+    return () => {
+      controller.abort();
+      replayingRef.current = false;
+      suppressMetadataRef.current = false;
+      replayQueueRef.current = [];
+      replayMetadataRef.current = {};
+    };
   }, [terminalId, ready]);
 
   /* Keep the PTY grid in step with the pane's real size. */

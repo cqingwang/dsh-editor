@@ -79,6 +79,7 @@ export interface DiffTextPosition {
 export interface DiffTarget {
   path?: string;
   staged?: boolean;
+  navigationEntries?: Array<{ path?: string; staged?: boolean }>;
   combined?: boolean;
   entries?: Array<{ path?: string; staged?: boolean; status?: string }>;
   commit?: string;
@@ -106,6 +107,9 @@ export interface DiffPreviewProps {
   target: DiffTarget;
   monacoReady: boolean;
   includedInCommit?: boolean;
+  rollbackInclusion?: { included: boolean; onToggle: (included: boolean) => void };
+  focusMode?: boolean;
+  onToggleFocus?: () => void;
   onClose: () => void;
   onRestored?: DiffCallback;
   onStatus?: DiffCallback;
@@ -126,6 +130,9 @@ function DiffPreview({
   target,
   monacoReady,
   includedInCommit = false,
+  rollbackInclusion,
+  focusMode = false,
+  onToggleFocus,
   onClose,
   onRestored,
   onStatus,
@@ -477,6 +484,24 @@ function DiffPreview({
   /* Supplied by the workspace: IDEA's undo/redo crosses diff tabs. */
   const restoreUndoRef = undoRef ?? React.useRef([]);
   const restoreRedoRef = redoRef ?? React.useRef([]);
+  /* The refs are the source of truth for cross-tab history, but mutating them
+     does not re-render the toolbar. Mirror their depth into state so IDEA's
+     Undo/Redo actions are disabled exactly when there is nothing to restore. */
+  const [historyDepth, setHistoryDepth] = React.useState(() => ({
+    undo: restoreUndoRef.current.length,
+    redo: restoreRedoRef.current.length,
+  }));
+  const syncHistoryDepth = React.useCallback(() => {
+    setHistoryDepth({
+      undo: restoreUndoRef.current.length,
+      redo: restoreRedoRef.current.length,
+    });
+  }, [restoreRedoRef, restoreUndoRef]);
+  const canUndo = historyDepth.undo > 0;
+  const canRedo = historyDepth.redo > 0;
+  React.useEffect(() => {
+    syncHistoryDepth();
+  }, [syncHistoryDepth, target?.path, target?.staged]);
   /* Parent callbacks are inline functions; keeping them in refs stops a
      status-triggered parent render from re-running the model effect and
      wiping the undo history. */
@@ -660,6 +685,7 @@ function DiffPreview({
         if (before !== content) {
           restoreUndoRef.current.push(restoreRecord);
           restoreRedoRef.current = [];
+          syncHistoryDepth();
         }
         onRestoredRef.current?.(value);
         onStatusRef.current?.(value);
@@ -724,6 +750,7 @@ function DiffPreview({
             restoreRedoRef.current.push(entry);
             setUndoNotice(t('editor.diffUndoDone'));
           }
+          syncHistoryDepth();
           /* The record belongs to a file, not to whichever diff happens to be
          mounted. Make the visible diff match the file that was just
          restored, the way IDEA's global undo does. */
@@ -744,6 +771,7 @@ function DiffPreview({
         .catch((failure) => {
           if (redo) restoreRedoRef.current.push(entry);
           else restoreUndoRef.current.push(entry);
+          syncHistoryDepth();
           setUndoNotice(null);
           const message = failure instanceof Error ? failure.message : String(failure);
           setState((current) => ({
@@ -756,11 +784,12 @@ function DiffPreview({
           }));
         });
     },
-    [t],
+    [syncHistoryDepth, t],
   );
   const undoRestore = React.useCallback(() => {
     restoreUndoRef.current = restoreUndoStack(activeRestoreRef.current, restoreUndoRef.current);
     const entry = restoreUndoRef.current.pop();
+    syncHistoryDepth();
     if (entry === undefined) {
       setState((current) => ({
         ...current,
@@ -786,7 +815,7 @@ function DiffPreview({
       return;
     }
     applyHistoryEntry(entry, false);
-  }, [applyHistoryEntry, t]);
+  }, [applyHistoryEntry, syncHistoryDepth, t]);
   const restoreSelection = React.useCallback(() => {
     const diff = diffRef.current;
     if (diff === null || diffLoadedRef.current?.side === null) return;
@@ -831,6 +860,7 @@ function DiffPreview({
   }, [actionableSelection, diffReadOnly, diffUnavailable, editLocked, hunks.index, selectionRange, swapSides]);
   const redoRestore = React.useCallback(() => {
     const entry = restoreRedoRef.current.pop();
+    syncHistoryDepth();
     if (entry === undefined) {
       setState((current) => ({
         ...current,
@@ -856,7 +886,7 @@ function DiffPreview({
       return;
     }
     applyHistoryEntry(entry, true);
-  }, [applyHistoryEntry, t]);
+  }, [applyHistoryEntry, syncHistoryDepth, t]);
   React.useEffect(() => {
     const node = hostRef.current;
     const monaco = window.monaco;
@@ -1716,9 +1746,9 @@ function DiffPreview({
         applyLeftSide();
         return;
       }
-      /* IDEA's default macOS keymap maps Control+Shift+Left/Right to
-         Previous/Next Change. DSH's combined diff uses the same gesture
-         for its changed-file sequence, so that mode keeps file navigation. */
+      /* IDEA's diff viewer uses Control+Shift+Left/Right for the changed-file
+         sequence whenever one exists. F7/Shift+F7 remain the hunk gestures;
+         a single-file comparison without a sequence keeps the hunk fallback. */
       if (
         insideDiffPane &&
         event.ctrlKey &&
@@ -1729,7 +1759,7 @@ function DiffPreview({
       ) {
         event.preventDefault();
         event.stopPropagation();
-        if (target?.combined === true && navigationPosition !== null) {
+        if (navigationPosition !== null) {
           if (event.key === 'ArrowLeft') previousFileAction?.();
           else nextFileAction?.();
         } else {
@@ -1868,6 +1898,19 @@ function DiffPreview({
     },
   ];
   const diffToolbarActions = [
+    ...(typeof onToggleFocus === 'function'
+      ? [
+          {
+            id: 'focusDiff',
+            icon: focusMode ? 'collapse' : 'expand',
+            label: focusMode ? t('editor.diffExitFocus') : t('editor.diffFocus'),
+            group: 'view',
+            active: focusMode,
+            disabled: diffUnavailable,
+            run: onToggleFocus,
+          },
+        ]
+      : []),
     {
       id: 'applyLeftSide',
       icon: 'applyLeft',
@@ -1941,9 +1984,9 @@ function DiffPreview({
     {
       id: 'collapse',
       icon: collapseUnchanged ? 'expand' : 'collapse',
-      label: collapseUnchanged ? t('editor.diffShowUnchanged') : t('editor.diffCollapseUnchanged'),
+      label: t('editor.diffShowUnchanged'),
       group: 'inspect',
-      active: collapseUnchanged,
+      active: !collapseUnchanged,
       disabled: diffUnavailable,
       run: () => setCollapseUnchanged((value) => !value),
     },
@@ -2014,7 +2057,7 @@ function DiffPreview({
             label: t('editor.diffUndoRestore'),
             group: 'history',
             shortcut: '⌘Z',
-            disabled: editLocked || diffUnavailable,
+            disabled: editLocked || diffUnavailable || !canUndo,
             run: undoRestore,
           },
           {
@@ -2023,7 +2066,7 @@ function DiffPreview({
             label: t('editor.diffRedoRestore'),
             group: 'history',
             shortcut: '⇧⌘Z',
-            disabled: editLocked || diffUnavailable,
+            disabled: editLocked || diffUnavailable || !canRedo,
             run: redoRestore,
           },
         ]
@@ -2256,6 +2299,19 @@ function DiffPreview({
             />
           </span>
         )}
+        {rollbackInclusion === undefined ? null : (
+          <label
+            style={styles.diffRollbackInclude}
+            className='dsh-editor-diff-rollback-include'
+            data-dsh-diff-fixed=''>
+            <input
+              type='checkbox'
+              checked={rollbackInclusion.included}
+              onChange={(event) => rollbackInclusion.onToggle(event.target.checked)}
+            />
+            <span>{t('editor.diffIncludeInRollback')}</span>
+          </label>
+        )}
         <span
           style={styles.diffToolbarActions}
           className='dsh-editor-diff-toolbar-actions'>
@@ -2267,11 +2323,11 @@ function DiffPreview({
               title={includedState === 'all' ? t('editor.diffSummaryAllHint') : t('editor.diffSummaryNoneHint')}
               aria-label={includedState === 'all' ? t('editor.diffSummaryAllHint') : t('editor.diffSummaryNoneHint')}>
               {includedState === 'all'
-                ? t('editor.diffSummaryAll', {
+                ? t(hunks.total === 1 ? 'editor.diffSummaryAllOne' : 'editor.diffSummaryAll', {
                     count: hunks.total,
                   })
                 : includedState === 'none'
-                  ? t('editor.diffSummaryNone', {
+                  ? t(hunks.total === 1 ? 'editor.diffSummaryNoneOne' : 'editor.diffSummaryNone', {
                       count: hunks.total,
                     })
                   : null}

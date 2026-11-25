@@ -36,7 +36,11 @@ async function fixture() {
 test('shelving selected paths leaves the rest of the tree untouched', async (t) => {
   const { dir, cleanup } = await fixture();
   t.after(cleanup);
-  const saved = await gitShelve(dir, { action: 'save', paths: ['a.txt', 'new.txt'], message: 'dsh-editor-shelve: selected' });
+  const saved = await gitShelve(dir, {
+    action: 'save',
+    paths: ['a.txt', 'new.txt'],
+    message: 'dsh-editor-shelve: selected',
+  });
   assert.equal(saved.entries.length, 1);
   assert.equal(git(dir, 'status', '--porcelain'), 'M b.txt');
   assert.equal(await readFile(join(dir, 'a.txt'), 'utf8'), 'base\n');
@@ -85,12 +89,18 @@ test('the Commit toolbar exposes Shelve and restores with the index-aware action
     options,
     /id: 'shelve',\n\s+label: t\('editor\.shelve'\),\n\s+disabled: gitNotManaged \|\| commitBusy \|\| updateBusy,\n\s+run: onShelve/,
   );
-  const run = source.slice(source.indexOf('const runShelve = React.useCallback('), source.indexOf('const openStashMenu = React.useCallback('));
+  const run = source.slice(
+    source.indexOf('const runShelve = React.useCallback('),
+    source.indexOf('const openStashMenu = React.useCallback('),
+  );
   assert.match(run, /op: 'shelve'/);
   assert.match(run, /action: operation/);
   assert.match(run, /Array\.isArray\(paths\) \? \{ paths \}/);
   const menuSource = readFileSync(join(root, 'src/client/components/commit/stash-shelve-menu.ts'), 'utf8');
-  const menu = source.slice(source.indexOf('const openShelveMenu = React.useCallback('), source.indexOf('/* Batch delete for the Project tool window'));
+  const menu = source.slice(
+    source.indexOf('const openShelveMenu = React.useCallback('),
+    source.indexOf('/* Batch delete for the Project tool window'),
+  );
   assert.match(menu, /const selected = \[\.\.\.commitSelection\]/);
   assert.match(menu, /onRunShelve: \(operation, ref, paths\) => void runShelve\(operation, ref, paths\)/);
   assert.match(menuSource, /onRunShelve\('save', undefined, selectedPaths\)/);
@@ -101,14 +111,17 @@ test('the Commit toolbar exposes Shelve and restores with the index-aware action
 test('the Commit Rollback action follows the whole visible selection', () => {
   const panel = readFileSync(join(root, 'src/client/components/commit/CommitPanel.tsx'), 'utf8');
   assert.match(panel, /chosenChangeList = \[\]/);
-  assert.match(panel, /chosenChangeList\.filter\(\(entry\) => entry\.staged !== true\)\.length > 1/);
+  assert.match(panel, /chosenChangeList\.length > 1/);
   assert.match(panel, /onRollbackSelected\?\.\(chosenChangeList\)/);
   assert.match(source, /chosenChangeList=\{chosenChanges\(selectedChange\)\}/);
   const wiring = source.slice(
     source.indexOf('onRollbackSelected={(picked) => {'),
-    source.indexOf('onStage={(paths) => void restage(paths, false)', source.indexOf('onRollbackSelected={(picked) => {')),
+    source.indexOf(
+      'onStage={(paths) => void restage(paths, false)',
+      source.indexOf('onRollbackSelected={(picked) => {'),
+    ),
   );
-  assert.match(wiring, /picked\.filter\(\(entry\) => entry\.staged !== true\)/);
+  assert.match(wiring, /picked\.map\(\(entry\) => entry\.path\)/);
   assert.match(wiring, /new Set\(/);
-  assert.match(wiring, /void rollback\(working\)/);
+  assert.match(wiring, /void rollback\(selected, \{ all: true \}\)/);
 });

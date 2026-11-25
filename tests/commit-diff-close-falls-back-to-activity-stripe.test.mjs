@@ -5,6 +5,10 @@ import test from 'node:test';
 import { loadTypeScriptFunction } from './ts-source.mjs';
 
 const workspaceSource = await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8');
+const focusSurfaceSource = await readFile(
+  new URL('../src/client/components/ui/focus-surface.ts', import.meta.url),
+  'utf8',
+);
 const stripeSource = await readFile(new URL('../src/client/components/ui/ActivityStripe.tsx', import.meta.url), 'utf8');
 const projectSource = await readFile(
   new URL('../src/client/components/project/ProjectPanel.tsx', import.meta.url),
@@ -25,7 +29,7 @@ test('workspace fallback focuses a stable surface instead of leaving BODY active
       return value === '[data-dsh-activity-id="commit"]' ? target : null;
     },
   };
-  const focusWorkspaceFallback = loadTypeScriptFunction(workspaceSource, 'focusWorkspaceFallback');
+  const focusWorkspaceFallback = loadTypeScriptFunction(focusSurfaceSource, 'focusWorkspaceFallback');
   assert.equal(focusWorkspaceFallback(host), true);
   assert.match(selectors[0], /data-dsh-changes-list/u);
   assert.match(selectors[0], /data-dsh-project-tree/u);

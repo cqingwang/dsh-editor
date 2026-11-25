@@ -6,6 +6,7 @@ const root = new URL('../', import.meta.url);
 const controller = await readFile(new URL('src/client/controller.ts', root), 'utf8');
 const mount = await readFile(new URL('src/client/components/editor/EditorMount.tsx', root), 'utf8');
 const workspace = await readFile(new URL('src/client/editor-workspace.tsx', root), 'utf8');
+const editorCore = await readFile(new URL('src/client/editor-core.ts', root), 'utf8');
 
 test('Workspace-scoped Editor remounts restore focus inside the active tool window', () => {
   assert.match(controller, /let restoreActiveToolWindowOnMount = false;/u);
@@ -20,7 +21,7 @@ test('Workspace-scoped Editor remounts restore focus inside the active tool wind
   assert.match(controller, /data-dsh-activity-id="\$\{restoreToolWindowActivity\}"/u);
   assert.match(mount, /restoreToolWindowFocus\?: boolean;/u);
   assert.match(mount, /restoreToolWindowFocus=\{restoreToolWindowFocus\}/u);
-  assert.match(workspace, /restoreToolWindowFocus\?: boolean;/u);
+  assert.match(editorCore, /restoreToolWindowFocus\?: boolean;/u);
   assert.match(workspace, /restoreToolWindowFocus=\{restoreToolWindowFocus\}/u);
   assert.match(workspace, /const suppressEditorAutofocusRef = React\.useRef\(restoreToolWindowFocus === true\);/u);
   assert.match(workspace, /suppressEditorAutofocusRef\.current !== true[\s\S]*?editor\.focus\(\)/u);
@@ -43,7 +44,7 @@ test('reopening the mounted Editor restores focus inside the active tool window'
   assert.match(controller, /setActive\(true\);[\s\S]*?if \(reopeningMountedHost\) renderEditorMount\(\);/u);
   assert.match(mount, /focusRequest\?: number;/u);
   assert.match(mount, /focusRequest=\{focusRequest\}/u);
-  assert.match(workspace, /focusRequest\?: number;/u);
+  assert.match(editorCore, /focusRequest\?: number;/u);
   assert.match(
     workspace,
     /const restoredToolWindowFocusRef = React\.useRef\(focusRequest\);/u,

@@ -8,12 +8,13 @@ import { commitLogGraphCursor, commitLogGraphKeyIntent, commitLogGraphMove } fro
 import { commitLogFlatListCommand, commitLogGraphListCommand } from './commit-log-list-command-model';
 import { commitLogContextSelection, commitSelectionAfterClick } from './commit-log-selection-model';
 import { commitLogShortcutAction } from './commit-log-shortcut-model';
-import { commitLogFilterCommits, commitLogOptionId } from './commit-log-view-model';
+import { commitLogFilterCommits, commitLogOptionId, revealCommitLogSelection } from './commit-log-view-model';
 import { commitLogGraphFoldToggle, commitLogGraphToggle } from './commit-log-view-preferences';
 import { CommitLogDetailPane } from './CommitLogDetailPane';
 import { CommitLogFlatRow } from './CommitLogFlatRow';
 import { CommitLogListState } from './CommitLogListState';
 import { CommitLogToolbar } from './CommitLogToolbar';
+import type { CommitLogSearchController } from './use-commit-log-search';
 import { callFs } from '../../editor-core';
 import {
   commitRelationTarget,
@@ -91,6 +92,7 @@ export interface CommitLogProps {
   onRetry?: () => void;
   onFileMenu?: (payload: Record<string, unknown>) => void;
   onFindInFiles?: () => void;
+  search?: CommitLogSearchController;
 }
 
 function CommitLogView({
@@ -124,6 +126,7 @@ function CommitLogView({
   onRetry,
   onFileMenu,
   onFindInFiles,
+  search,
 }: CommitLogProps) {
   /* Graph mode is a view preference: the flat list stays the default. */
   const [graphMode, setGraphMode] = React.useState(false);
@@ -134,7 +137,31 @@ function CommitLogView({
   const [graphCursor, setGraphCursor] = React.useState(null);
   const [graphFolded, setGraphFolded] = React.useState(false);
   const selectionAnchorRef = React.useRef('');
-  const [filter, setFilter] = React.useState('');
+  const [localFilter, setLocalFilter] = React.useState('');
+  const filter = search?.query ?? localFilter;
+  const setFilter = search?.setQuery ?? setLocalFilter;
+  const searchMode = search?.searchMode === true;
+  const displayedCommits = searchMode ? search.results : commits;
+  const displayedLoading = searchMode ? search.loading : loading;
+  const displayedFailure = searchMode ? search.error : logFailure;
+  const displayedExhausted = searchMode ? false : exhausted === true;
+  const displayedRetry = searchMode ? search.retry : onRetry;
+  const displayedRefresh = searchMode ? search.refresh : onRefresh;
+  const displayedLoadMore = searchMode ? undefined : onLoadMore;
+  const graphModeBeforeSearchRef = React.useRef(false);
+  React.useEffect(() => {
+    if (searchMode) {
+      if (graphMode) {
+        graphModeBeforeSearchRef.current = true;
+        setGraphMode(false);
+      }
+      return;
+    }
+    if (!graphModeBeforeSearchRef.current) return;
+    graphModeBeforeSearchRef.current = false;
+    setGraphMode(true);
+    onLoadGraph?.(graph?.branch ?? '', graph?.at ?? '');
+  }, [graphMode, graph?.at, graph?.branch, onLoadGraph, searchMode]);
   const [showFilter, setShowFilter] = React.useState(false);
   const listRef = React.useRef<HTMLDivElement | null>(null);
   const logScrollRef = scrollRefs?.log ?? null;
@@ -178,15 +205,19 @@ function CommitLogView({
     return () => window.removeEventListener('keydown', onKeyDown, true);
   }, [onFindInFiles]);
   const [localFileAvailability, setLocalFileAvailability] = React.useState<Map<string, boolean>>(() => new Map());
-  const logFailedRef = React.useRef(logFailure !== null);
+  const logFailedRef = React.useRef(displayedFailure !== null);
   React.useEffect(() => {
-    const failed = logFailure !== null;
+    const failed = displayedFailure !== null;
     const recovered = logFailedRef.current && !failed;
     logFailedRef.current = failed;
     if (recovered && !hidden) {
       window.setTimeout(() => listRef.current?.focus?.({ preventScroll: true }), 0);
     }
-  }, [hidden, logFailure]);
+  }, [displayedFailure, hidden]);
+  React.useEffect(() => {
+    if (hidden) return;
+    window.setTimeout(() => listRef.current?.focus?.({ preventScroll: true }), 0);
+  }, [hidden]);
   const detailPathKey = detail?.files?.map((file) => file.path).join('\0') ?? '';
   const detailScrollRef = React.useRef<HTMLDivElement | null>(null);
   /* IDEA shows a newly selected commit from its title, not at the previous
@@ -244,7 +275,10 @@ function CommitLogView({
     };
   }, [hidden, detail?.hash, detailPathKey]);
   /* One query filters by subject, author and short hash; matches IDEA's log search box. */
-  const visible = React.useMemo(() => commitLogFilterCommits(commits, filter), [commits, filter]);
+  const visible = React.useMemo(
+    () => (searchMode ? displayedCommits : commitLogFilterCommits(displayedCommits, filter)),
+    [displayedCommits, filter, searchMode],
+  );
   const graphEntries = React.useMemo(() => graph?.entries ?? [], [graph?.entries]);
   const filteredGraphEntries = React.useMemo(
     () => (graphMode ? commitLogFilterCommits(graphEntries, filter) : graphEntries),
@@ -254,7 +288,7 @@ function CommitLogView({
     () => (graphMode ? graphDisplayEntries(filteredGraphEntries, graphFolded) : graphEntries),
     [filteredGraphEntries, graphEntries, graphFolded, graphMode],
   );
-  const listedCommitCount = graphMode ? graphEntries.length : commits.length;
+  const listedCommitCount = graphMode ? graphEntries.length : displayedCommits.length;
   const listedVisibleCount = graphMode ? graphRows.length : visible.length;
   const graphActiveHash = graphCursor ?? selected;
   const flatActiveHash = selected;
@@ -269,10 +303,15 @@ function CommitLogView({
       ? commitLogOptionId(flatActiveHash)
       : null;
   React.useEffect(() => {
-    if (hidden || graphMode || logFailure === null || listedCommitCount === 0) return;
+    if (hidden || graphMode || searchMode) return undefined;
+    const frame = window.requestAnimationFrame(() => revealCommitLogSelection(listRef.current, selected));
+    return () => window.cancelAnimationFrame(frame);
+  }, [graphMode, hidden, searchMode, selected, visible.length]);
+  React.useEffect(() => {
+    if (hidden || graphMode || displayedFailure === null || listedCommitCount === 0) return;
     const node = listRef.current;
     if (node !== null) node.scrollTop = Math.max(0, node.scrollHeight - node.clientHeight);
-  }, [graphMode, hidden, listedCommitCount, logFailure]);
+  }, [displayedFailure, graphMode, hidden, listedCommitCount]);
   const visibleOrder = React.useMemo(() => visible.map((entry) => entry.hash), [visible]);
   const graphOrder = React.useMemo(() => graphRows.map((entry) => entry.hash), [graphRows]);
   const selectCommitRow = (order: string[], hash: string, event: React.MouseEvent<HTMLElement> | null): void => {
@@ -324,14 +363,14 @@ function CommitLogView({
       onLoadGraph(graph?.branch ?? '', graph?.at ?? '');
       return;
     }
-    onRetry?.();
+    displayedRetry?.();
   };
   const refreshLog = () => {
     if (graphMode && onLoadGraph !== undefined) {
       onLoadGraph(graph?.branch ?? '', graph?.at ?? '');
       return;
     }
-    onRefresh();
+    displayedRefresh();
   };
   React.useEffect(() => {
     if (!graphMode || typeof selected !== 'string' || selected === '') return;
@@ -406,7 +445,8 @@ function CommitLogView({
           author={author}
           graphMode={graphMode}
           graph={graph}
-          loading={loading}
+          loading={displayedLoading}
+          searchMode={searchMode}
           disabled={disabled}
           onFilterChange={setFilter}
           onFilterVisibleChange={setShowFilter}
@@ -437,9 +477,9 @@ function CommitLogView({
           aria-activedescendant={commitLogActiveOptionId === null ? undefined : commitLogActiveOptionId}
           onScroll={(event) => {
             const node = event.currentTarget;
-            if (logFailure !== null) return;
+            if (displayedFailure !== null) return;
             if (node.scrollHeight - node.scrollTop - node.clientHeight > 48) return;
-            onLoadMore?.();
+            displayedLoadMore?.();
           }}
           onKeyDown={
             graphMode
@@ -577,12 +617,15 @@ function CommitLogView({
           <CommitLogListState
             section='status'
             t={t}
-            loading={loading}
-            logFailure={logFailure}
+            loading={displayedLoading}
+            logFailure={displayedFailure}
             graphMode={graphMode}
             commitCount={listedCommitCount}
             visibleCount={listedVisibleCount}
-            exhausted={exhausted === true}
+            exhausted={displayedExhausted}
+            searchMode={searchMode}
+            searchTruncated={search?.truncated === true}
+            onLoadMore={displayedLoadMore}
             onRetry={retryList}
           />
           {graphMode ? (
@@ -590,8 +633,8 @@ function CommitLogView({
               t={t}
               graph={graph}
               visibleEntries={filteredGraphEntries}
-              busy={loading}
-              error={logFailure}
+              busy={displayedLoading}
+              error={displayedFailure}
               onShow={onShow}
               selected={graphHover ?? graphCursor ?? selected}
               selectionHashes={selectedCommits}
@@ -657,12 +700,15 @@ function CommitLogView({
           <CommitLogListState
             section='footer'
             t={t}
-            loading={loading}
-            logFailure={logFailure}
+            loading={displayedLoading}
+            logFailure={displayedFailure}
             graphMode={graphMode}
             commitCount={listedCommitCount}
             visibleCount={listedVisibleCount}
-            exhausted={exhausted === true}
+            exhausted={displayedExhausted}
+            searchMode={searchMode}
+            searchTruncated={search?.truncated === true}
+            onLoadMore={displayedLoadMore}
             onRetry={retryList}
           />
         </div>

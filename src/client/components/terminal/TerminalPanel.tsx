@@ -91,6 +91,7 @@ interface TerminalRestoreEntry {
   shell: string;
   cwd: string;
   title: string;
+  manualTitle?: boolean;
 }
 
 interface TerminalSelectionPosition {
@@ -201,6 +202,11 @@ function pruneTerminalReadmeMetadata(
   return next;
 }
 
+/** Throttle process-table cwd lookups while the user switches tabs. */
+export function terminalCwdRefreshDue(last: number, now: number, interval = 2000): boolean {
+  return now - last >= interval;
+}
+
 function TerminalPanel({
   t,
   generation,
@@ -219,6 +225,7 @@ function TerminalPanel({
      items from a render snapshot, so a `cd` right before the click would
      otherwise be missed. */
   const terminalCwdRef = React.useRef(new Map<string, string>());
+  const terminalCwdRefreshRef = React.useRef(new Map<string, number>());
   const terminalMetadataRef = React.useRef(new Map<string, { title?: string; cwd?: string }>());
   const initialDockLayoutRef = React.useRef(readTerminalDockLayout());
   const [activeId, setActiveId] = React.useState<string | null>(initialDockLayoutRef.current?.activeId ?? null);
@@ -231,6 +238,7 @@ function TerminalPanel({
   const autoTitleRequestChainRef = React.useRef(new Map<string, Promise<void>>());
   const terminalReorderRequestRef = React.useRef(0);
   const shellMenuRequestRef = React.useRef(0);
+  const terminalMenuRequestRef = React.useRef(0);
   const [available, setAvailable] = React.useState(true);
   /* Resolved README per terminal, so the tab menu can disable the item when the
      shell's directory has none (the cwd alone is always a non-empty string). */
@@ -257,7 +265,14 @@ function TerminalPanel({
      editor renders them; this component only knows the ids. */
   React.useEffect(() => {
     if (onEditorTerminals === undefined) return;
-    onEditorTerminals(terminals.filter((terminal) => editorIds.includes(terminal.id)));
+    onEditorTerminals(
+      terminals
+        .filter((terminal) => editorIds.includes(terminal.id))
+        .map((terminal) => ({
+          ...terminal,
+          manualTitle: terminal.manualTitle === true,
+        })),
+    );
   }, [editorIds, onEditorTerminals, terminals]);
   /**
    * Send one terminal into the editor area (IDEA's Move to Editor).
@@ -655,8 +670,12 @@ function TerminalPanel({
    * @param {string} title - title the shell published.
    */
   const syncTerminalTitle = React.useCallback((id: string, title: string): void => {
-    if (terminalManualRenameOwnsTitle(id, renamedRef.current, renameInFlightRef.current)) return;
     const current = terminalsRef.current.find((terminal) => terminal.id === id);
+    if (
+      current?.manualTitle === true ||
+      terminalManualRenameOwnsTitle(id, renamedRef.current, renameInFlightRef.current)
+    )
+      return;
     if (current === undefined || current.title === title) return;
     terminalMetadataRef.current.set(id, { ...terminalMetadataRef.current.get(id), title });
     setTerminals((list) =>
@@ -721,8 +740,41 @@ function TerminalPanel({
     );
   }, []);
 
+  /**
+   * Ask the Host for the live process cwd when the shell never emits OSC 7.
+   * The fallback keeps the menu usable if the process table is unavailable.
+   */
+  const refreshTerminalCwd = React.useCallback(
+    async (id: string, fallback: string): Promise<string> => {
+      try {
+        const value = await callTerminal({ op: 'cwd', id });
+        const cwd = typeof value?.cwd === 'string' && value.cwd !== '' ? value.cwd : fallback;
+        if (cwd !== fallback) syncTerminalCwd(id, cwd);
+        return cwd;
+      } catch {
+        return fallback;
+      }
+    },
+    [syncTerminalCwd],
+  );
+
+  const refreshTerminalCwdIfStale = React.useCallback(
+    (terminal: TerminalDescription): void => {
+      const now = Date.now();
+      const last = terminalCwdRefreshRef.current.get(terminal.id) ?? 0;
+      if (!terminalCwdRefreshDue(last, now)) return;
+      terminalCwdRefreshRef.current.set(terminal.id, now);
+      void refreshTerminalCwd(terminal.id, terminalCwdRef.current.get(terminal.id) ?? terminal.cwd);
+    },
+    [refreshTerminalCwd],
+  );
+
   const applyEditorReturnMetadata = React.useCallback((id: string, title: string, cwd: string): void => {
-    const nextTitle = terminalManualRenameOwnsTitle(id, renamedRef.current, renameInFlightRef.current) ? '' : title;
+    const current = terminalsRef.current.find((terminal) => terminal.id === id);
+    const nextTitle =
+      current?.manualTitle === true || terminalManualRenameOwnsTitle(id, renamedRef.current, renameInFlightRef.current)
+        ? ''
+        : title;
     if (cwd !== '') terminalCwdRef.current.set(id, cwd);
     if (nextTitle === '' && cwd === '') return;
     terminalMetadataRef.current.set(id, {
@@ -795,6 +847,7 @@ function TerminalPanel({
         shell: terminal.shell,
         cwd: terminal.cwd ?? '',
         title: terminal.title ?? '',
+        manualTitle: terminal.manualTitle === true,
       };
       const next = [entry, ...current.filter((item) => !(item.shell === entry.shell && item.cwd === entry.cwd))].slice(
         0,
@@ -907,7 +960,26 @@ function TerminalPanel({
         .then((value) => (value.shells ?? []).some((shell) => shell.path === entry.shell))
         .catch(() => false);
       const created = await createTerminal(exists ? entry.shell : undefined, entry.cwd);
-      if (created !== null) window.setTimeout(() => emulatorRef.current?.focus?.(), 0);
+      if (created !== null) {
+        if (entry.manualTitle === true && entry.title !== '') {
+          try {
+            const value = await callTerminal({
+              op: 'rename',
+              id: created.id,
+              title: entry.title,
+            });
+            if (value?.terminal !== undefined) {
+              setTerminals((current) =>
+                current.map((terminal) => (terminal.id === created.id ? value.terminal : terminal)),
+              );
+            }
+            renamedRef.current.add(created.id);
+          } catch {
+            /* the restored shell remains usable even if its title cannot be replayed */
+          }
+        }
+        window.setTimeout(() => emulatorRef.current?.focus?.(), 0);
+      }
     },
     [createTerminal],
   );
@@ -1790,6 +1862,7 @@ function TerminalPanel({
     }
     setActiveId(terminal.id);
     setFocusedPane('left');
+    refreshTerminalCwdIfStale(terminal);
   };
 
   /**
@@ -1852,12 +1925,15 @@ function TerminalPanel({
    * @param {number} y - menu anchor y.
    * @returns {void}
    */
-  const openTerminalTabMenu = (terminal: TerminalDescription, x: number, y: number): void => {
+  const openTerminalTabMenu = async (terminal: TerminalDescription, x: number, y: number): Promise<void> => {
+    const request = ++terminalMenuRequestRef.current;
     const focus = terminalTabContextFocus(terminal.id, activeId, splitId);
     if (focus.activate) setActiveId(terminal.id);
     setFocusedPane(focus.pane);
     const leftTarget = terminalMoveTarget(terminals, terminal.id, 'left');
     const rightTarget = terminalMoveTarget(terminals, terminal.id, 'right');
+    const cwd = await refreshTerminalCwd(terminal.id, terminalCwdRef.current.get(terminal.id) ?? terminal.cwd);
+    if (request !== terminalMenuRequestRef.current) return;
     setMenu({
       x,
       y,
@@ -1876,7 +1952,7 @@ function TerminalPanel({
         canMoveRight: rightTarget !== null,
         moveRight: rightTarget === null ? null : () => void moveTab(terminal.id, rightTarget),
         canDuplicate: terminals.length < 6,
-        duplicate: () => void createTerminal(terminal.shell, terminalCwdRef.current.get(terminal.id) ?? terminal.cwd),
+        duplicate: () => void createTerminal(terminal.shell, cwd),
         splitRight:
           terminal.id === activeId || terminal.id === splitId
             ? null
@@ -1888,10 +1964,10 @@ function TerminalPanel({
         moveToEditor: () => moveTerminalToEditor(terminal),
         switchFocusToEditor: onSwitchFocusToEditor,
         cycleColor: () => cycleTerminalColor(terminal.id),
-        revealCwd: () => void revealTerminalDirectory(terminalCwdRef.current.get(terminal.id) ?? terminal.cwd),
-        readmePath: readmePaths[terminalCwdRef.current.get(terminal.id) ?? terminal.cwd],
-        cwd: terminalCwdRef.current.get(terminal.id) ?? terminal.cwd,
-        openReadme: () => void openTerminalReadme(terminalCwdRef.current.get(terminal.id) ?? terminal.cwd),
+        revealCwd: () => void revealTerminalDirectory(cwd),
+        readmePath: readmePaths[cwd],
+        cwd,
+        openReadme: () => void openTerminalReadme(cwd),
       }),
     });
   };
@@ -1923,8 +1999,7 @@ function TerminalPanel({
         run: () => {
           if (splitId !== null && terminal.id === splitId) focusPane('right');
           else {
-            setActiveId(terminal.id);
-            setFocusedPane('left');
+            activateTerminalTab(terminal);
             window.setTimeout(() => focusTerminalTab(terminal.id), 0);
           }
         },
@@ -1995,7 +2070,7 @@ function TerminalPanel({
                     event.preventDefault();
                     event.stopPropagation();
                     const rect = event.currentTarget.getBoundingClientRect();
-                    openTerminalTabMenu(terminal, rect.left + 12, rect.bottom);
+                    void openTerminalTabMenu(terminal, rect.left + 12, rect.bottom);
                   }
                 }}
                 draggable={true}
@@ -2031,7 +2106,7 @@ function TerminalPanel({
                   event.preventDefault();
                   event.stopPropagation();
                   event.currentTarget.focus?.();
-                  openTerminalTabMenu(terminal, event.clientX, event.clientY);
+                  void openTerminalTabMenu(terminal, event.clientX, event.clientY);
                 }}>
                 {colors[terminal.id] === undefined ? null : (
                   <span

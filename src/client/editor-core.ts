@@ -1,5 +1,7 @@
 /* editor-core.ts: dsh-editor file API, Monaco and path utility module. Generated into lib/client.js by scripts/build-client.mjs. */
 import type * as Monaco from 'monaco-editor';
+import type { CommitGraphPayload } from './components/commit/CommitGraph';
+import type { ShelfEntry } from './components/commit/stash-shelve-menu';
 import { languageFor } from './components/editor/editor-language-model';
 import { dirname } from './components/editor/editor-path-model';
 import {
@@ -21,6 +23,7 @@ import { navigationPathForModel } from './code-navigation';
 import { ideaControlKeyModifier, isMacPlatform } from './foundation';
 import { flattenDictionary, interpolateMessage } from './locales';
 import { findUsagesSearchTarget } from './commit';
+import type { DiffChange } from './diff';
 import { editorFindSelectionScope } from './terminal';
 
 interface LocaleDictionaryTree {
@@ -126,6 +129,107 @@ interface WorkspaceTreeEntry {
   path?: string;
   kind?: string;
   [key: string]: unknown;
+}
+
+export interface WorkspaceGitStatus {
+  root: string;
+  isRepo?: boolean;
+  branch: string;
+  prefix: string;
+  changes: DiffChange[];
+  detached?: boolean;
+  ahead?: number;
+  behind?: number;
+  operation?: string;
+  lastCommit?: { hash?: string; subject?: string; body?: string } | null;
+  created?: string;
+  entries?: ShelfEntry[];
+  patch?: string;
+  hash?: string;
+  subject?: string;
+  published?: boolean;
+  remotes?: unknown[];
+  pushError?: string;
+  appliedFiles?: unknown[];
+  [key: string]: unknown;
+}
+
+export interface WorkspaceLogCommit {
+  hash: string;
+  parents: string[];
+  refs: string[];
+  subject: string;
+  author: string;
+  date: string;
+  [key: string]: unknown;
+}
+
+export interface WorkspaceLogResponse {
+  commits: WorkspaceLogCommit[];
+}
+
+export interface WorkspaceGraphResponse {
+  entries?: NonNullable<CommitGraphPayload['entries']>;
+  branches?: string[];
+  tags?: string[];
+  branchList?: string[];
+  tagList?: CommitGraphPayload['tagList'];
+  head?: unknown;
+  branch?: unknown;
+  at?: unknown;
+}
+
+export interface ChangeRowMenuPayload {
+  change: DiffChange;
+  staged?: boolean;
+  selectedChanges?: Set<string>;
+  x: number;
+  y: number;
+}
+
+export interface ChangeDirectoryMenuPayload {
+  directory: string;
+  changes: DiffChange[];
+  group: string;
+  x: number;
+  y: number;
+}
+
+export interface CommitFileMenuPayload {
+  path: string;
+  hash: string;
+  localExists: boolean;
+  localDirExists: boolean;
+  x: number;
+  y: number;
+}
+
+export interface SelectedPatch {
+  patch: string;
+  files?: unknown[];
+}
+
+export interface OpenWorkspaceFile {
+  path: string;
+  content: string;
+  dirty: boolean;
+  mtime: number | null;
+  kind?: 'image';
+  size?: number;
+  mediaType?: string;
+}
+
+export type EditorWorkspaceTranslate = (key: string, params?: Record<string, unknown>) => string;
+
+export interface EditorWorkspaceProps {
+  t: EditorWorkspaceTranslate;
+  workspaceId?: string;
+  restoreToolWindowFocus?: boolean;
+  focusRequest?: number;
+  initialHarnessCollapsed?: boolean;
+  onToggleHarness?: () => void;
+  onCloseEditor?: () => void;
+  onInsertHarnessReference?: (request: Record<string, unknown>) => Promise<boolean> | boolean;
 }
 
 interface DirectoryTreeState<T extends WorkspaceTreeEntry = WorkspaceTreeEntry> {

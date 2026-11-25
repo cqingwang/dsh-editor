@@ -27,20 +27,13 @@ const replaceAdvanceIndex = new Function(
 )();
 
 test('Single Replace advances past the newly inserted matching text', () => {
-  const rows = [
-    { rowKey: 'text:r675.txt:1:1' },
-    { rowKey: 'text:r675.txt:2:1' },
-    { rowKey: 'text:r675.txt:3:1' },
-  ];
+  const rows = [{ rowKey: 'text:r675.txt:1:1' }, { rowKey: 'text:r675.txt:2:1' }, { rowKey: 'text:r675.txt:3:1' }];
   assert.equal(replaceAdvanceIndex(rows, 'text:r675.txt:1:1', 0), 1);
   assert.equal(replaceAdvanceIndex(rows, 'text:r675.txt:3:1', 2), 0);
 });
 
 test('Single Replace keeps the natural next index when the replaced row disappears', () => {
-  const rows = [
-    { rowKey: 'text:r675.txt:2:1' },
-    { rowKey: 'text:r675.txt:3:1' },
-  ];
+  const rows = [{ rowKey: 'text:r675.txt:2:1' }, { rowKey: 'text:r675.txt:3:1' }];
   assert.equal(replaceAdvanceIndex(rows, 'text:r675.txt:1:1', 0), 0);
   assert.equal(replaceAdvanceIndex(rows, 'text:r675.txt:1:1', 9), 1);
   assert.equal(replaceAdvanceIndex([], 'missing', 3), 0);
@@ -71,9 +64,31 @@ test('Single replacement records the replaced row and applies one advance reques
     claimReplaceAttempt: () => true,
     replaceWriteBusyRef: { current: false },
     releaseReplaceAttempt: () => {},
-    replaceGenerationIsCurrent: (current, requestGeneration) =>
-      current.searchGeneration === requestGeneration,
+    replaceGenerationIsCurrent: (current, requestGeneration) => current.searchGeneration === requestGeneration,
     replaceFailureState: (current) => current,
+    createReplaceCommitTracker: () => ({
+      hostChanged: [],
+      hostResult: null,
+      dirtyCommitted: false,
+      dirtyChanged: [],
+      dirtyReplacements: 0,
+      dirtyUndo: [],
+    }),
+    trackHostReplace: (tracker, value) => {
+      tracker.hostChanged = Array.isArray(value?.files) ? value.files : [];
+      tracker.hostResult = value;
+    },
+    trackSingleDirtyReplace: () => {},
+    committedReplaceOperationFromTracker: () => ({
+      operationId: 'op-1',
+      clean: true,
+      dirty: [],
+      files: ['a.ts'],
+      replacements: 1,
+    }),
+    recordCommittedReplaceOperation: () => {},
+    settleCommittedReplaceFailure: (failure) => String(failure),
+    refreshHostReplaceChanges: async () => {},
     callFs: async () => ({ files: ['a.ts'], replacements: 1, operationId: 'op-1' }),
     loadGit: async () => {},
     reloadFile: async () => {},

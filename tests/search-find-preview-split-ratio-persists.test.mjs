@@ -35,12 +35,15 @@ test('Find results and preview share one persisted resizable split', () => {
     /readStoredNumber\(FIND_PREVIEW_PERCENT_STORAGE_KEY, FIND_TOOL_PREVIEW_DEFAULT_PERCENT\)/u,
   );
   assert.match(componentSource, /<EditorSplitDivider/u);
-  assert.match(componentSource, /clampPercent=\{\(value, width\) => clampFindPreviewPercent\(value, width\)\}/u);
+  assert.match(
+    componentSource,
+    /clampPercent=\{\(value, extent\) =>\s+floating \? clampFindFloatingPreviewPercent\(value, extent\) : clampFindPreviewPercent\(value, extent\)\s+\}/u,
+  );
   assert.match(componentSource, /flex: previewOpen \? `\$\{100 - dockPreviewPercent\} 1 0`/u);
   assert.match(componentSource, /flex: `\$\{dockPreviewPercent\} 1 0`/u);
   assert.match(
     componentSource,
-    /writeStoredNumber\(FIND_PREVIEW_PERCENT_STORAGE_KEY, Math\.round\(100 - clampFindPreviewPercent\(final\)\)\)/u,
+    /writeStoredNumber\(FIND_PREVIEW_PERCENT_STORAGE_KEY, Math\.round\(100 - final\)\)/u,
   );
   assert.match(locales, /findPreviewSplitter: '拖动调整搜索结果与预览比例'/u);
   assert.match(locales, /findPreviewSplitter: 'Drag to resize results and preview'/u);

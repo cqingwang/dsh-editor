@@ -6,7 +6,7 @@ import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const panelSource = readFileSync(join(root, 'src/client/components/terminal/TerminalPanel.tsx'), 'utf8');
-const source = (panelSource + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8'));
+const source = panelSource + '\n' + readFileSync(join(root, 'lib/client.js'), 'utf8');
 
 test('the README item is driven by a real path, not by the shell cwd', () => {
   /* `readmePath: terminal.cwd` is ALWAYS a non-empty string, so `disabled` never
@@ -15,7 +15,8 @@ test('the README item is driven by a real path, not by the shell cwd', () => {
      snapshot, so the key now comes from `terminalCwdRef`. */
   const lines = panelSource.split('\n').filter((line) => /readmePath:/.test(line));
   assert.equal(lines.length, 1);
-  assert.match(lines[0], /readmePaths\[terminalCwdRef\.current\.get\(terminal\.id\)/);
+  assert.match(lines[0], /readmePaths\[cwd\]/);
+  assert.match(panelSource, /await refreshTerminalCwd\(terminal\.id,/);
   /* `''` is the "checked and missing" marker; `undefined` means "not resolved". */
   assert.match(source, /disabled: actions\.readmePath === ''/);
 });

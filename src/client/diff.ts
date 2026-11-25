@@ -468,6 +468,26 @@ export function changePositionOf(
 }
 
 /**
+ * Keep a diff opened from a scoped surface inside that surface's file list.
+ *
+ * Rollback's Show Diff is about the files in its confirmation dialog, not the
+ * whole Changes tree. An empty or malformed scope falls back to the normal
+ * change sequence so navigation never becomes a dead end.
+ */
+export function diffNavigationSequence(
+  scoped: Array<{ path?: string; staged?: boolean }> | null | undefined,
+  fallback: DiffTarget[],
+): DiffTarget[] {
+  if (!Array.isArray(scoped) || scoped.length === 0) return fallback;
+  const sequence = scoped
+    .filter(
+      (entry): entry is { path: string; staged?: boolean } => typeof entry?.path === 'string' && entry.path !== '',
+    )
+    .map((entry) => ({ path: entry.path, staged: entry.staged === true }));
+  return sequence.length > 0 ? sequence : fallback;
+}
+
+/**
  * Filter a change list by what the user typed (IDEA's change-list search).
  *
  * Matching is on the path, case-insensitively and as a plain substring: a
@@ -502,6 +522,16 @@ export function filterChangeSequence(sequence: DiffTarget[], query: string): Dif
   const needle = typeof query === 'string' ? query.trim().toLowerCase() : '';
   if (needle === '') return entries;
   return entries.filter((entry) => typeof entry?.path === 'string' && entry.path.toLowerCase().includes(needle));
+}
+
+/** Build the diff navigation sequence, preferring an explicit scoped surface. */
+export function diffChangeSequenceFor(
+  scoped: Array<{ path?: string; staged?: boolean }> | null | undefined,
+  changes: DiffChange[],
+  groupBy = 'directory',
+  pathQuery = '',
+): DiffTarget[] {
+  return diffNavigationSequence(scoped, filterChangeSequence(changeSequenceOf(changes, groupBy), pathQuery));
 }
 
 /**

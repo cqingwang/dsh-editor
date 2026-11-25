@@ -65,6 +65,7 @@ test('returned metadata updates the dock without overwriting a manual rename', (
     const cwdById = new Map([['term', '/repo']]);
     const metadata = new Map();
     const callback = loadTypeScriptCallback(panelSource, 'applyEditorReturnMetadata', {
+      terminalsRef: { current: terminals },
       renamedRef: { current: new Set(manual ? ['term'] : []) },
       renameInFlightRef: { current: null },
       terminalCwdRef: { current: cwdById },

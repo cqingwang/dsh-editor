@@ -23,9 +23,7 @@ const replacementPlanner = source.slice(
 );
 
 test('Line/column replacement offsets clamp malformed locations', () => {
-  const offsetAt = new Function(
-    `${extractFunction('textOffsetAtLineColumn')}; return textOffsetAtLineColumn;`,
-  )();
+  const offsetAt = new Function(`${extractFunction('textOffsetAtLineColumn')}; return textOffsetAtLineColumn;`)();
   const text = 'first\nsecond\nthird';
   assert.equal(offsetAt(text, 1, 1), 0);
   assert.equal(offsetAt(text, 2, 3), 8);
@@ -44,8 +42,8 @@ test('Replace All preflights dirty buffers and sends only clean targets to the h
   assert.match(source, /model\.pushStackElement\?\.\(\)/);
   assert.match(source, /model\.pushEditOperations/);
   assert.match(replaceAll, /targets: \[\.\.\.cleanTargets\.values\(\)\]/);
-  assert.match(replaceAll, /dirtyReplacements/);
-  assert.match(replaceAll, /replaceOperationState\(/);
+  assert.match(replaceAll, /trackDirtyReplace\(commitTracker, dirtyCommit, dirtyUndo\)/);
+  assert.match(replaceAll, /committedReplaceOperationFromTracker\(commitTracker\)/);
 });
 
 test('Single Replace performs exact dirty-buffer replacement without disk fallback', () => {

@@ -1,10 +1,14 @@
 export { ActivityStripe, type ActivityStripeProps } from './ActivityStripe.tsx';
 export { CompactActionBar } from './CompactActionBar.tsx';
 export {
+  changeSelectionKey,
   commitMetrics,
+  nextChangeFileRowIndex,
+  reconcileChangeSelectionModel,
   selectionStateOf,
   subtotalOf,
   type ChangeLineCounts,
+  type ChangeSelectionReconciliation,
   type CommitBand,
   type CommitMetrics,
   type CommitSelectionState,

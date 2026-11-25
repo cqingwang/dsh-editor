@@ -6,6 +6,7 @@ import test from 'node:test';
 
 import {
   rebuildWorkspaceSearchIndex,
+  replaceWorkspaceText,
   searchWorkspaceText,
   WorkspaceWatcher,
   workspaceFileOperations,
@@ -56,9 +57,7 @@ test('a fresh process validates cached content once before skipping stat', async
   await writeFile(join(root, 'beta.ts'), 'RESTART_CACHE_ORDINARY beta\n', 'utf8');
   await rebuildWorkspaceSearchIndex(root, { searchIndexDirectory: indexDirectory });
 
-  const freshHost = await import(
-    new URL(`../lib/index.js?text-watcher-restart=${Date.now()}`, import.meta.url)
-  );
+  const freshHost = await import(new URL(`../lib/index.js?text-watcher-restart=${Date.now()}`, import.meta.url));
   const watcher = new freshHost.WorkspaceWatcher(root, () => {});
   t.after(() => watcher.close());
   const request = { searchIndex: true, searchIndexDirectory: indexDirectory };
@@ -81,9 +80,7 @@ test('an incomplete cached scan does not establish watcher freshness', async (t)
   await writeFile(join(root, 'beta.ts'), 'CAPPED_CACHE_NEEDLE beta\n', 'utf8');
   await rebuildWorkspaceSearchIndex(root, { searchIndexDirectory: indexDirectory });
 
-  const freshHost = await import(
-    new URL(`../lib/index.js?text-watcher-cap=${Date.now()}`, import.meta.url)
-  );
+  const freshHost = await import(new URL(`../lib/index.js?text-watcher-cap=${Date.now()}`, import.meta.url));
   const watcher = new freshHost.WorkspaceWatcher(root, () => {});
   t.after(() => watcher.close());
   const request = { searchIndex: true, searchIndexDirectory: indexDirectory };
@@ -124,15 +121,42 @@ test('a Host write invalidates watcher-verified cached content', async (t) => {
   );
 });
 
+test('Replace in Files invalidates watcher-verified cached content', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'dsh-editor-text-watcher-replace-'));
+  const indexDirectory = await mkdtemp(join(tmpdir(), 'dsh-editor-text-watcher-replace-store-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(() => rm(indexDirectory, { recursive: true, force: true }));
+  const file = join(root, 'alpha.ts');
+  await writeFile(file, 'REPLACE_INDEX_OLD\n', 'utf8');
+  const watcher = new WorkspaceWatcher(root, () => {});
+  t.after(() => watcher.close());
+  await rebuildWorkspaceSearchIndex(root, { searchIndexDirectory: indexDirectory });
+
+  const request = { searchIndex: true, searchIndexDirectory: indexDirectory };
+  const before = await searchWorkspaceText(root, 'REPLACE_INDEX_OLD', request);
+  assert.equal(before.indexFastPath, true);
+  assert.equal(before.indexCache.skippedStats, 1);
+
+  const info = await stat(file);
+  await replaceWorkspaceText(root, 'REPLACE_INDEX_OLD', 'REPLACE_INDEX_NEW', [
+    { path: 'alpha.ts', mtime: info.mtimeMs },
+  ]);
+  const after = await searchWorkspaceText(root, 'REPLACE_INDEX_NEW', request);
+  assert.equal(after.indexFastPath, true);
+  assert.equal(after.indexCache.skippedStats, 0);
+  assert.deepEqual(
+    after.matches.map((match) => match.path),
+    ['alpha.ts'],
+  );
+});
+
 test('Git metadata churn does not revoke watcher-verified search content', async (t) => {
   const root = await mkdtemp(join(tmpdir(), 'dsh-editor-text-watcher-git-'));
   const indexDirectory = await mkdtemp(join(tmpdir(), 'dsh-editor-text-watcher-git-store-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   t.after(() => rm(indexDirectory, { recursive: true, force: true }));
   await writeFile(join(root, 'alpha.ts'), 'GIT_METADATA_NEEDLE alpha\n', 'utf8');
-  const freshHost = await import(
-    new URL(`../lib/index.js?text-watcher-git=${Date.now()}`, import.meta.url)
-  );
+  const freshHost = await import(new URL(`../lib/index.js?text-watcher-git=${Date.now()}`, import.meta.url));
   let fireWatcher = null;
   const watcher = new freshHost.WorkspaceWatcher(root, () => {}, {
     watchImpl(_path, options, callback) {
@@ -171,9 +195,7 @@ test('a budget-skipped stale cache entry is not promoted to watcher freshness', 
   await writeFile(join(root, 'beta.ts'), 'ordinary beta\n', 'utf8');
   await rebuildWorkspaceSearchIndex(root, { searchIndexDirectory: indexDirectory });
 
-  const freshHost = await import(
-    new URL(`../lib/index.js?text-watcher-budget=${Date.now()}`, import.meta.url)
-  );
+  const freshHost = await import(new URL(`../lib/index.js?text-watcher-budget=${Date.now()}`, import.meta.url));
   const watcher = new freshHost.WorkspaceWatcher(root, () => {});
   t.after(() => watcher.close());
   await writeFile(join(root, 'alpha.ts'), `BUDGET_NEW_NEEDLE ${'x'.repeat(64)}\n`, 'utf8');

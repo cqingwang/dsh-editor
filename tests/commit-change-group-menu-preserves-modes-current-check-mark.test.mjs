@@ -77,6 +77,7 @@ test('Commit Options preserves busy state, action order and callbacks', () => {
     updateBusy: false,
     commitBusy: true,
     stageAllAvailable: false,
+    selectAllByDefault: false,
     groupBy: 'flat',
     onApplyChangeGroupBy: (mode) => calls.push(`group:${mode}`),
     onFetch: () => calls.push('fetch'),
@@ -84,6 +85,7 @@ test('Commit Options preserves busy state, action order and callbacks', () => {
     onApplyPatchFile: () => calls.push('patchFile'),
     onApplyPatchClipboard: () => calls.push('patchClipboard'),
     onStageAll: () => calls.push('stageAll'),
+    onToggleSelectAllByDefault: () => calls.push('selectAllByDefault'),
     onStash: () => calls.push('stash'),
     onShelve: () => calls.push('shelve'),
   });
@@ -100,6 +102,7 @@ test('Commit Options preserves busy state, action order and callbacks', () => {
       'applyPatchClipboard',
       null,
       'stageAll',
+      'selectAllByDefault',
       null,
       'stash',
       'shelve',

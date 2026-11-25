@@ -29,6 +29,8 @@ test('Find search option changes clear stale result state in one shared transiti
     index: 0,
     activeRowKey: null,
     error: null,
+    replacePartialFailure: false,
+    replacePartialFailureMessage: null,
     loadedGeneration: -1,
     searchGeneration: 8,
   });

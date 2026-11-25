@@ -23,7 +23,8 @@ test('the diff uses Monaco hideUnchangedRegions with IDEA-like context', () => {
 
 test('the diff toolbar toggles unchanged regions and persists the choice', () => {
   const diff = diffPreview();
-  assert.match(diff, /label: collapseUnchanged \? t\('editor\.diffShowUnchanged'\) : t\('editor\.diffCollapseUnchanged'\)/);
+  assert.match(diff, /label: t\('editor\.diffShowUnchanged'\)/);
+  assert.match(diff, /active: !collapseUnchanged/);
   assert.match(diff, /run: \(\) => setCollapseUnchanged\(\(value\) => !value\)/);
   assert.match(diff, /localStorage\.setItem\('dsh-editor\.diff\.collapseUnchanged', collapseUnchanged \? '1' : '0'\)/);
   assert.match(source, /diffCollapseUnchanged: '折叠未修改区域'/);

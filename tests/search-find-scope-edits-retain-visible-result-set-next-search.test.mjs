@@ -33,7 +33,7 @@ test('A new Find search generation preserves results instead of blanking them', 
   );
   assert.match(
     source,
-    /setFindTool\(\(current\) => \(current === null\s+\? current\s+: \{ \.\.\.current, loading: true, error: null \}\)\);/u,
+    /setFindTool\(\(current\) =>\s+current === null\s+\? current\s+: \{\s+\.\.\.current,\s+loading: true,\s+error: current\.replacePartialFailure === true \? current\.replacePartialFailureMessage : null,\s+\},\s*\);/u,
   );
 });
 

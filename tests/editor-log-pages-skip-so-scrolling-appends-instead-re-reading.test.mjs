@@ -108,7 +108,7 @@ test('the log pages in on scroll and shows its end', () => {
   assert.match(client, /onScroll=\{\(event\) => \{/);
   assert.match(client, /t\('editor\.logEnd'\)/);
   /* The flag is declared before loadLog, which resets it (TDZ). */
-  const stateAt = client.indexOf('const [\n    logExhausted,');
+  const stateAt = client.indexOf('const [logExhausted, setLogExhausted]');
   const loadAt = client.indexOf('const loadLog = React.useCallback');
   assert.ok(stateAt > 0 && stateAt < loadAt);
 });

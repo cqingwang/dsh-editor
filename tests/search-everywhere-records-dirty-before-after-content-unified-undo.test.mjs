@@ -13,10 +13,12 @@ test('Search Everywhere records dirty before/after content for unified Undo', ()
 });
 
 test('Search Everywhere Replace All publishes a bounded Find undo operation', () => {
-  assert.match(replaceInFiles, /replaceOperationState\(/u);
-  assert.match(replaceInFiles, /const \{ changed, operation, replacedCount \} = replaceOperationState/u);
-  assert.match(replaceInFiles, /setFindReplaceRedoStack\(\[\]\)/u);
-  assert.match(replaceInFiles, /setFindReplaceUndoStack\(\(current\) => boundedReplaceHistory\(current, operation\)\)/u);
+  assert.match(replaceInFiles, /trackDirtyReplace\(commitTracker, dirtyCommit, dirtyUndo\)/u);
+  assert.match(replaceInFiles, /committedReplaceOperationFromTracker\(commitTracker\)/u);
+  assert.match(
+    replaceInFiles,
+    /recordCommittedReplaceOperation\(operation, setFindReplaceRedoStack, setFindReplaceUndoStack\)/u,
+  );
 });
 
 test('Search Everywhere keeps dirty Monaco undo independent from host history', () => {

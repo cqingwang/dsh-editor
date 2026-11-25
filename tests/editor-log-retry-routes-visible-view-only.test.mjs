@@ -27,6 +27,6 @@ test('Graph Retry remains routed through CommitLog onLoadGraph', async () => {
 
   assert.match(
     log,
-    /const retryList = \(\) => \{\s*if \(graphMode && onLoadGraph !== undefined\) \{[\s\S]*?onLoadGraph\(graph\?\.branch \?\? '', graph\?\.at \?\? ''\);\s*return;\s*\}\s*onRetry\?\.\(\);\s*\};/u,
+    /const retryList = \(\) => \{\s*if \(graphMode && onLoadGraph !== undefined\) \{[\s\S]*?onLoadGraph\(graph\?\.branch \?\? '', graph\?\.at \?\? ''\);\s*return;\s*\}\s*displayedRetry\?\.\(\);\s*\};/u,
   );
 });

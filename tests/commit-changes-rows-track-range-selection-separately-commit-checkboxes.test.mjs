@@ -3,11 +3,15 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
-import { loadTypeScriptCallback } from './ts-source.mjs';
+import { loadTypeScriptCallback, loadTypeScriptFunction } from './ts-source.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const workspaceSource = readFileSync(join(root, 'src/client/editor-workspace.tsx'), 'utf8');
 const panelSource = readFileSync(join(root, 'src/client/components/commit/CommitPanel.tsx'), 'utf8');
+const commitModelSource = readFileSync(join(root, 'src/client/components/ui/commit-model.ts'), 'utf8');
+const uiIndexSource = readFileSync(join(root, 'src/client/components/ui/index.tsx'), 'utf8');
+const buildSource = readFileSync(join(root, 'scripts/build-client.mjs'), 'utf8');
+const clientSource = readFileSync(join(root, 'lib/client.js'), 'utf8');
 const source = workspaceSource + '\n' + panelSource;
 
 function workspace() {
@@ -28,6 +32,9 @@ test('Changes rows track a range selection separately from commit checkboxes', (
   assert.match(panel, /shift: event\.shiftKey/);
   assert.match(panel, /toggle: event\.metaKey \|\| event\.ctrlKey/);
   assert.match(panel, /onChange=\{\(\) => onTogglePath\(change\.path\)\}/);
+  assert.match(panel, /const key = changeKey;/);
+  assert.doesNotMatch(panel, /const key = `\$\{group\.id\}:\$\{change\.path\}`;/);
+  assert.match(panel, /data-dsh-changes-filter=''/);
 });
 
 test('Shift and Command/Ctrl clicks extend or toggle the visible row range', () => {
@@ -60,6 +67,26 @@ test('Shift and Command/Ctrl clicks extend or toggle the visible row range', () 
   chooseChange({ path: 'b.ts', staged: false }, { toggle: true });
   assert.deepEqual([...selected], ['unstaged:a.ts', 'unstaged:c.ts']);
   assert.deepEqual(changeSelectionAnchorRef.current, { key: 'unstaged:b.ts' });
+});
+
+test('Shift+Arrow skips group headers and keeps the range anchor across bands', () => {
+  const nextChangeFileRowIndex = loadTypeScriptFunction(commitModelSource, 'nextChangeFileRowIndex');
+  const rows = [false, true, false, true, false, true];
+  assert.equal(nextChangeFileRowIndex(rows, 1, 1), 3);
+  assert.equal(nextChangeFileRowIndex(rows, 3, 1), 5);
+  assert.equal(nextChangeFileRowIndex(rows, 3, -1), 1);
+  assert.equal(nextChangeFileRowIndex(rows, 5, 1), null);
+  assert.match(
+    workspaceSource,
+    /const next = event\.shiftKey\s+\? nextChangeFileRowIndex\(fileRows, index, 1\)/u,
+  );
+  assert.match(
+    workspaceSource,
+    /const next = event\.shiftKey\s+\? nextChangeFileRowIndex\(fileRows, index, -1\)/u,
+  );
+  assert.match(uiIndexSource, /nextChangeFileRowIndex/u);
+  assert.match(buildSource, /'nextChangeFileRowIndex'/u);
+  assert.match(clientSource, /nextChangeFileRowIndex: \(\) => nextChangeFileRowIndex/u);
 });
 
 test('the context menu acts on all selected rows, not just the clicked one', () => {
@@ -146,18 +173,30 @@ test('rollback keeps checkboxes and selects the nearest surviving Changes row', 
     body.indexOf('const reconcileChangeSelection = React.useCallback('),
     body.indexOf('const closeDiff = React.useCallback('),
   );
-  assert.match(reconcile, /const firstRemoved = keysInVisualOrder\.findIndex/);
-  assert.match(reconcile, /const keptSelected = new Set\(\[\.\.\.selectedChangesRef\.current\]\.filter/);
-  assert.match(reconcile, /const selectedAfterRemoval = keysInVisualOrder\.find/);
-  assert.match(reconcile, /const candidate = keysInVisualOrder\[Math\.min\(firstRemoved \+ offset/);
+  assert.match(
+    reconcile,
+    /reconcileChangeSelectionModel\(visualOrder, remaining, selectedChangesRef\.current, removedKeys\)/,
+  );
+  assert.match(reconcile, /visibleOrder\.some\(\(key\) => remaining\.has\(key\)\) \|\| fallbackOrder === null/);
+  assert.match(reconcile, /revealChangeRowRef\.current\?\.\(current\);/);
+  assert.match(
+    reconcile,
+    /focusSurfaceWhenReady\(\(\) => changeRowRefs\.current\.get\(next\.primary\), \{\s+maxAttempts: 60,\s+fallbackSurface: \(\) =>\s+document\.querySelector<HTMLElement>\('\[data-dsh-changes-filter\]'\) \?\? commitChangesRef\.current,\s+\}\);/u,
+  );
   assert.doesNotMatch(reconcile, /setCommitSelection/);
   const rollback = body.slice(
     body.indexOf('const rollback ='),
     body.indexOf('const buildChangeMenu = React.useCallback('),
   );
   assert.match(rollback, /setCommitSelection\(\(current\) =>/);
-  assert.match(rollback, /reconcileChangeSelection\(value\?\.changes \?\? \[\], pickedKeys\)/);
-  assert.match(rollback, /\.filter\(\(entry\) => \(stagedOnly \? entry\.staged === true : entry\.staged !== true\)\)/u);
+  assert.match(rollback, /const removedKeys = rollbackSelectionKeys\(decision\.entries\)/);
+  assert.match(rollback, /const sequence = changeSequenceOf\(gitRef\.current\?\.changes \?\? \[\], groupBy\)/);
+  assert.match(rollback, /const fullKeysInVisualOrder = sequence\.map/);
+  assert.match(rollback, /const keysInVisualOrder = \[/);
+  assert.match(
+    rollback,
+    /reconcileChangeSelection\(value\?\.changes \?\? \[\], removedKeys, keysInVisualOrder, fullKeysInVisualOrder\)/,
+  );
 });
 
 test('nearestRowAfterRemoval follows visual order, including staged and unstaged sides', () => {

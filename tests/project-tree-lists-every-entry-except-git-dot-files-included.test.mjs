@@ -86,7 +86,7 @@ test('the workspace walks still skip heavy directories so scanning stays bounded
   const dirs = host.slice(host.indexOf('async function listWorkspaceDirectories('), host.indexOf('async function describePaths('));
   assert.match(
     dirs,
-    /listDirectory\(root, directory, \{ showHidden: true, metadata: false \}\)/,
+    /listDirectory\(root, directory, \{\s+showHidden: true,\s+metadata: false,\s+knownDirectory: true,\s+realDirectory: identity,\s+\}\)/u,
   );
   /* Round 152: the watcher no longer reuses that bound. The tree SHOWS and
      expands `node_modules`, so skipping it in the watcher meant its contents

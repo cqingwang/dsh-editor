@@ -52,7 +52,7 @@ test('Search Everywhere scrolls its preview body to the active text result', () 
   const dialog = source.slice(source.indexOf('function SearchEverywhere('), source.indexOf('const FindToolWindow = FindToolWindowView;'));
   assert.match(dialog, /const previewBodyRef = React\.useRef\(null\)/);
   assert.match(dialog, /ref: previewBodyRef/u);
-  assert.match(dialog, /'data-dsh-preview-line': previewWindow\.start \+ index/u);
+  assert.match(dialog, /'data-dsh-preview-line': previewFirstLine \+ index/u);
   assert.match(dialog, /centerPreviewLineInContainer\(/u);
   assert.match(dialog, /requestAnimationFrame\([\s\S]*?previewState\.line/u);
 });
@@ -61,7 +61,7 @@ test('Find in Files scrolls its preview body to the active occurrence', () => {
   const component = source.slice(source.indexOf('function FindToolWindowView('), source.indexOf('const FindToolWindow = FindToolWindowView;'));
   assert.match(component, /const previewBodyRef = React\.useRef\(null\)/);
   assert.match(component, /ref: previewBodyRef/u);
-  assert.match(component, /'data-dsh-preview-line': previewWindow\.start \+ index/u);
+  assert.match(component, /'data-dsh-preview-line': previewFirstLine \+ index/u);
   assert.match(component, /centerPreviewLineInContainer\(/u);
   assert.match(component, /previewState\.line/u);
 });

@@ -23,6 +23,33 @@ export interface CommitLogGraphScope {
   at: string | null;
 }
 
+const COMMIT_SELECTION_KEY = 'dsh-editor.commit.selected';
+
+export function readStoredCommitSelection(): string | null {
+  try {
+    const stored = window.localStorage.getItem(COMMIT_SELECTION_KEY) ?? '';
+    return stored === '' ? null : stored;
+  } catch {
+    return null;
+  }
+}
+
+export function readStoredCommitSelectionList(): string[] {
+  const selected = readStoredCommitSelection();
+  return selected === null ? [] : [selected];
+}
+
+export function writeStoredCommitSelection(hash: string | null): void {
+  try {
+    if (hash === null || hash === '') window.localStorage.removeItem(COMMIT_SELECTION_KEY);
+    else if (window.localStorage.getItem(COMMIT_SELECTION_KEY) !== hash) {
+      window.localStorage.setItem(COMMIT_SELECTION_KEY, hash);
+    }
+  } catch {
+    /* a storage-less browser simply forgets the selected commit */
+  }
+}
+
 function storedPreferenceKey(workspaceId: string, preference: string): string {
   return `dsh-editor.commit.${preference}:${workspaceId}`;
 }

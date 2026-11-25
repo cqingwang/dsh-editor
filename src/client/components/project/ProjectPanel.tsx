@@ -497,6 +497,17 @@ function ProjectPanel({
     }
     window.setTimeout(() => treeRef.current?.focus(), 0);
   }, [clearTreeSearchState, onApplySelection, treeRef]);
+  const previousProjectViewRef = React.useRef(projectView);
+  React.useEffect(() => {
+    if (previousProjectViewRef.current === projectView) return;
+    previousProjectViewRef.current = projectView;
+    if (!searchOpen) return;
+    searchReturnSelectionRef.current = null;
+    directSpeedSearchRef.current = '';
+    clearTreeSearchState();
+    setSearchOpen(false);
+    window.setTimeout(() => treeRef.current?.focus(), 0);
+  }, [clearTreeSearchState, projectView, searchOpen, treeRef]);
   React.useEffect(() => {
     if (!searchOpen || (createState === null && renameState === null)) return undefined;
     /* IDEA closes speed search when inline New/Rename takes over. Keeping the

@@ -26,6 +26,7 @@ interface CommitLogToolbarProps {
   graphMode: boolean;
   graph?: CommitLogGraph | null;
   loading: boolean;
+  searchMode?: boolean;
   disabled?: boolean;
   onFilterChange: (value: string) => void;
   onFilterVisibleChange: (visible: boolean) => void;
@@ -44,6 +45,7 @@ function CommitLogToolbar({
   graphMode,
   graph,
   loading,
+  searchMode = false,
   disabled = false,
   onFilterChange,
   onFilterVisibleChange,
@@ -192,7 +194,7 @@ function CommitLogToolbar({
           icon='graph'
           label={t('editor.logGraph')}
           active={graphMode}
-          disabled={disabled}
+          disabled={disabled || searchMode}
           onClick={onToggleGraph}
         />
         <ToolbarButton

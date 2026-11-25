@@ -90,6 +90,6 @@ test('Scope invalidation keeps the old rows visible until the next generation re
   );
   assert.match(
     source,
-    /if \(!previewOpen \|\| active === null \|\| typeof active\.path !== 'string' \|\| active\.path === ''\) \{[\s\S]*?setPreviewState\(\{\s+loading: false,\s+path: '',\s+content: '',\s+line: 1,\s+error: null,\s+\}\);/u,
+    /if \(!previewOpen \|\| active === null \|\| typeof active\.path !== 'string' \|\| active\.path === ''\) \{[\s\S]*?setPreviewState\(\{\s+loading: false,\s+path: '',\s+content: '',\s+line: 1,[\s\S]*?error: null,\s+\}\);/u,
   );
 });

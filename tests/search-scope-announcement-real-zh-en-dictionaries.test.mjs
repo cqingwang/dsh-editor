@@ -22,11 +22,11 @@ test('scope announcement uses the real zh and en dictionaries', () => {
 
   assert.equal(
     commitLogScopeAnnouncement(zhTranslate, hash, ''),
-    '提交图已限定为标签 8d5451a 的历史',
+    '提交图已限定为提交 8d5451a 的历史',
   );
   assert.equal(
     commitLogScopeAnnouncement(enTranslate, hash, ''),
-    'Commit graph limited to the history of tag 8d5451a',
+    'Commit graph limited to history at 8d5451a',
   );
   assert.equal(
     commitLogScopeAnnouncement(zhTranslate, '', hash),

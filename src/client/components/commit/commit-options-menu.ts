@@ -11,6 +11,7 @@ interface CommitMenuItem {
   shortcut?: string;
   disabled?: boolean;
   danger?: boolean;
+  keepOpen?: boolean;
   restoreFocus?: boolean;
   run?: () => void;
   items?: Array<CommitMenuItem | null>;
@@ -43,6 +44,7 @@ interface CommitOptionsMenuOptions {
   pushBusy?: boolean;
   commitBusy: boolean;
   stageAllAvailable: boolean;
+  selectAllByDefault: boolean;
   groupBy: string;
   onApplyChangeGroupBy: (mode: string) => void;
   onFetch: () => void;
@@ -50,6 +52,7 @@ interface CommitOptionsMenuOptions {
   onApplyPatchFile: () => void;
   onApplyPatchClipboard: () => void;
   onStageAll: () => void;
+  onToggleSelectAllByDefault: () => void;
   onStash: () => void;
   onShelve: () => void;
 }
@@ -113,6 +116,7 @@ export function commitOptionsMenu({
   pushBusy = false,
   commitBusy,
   stageAllAvailable,
+  selectAllByDefault,
   groupBy,
   onApplyChangeGroupBy,
   onFetch,
@@ -120,6 +124,7 @@ export function commitOptionsMenu({
   onApplyPatchFile,
   onApplyPatchClipboard,
   onStageAll,
+  onToggleSelectAllByDefault,
   onStash,
   onShelve,
 }: CommitOptionsMenuOptions): CommitMenu {
@@ -166,6 +171,13 @@ export function commitOptionsMenu({
         label: t('editor.stageAll'),
         disabled: gitNotManaged || commitBusy || updateBusy || !stageAllAvailable,
         run: onStageAll,
+      },
+      {
+        id: 'selectAllByDefault',
+        label: t('editor.selectAllByDefault'),
+        shortcut: selectAllByDefault ? '✓' : '',
+        keepOpen: true,
+        run: onToggleSelectAllByDefault,
       },
       null,
       {

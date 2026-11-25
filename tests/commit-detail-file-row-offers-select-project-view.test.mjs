@@ -11,6 +11,10 @@ const source = [
   readFileSync(join(root, 'src/client/editor-workspace.tsx'), 'utf8'),
   readFileSync(join(root, 'lib/client.js'), 'utf8'),
 ].join('\n');
+const projectSelectionModelSource = readFileSync(
+  join(root, 'src/client/components/project/project-selection-model.ts'),
+  'utf8',
+);
 
 /** The body of one `function name(...) {...}` (brace-balanced, template-safe enough here). */
 function bodyOf(marker) {
@@ -34,7 +38,10 @@ function bodyOf(marker) {
 test('the commit detail file row offers Select in Project View', () => {
   const body = bodyOf('function CommitLogDetailPane({');
   /* The menu is opened from the row, not from the whole detail pane. */
-  assert.match(body, /onContextMenu=\{\(event\) => \{\s+event\.preventDefault\(\);\s+event\.stopPropagation\(\);\s+event\.currentTarget\.focus\?\.\(\);\s+onFileMenu\?\.\(\{\s+path: file\.path,\s+hash: detail\.hash,\s+localExists,\s+localDirExists,\s+x: event\.clientX,\s+y: event\.clientY,\s+\}\);/s);
+  assert.match(
+    body,
+    /onContextMenu=\{\(event\) => \{\s+event\.preventDefault\(\);\s+event\.stopPropagation\(\);\s+event\.currentTarget\.focus\?\.\(\);\s+onFileMenu\?\.\(\{\s+path: file\.path,\s+hash: detail\.hash,\s+localExists,\s+localDirExists,\s+x: event\.clientX,\s+y: event\.clientY,\s+\}\);/s,
+  );
   /* The callback's body starts after its indented parameter list. */
   const menu = source;
   assert.match(menu, /t\('editor\.revealInProject'\)/);
@@ -48,7 +55,13 @@ test('reveal expands the ancestors instead of only moving the selection', () => 
      tool window back to Project. The expansion work moved with it. */
   const tree = bodyOf('const revealInProjectTree = React.useCallback(');
   assert.match(tree, /setExpanded\(nextExpanded\);/);
-  assert.match(tree, /rowRefs\.current\.get\(path\)\?\.scrollIntoView/);
+  assert.match(tree, /revealProjectRow\(path\)/);
+  assert.match(projectSelectionModelSource, /function revealProjectRowElement\(/);
+  assert.match(projectSelectionModelSource, /row\?\.scrollIntoView\(\{ block: 'center' \}\)/);
+  assert.match(
+    projectSelectionModelSource,
+    /document\.querySelector<HTMLElement>\('\[data-dsh-project-tree\]'\)\?\.focus/,
+  );
   /* Ancestors are loaded on demand, so a collapsed directory still opens. */
   assert.match(tree, /op: 'list',\s+path: prefix,/);
   /* The explicit "Select in Project View" still reveals the tool window itself. */

@@ -37,5 +37,5 @@ test('the terminal overflow control participates in keyboard tab navigation', ()
   const panel = source.slice(source.indexOf('function TerminalPanel('), source.indexOf('export { TerminalPanel };'));
   assert.match(panel, /className='dsh-editor-terminal-overflow'/);
   assert.match(panel, /event\.key === 'ArrowLeft'[\s\S]{0,260}focusLastVisibleTerminalTab\(\)/);
-  assert.match(panel, /setActiveId\(terminal\.id\);[\s\S]{0,220}focusTerminalTab\(terminal\.id\)/);
+  assert.match(panel, /activateTerminalTab\(terminal\);[\s\S]{0,220}focusTerminalTab\(terminal\.id\)/);
 });

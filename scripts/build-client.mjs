@@ -77,6 +77,9 @@ const uiExports = [
   'selectionStateOf',
   'subtotalOf',
   'commitMetrics',
+  'changeSelectionKey',
+  'nextChangeFileRowIndex',
+  'reconcileChangeSelectionModel',
 ];
 const availableFiles = readdirSync(partsDir)
   .filter((name) => (name.endsWith('.ts') || name.endsWith('.tsx')) && !name.endsWith('.d.ts'))
@@ -233,6 +236,30 @@ const indentedEditorTabModel = editorTabModelBody
   .map((line) => (line === '' ? '' : `    ${line}`))
   .join('\n');
 const editorTabModelModule = `\n    /* ─────────────────────── components/editor/editor-tab-model.ts ─────────────────────── */\n${indentedEditorTabModel}\n`;
+
+const diffFocusLayoutResult = await transformAsync(
+  readFileSync(join(partsDir, 'components', 'editor', 'use-diff-focus-layout.ts'), 'utf8'),
+  {
+    filename: 'use-diff-focus-layout.ts',
+    plugins: [['@babel/plugin-transform-typescript', { isTSX: false, allExtensions: true }]],
+    generatorOpts: {
+      retainLines: true,
+      jsescOption: { quotes: 'single', minimal: true },
+    },
+    configFile: false,
+    babelrc: false,
+  },
+);
+const diffFocusLayoutBody = stripModuleSyntax(diffFocusLayoutResult.code ?? '').trimEnd();
+if (diffFocusLayoutBody === '') {
+  console.error('build-client: Babel produced an empty diff focus layout module');
+  process.exit(1);
+}
+const indentedDiffFocusLayout = diffFocusLayoutBody
+  .split('\n')
+  .map((line) => (line === '' ? '' : `    ${line}`))
+  .join('\n');
+const diffFocusLayoutModule = `\n    /* ─────────────────────── components/editor/use-diff-focus-layout.ts ─────────────────────── */\n${indentedDiffFocusLayout}\n`;
 
 const editorStyleModelResult = await transformAsync(
   readFileSync(join(partsDir, 'components', 'editor', 'editor-style-model.ts'), 'utf8'),
@@ -798,6 +825,54 @@ const indentedCommitLogViewPreferences = commitLogViewPreferencesBody
   .join('\n');
 const commitLogViewPreferencesModule = `\n    /* ─────────────────────── components/commit/commit-log-view-preferences.ts ─────────────────────── */\n${indentedCommitLogViewPreferences}\n`;
 
+const commitLogSelectionRestoreResult = await transformAsync(
+  readFileSync(join(partsDir, 'components', 'commit', 'commit-log-selection-restore.ts'), 'utf8'),
+  {
+    filename: 'commit-log-selection-restore.ts',
+    plugins: [['@babel/plugin-transform-typescript', { isTSX: false, allExtensions: true }]],
+    generatorOpts: {
+      retainLines: true,
+      jsescOption: { quotes: 'single', minimal: true },
+    },
+    configFile: false,
+    babelrc: false,
+  },
+);
+const commitLogSelectionRestoreBody = stripModuleSyntax(commitLogSelectionRestoreResult.code ?? '').trimEnd();
+if (commitLogSelectionRestoreBody === '') {
+  console.error('build-client: Babel produced an empty commit log selection restore module');
+  process.exit(1);
+}
+const indentedCommitLogSelectionRestore = commitLogSelectionRestoreBody
+  .split('\n')
+  .map((line) => (line === '' ? '' : `    ${line}`))
+  .join('\n');
+const commitLogSelectionRestoreModule = `\n    /* ─────────────────────── components/commit/commit-log-selection-restore.ts ─────────────────────── */\n${indentedCommitLogSelectionRestore}\n`;
+
+const commitLogSearchResult = await transformAsync(
+  readFileSync(join(partsDir, 'components', 'commit', 'use-commit-log-search.ts'), 'utf8'),
+  {
+    filename: 'use-commit-log-search.ts',
+    plugins: [['@babel/plugin-transform-typescript', { isTSX: false, allExtensions: true }]],
+    generatorOpts: {
+      retainLines: true,
+      jsescOption: { quotes: 'single', minimal: true },
+    },
+    configFile: false,
+    babelrc: false,
+  },
+);
+const commitLogSearchBody = stripModuleSyntax(commitLogSearchResult.code ?? '').trimEnd();
+if (commitLogSearchBody === '') {
+  console.error('build-client: Babel produced an empty commit log search module');
+  process.exit(1);
+}
+const indentedCommitLogSearch = commitLogSearchBody
+  .split('\n')
+  .map((line) => (line === '' ? '' : `    ${line}`))
+  .join('\n');
+const commitLogSearchModule = `\n    /* ─────────────────────── components/commit/use-commit-log-search.ts ─────────────────────── */\n${indentedCommitLogSearch}\n`;
+
 const namePromptResult = await transformAsync(
   readFileSync(join(partsDir, 'components', 'commit', 'NamePrompt.tsx'), 'utf8'),
   {
@@ -875,6 +950,30 @@ const indentedCommitSearchModel = commitSearchModelBody
   .map((line) => (line === '' ? '' : `    ${line}`))
   .join('\n');
 const commitSearchModelModule = `\n    /* ─────────────────────── components/commit/commit-search-model.ts ─────────────────────── */\n${indentedCommitSearchModel}\n`;
+
+const commitSelectionPreferenceResult = await transformAsync(
+  readFileSync(join(partsDir, 'components', 'commit', 'use-commit-selection-preference.ts'), 'utf8'),
+  {
+    filename: 'use-commit-selection-preference.ts',
+    plugins: [['@babel/plugin-transform-typescript', { isTSX: false, allExtensions: true }]],
+    generatorOpts: {
+      retainLines: true,
+      jsescOption: { quotes: 'single', minimal: true },
+    },
+    configFile: false,
+    babelrc: false,
+  },
+);
+const commitSelectionPreferenceBody = stripModuleSyntax(commitSelectionPreferenceResult.code ?? '').trimEnd();
+if (commitSelectionPreferenceBody === '') {
+  console.error('build-client: Babel produced an empty commit selection preference module');
+  process.exit(1);
+}
+const indentedCommitSelectionPreference = commitSelectionPreferenceBody
+  .split('\n')
+  .map((line) => (line === '' ? '' : `    ${line}`))
+  .join('\n');
+const commitSelectionPreferenceModule = `\n    /* ─────────────────────── components/commit/use-commit-selection-preference.ts ─────────────────────── */\n${indentedCommitSelectionPreference}\n`;
 
 const moveToPickerResult = await transformAsync(
   readFileSync(join(partsDir, 'components', 'commit', 'MoveToPicker.tsx'), 'utf8'),
@@ -1782,6 +1881,54 @@ const indentedSearchReplaceConfirmation = searchReplaceConfirmationBody
   .map((line) => (line === '' ? '' : `    ${line}`))
   .join('\n');
 const searchReplaceConfirmationModule = `\n    /* ─────────────────────── components/search/search-replace-confirmation.ts ─────────────────────── */\n${indentedSearchReplaceConfirmation}\n`;
+
+const rollbackConfirmationResult = await transformAsync(
+  readFileSync(join(partsDir, 'components', 'commit', 'rollback-confirmation.ts'), 'utf8'),
+  {
+    filename: 'rollback-confirmation.ts',
+    plugins: [['@babel/plugin-transform-typescript', { isTSX: false, allExtensions: true }]],
+    generatorOpts: {
+      retainLines: true,
+      jsescOption: { quotes: 'single', minimal: true },
+    },
+    configFile: false,
+    babelrc: false,
+  },
+);
+const rollbackConfirmationBody = stripModuleSyntax(rollbackConfirmationResult.code ?? '').trimEnd();
+if (rollbackConfirmationBody === '') {
+  console.error('build-client: Babel produced an empty rollback confirmation module');
+  process.exit(1);
+}
+const indentedRollbackConfirmation = rollbackConfirmationBody
+  .split('\n')
+  .map((line) => (line === '' ? '' : `    ${line}`))
+  .join('\n');
+const rollbackConfirmationModule = `\n    /* ─────────────────────── components/commit/rollback-confirmation.ts ─────────────────────── */\n${indentedRollbackConfirmation}\n`;
+
+const rollbackDiffSessionResult = await transformAsync(
+  readFileSync(join(partsDir, 'components', 'commit', 'use-rollback-diff-session.ts'), 'utf8'),
+  {
+    filename: 'use-rollback-diff-session.ts',
+    plugins: [['@babel/plugin-transform-typescript', { isTSX: false, allExtensions: true }]],
+    generatorOpts: {
+      retainLines: true,
+      jsescOption: { quotes: 'single', minimal: true },
+    },
+    configFile: false,
+    babelrc: false,
+  },
+);
+const rollbackDiffSessionBody = stripModuleSyntax(rollbackDiffSessionResult.code ?? '').trimEnd();
+if (rollbackDiffSessionBody === '') {
+  console.error('build-client: Babel produced an empty rollback diff session module');
+  process.exit(1);
+}
+const indentedRollbackDiffSession = rollbackDiffSessionBody
+  .split('\n')
+  .map((line) => (line === '' ? '' : `    ${line}`))
+  .join('\n');
+const rollbackDiffSessionModule = `\n    /* ─────────────────────── components/commit/use-rollback-diff-session.ts ─────────────────────── */\n${indentedRollbackDiffSession}\n`;
 
 const searchScopeInvalidationResult = await transformAsync(
   readFileSync(join(partsDir, 'components', 'search', 'search-scope.ts'), 'utf8'),
@@ -2818,7 +2965,7 @@ const footer = `
 });
 `;
 
-const output = `${header}${editorTabModelModule}${editorStyleModelModule}${editorThemeModelModule}${body}${workspaceDirectoryModelModule}${fileTreeViewModule}${projectPanelModule}${projectOptionsMenuModule}${projectSearchIndexModule}${projectUploadDropModule}${commitPanelModule}${commitOptionsMenuModule}${gitActionFailureReporterModule}${stashShelveMenuModule}${commitLogMenuModule}${commitFileMenuModule}${commitLogGraphControllerModule}${commitLogFlatControllerModule}${commitLogListCommandModelModule}${commitLogScopeAnnouncementModule}${commitLogShortcutModelModule}${commitLogSelectionModelModule}${commitLogViewModelModule}${commitLogViewPreferencesModule}${namePromptModule}${commitSearchModelModule}${revisionPickerModule}${moveToPickerModule}${codePreviewCodeModule}${editorStatusFactsModule}${markdownModeSwitchModule}${imagePreviewPaneModule}${markdownPreviewPaneModule}${workspaceFileModelModule}${workspaceImagePreviewModule}${editorPathModelModule}${editorDocumentModelModule}${markdownScrollModelModule}${editorNavigationModelModule}${editorFileTemplateModelModule}${editorLanguageModelModule}${editorDefinitionNavigationModule}${findDockSlotStateModule}${annotatePreviewModule}${repositoryVersionPreviewModule}${combinedDiffColorModelModule}${conflictMarkerModelModule}${diffPreviewModule}${projectSelectionModelModule}${projectSelectionPersistenceModule}${editorTerminalTabsModule}${terminalScreenModule}${editorTerminalTabModule}${editorTerminalAreaModule}${editorTerminalDockModule}${persistentTerminalDockOpenModule}${terminalPanelModule}${searchFileResultItemModule}${searchEverywhereModule}${showUsagesPopupModule}${quickOpenModule}${findScopeEditorModule}${findToolSessionsModule}${findToolWindowModule}${searchReplaceConfirmationModule}${searchScopeInvalidationModule}${searchEverywhereFileCandidatesModule}${commitGraphStateModelModule}${commitGraphFoldBarModule}${commitGraphRowModule}${commitGraphModule}${commitLogModule}${commitLogDetailPaneModule}${commitLogToolbarModule}${commitLogFlatRowModule}${commitLogListStateModule}${measuringScreenModule}${editorErrorBoundaryModule}${editorMountModule}${editorGotoLinePopupModule}${editorFindBarModule}${editorStatusBarModule}${editorFileTabModule}${editorTabStripModule}${editorDiffTabModule}${editorConflictBarsModule}${editorSplitHeaderModule}${editorSplitPaneModule}${editorMainPaneModule}${editorSplitDividerModule}${editorDiffAreaModule}${editorAnnotateAreaModule}${findToolDockModule}${findToolPopupModule}${workspaceDirectoryPickerModule}${editorFileSurfaceModule}${editorWorkspaceShellModule}${editorWorkspaceBodyModule}${editorToolWindowPanelModule}${editorToolWindowResizerModule}${editorWorkspaceMainColumnModule}${editorWorkspaceSurfaceModule}${editorErrorBannerModule}${uiPrelude}${footer}`;
+const output = `${header}${editorTabModelModule}${diffFocusLayoutModule}${editorStyleModelModule}${editorThemeModelModule}${body}${workspaceDirectoryModelModule}${fileTreeViewModule}${projectPanelModule}${projectOptionsMenuModule}${projectSearchIndexModule}${projectUploadDropModule}${commitPanelModule}${commitOptionsMenuModule}${gitActionFailureReporterModule}${stashShelveMenuModule}${commitLogMenuModule}${commitFileMenuModule}${commitLogGraphControllerModule}${commitLogFlatControllerModule}${commitLogListCommandModelModule}${commitLogScopeAnnouncementModule}${commitLogShortcutModelModule}${commitLogSelectionModelModule}${commitLogViewModelModule}${commitLogViewPreferencesModule}${commitLogSelectionRestoreModule}${commitLogSearchModule}${namePromptModule}${commitSearchModelModule}${commitSelectionPreferenceModule}${revisionPickerModule}${moveToPickerModule}${codePreviewCodeModule}${editorStatusFactsModule}${markdownModeSwitchModule}${imagePreviewPaneModule}${markdownPreviewPaneModule}${workspaceFileModelModule}${workspaceImagePreviewModule}${editorPathModelModule}${editorDocumentModelModule}${markdownScrollModelModule}${editorNavigationModelModule}${editorFileTemplateModelModule}${editorLanguageModelModule}${editorDefinitionNavigationModule}${findDockSlotStateModule}${annotatePreviewModule}${repositoryVersionPreviewModule}${combinedDiffColorModelModule}${conflictMarkerModelModule}${diffPreviewModule}${projectSelectionModelModule}${projectSelectionPersistenceModule}${editorTerminalTabsModule}${terminalScreenModule}${editorTerminalTabModule}${editorTerminalAreaModule}${editorTerminalDockModule}${persistentTerminalDockOpenModule}${terminalPanelModule}${searchFileResultItemModule}${searchEverywhereModule}${showUsagesPopupModule}${quickOpenModule}${findScopeEditorModule}${findToolSessionsModule}${findToolWindowModule}${searchReplaceConfirmationModule}${rollbackConfirmationModule}${rollbackDiffSessionModule}${searchScopeInvalidationModule}${searchEverywhereFileCandidatesModule}${commitGraphStateModelModule}${commitGraphFoldBarModule}${commitGraphRowModule}${commitGraphModule}${commitLogModule}${commitLogDetailPaneModule}${commitLogToolbarModule}${commitLogFlatRowModule}${commitLogListStateModule}${measuringScreenModule}${editorErrorBoundaryModule}${editorMountModule}${editorGotoLinePopupModule}${editorFindBarModule}${editorStatusBarModule}${editorFileTabModule}${editorTabStripModule}${editorDiffTabModule}${editorConflictBarsModule}${editorSplitHeaderModule}${editorSplitPaneModule}${editorMainPaneModule}${editorSplitDividerModule}${editorDiffAreaModule}${editorAnnotateAreaModule}${findToolDockModule}${findToolPopupModule}${workspaceDirectoryPickerModule}${editorFileSurfaceModule}${editorWorkspaceShellModule}${editorWorkspaceBodyModule}${editorToolWindowPanelModule}${editorToolWindowResizerModule}${editorWorkspaceMainColumnModule}${editorWorkspaceSurfaceModule}${editorErrorBannerModule}${uiPrelude}${footer}`;
 const emittedModuleNames = [...output.matchAll(/\/\* ─+ ([^\s]+\.(?:ts|tsx)) ─+ \*\//gu)].map((match) => match[1]);
 const unbundledRuntimeModules = findUnbundledRuntimeModules({
   clientDir: partsDir,

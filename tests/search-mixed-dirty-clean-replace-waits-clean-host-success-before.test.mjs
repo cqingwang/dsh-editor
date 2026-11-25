@@ -30,9 +30,13 @@ test('Every dirty path is preflighted and changed file/replacement totals are me
     replacementPlanner,
     /dirtyPlans\.push\(\{ path, model, before, text: rewritten\.text, count: rewritten\.count \}\)/,
   );
-  assert.match(replaceAll, /const dirtyReplacements = dirtyCommit\.count/);
   assert.match(replaceAll, /const dirtyUndo = dirtyReplaceUndo\(dirtyPlans\)/);
-  assert.match(replaceAll, /replaceOperationState\(\s+value,\s+hostChanged,\s+dirtyChanged,\s+dirtyReplacements/u);
+  assert.match(replaceAll, /trackDirtyReplace\(commitTracker, dirtyCommit, dirtyUndo\)/u);
+  assert.match(replaceAll, /committedReplaceOperationFromTracker\(commitTracker\)/u);
+  assert.match(
+    replaceAll,
+    /recordCommittedReplaceOperation\(operation, setFindReplaceRedoStack, setFindReplaceUndoStack\)/u,
+  );
   assert.match(replaceAll, /searchReplaceCountParams\(t, replacedCount, changed\.length\)/);
 });
 

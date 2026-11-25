@@ -17,6 +17,7 @@ function cwdHarness({ knownCwd, reportedCwd, listed = true }) {
       current: listed ? [{ id: 'terminal-a', cwd: knownCwd ?? '' }] : [],
     },
     terminalCwdRef: { current: cwdById },
+    terminalMetadataRef: { current: new Map() },
     setTerminals: (updater) => {
       stateUpdates += 1;
       updater([{ id: 'terminal-a', cwd: knownCwd ?? '' }]);
