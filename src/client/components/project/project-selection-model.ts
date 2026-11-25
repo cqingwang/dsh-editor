@@ -21,6 +21,44 @@ export interface ProjectTreeSelectionResult {
   anchor: string | null;
 }
 
+export interface ProjectSpeedSearchReturnSelection {
+  selection: Set<string>;
+  primary: string | null;
+}
+
+/**
+ * Restore the selection that existed before speed search when its primary row
+ * is still visible in the newly selected Project view.
+ *
+ * Speed search temporarily moves the cursor to the first hit. Switching views
+ * closes the search, so keeping that transient hit would either select an
+ * unrelated row or force the filtered-view fallback to the first row. The
+ * pre-search selection is the user's real navigation context when it survives
+ * the view change; otherwise the caller keeps the normal filtered-view
+ * reconciliation.
+ */
+export function projectSpeedSearchSelectionAfterViewChange(
+  previous: ProjectSpeedSearchReturnSelection | null | undefined,
+  rows: ProjectTreeSelectionRow[] | null | undefined,
+): ProjectSpeedSearchReturnSelection | null {
+  const primary = typeof previous?.primary === 'string' && previous.primary !== '' ? previous.primary : null;
+  if (previous === null || previous === undefined || primary === null) return null;
+  const visible = new Set(
+    (Array.isArray(rows) ? rows : [])
+      .filter((row) => row?.kind !== 'placeholder')
+      .map((row) => row.path)
+      .filter((path) => typeof path === 'string' && path !== ''),
+  );
+  if (!visible.has(primary)) return null;
+  const selection = new Set(
+    [...(previous.selection instanceof Set ? previous.selection : [])].filter(
+      (path) => typeof path === 'string' && visible.has(path),
+    ),
+  );
+  selection.add(primary);
+  return { selection, primary };
+}
+
 /** Scroll one rendered Project row into view and return keyboard ownership to the tree. */
 export function revealProjectRowElement(rowRefs: { current: Map<string, HTMLElement> }, path: string): void {
   const row = rowRefs.current.get(path);

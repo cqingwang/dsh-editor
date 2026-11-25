@@ -23,6 +23,19 @@ export interface CommitLogGraphScope {
   at: string | null;
 }
 
+export interface CommitGraphScopeFallback {
+  branch: string;
+  at: string;
+  notice: 'branch' | 'revision' | 'scope' | 'branch-at';
+}
+
+export interface CommitGraphScopeRequestResult<T> {
+  value: T;
+  branch: string;
+  at: string;
+  notice: CommitGraphScopeFallback['notice'] | null;
+}
+
 const COMMIT_SELECTION_KEY = 'dsh-editor.commit.selected';
 
 export function readStoredCommitSelection(): string | null {
@@ -83,6 +96,97 @@ export function normalizeCommitGraphScope(branch: unknown, at: unknown): CommitL
         branch: branchValue === '' ? null : branchValue,
         at: atValue === '' ? null : atValue,
       };
+}
+
+/**
+ * Ordered retries for a persisted graph scope that no longer resolves.
+ *
+ * A branch and a commit are independent filters. When both are stored, first
+ * keep the commit and drop only the branch; if that also fails, clear both.
+ * The caller only uses these after Git reports a stale ref, never for network
+ * or permission failures.
+ * @param {unknown} branch - persisted branch name.
+ * @param {unknown} at - persisted commit hash.
+ * @returns {CommitGraphScopeFallback[]} retries in least-destructive order.
+ */
+export function commitGraphScopeFallbackRequests(branch: unknown, at: unknown): CommitGraphScopeFallback[] {
+  const scope = normalizeCommitGraphScope(branch, at);
+  if (scope === null) return [];
+  const branchValue = scope.branch ?? '';
+  const atValue = scope.at ?? '';
+  if (branchValue !== '' && atValue !== '') {
+    return [
+      { branch: '', at: atValue, notice: 'branch-at' },
+      { branch: '', at: '', notice: 'scope' },
+    ];
+  }
+  if (branchValue !== '') return [{ branch: '', at: '', notice: 'branch' }];
+  return [{ branch: '', at: '', notice: 'revision' }];
+}
+
+/**
+ * Whether a Git failure means the persisted graph scope itself is stale.
+ *
+ * Retrying every failure would turn a transient Host problem into a silent
+ * scope reset. These are the messages Git emits for a deleted branch or an
+ * unreachable commit, including the Host's own validation errors.
+ * @param {unknown} message - failure message.
+ * @returns {boolean} true when the scope should be retried without its ref.
+ */
+export function commitGraphScopeFailureIsStale(message: unknown): boolean {
+  if (typeof message !== 'string' || message === '') return false;
+  return /unknown branch:|bad revision:|bad object|unknown revision|not a valid object name|ambiguous argument/iu.test(
+    message,
+  );
+}
+
+/** Locale key for the truthful notice shown after a stale scope fallback. */
+export function commitGraphScopeFallbackNoticeKey(notice: CommitGraphScopeFallback['notice']): string {
+  if (notice === 'branch') return 'editor.graphScopeBranchReset';
+  if (notice === 'revision') return 'editor.graphScopeRevisionReset';
+  if (notice === 'branch-at') return 'editor.graphScopeBranchAtReset';
+  return 'editor.graphScopeReset';
+}
+
+/**
+ * Request a graph, retrying only a stale persisted scope.
+ *
+ * The caller owns the abort signal and the final error presentation. This
+ * helper owns the ordered fallback so the workspace does not grow another
+ * request state machine.
+ */
+export async function requestCommitGraphWithScopeFallback<T>(
+  request: (branch: string, at: string) => Promise<T>,
+  branch: string,
+  at: string,
+  allowFallback: boolean,
+  shouldStop: () => boolean = () => false,
+): Promise<CommitGraphScopeRequestResult<T>> {
+  try {
+    return { value: await request(branch, at), branch, at, notice: null };
+  } catch (failure) {
+    if (
+      shouldStop() ||
+      !allowFallback ||
+      !commitGraphScopeFailureIsStale(failure instanceof Error ? failure.message : String(failure))
+    ) {
+      throw failure;
+    }
+    for (const fallback of commitGraphScopeFallbackRequests(branch, at)) {
+      if (shouldStop()) throw failure;
+      try {
+        return {
+          value: await request(fallback.branch, fallback.at),
+          branch: fallback.branch,
+          at: fallback.at,
+          notice: fallback.notice,
+        };
+      } catch {
+        if (shouldStop()) throw failure;
+      }
+    }
+    throw failure;
+  }
 }
 
 export function readStoredCommitGraphScope(workspaceId: string): CommitLogGraphScope | null {

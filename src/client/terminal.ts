@@ -2914,6 +2914,17 @@ export function revealInTree(
 }
 
 /**
+ * Whether a speed-search hit should also reveal the real Project tree.
+ *
+ * Filtered views already render the hit as a flat row. Expanding ancestors
+ * there would mutate the hidden Project Files expansion state for no visible
+ * benefit, so only the real tree view performs the reveal.
+ */
+export function projectSpeedSearchShouldRevealInTree(filteredView: boolean): boolean {
+  return filteredView !== true;
+}
+
+/**
  * What one indent column draws in a row: a full line or nothing.
  *
  * The last child of a subtree ends the column without drawing a horizontal

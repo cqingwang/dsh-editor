@@ -18,6 +18,7 @@ export interface CommitGraphRowProps {
   run: CommitGraphRun;
   lane: number;
   active: boolean;
+  hovered?: boolean;
   isMerge: boolean;
   isHead: boolean;
   rowRef?: React.Ref<HTMLDivElement>;
@@ -39,6 +40,7 @@ function CommitGraphRow({
   run,
   lane,
   active,
+  hovered = false,
   isMerge,
   isHead,
   rowRef,
@@ -68,7 +70,7 @@ function CommitGraphRow({
       aria-selected={active}
       style={{
         ...styles.commitGraphRow,
-        ...(active ? styles.commitGraphRowActive : null),
+        ...(active || hovered ? styles.commitGraphRowActive : null),
       }}
       title={entry.hash}
       onClick={(event) => {

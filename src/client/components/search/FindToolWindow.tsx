@@ -12,6 +12,7 @@ import { trapDialogFocus } from '../ui/focus-trap';
 import type { ToolbarActionLike } from '../ui/toolbar-model';
 import { FindScopeEditor } from './FindScopeEditor';
 import { SearchFileResultItem } from './SearchFileResultItem';
+import { searchHistoryMenuLabel } from './search-history-model';
 import type { FindToolSession } from './use-find-tool-sessions';
 import {
   centerPreviewLineInContainer,
@@ -850,7 +851,7 @@ function FindToolWindowView({
             ]
           : values.map((value, index) => ({
               id: `${kind}:${index}`,
-              label: value,
+              label: searchHistoryMenuLabel(value, kind, t),
               run: () => {
                 setHistoryMenu(null);
                 if (kind === 'query') onQuery(value);

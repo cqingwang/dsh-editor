@@ -16,6 +16,7 @@ import {
   changeTreeOf,
   collapseKeysOf,
   cycleChangeTarget,
+  diffNavigationEntries,
   type DiffChange,
   type DiffRow,
   type DiffTreeNode,
@@ -1366,14 +1367,17 @@ function CommitPanel({
                   group: 'diff',
                   icon: 'diff',
                   label: t('editor.showDiff'),
-                  disabled: gitNotManaged || selectedChange === null,
+                  disabled: gitNotManaged || chosenChangeList.length === 0,
                   active:
                     diffTarget !== null &&
                     selectedChange !== null &&
                     diffTarget.path === selectedChange.path &&
                     diffTarget.staged === selectedChange.staged,
                   onClick: () => {
-                    if (selectedChange !== null) onShowDiff?.(selectedChange);
+                    const navigationEntries = diffNavigationEntries(chosenChangeList);
+                    const primary = selectedChange ?? chosenChangeList[0];
+                    if (primary !== null && navigationEntries.length > 0)
+                      onShowDiff?.({ ...primary, navigationEntries });
                   },
                 },
                 {

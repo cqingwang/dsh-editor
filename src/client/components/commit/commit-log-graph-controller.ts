@@ -22,6 +22,35 @@ export function commitLogGraphCursor(rows: GraphRowIdentity[], cursor: string | 
   return rows[0].hash;
 }
 
+/**
+ * Keep the graph cursor on the commit whose detail is already visible.
+ *
+ * Scope changes can invalidate the old cursor while the selected commit is
+ * still present. Falling back to the first row in that case would highlight a
+ * different commit than the detail pane.
+ */
+export function commitLogGraphPreferredCursor(
+  rows: GraphRowIdentity[],
+  cursor: string | null,
+  selected: string | null,
+): string | null {
+  if (selected !== null && rows.some((row) => row.hash === selected)) return selected;
+  return commitLogGraphCursor(rows, cursor);
+}
+
+/**
+ * Keep the detail pane on a commit that the visible graph actually contains.
+ *
+ * Branch/tag scope and the local graph filter can remove the previously
+ * selected commit. The graph cursor already falls back to the first row; the
+ * detail pane must follow it instead of showing a commit outside the graph.
+ */
+export function commitLogGraphSelection(rows: GraphRowIdentity[], selected: string | null): string | null {
+  if (rows.length === 0) return selected;
+  if (selected !== null && rows.some((row) => row.hash === selected)) return selected;
+  return rows[0].hash;
+}
+
 export function commitLogGraphMove(
   rows: GraphRowIdentity[],
   cursor: string | null,

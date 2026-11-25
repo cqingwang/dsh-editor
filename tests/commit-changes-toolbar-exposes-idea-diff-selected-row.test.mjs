@@ -4,7 +4,10 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
+import { loadTypeScriptFunction } from './ts-source.mjs';
+
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
+const diffSource = readFileSync(join(root, 'src/client/diff.ts'), 'utf8');
 const source =
   readFileSync(join(root, 'src/client/components/commit/CommitPanel.tsx'), 'utf8') +
   '\n' +
@@ -22,10 +25,30 @@ test('the Changes toolbar exposes IDEA Show Diff for the selected row', () => {
      overflows instead of laying actions beyond its right edge. */
   assert.match(panel, /<CompactActionBar/);
   assert.match(panel, /ariaLabel=\{t\('editor\.changesActions'\)\}/);
-  assert.match(panel, /label: t\('editor\.showDiff'\),\s+disabled: gitNotManaged \|\| selectedChange === null,/u);
-  assert.match(panel, /if \(selectedChange !== null\) onShowDiff\?\.\(selectedChange\);/);
+  assert.match(
+    panel,
+    /label: t\('editor\.showDiff'\),\s+disabled: gitNotManaged \|\| chosenChangeList\.length === 0,/u,
+  );
+  assert.match(panel, /diffNavigationEntries\(chosenChangeList\)/u);
+  assert.match(panel, /onShowDiff\?\.\(\{ \.\.\.primary, navigationEntries \}\)/u);
   assert.match(panel, /active:\s+diffTarget !== null[\s\S]*?diffTarget\.path === selectedChange\.path/u);
   assert.match(panel, /onShowDiff,\n\s+onShowCombinedDiff,\n\s+onRollbackSelected,/);
+});
+
+test('Show Diff navigation keeps the selected rows in visual order', () => {
+  const navigationEntries = loadTypeScriptFunction(diffSource, 'diffNavigationEntries');
+  assert.deepEqual(
+    navigationEntries([
+      { path: 'README.md', staged: false },
+      { path: 'src/util.ts', staged: true },
+      { path: '', staged: false },
+      { staged: false },
+    ]),
+    [
+      { path: 'README.md', staged: false },
+      { path: 'src/util.ts', staged: true },
+    ],
+  );
 });
 
 test('Show Diff opens the selected change without toggling the existing diff closed', () => {

@@ -1,5 +1,6 @@
 import React from 'react';
 import { styles } from '../../ui/styles';
+import { searchHistoryMenuLabel } from '../search/search-history-model';
 import { ContextMenu } from '../ui/Menu';
 import { ToolbarButton } from '../ui/ToolbarButton';
 
@@ -233,7 +234,7 @@ function EditorFindBar({
                     ]
                   : historyValues.map((value, index) => ({
                       id: `${historyMenu.kind}:${index}`,
-                      label: value,
+                      label: searchHistoryMenuLabel(value, historyMenu.kind, t),
                       run: () => onSelectHistory(value),
                     })),
             }}

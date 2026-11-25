@@ -5,17 +5,18 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = readFileSync(join(root, 'lib/client.js'), 'utf8');
+const source = readFileSync(join(root, 'src/client/components/project/ProjectPanel.tsx'), 'utf8');
 
-test('after Enter in speed search the tree takes the keyboard back', () => {
-  /* IDEA's speed search is a navigation tool: once the hit is opened the tree owns
-     the arrow keys again. Leaving focus in the (now closed) input strands it. */
+test('after Enter in speed search a file hit hands the keyboard to the editor', () => {
+  /* IDEA's speed search is a navigation tool: a file hit is EditSource, so the
+     editor owns the keyboard after the file opens. A directory hit stays in the
+     tree because expansion and arrow navigation continue from that row. */
   const start = source.indexOf('const hit = hits.find');
   assert.notEqual(start, -1);
-  const block = source.slice(start, start + 2000);
-  assert.match(block, /treeRef\.current\?\.focus\(\)/);
-  /* Focus must come AFTER the search box closes, or it lands on a detached node. */
-  const focusAt = block.indexOf('treeRef.current?.focus()');
-  const closeAt = block.indexOf('setSearchOpen(false)');
-  assert.ok(closeAt !== -1 && focusAt > closeAt, 'focus must follow the close');
+  const block = source.slice(start, start + 2600);
+  assert.match(block, /onOpenEditSource\(hit\.path\)/u);
+  assert.doesNotMatch(block, /onOpen\(hit\.path\)/u);
+  assert.match(block, /if \(!opened\) window\.setTimeout\(\(\) => treeRef\.current\?\.focus\(\), 0\)/u);
+  assert.match(block, /if \(focusTree\) window\.setTimeout\(\(\) => treeRef\.current\?\.focus\(\), 0\)/u);
+  assert.match(block, /if \(action === 'expand'\) onToggle\(hit\.path\)/u);
 });

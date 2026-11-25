@@ -27,6 +27,15 @@ export interface DiffTarget {
   [key: string]: unknown;
 }
 
+/** Project selected Changes rows into the diff's bounded file-navigation set. */
+export function diffNavigationEntries(
+  targets: readonly { path?: unknown; staged?: unknown }[],
+): Array<{ path: string; staged: boolean }> {
+  return targets
+    .filter((target) => typeof target.path === 'string' && target.path !== '')
+    .map((target) => ({ path: target.path as string, staged: target.staged === true }));
+}
+
 interface DiffFilePosition {
   index: number;
   total: number;
@@ -227,6 +236,19 @@ export function diffIncludedSummaryState(total: number, included: boolean): 'all
  */
 export function diffSummaryVisibleForWidth(width: number): boolean {
   return !Number.isFinite(width) || width >= 380;
+}
+
+/**
+ * Whether the rollback inclusion label can keep its text beside the checkbox.
+ *
+ * The checkbox itself is the action; the text is only a hint. In a narrow
+ * Rollback diff the label pushed the hunk counter and Close action outside the
+ * toolbar, so keep the named checkbox and collapse only the visible text.
+ * @param {number} width - measured toolbar width.
+ * @returns {boolean} true when the full label fits.
+ */
+export function diffRollbackIncludeLabelVisibleForWidth(width: number): boolean {
+  return !Number.isFinite(width) || width >= 420;
 }
 
 /**

@@ -12,6 +12,7 @@ import {
   projectContextMenuRowAfterKeyboard,
   projectPrimaryHiddenByCollapse,
   projectSelectionAfterDirectoryCollapse,
+  projectSpeedSearchSelectionAfterViewChange,
   type ProjectTreeSelectionModifiers,
 } from './project-selection-model';
 import {
@@ -40,6 +41,7 @@ import {
   highlightParts,
   indexChangesByDirectory,
   projectSpeedSearchKeyAction,
+  projectSpeedSearchShouldRevealInTree,
   projectTreePositions,
   projectViewDefinitions,
   revealInTree,
@@ -116,8 +118,7 @@ export interface ProjectPanelProps {
   error: string | null;
   createState: CreateState | null;
   onToggle: ProjectCallback;
-  onOpen: ProjectCallback;
-  onOpenEditSource: ProjectCallback;
+  onOpenEditSource: (path: string) => Promise<boolean>;
   onOpenPreview: (path: string) => void;
   onRevealPath: ProjectCallback;
   onSelect: (row: ProjectRow, event: ProjectTreeSelectionModifiers, selectionRows?: ProjectRow[]) => void;
@@ -191,7 +192,6 @@ function ProjectPanel({
   error,
   createState,
   onToggle,
-  onOpen,
   onOpenEditSource,
   onOpenPreview,
   onRevealPath,
@@ -313,6 +313,7 @@ function ProjectPanel({
   const directSpeedSearchRef = React.useRef('');
   const searchRequestRef = React.useRef(0);
   const searchReturnSelectionRef = React.useRef<{ selection: Set<string>; primary: string | null } | null>(null);
+  const projectViewSearchRestoreRef = React.useRef(0);
   const closeProjectViewMenu = React.useCallback(() => {
     setViewMenu(null);
     window.setTimeout(() => {
@@ -502,12 +503,21 @@ function ProjectPanel({
     if (previousProjectViewRef.current === projectView) return;
     previousProjectViewRef.current = projectView;
     if (!searchOpen) return;
+    const previous = searchReturnSelectionRef.current;
     searchReturnSelectionRef.current = null;
     directSpeedSearchRef.current = '';
     clearTreeSearchState();
     setSearchOpen(false);
-    window.setTimeout(() => treeRef.current?.focus(), 0);
-  }, [clearTreeSearchState, projectView, searchOpen, treeRef]);
+    const requestId = ++projectViewSearchRestoreRef.current;
+    window.setTimeout(() => {
+      if (projectViewSearchRestoreRef.current !== requestId) return;
+      const restored = projectSpeedSearchSelectionAfterViewChange(previous, rows);
+      if (restored !== null && onApplySelection !== undefined) {
+        onApplySelection(restored.selection, restored.primary, restored.primary);
+      }
+      treeRef.current?.focus();
+    }, 0);
+  }, [clearTreeSearchState, onApplySelection, projectView, rows, searchOpen, treeRef]);
   React.useEffect(() => {
     if (!searchOpen || (createState === null && renameState === null)) return undefined;
     /* IDEA closes speed search when inline New/Rename takes over. Keeping the
@@ -1273,17 +1283,22 @@ function ProjectPanel({
                   ...hit,
                   open: expanded.has(hit.path),
                 });
+                let focusTree = true;
                 if (action === 'expand') onToggle(hit.path);
                 else if (action === 'open') {
-                  onOpen(hit.path);
+                  focusTree = false;
+                  void onOpenEditSource(hit.path).then((opened) => {
+                    if (!opened) window.setTimeout(() => treeRef.current?.focus(), 0);
+                  });
                   /* Search rows synthesize their ancestor chain. Once the box
                      closes that chain disappears, so reveal the real file or the
                      tree would fall back to its nearest collapsed ancestor. */
-                  onRevealPath?.(hit.path);
+                  if (projectSpeedSearchShouldRevealInTree(filteredView)) onRevealPath?.(hit.path);
                 }
-                /* Hand the keyboard back to the tree: the search box is gone, and
-             leaving focus on a detached input strands the arrow keys. */
-                window.setTimeout(() => treeRef.current?.focus(), 0);
+                /* A file hit is EditSource: the editor owns the keyboard. A
+             directory hit stays in the tree so expansion and arrow navigation
+             continue from the row the user just chose. */
+                if (focusTree) window.setTimeout(() => treeRef.current?.focus(), 0);
               }
             }}
           />

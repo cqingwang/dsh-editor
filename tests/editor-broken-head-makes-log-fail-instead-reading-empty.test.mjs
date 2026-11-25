@@ -31,7 +31,7 @@ test('a broken HEAD makes the log fail instead of reading as empty', async (t) =
 
 test('git failures surface the sentence git actually wrote', () => {
   const failure = Object.assign(new Error('Command failed: git -C /w log -n60 --skip=0 --pretty=format:…'), {
-    stderr: 'warning: refname is ambiguous\nfatal: your current branch \'nope\' does not have any commits yet\n',
+    stderr: "warning: refname is ambiguous\nfatal: your current branch 'nope' does not have any commits yet\n",
   });
   assert.equal(describeGitError(failure), "fatal: your current branch 'nope' does not have any commits yet");
   /* No stderr at all: fall back to the error's own message, never "[object Object]". */
@@ -63,6 +63,23 @@ test('the graph clears the previous failure on success', async () => {
     commitLogStorage: { readGraphScope: () => null, writeGraphScope: () => {} },
     beginLogRequest: () => new AbortController(),
     finishLogRequest: () => {},
+    requestCommitGraphWithScopeFallback: async (request, branch, at) => ({
+      value: await request(branch, at),
+      branch,
+      at,
+      notice: null,
+    }),
+    commitGraphPayloadFromResponse: (value) => value,
+    emptyCommitGraphPayload: (branch, at) => ({
+      entries: [],
+      branches: [],
+      tags: [],
+      branchList: [],
+      tagList: [],
+      head: null,
+      branch: branch === '' ? null : branch,
+      at: at === '' ? null : at,
+    }),
     callGit: async () => ({
       entries: [],
       branches: [],

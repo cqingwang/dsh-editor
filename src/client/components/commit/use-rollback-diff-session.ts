@@ -13,6 +13,7 @@ export interface RollbackDiffSession {
   deleteAdded: boolean;
   selectedKey: string;
   scrollTop: number;
+  groupByDirectory: boolean;
   resume: (initial: RollbackDialogInitial) => void;
 }
 
@@ -48,6 +49,7 @@ export function beginRollbackDiffSession(
     deleteAdded: decision.deleteAdded,
     selectedKey: rollbackDialogEntryKey(decision.entry),
     scrollTop: decision.scrollTop,
+    groupByDirectory: decision.groupByDirectory,
     resume,
   });
 }
@@ -56,11 +58,12 @@ export function beginRollbackDiffSession(
 export function rollbackDiffTarget(
   entry: RollbackDialogEntry,
   entries: RollbackDialogEntry[],
+  groupByDirectory = false,
 ): { path: string; staged: boolean; navigationEntries: Array<{ path: string; staged: boolean }> } {
   return {
     path: entry.path,
     staged: entry.group === 'staged',
-    navigationEntries: rollbackNavigationEntries(entries),
+    navigationEntries: rollbackNavigationEntries(entries, groupByDirectory),
   };
 }
 
@@ -71,6 +74,7 @@ export function resumeRollbackDiffSession(session: RollbackDiffSession): void {
     deleteAdded: session.deleteAdded,
     selectedKey: session.selectedKey,
     scrollTop: session.scrollTop,
+    groupByDirectory: session.groupByDirectory,
   });
 }
 

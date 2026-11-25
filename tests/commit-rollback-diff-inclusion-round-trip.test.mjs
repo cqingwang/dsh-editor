@@ -17,6 +17,7 @@ const localeSource = read('src/client/locales.ts');
 test('Rollback dialog restores the previous inclusion and deleteAdded state', () => {
   assert.match(dialogSource, /initial\.selectedKeys === undefined/u);
   assert.match(dialogSource, /initial\.deleteAdded === true/u);
+  assert.match(dialogSource, /initial\.groupByDirectory \?\? readRollbackDialogGroupByDirectory\(\)/u);
   assert.match(dialogSource, /selectedEntries: entries\.filter/u);
   assert.match(dialogSource, /deleteAdded: deleteAddedCheckbox\.checked/u);
 });
@@ -26,6 +27,8 @@ test('Rollback diff exposes IDEA Include in rollback and resumes the dialog', ()
   assert.match(sessionSource, /resume,/u);
   assert.match(sessionSource, /selectedKey: rollbackDialogEntryKey\(decision\.entry\)/u);
   assert.match(sessionSource, /scrollTop: decision\.scrollTop/u);
+  assert.match(sessionSource, /groupByDirectory: decision\.groupByDirectory/u);
+  assert.match(sessionSource, /groupByDirectory: session\.groupByDirectory/u);
   assert.match(diffSource, /rollbackInclusion\?: \{ included: boolean; onToggle: \(included: boolean\) => void \}/u);
   assert.match(diffSource, /checked=\{rollbackInclusion\.included\}/u);
   assert.match(diffSource, /rollbackInclusion\.onToggle\(event\.target\.checked\)/u);

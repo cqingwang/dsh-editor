@@ -18,7 +18,7 @@ test('Graph mode applies the shared text filter before deriving visible rows', (
 });
 
 test('filtering the Graph revalidates the keyboard cursor against visible rows', () => {
-  assert.match(source, /\}, \[filter, graphCursor, graphFolded, graph\?\.entries\]\);/u);
+  assert.match(source, /\}, \[filter, graphCursor, graphFolded, graph\?\.entries, graphMode, selected\]\);/u);
 });
 
 test('Graph filtering reports no matches instead of a false empty-branch state', async () => {

@@ -24,19 +24,29 @@ test('ContextMenu restores its opener and falls back when the opener unmounts', 
   assert.doesNotMatch(menu, /document\.body\.focus/);
 });
 
-test('all Search Everywhere context menus fall back to the query', () => {
+test('Search Everywhere context menus fall back to their owning fields', () => {
   const fallback = 'fallbackFocus: () => searchInputRef.current?.focus?.()';
-  assert.equal((dialog.match(/fallbackFocus: \(\) => searchInputRef\.current\?\.focus\?\.\(\)/g) ?? []).length, 5);
+  assert.equal((dialog.match(/fallbackFocus: \(\) => searchInputRef\.current\?\.focus\?\.\(\)/g) ?? []).length, 4);
   assert.ok(dialog.includes(fallback));
+  assert.match(
+    dialog,
+    /fallbackFocus: \(\) => \(replaceInputRef\.current \?\? searchInputRef\.current\)\?\.focus\?\.\(\)/u,
+  );
 });
 
 test('Filter close explicitly returns to query instead of relying on unmount', () => {
-  assert.match(dialog, /const closeFilterMenu = React\.useCallback\(\(\) => \{[\s\S]*?setFilterMenu\(null\);[\s\S]*?searchInputRef\.current\?\.focus/);
+  assert.match(
+    dialog,
+    /const closeFilterMenu = React\.useCallback\(\(\) => \{[\s\S]*?setFilterMenu\(null\);[\s\S]*?searchInputRef\.current\?\.focus/,
+  );
   assert.match(dialog, /onClose=\{closeFilterMenu\}/);
 });
 
 test('Item Info close remains query-owned rather than opener-owned', () => {
-  assert.match(dialog, /const closeResultInfo = React\.useCallback\(\(\) => \{[\s\S]*?setResultInfo\(null\);[\s\S]*?searchInputRef\.current\?\.focus/);
+  assert.match(
+    dialog,
+    /const closeResultInfo = React\.useCallback\(\(\) => \{[\s\S]*?setResultInfo\(null\);[\s\S]*?searchInputRef\.current\?\.focus/,
+  );
   const itemClose = dialog.slice(
     dialog.indexOf("aria-label={t('editor.searchItemClose')}"),
     dialog.indexOf('×', dialog.indexOf("aria-label={t('editor.searchItemClose')}")),

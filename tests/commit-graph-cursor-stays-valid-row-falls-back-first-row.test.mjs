@@ -7,10 +7,18 @@ import { loadTypeScriptModule } from './ts-source.mjs';
 const root = new URL('../', import.meta.url);
 const read = (path) => readFile(new URL(path, root), 'utf8');
 const source = await read('src/client/components/commit/commit-log-graph-controller.ts');
-const { commitLogGraphCursor, commitLogGraphKeyIntent, commitLogGraphMove } = loadTypeScriptModule(source, [
+const {
+  commitLogGraphCursor,
+  commitLogGraphKeyIntent,
+  commitLogGraphMove,
+  commitLogGraphPreferredCursor,
+  commitLogGraphSelection,
+} = loadTypeScriptModule(source, [
   'commitLogGraphCursor',
   'commitLogGraphKeyIntent',
   'commitLogGraphMove',
+  'commitLogGraphPreferredCursor',
+  'commitLogGraphSelection',
 ]);
 const rows = [{ hash: 'a' }, { hash: 'b' }, { hash: 'c' }];
 
@@ -19,6 +27,20 @@ test('graph cursor stays on a valid row or falls back to the first row', () => {
   assert.equal(commitLogGraphCursor(rows, 'missing'), 'a');
   assert.equal(commitLogGraphCursor(rows, null), 'a');
   assert.equal(commitLogGraphCursor([], 'a'), null);
+});
+
+test('graph selection follows the visible rows when a branch scope removes the old commit', () => {
+  assert.equal(commitLogGraphSelection(rows, 'b'), 'b');
+  assert.equal(commitLogGraphSelection(rows, 'missing'), 'a');
+  assert.equal(commitLogGraphSelection(rows, null), 'a');
+  assert.equal(commitLogGraphSelection([], 'missing'), 'missing');
+});
+
+test('graph cursor prefers a still-visible selected commit over a stale cursor', () => {
+  assert.equal(commitLogGraphPreferredCursor(rows, 'a', 'b'), 'b');
+  assert.equal(commitLogGraphPreferredCursor(rows, 'a', 'missing'), 'a');
+  assert.equal(commitLogGraphPreferredCursor(rows, 'missing', 'missing'), 'a');
+  assert.equal(commitLogGraphPreferredCursor([], 'a', 'b'), null);
 });
 
 test('graph movement clamps ends and prefers the cursor before hover', () => {
@@ -55,7 +77,8 @@ test('CommitLog uses the extracted graph controller', async () => {
   const build = await read('scripts/build-client.mjs');
   const client = await read('lib/client.js');
 
-  assert.match(log, /commitLogGraphCursor\(graphRows, graphCursor\)/u);
+  assert.match(log, /commitLogGraphPreferredCursor\(graphRows, graphCursor, selected\)/u);
+  assert.match(log, /commitLogGraphSelection\(graphRows, selected\)/u);
   assert.match(log, /commitLogGraphMove\(graphRows, graphCursor, graphHover, delta\)/u);
   assert.match(log, /commitLogGraphKeyIntent\(event\.key, event\.shiftKey === true\)/u);
   assert.match(build, /commit-log-graph-controller\.ts/u);

@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
-import { loadTypeScriptFunction } from './ts-source.mjs';
+import { loadTypeScriptFunction, transpileTypeScriptFunction } from './ts-source.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const read = (path) => readFileSync(join(root, path), 'utf8');
@@ -47,6 +47,46 @@ test('rollback dialog identities keep the same path distinct across bands', () =
   assert.equal(key({ path: 'src/new.ts', group: 'unversioned' }), 'unversioned:src/new.ts');
 });
 
+test('rollback dialog directory grouping keeps entry indices and sorts directories', () => {
+  const keyCode = transpileTypeScriptFunction(dialogSource, 'rollbackDialogEntryKey');
+  const directoryCode = transpileTypeScriptFunction(dialogSource, 'rollbackDialogDirectory');
+  const rowsCode = transpileTypeScriptFunction(dialogSource, 'rollbackDialogDisplayRows');
+  const indicesCode = transpileTypeScriptFunction(dialogSource, 'rollbackDialogVisualEntryIndices');
+  const displayRows = new Function(
+    `${keyCode}\n${directoryCode}\n${rowsCode}\n${indicesCode}\nreturn { rollbackDialogDisplayRows, rollbackDialogVisualEntryIndices };`,
+  )();
+  const directory = loadTypeScriptFunction(dialogSource, 'rollbackDialogDirectory');
+  assert.equal(directory('README.md'), '');
+  assert.equal(directory('src/util.ts'), 'src');
+  assert.equal(directory('src/nested/app.ts'), 'src/nested');
+
+  const entries = [
+    { path: 'src/util.ts', group: 'unstaged' },
+    { path: 'README.md', group: 'unstaged' },
+    { path: 'src/new-feature.ts', group: 'unversioned' },
+    { path: 'tests/app.test.ts', group: 'unstaged' },
+  ];
+  assert.deepEqual(
+    displayRows.rollbackDialogDisplayRows(entries, false).map((row) => row.kind),
+    ['entry', 'entry', 'entry', 'entry'],
+  );
+  const grouped = displayRows.rollbackDialogDisplayRows(entries, true);
+  assert.deepEqual(
+    grouped.map((row) => row.kind),
+    ['group', 'entry', 'group', 'entry', 'entry', 'group', 'entry'],
+  );
+  assert.deepEqual(
+    grouped.filter((row) => row.kind === 'group').map((row) => row.directory),
+    ['', 'src', 'tests'],
+  );
+  assert.deepEqual(
+    grouped.filter((row) => row.kind === 'entry').map((row) => row.entryIndex),
+    [1, 0, 2, 3],
+  );
+  assert.deepEqual(displayRows.rollbackDialogVisualEntryIndices(entries, false), [0, 1, 2, 3]);
+  assert.deepEqual(displayRows.rollbackDialogVisualEntryIndices(entries, true), [1, 0, 2, 3]);
+});
+
 test('rollback confirmation copy follows the discarded band', () => {
   const confirmKey = loadTypeScriptFunction(dialogSource, 'rollbackConfirmKey');
   assert.equal(confirmKey(true, false, false), 'editor.rollbackAllConfirm');
@@ -63,6 +103,18 @@ test('rollback confirmation copy follows the actual dialog rows', () => {
   assert.equal(
     confirmKey([{ path: 'src/new.ts', group: 'unversioned' }], true, false, false),
     'editor.rollbackUnversionedConfirm',
+  );
+  assert.equal(
+    confirmKey(
+      [
+        { path: 'src/util.ts', group: 'unstaged' },
+        { path: 'src/new.ts', group: 'unversioned' },
+      ],
+      true,
+      false,
+      false,
+    ),
+    'editor.rollbackMixedUnversionedConfirm',
   );
 });
 
@@ -127,6 +179,17 @@ test('Rollback dialog rows toggle inclusion with Space and keep one tab stop', (
   );
   assert.match(dialogSource, /meta: event\.metaKey === true \|\| event\.ctrlKey === true/u);
   assert.match(dialogSource, /shift: event\.shiftKey === true/u);
+});
+
+test('Rollback dialog offers optional directory grouping without changing entry navigation', () => {
+  assert.match(dialogSource, /groupByCheckbox\.dataset\.dshRollbackConfirmGroupBy = ''/);
+  assert.match(dialogSource, /groupByCheckbox\.setAttribute\('aria-label', t\('editor\.rollbackDialogGroupBy'\)\)/);
+  assert.match(dialogSource, /rollbackDialogDisplayRows\(entries, groupByDirectory\)/);
+  assert.match(dialogSource, /rollbackDialogVisualEntryIndices\(entries, groupByDirectory\)/);
+  assert.match(dialogSource, /currentGroup\.setAttribute\('role', 'group'\)/);
+  assert.match(dialogSource, /header\.setAttribute\('role', 'presentation'\)/);
+  assert.match(dialogSource, /groupByDirectory,/);
+  assert.match(dialogSource, /selectRow\(selectedIndex, false\);/);
 });
 
 test('Rollback dialog row navigation keys reach the row handler', () => {
@@ -206,7 +269,7 @@ test('Commit rollback uses the shared dialog and opens the selected diff', () =>
     block,
     /\.\.\.\(all \? \{ all: true, \.\.\.\(deleteAdded \? \{ deleteAdded: true \} : \{\}\) \} : \{\}\)/u,
   );
-  assert.match(block, /rollbackDiffTarget\(decision\.entry, decision\.entries\)/u);
+  assert.match(block, /rollbackDiffTarget\(decision\.entry, decision\.entries, decision\.groupByDirectory\)/u);
   assert.doesNotMatch(block, /window\.confirm/u);
 });
 
@@ -246,6 +309,32 @@ test('rollback Show Diff keeps file navigation inside the dialog scope', () => {
   );
 });
 
+test('rollback Show Diff navigation follows the visible directory grouping order', () => {
+  const keyCode = transpileTypeScriptFunction(dialogSource, 'rollbackDialogEntryKey');
+  const directoryCode = transpileTypeScriptFunction(dialogSource, 'rollbackDialogDirectory');
+  const rowsCode = transpileTypeScriptFunction(dialogSource, 'rollbackDialogDisplayRows');
+  const indicesCode = transpileTypeScriptFunction(dialogSource, 'rollbackDialogVisualEntryIndices');
+  const navigationCode = transpileTypeScriptFunction(dialogSource, 'rollbackNavigationEntries');
+  const navigationEntries = new Function(
+    `${keyCode}\n${directoryCode}\n${rowsCode}\n${indicesCode}\n${navigationCode}\nreturn rollbackNavigationEntries;`,
+  )();
+  const entries = [
+    { path: 'src/util.ts', group: 'unstaged' },
+    { path: '.idea/vcs.xml', group: 'unversioned' },
+    { path: 'src/new-feature.ts', group: 'unversioned' },
+  ];
+  assert.deepEqual(navigationEntries(entries, false), [
+    { path: 'src/util.ts', staged: false },
+    { path: '.idea/vcs.xml', staged: false },
+    { path: 'src/new-feature.ts', staged: false },
+  ]);
+  assert.deepEqual(navigationEntries(entries, true), [
+    { path: '.idea/vcs.xml', staged: false },
+    { path: 'src/util.ts', staged: false },
+    { path: 'src/new-feature.ts', staged: false },
+  ]);
+});
+
 test('Rollback dialog copy exists in both dictionaries', () => {
   for (const key of [
     'rollbackDialogTitle',
@@ -261,8 +350,11 @@ test('Rollback dialog copy exists in both dictionaries', () => {
     'rollbackDialogUnversioned',
     'rollbackDialogAll',
     'rollbackDialogDeleteAdded',
+    'rollbackDialogGroupBy',
+    'rollbackDialogRootDirectory',
     'rollbackSelectedCount',
     'rollbackAllConfirm',
+    'rollbackMixedUnversionedConfirm',
   ]) {
     const matches = [...localeSource.matchAll(new RegExp(`${key}:`, 'g'))];
     assert.equal(matches.length, 2, `${key} must exist once in zh and once in en`);

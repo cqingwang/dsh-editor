@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-import { transpileTypeScriptFunction } from './ts-source.mjs';
+import { loadTypeScriptModule, transpileTypeScriptFunction } from './ts-source.mjs';
 
 const searchEverywhereSource = await readFile(
   new URL('../src/client/components/search/SearchEverywhere.tsx', import.meta.url),
@@ -10,6 +10,10 @@ const searchEverywhereSource = await readFile(
 );
 const workspaceSource = await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8');
 const commitSource = await readFile(new URL('../src/client/commit.ts', import.meta.url), 'utf8');
+const historyModelSource = await readFile(
+  new URL('../src/client/components/search/search-history-model.ts', import.meta.url),
+  'utf8',
+);
 const source = [
   searchEverywhereSource,
   workspaceSource,
@@ -32,17 +36,17 @@ function extractSourceFunction(name, text = commitSource) {
 
 function rememberFindQueryHistory() {
   return new Function(
-    `${transpileTypeScriptFunction(commitSource, 'normalizeFindQueryHistoryEntry')};`
-      + `${transpileTypeScriptFunction(commitSource, 'rememberFindQueryHistory')};`
-      + 'return rememberFindQueryHistory;',
+    `${transpileTypeScriptFunction(commitSource, 'normalizeFindQueryHistoryEntry')};` +
+      `${transpileTypeScriptFunction(commitSource, 'rememberFindQueryHistory')};` +
+      'return rememberFindQueryHistory;',
   )();
 }
 
 function rememberReplacementHistory() {
   return new Function(
-    `${transpileTypeScriptFunction(commitSource, 'normalizeReplacementHistoryEntry')};`
-      + `${transpileTypeScriptFunction(commitSource, 'rememberReplacementHistory')};`
-      + 'return rememberReplacementHistory;',
+    `${transpileTypeScriptFunction(commitSource, 'normalizeReplacementHistoryEntry')};` +
+      `${transpileTypeScriptFunction(commitSource, 'rememberReplacementHistory')};` +
+      'return rememberReplacementHistory;',
   )();
 }
 
@@ -93,14 +97,30 @@ test('Find and replacement history menus replay blank entries through their owne
     source.indexOf('const FindToolWindow = FindToolWindowView;', source.lastIndexOf('function FindToolWindowView(')),
   );
   assert.match(findTool, /if \(kind === 'query'\) onQuery\(value\);\s+else onReplace\(value\);/u);
-  assert.match(findTool, /label: value,/u);
+  assert.match(findTool, /label: searchHistoryMenuLabel\(value, kind, t\),/u);
 
   const searchEverywhere = source.slice(
     source.indexOf('function SearchEverywhere('),
     source.indexOf('const FindToolWindow = FindToolWindowView;', source.lastIndexOf('function FindToolWindowView(')),
   );
   assert.match(searchEverywhere, /onReplaceChange\(value\);/u);
-  assert.match(searchEverywhere, /label: value,/u);
+  assert.match(searchEverywhere, /label: searchHistoryMenuLabel\(value, 'replace', t\),/u);
+});
+
+test('empty history entries receive visible localized labels', () => {
+  const helpers = loadTypeScriptModule(historyModelSource, ['searchHistoryMenuLabel']);
+  const t = (key) =>
+    key === 'editor.findHistoryEmptyQuery'
+      ? 'Empty query'
+      : key === 'editor.findHistoryEmptyReplacement'
+        ? 'Empty replacement'
+        : 'Whitespace';
+  assert.equal(helpers.searchHistoryMenuLabel('', 'query', t), 'Empty query');
+  assert.equal(helpers.searchHistoryMenuLabel('', 'replace', t), 'Empty replacement');
+  assert.equal(helpers.searchHistoryMenuLabel('   ', 'query', t), 'Whitespace');
+  assert.equal(helpers.searchHistoryMenuLabel('\t', 'replace', t), 'Whitespace');
+  assert.equal(helpers.searchHistoryMenuLabel('\n', 'replace', t), 'Whitespace');
+  assert.equal(helpers.searchHistoryMenuLabel('value', 'replace', t), 'value');
 });
 
 test('History replay returns keyboard ownership to the replayed field', () => {
@@ -108,15 +128,24 @@ test('History replay returns keyboard ownership to the replayed field', () => {
     source.lastIndexOf('function FindToolWindowView('),
     source.indexOf('const FindToolWindow = FindToolWindowView;', source.lastIndexOf('function FindToolWindowView(')),
   );
-  assert.match(findTool, /kind === 'query' \? queryInputRef\.current : \(replaceInputRef\.current \?\? queryInputRef\.current\)/u);
+  assert.match(
+    findTool,
+    /kind === 'query' \? queryInputRef\.current : \(replaceInputRef\.current \?\? queryInputRef\.current\)/u,
+  );
   assert.match(findTool, /input\?\.focus\?\.\(\)/u);
 
   const searchEverywhere = source.slice(
     source.indexOf('function SearchEverywhere('),
     source.indexOf('const FindToolWindow = FindToolWindowView;', source.lastIndexOf('function FindToolWindowView(')),
   );
-  assert.match(searchEverywhere, /onQuery\(value\);\s+window\.setTimeout\(\(\) => searchInputRef\.current\?\.focus\?\.\(\), 0\)/u);
-  assert.match(searchEverywhere, /onReplaceChange\(value\);\s+window\.setTimeout\(\(\) => replaceInputRef\.current\?\.focus\?\.\(\), 0\)/u);
+  assert.match(
+    searchEverywhere,
+    /onQuery\(value\);\s+window\.setTimeout\(\(\) => searchInputRef\.current\?\.focus\?\.\(\), 0\)/u,
+  );
+  assert.match(
+    searchEverywhere,
+    /onReplaceChange\(value\);\s+window\.setTimeout\(\(\) => replaceInputRef\.current\?\.focus\?\.\(\), 0\)/u,
+  );
 
   assert.match(source, /'\[data-dsh-editor-find-input\]'\s+: '\[data-dsh-editor-find-replace-input\]'/u);
   assert.match(source, /document\.querySelector(?:<[^>]+>)?\(selector\)\?\.focus\?\.\(\)/u);

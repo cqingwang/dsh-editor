@@ -60,7 +60,7 @@ test('CommitLog keyboard navigation uses folded graph rows', () => {
     logSource,
     /const graphRows = React\.useMemo\(\s*\(\) => \(graphMode \? graphDisplayEntries\(filteredGraphEntries, graphFolded\) : graphEntries\),/,
   );
-  assert.match(logSource, /commitLogGraphCursor\(graphRows, graphCursor\)/);
+  assert.match(logSource, /commitLogGraphPreferredCursor\(graphRows, graphCursor, selected\)/);
   assert.match(logSource, /setGraphCursor\(next\.hash\)/);
   assert.match(logSource, /graphLogMenuTarget\(graphRows, graphCursor, selected\)/);
   assert.match(logSource, /onShow\?\.\(command\.hash\)/);

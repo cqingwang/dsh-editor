@@ -12,6 +12,7 @@ import { ToolbarButton } from '../ui/ToolbarButton';
 import { trapDialogFocus } from '../ui/focus-trap';
 import type { ToolbarActionLike } from '../ui/toolbar-model';
 import { SearchFileResultItem } from './SearchFileResultItem';
+import { searchHistoryMenuLabel } from './search-history-model';
 import {
   SEARCH_EVERYWHERE_ALL_FILE_RESULT_LIMIT,
   SEARCH_EVERYWHERE_ALL_TEXT_RESULT_LIMIT,
@@ -1037,7 +1038,7 @@ function SearchEverywhere({
               ]
             : values.map((value, index) => ({
                 id: `query-history:${index}`,
-                label: value,
+                label: searchHistoryMenuLabel(value, 'query', t),
                 run: () => {
                   onQuery(value);
                   window.setTimeout(() => searchInputRef.current?.focus?.(), 0);
@@ -1121,6 +1122,10 @@ function SearchEverywhere({
   const openReplaceHistoryMenu = (event: React.SyntheticEvent<HTMLElement>): void => {
     event.preventDefault();
     event.stopPropagation();
+    /* ContextMenu returns focus to the element that owned it when it opened.
+       The toolbar button is not the replacement field, so move focus there
+       first; otherwise an outside click returns to the query field. */
+    replaceInputRef.current?.focus?.();
     const rect = event.currentTarget.getBoundingClientRect();
     const values = Array.isArray(replaceHistory) ? replaceHistory : [];
     setReplaceHistoryMenu({
@@ -1139,7 +1144,7 @@ function SearchEverywhere({
             ]
           : values.map((value, index) => ({
               id: `replace-history:${index}`,
-              label: value,
+              label: searchHistoryMenuLabel(value, 'replace', t),
               run: () => {
                 onReplaceChange(value);
                 window.setTimeout(() => replaceInputRef.current?.focus?.(), 0);
@@ -2058,7 +2063,7 @@ function SearchEverywhere({
           onClose={() => setReplaceHistoryMenu(null)}
           menu={{
             ...replaceHistoryMenu,
-            fallbackFocus: () => searchInputRef.current?.focus?.(),
+            fallbackFocus: () => (replaceInputRef.current ?? searchInputRef.current)?.focus?.(),
             escapeFocus: () => (replaceInputRef.current ?? searchInputRef.current)?.focus?.(),
           }}
         />

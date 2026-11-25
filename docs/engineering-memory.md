@@ -3,6 +3,295 @@
 本文件只记录长期有效的架构约束、设计规范、关键根因和回归边界。单轮命令输出、
 临时端口、PR 过程、重复测试数字不在这里长期保留。
 
+## 2026-11-25：纯空白查询/替换历史项仍显示为空白菜单行
+
+- 作用域：Search Everywhere、Find Tool、Editor Find 的 query/replace history
+  菜单，以及纯空格、Tab、换行历史项的可访问名称。
+- 症状：空字符串历史项已显示 `Empty query` / `Empty replacement`，但纯空白字符
+  仍直接作为 label，24px 菜单行视觉上接近空白，`aria-label` 也只是空白字符。
+- 根因：`searchHistoryMenuLabel` 只判断 `value === ''`，没有覆盖
+  `value.trim() === ''` 的真实历史值。
+- 修复：纯空白历史项显示 `Whitespace` / `空白字符`；空字符串仍按 query/replace
+  区分；普通文本保持原文。历史存储、去重、回填和替换语义不变。
+- 回归：`tests/search-find-query-history-records-deduplicates-one-empty-entry.test.mjs`
+  新增空格、Tab、换行断言。
+- 真实 Web：向 demo replacement history 注入纯空格项后，Search Everywhere 的
+  Replace History 显示 `Whitespace`，`aria-label` 同样非空；测试后已恢复
+  localStorage。
+
+## 2026-11-25：空查询/空替换历史项渲染为空白菜单行
+
+- 作用域：Search Everywhere、Find Tool、Editor Find 的 query/replace history
+  菜单，以及空字符串历史项的可访问名称。
+- 症状：空 replacement 是真实历史项（用于重放删除），但菜单直接使用原始值作为
+  label，渲染成空白行且 `aria-label` 为空；用户无法识别或通过屏幕阅读器选择它。
+- 根因：三处历史菜单都使用 `label: value`，没有区分“空历史值”和“无历史记录”。
+- 修复：新增共享 `searchHistoryMenuLabel(value, kind, t)`；空 query 显示
+  `Empty query` / `空查询`，空 replacement 显示 `Empty replacement` / `空替换`，
+  非空值保持原文。Search Everywhere、Find Tool 和 Editor Find 统一复用。
+- 回归：`tests/search-find-query-history-records-deduplicates-one-empty-entry.test.mjs`
+  新增 helper 断言，并更新三处菜单接线断言。
+- 真实 Web：向 demo 的 replacement history 注入空项后，Search Everywhere 的
+  Replace History 显示 `Empty replacement`，`aria-label` 同样非空；测试后已恢复
+  localStorage。
+
+## 2026-11-25：Project speed search 文件命中后焦点错误留在 tree
+
+- 作用域：Project speed search 按 Enter 打开文件/目录后的键盘归属、EditSource
+  与 Project tree 的焦点边界。
+- 症状：在 Open Files 或 Project Files 中搜索文件并按 Enter，文件 tab 已切换，
+  但焦点仍被写回 Project tree；用户还要再点一次编辑器才能继续输入。
+- 根因：Enter 路径统一调用 `onOpen`（只切换 active tab）并无条件
+  `treeRef.current?.focus()`；目录命中需要 tree 焦点，文件命中却应等价于
+  IDEA EditSource。
+- 修复：文件命中改走 `onOpenEditSource`，由现有 `focusEditorOnNextFrame`
+  在 Monaco 就绪后聚焦编辑器；打开失败时回退到 Project tree。目录命中、
+  无命中 Enter、Escape 和视图切换仍回到 tree。
+- 回归：`tests/search-after-enter-speed-search-tree-takes-keyboard-back.test.mjs`、
+  `tests/search-enter-speed-search-opens-hit-not-just-highlights.test.mjs`、
+  `tests/project-double-clicking-project-file-opens-editsource-focuses-editor.test.mjs`。
+- 真实 Web：Open Files 搜索 `read` 后 Enter，`README.md` 打开且
+  `document.activeElement` 是 Monaco textarea；Project Files 搜索 `src` 后
+  Enter，`src` 展开且焦点仍在 Project tree。
+- IDEA 对照：文件命中是 EditSource，编辑器拥有键盘；目录命中留在 tree 继续
+  展开和方向键导航。
+
+## 2026-11-25：Project speed search 切换视图丢失搜索前 selection
+
+- 作用域：Project Files / Open Files / All Changed Files 的 speed search、
+  视图切换、selection/primary 恢复和 filtered-view fallback。
+- 症状：在 Open Files 中选中 `util.ts`，搜索 `read` 后 cursor 自动移到
+  `README.md`；此时切到 All Changed Files，搜索关闭后选中了第一行
+  `.idea/vcs.xml`，而不是搜索前的 `util.ts`。
+- 根因：视图切换 effect 只清空搜索状态，没有恢复 `searchReturnSelectionRef`；
+  同时父级 `filteredViewSelection` effect 会先按当前搜索命中做可见性收敛，
+  子组件立即恢复 selection 会被父级 effect 覆盖。
+- 修复：新增 `projectSpeedSearchSelectionAfterViewChange`，仅当搜索前 primary
+  仍存在于新视图完整行集合时恢复搜索前 selection；ProjectPanel 在视图切换后
+  用 request id 保护的 0ms 任务恢复 selection，确保父级 filtered-view 收敛
+  先完成，再落回用户真实导航上下文。primary 不可见时仍交给
+  `filteredViewSelection` 选择可见回退行。
+- 回归：`tests/project-speed-search-selection-uses-filtered-row-universe.test.mjs`
+  覆盖可见恢复、不可见回退和 ProjectPanel 接线。
+- 真实 Web：Open Files 选中 `util.ts`，搜索 `read` 自动命中 `README.md`，
+  切到 All Changed Files 后 `util.ts` 恢复选中，搜索框关闭且焦点回到 Project
+  tree；Enter 打开 `new-feature.ts` 与 Escape 恢复 `new-feature.ts` 仍正常。
+- IDEA 对照：切换 Project 视图会结束临时 speed search，用户应回到搜索前的
+  导航上下文；只有该行在新视图不可见时才允许回退到可见行。
+
+## 2026-11-25：Commit Graph hover 改写 aria-selected 且 scope 切换可能覆盖 cursor
+
+- 作用域：Commit Log Graph 的鼠标 hover、键盘 cursor、selected commit、branch
+  scope 切换和 `aria-selected`。
+- 症状：鼠标移到另一条 commit 时，`aria-selected` 跟着 hover 行移动，屏幕阅读器
+  会把悬停误报为选中；同时 scope 切换时 cursor 回退逻辑可能覆盖仍可见的 selected
+  commit，造成高亮行和 detail pane 分叉。
+- 根因：`CommitLog` 把 `graphHover ?? graphCursor ?? selected` 作为 Graph 的
+  `selected`，而 `CommitGraphRow` 用同一个 `active` 同时控制视觉高亮和
+  `aria-selected`；cursor 回退 effect 也没有优先保留仍可见的 selected commit。
+- 修复：Graph 新增独立 `hovered` 输入，hover 只影响视觉背景，`aria-selected`
+  只跟随 cursor/selection；新增 `commitLogGraphPreferredCursor`，scope 变化时
+  优先保留仍可见的 selected commit，再回退到 cursor 或第一行。
+- 回归：`tests/commit-commitgraphrow-owns-row-semantics-idea-decorations.test.mjs`、
+  `tests/commit-graph-cursor-stays-valid-row-falls-back-first-row.test.mjs`、
+  `tests/commit-graph-text-filter-narrows-visible-rows.test.mjs`。
+- 真实 Web：demo 选中 baseline 后 hover `a63ebad`，视觉背景变化但
+  `aria-selected` 仍为 baseline；切换 main scope 后移开指针，cursor 和 detail
+  都保持 baseline。临时 `demo-old` 分支已删除。
+- IDEA 对照：IDEA 的 hover 是临时视觉反馈，不会改变当前 commit 选择；DSH 现在
+  保持同一语义。
+
+## 2026-11-25：Changes 多选 Show Diff 只打开当前行
+
+- 作用域：Commit Changes 工具栏 Show Diff、Changes 多行选择、Diff 文件导航和
+  差异计数。
+- 症状：Changes 中同时选中多个文件后点击 Show Diff，DSH 只把 `selectedChange`
+  传给 diff，文件导航显示 `1/1`；IDEA 对同一多选会打开单窗口 diff，并允许在
+  所选文件之间前后导航。
+- 根因：`CommitPanel` 的 Show Diff action 只调用
+  `onShowDiff(selectedChange)`，没有把 `chosenChangeList` 转成
+  `navigationEntries`；`DiffTarget` 已支持该字段，但 Changes 工具栏没有使用。
+- 修复：新增 `diffNavigationEntries(targets)`，过滤无效路径并保留视觉顺序；
+  Show Diff 使用 `chosenChangeList` 生成导航集合，以 `selectedChange` 为主行，
+  单行选择仍得到 `1/1`。按钮启用条件改为当前有可见选中行。
+- 回归：`tests/commit-changes-toolbar-exposes-idea-diff-selected-row.test.mjs`
+  新增导航集合顺序断言，并更新 Show Diff action 断言。
+- 真实 Web：demo 同时选中 `README.md` 与 `src/util.ts` 后 Show Diff 显示
+  `2/2`；Previous file 回到 `README.md` 并显示 `1/2`。验收后关闭 diff，未执行
+  Rollback；临时 README 改动已恢复。
+- IDEA 对照：IDEA 多文件 Show Diff 是单窗口 + 文件导航，不是多个独立 diff
+  窗口；DSH 现在保持同一交互模型。
+
+## 2026-11-25：混合 tracked/unversioned Rollback 确认文案隐藏删除后果
+
+- 作用域：Commit Changes 工具栏 Rollback、混合选择 tracked 与 unversioned 文件、
+  `rollbackDialogConfirmKey` 和 Rollback Changes 对话框确认文案。
+- 症状：同时选择 `src/util.ts` 与未纳入版本控制的 `.idea/*`、`src/new-feature.ts`
+  后，Rollback 会删除 unversioned 文件，但对话框只显示
+  `Discard uncommitted changes in 4 file(s)?`，没有说明其中文件会被删除。
+- 根因：`rollbackDialogConfirmKey` 只在“全部都是 unversioned”时选择删除文案；
+  混合 band 直接落到通用 `rollbackConfirm`，而 Host 的 `all` 模式仍会删除
+  unversioned 文件。
+- 修复：新增 `editor.rollbackMixedUnversionedConfirm`，当 entries 同时包含
+  unversioned 与其他 band 时明确说明“回滚未提交修改并删除其中未纳入版本控制的
+  文件”。纯 unversioned、纯 staged、纯 all 的既有文案保持不变。
+- 回归：`tests/commit-rollback-confirmation-dialog.test.mjs` 新增混合 band 文案
+  断言，并检查中英文字典各存在一次。
+- 真实 Web：demo 同时选择 4 个变更后，Rollback 对话框显示
+  `Roll back uncommitted changes in 4 file(s) and delete the unversioned files
+among them? This cannot be undone.`；验收后取消对话框，未执行 Rollback。
+- IDEA 对照：IDEA Rollback Changes 对话框只列出 tracked change，unversioned
+  文件不进入该对话框；DSH 保留显式删除能力，但必须把破坏性后果写进确认文案。
+
+## 2026-11-25：Rollback Show Diff 文件导航忽略目录分组顺序
+
+- 作用域：Commit Changes → Rollback Changes → Group by directory → Show Diff 的
+  文件导航、差异计数和上一/下一文件动作。
+- 症状：对话框按目录分组后，视觉顺序已经变为 `.idea/*`、`src/*`，但 Show Diff
+  仍按原始 entries 顺序导航；从 `src/util.ts` 点 Next file 会跳到
+  `.idea/vcs.xml`，差异计数也显示 `1/4` 而不是视觉上的 `3/4`。
+- 根因：`rollbackNavigationEntries` 直接 `entries.map(...)`，没有使用
+  `rollbackDialogVisualEntryIndices`；`rollbackDiffTarget` 也没有接收
+  `decision.groupByDirectory`，所以 diff 导航和对话框视觉顺序分叉。
+- 修复：`rollbackNavigationEntries(entries, groupByDirectory)` 在分组时按
+  `rollbackDialogVisualEntryIndices` 生成导航身份；`rollbackDiffTarget` 透传
+  `groupByDirectory`，EditorWorkspace 使用 `decision.groupByDirectory`。
+- 回归：`tests/commit-rollback-confirmation-dialog.test.mjs` 新增目录分组导航
+  顺序断言，并更新 `rollbackDiffTarget` 调用断言。
+- 真实 Web：demo 4 个变更开启 Directory 分组后，`src/util.ts` 的 diff 显示
+  `3/4`；Next file 进入 `src/new-feature.ts` 并显示 `4/4`。验收后关闭 diff 和
+  对话框，未执行 Rollback，demo 改动保持不变。
+- IDEA 对照：IDEA Rollback Changes 的目录树顺序就是 diff 文件导航顺序；DSH
+  保持扁平 listbox，但导航身份必须与用户看到的视觉顺序一致。
+
+## 2026-11-25：Rollback 目录分组偏好只在单次 Show Diff 会话内保留
+
+- 作用域：Commit Changes → Rollback Changes 的 `Group by directory`、对话框关闭/
+  重开、Show Diff 往返和浏览器刷新后的恢复。
+- 症状：在 Rollback 对话框中开启目录分组后，关闭对话框再重新打开会回到未分组；
+  Show Diff 往返能保留，但跨对话框调用丢失，和 IDEA 的持久 Group By 行为不一致。
+- 根因：`groupByDirectory` 只存在于 `confirmRollback` 的局部变量和 Show Diff
+  session 中；对话框没有读取或写入任何持久偏好，`initial.groupByDirectory`
+  缺省时直接按 `false` 处理。
+- 修复：新增 `readRollbackDialogGroupByDirectory` /
+  `writeRollbackDialogGroupByDirectory`，使用
+  `dsh-editor.rollback.groupByDirectory` 保存布尔偏好；对话框初始化使用
+  `initial.groupByDirectory ?? readRollbackDialogGroupByDirectory()`，用户切换时
+  立即写入。localStorage 被禁用或抛错时回退为未分组，不阻断对话框。
+- 回归：`tests/commit-rollback-group-by-preference-persists.test.mjs`，并更新
+  `tests/commit-rollback-diff-inclusion-round-trip.test.mjs` 的恢复断言。
+- 真实 Web：demo 的 `src/util.ts` Rollback 对话框中开启 Directory 分组后，
+  localStorage 写入 `1`，列表出现 `src` group；关闭并重新打开仍为选中；
+  刷新页面后再次打开仍为选中。验收后已关闭对话框并清除测试偏好，未执行 Rollback。
+- IDEA 对照：IDEA Rollback Changes 的 Group By 选择在关闭并重新打开对话框后
+  仍保留；DSH 保留扁平 listbox 语义，只持久化目录分组偏好，不复制 IDEA 的
+  Module 分组或完整树。
+
+## 2026-11-25：Rollback Diff 窄宽度工具栏挤掉差异计数和关闭按钮
+
+- 作用域：Commit Changes → Rollback Changes → Show Diff 的窄 Editor 分栏、
+  `Include in rollback` 复选框、差异计数、关闭按钮和工具栏容量测量。
+- 症状：311px 宽的 Rollback diff 中，`Include in rollback` 文本占 111px，
+  工具栏 `scrollWidth=389` 大于 `clientWidth=311`；差异计数 `1/1` 和
+  `Close Diff Editor` 被 `overflow:hidden` 裁掉，用户只能依赖 Esc。
+- 根因：工具栏只对右侧动作组做容量收缩，固定控件中的 rollback 标签文本没有
+  响应式降级；同时 `diffFixedLayoutKey` 没有包含 rollback inclusion 是否出现，
+  复选框挂载时不会重新测量固定宽度。
+- 修复：新增 `diffRollbackIncludeLabelVisibleForWidth`，窄宽度只保留带
+  `aria-label` 的复选框并隐藏文本；把 rollback inclusion 和标签可见性加入
+  `diffFixedLayoutKey`，确保固定宽度变化触发重新测量。
+- 回归：`tests/commit-rollback-diff-toolbar-keeps-close-and-hunk-controls.test.mjs`。
+- 真实 Web：demo 的 `src/util.ts` Rollback Show Diff 在 311px 宽度下
+  `scrollWidth=311`，`Include in rollback` 复选框仍可访问，差异计数 `1/1`
+  和关闭按钮可见；关闭 diff 后 Rollback 对话框恢复并聚焦 `src/util.ts` 行。
+- IDEA 对照：IDEA 的 Rollback diff 是独立宽窗口，顶部保留
+  `Include in rollback`、差异计数和关闭窗口；DSH 在窄分栏中保留同一组
+  核心动作，只折叠标签文字，不隐藏真实状态。
+
+## 2026-11-25：Persisted Commit Graph scope 失效后进入不可恢复错误态
+
+- 作用域：Commit Graph 的 persisted branch/commit scope、Graph 加载失败、
+  scope 清理和状态提示。
+- 症状：localStorage 保存的分支被删除后，Graph 请求直接失败；branch select
+  显示空值、Graph 为空，用户只能手动切回 All branches，且没有说明旧 scope
+  已失效。
+- 根因：`loadGraph` 把 persisted scope 当作当前有效 ref 直接请求 Host；
+  Host 对未知 branch / 不可达 commit 返回 stale-ref 错误，客户端没有区分
+  这类错误与网络/权限失败，也没有清理失效 scope。
+- 修复：新增 `requestCommitGraphWithScopeFallback`，只在
+  `unknown branch`、`bad revision`、`bad object` 等 stale-ref 错误上重试；
+  先保留 commit 去掉 branch，再退到全部分支。成功后写回规范化 scope，并用
+  `graphScopeBranchReset` / `graphScopeBranchAtReset` /
+  `graphScopeRevisionReset` / `graphScopeReset` 提示真实回退。Graph payload
+  归一化和空 scope 构造抽到
+  `commit-log-view-model.ts`，避免 `editor-workspace.tsx` 越过 12600 行守卫。
+- 回归：`tests/commit-graph-stale-scope-falls-back.test.mjs`，并更新
+  `editor-graph-refresh-failure-preserves-same-scope`、
+  `editor-broken-head-makes-log-fail-instead-reading-empty`、
+  `commit-graph-reports-parents-refs-branch-heads` 的 loadGraph 替身。
+- 真实 Web：demo 写入 `{ branch: "deleted-branch", at: null }` 后刷新并打开
+  Commit Graph，scope 被清除，branch select 回到 All branches，Graph 显示
+  3 条真实提交，并提示 `Branch deleted-branch no longer exists; showing all
+branches`。
+- 真实 Web：demo 写入失效 branch + 有效 commit 后，scope 规范化为
+  `{ branch: null, at: "<hash>" }`，Graph 保留该提交历史，并提示
+  `Branch deleted-branch no longer exists; showing history at a63ebad`。
+
+## 2026-11-25：Rollback 对话框缺少目录分组且分组后键盘顺序错位
+
+- 作用域：Commit Changes → Rollback Changes 文件列表、Group by directory、
+  Arrow/Home/End 导航、Shift 范围选择、Show Diff 往返。
+- 症状：IDEA 的 Rollback Changes 可按 Directory/Module 分组；DSH 只有扁平
+  列表。首次实现目录分组后，视觉顺序按目录排序，但 ArrowDown 仍按原始
+  entries 顺序移动，`src/util.ts` 会跳到 `.idea/vcs.xml` 而不是同组的
+  `src/new-feature.ts`。
+- 根因：分组只改变 DOM 渲染顺序，`selectRow` 和键盘导航仍使用
+  `entries.map(...)` 的原始顺序；Shift 范围选择也沿用了同一错误顺序。
+- 修复：新增 `rollbackDialogDisplayRows` 和
+  `rollbackDialogVisualEntryIndices`，分组时按目录排序并保留 entry index；
+  `selectRow`、Arrow/Home/End 和 Shift 范围选择统一使用视觉 entry 顺序。
+  Group by directory 状态写入 Show Diff session，关闭 diff 后恢复分组和
+  当前行。DSH 不伪造 Module 分组，因为当前数据源没有模块模型。
+- 回归：`tests/commit-rollback-confirmation-dialog.test.mjs`、
+  `tests/commit-rollback-diff-inclusion-round-trip.test.mjs`。
+- 真实 Web：demo 4 个变更按 `.idea` / `src` 分组；`src/util.ts` 按
+  ArrowDown 到 `src/new-feature.ts`；Space 切换 inclusion 后 Show Diff，
+  关闭 diff 后分组仍开启且焦点回到 `src/new-feature.ts`；取消分组后恢复
+  原始顺序并回到 `.idea/vcs.xml`。
+- IDEA 对照：IDEA Group By 菜单提供 Directory 和 Module；DSH 只实现有真实
+  数据源的 Directory，并保留扁平 listbox 语义，不复制完整树。
+
+## 2026-11-25：Search Everywhere 单独切换 Preserve case 不持久化
+
+- 作用域：Search Everywhere More actions 的 Preserve case、搜索选项
+  localStorage、Find Tool 与 Search Everywhere 的选项一致性。
+- 症状：在 Search Everywhere 中只切换 Preserve case 后关闭/刷新，下一次打开
+  仍恢复旧值；Find Tool 的 Preserve case 却能正常持久化。
+- 根因：`writeSearchOptions(searchEverywhere)` 的 effect 依赖数组包含
+  caseSensitive、wholeWords、regex、includeNonProject、fileMask，却漏掉
+  `preserveCase`。状态本身已更新，但 effect 不会因该字段单独变化而执行。
+- 修复：把 `searchEverywhere?.preserveCase` 加入同一持久化 effect 依赖；
+  Find Tool 的现有依赖保持不变。
+- 回归：`tests/search-everywhere-preserve-case-persists-on-toggle.test.mjs`。
+- 真实 Web：Search Everywhere 中把 Preserve case 从 true 切到 false 后，
+  `dsh-editor.search.options.v1` 立即写入 `preserveCase:false`；刷新后重新
+  打开 Search Everywhere，More actions 中 Preserve case 仍为未选中。
+
+## 2026-11-25：Project 过滤视图 speed search 污染隐藏的真实树展开状态
+
+- 作用域：Project 的 Open Files / All Changed Files speed search、Enter 打开
+  命中、Project Files 展开状态。
+- 症状：在 All Changed Files 中搜索 `util` 并按 Enter 打开文件后，切回
+  Project Files，原本折叠的 `src` 被展开；用户没有在真实树中执行展开操作。
+- 根因：speed search Enter 路径无条件调用 `onRevealPath`，而该回调是
+  `revealInProjectTree`，会为路径祖先执行 `setExpanded`。过滤视图的行已经
+  是扁平可见行，不需要也不应该修改隐藏的真实树。
+- 修复：新增 `projectSpeedSearchShouldRevealInTree(filteredView)`；只有真实
+  Project Files 视图在打开命中后 reveal，过滤视图只打开文件并保留原树状态。
+- 回归：`tests/project-speed-search-selection-uses-filtered-row-universe.test.mjs`。
+- 真实 Web：Project Files 中折叠 `src`，切到 All Changed Files 搜索 `util`
+  并 Enter 打开 `src/util.ts`，再切回 Project Files，`src` 仍保持折叠。
+
 ## 2026-11-25：Persisted commit scope 仍被标成 tag scope
 
 - 作用域：Commit Graph 的 persisted `at` scope、tag badge、scope chip 和

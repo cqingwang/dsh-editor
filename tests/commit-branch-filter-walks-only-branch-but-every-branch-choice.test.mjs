@@ -41,12 +41,18 @@ test('a branch filter walks only that branch but keeps every branch choice', asy
   assert.equal(all.branch, null);
 
   const feature = await gitGraph(dir, { limit: 50, branch: 'feature' });
-  assert.deepEqual(feature.entries.map((entry) => entry.subject), ['feature work', 'root commit']);
+  assert.deepEqual(
+    feature.entries.map((entry) => entry.subject),
+    ['feature work', 'root commit'],
+  );
   assert.equal(feature.branch, 'feature');
   /* The dropdown must still offer `main`; after filtering, the decorations no
      longer mention it and the user could not switch back. */
   assert.deepEqual(feature.branchList.sort(), ['feature', 'main']);
-  assert.equal(feature.entries.some((entry) => entry.subject === 'main work'), false);
+  assert.equal(
+    feature.entries.some((entry) => entry.subject === 'main work'),
+    false,
+  );
 });
 
 test('the graph marks the checked-out commit so HEAD is distinguishable', async (t) => {
@@ -93,8 +99,9 @@ test('the graph rows are reachable with the keyboard', () => {
   assert.match(log, /onShow\?\.\(command\.hash\)/);
   /* The active row scrolls itself into view; a keyboard cursor off-screen is useless. */
   assert.match(graph, /rowRef=\{active \? scrollGraphRowIntoView : undefined\}/);
-  /* A hovered row wins over the cursor so the two never fight over the highlight. */
-  assert.match(log, /selected=\{graphHover \?\? graphCursor \?\? selected\}/);
+  /* Hover is visual only; selection semantics stay on the cursor/selected commit. */
+  assert.match(log, /selected=\{graphCursor \?\? selected\}/);
+  assert.match(log, /hovered=\{graphHover\}/);
   /* Moving by keyboard takes the highlight away from the pointer, and leaving the
      list drops the hover: otherwise the two fight and the cursor looks stuck. */
   assert.match(log, /setGraphHover\(null\);\n\s+setGraphCursor\(next\.hash\);/);

@@ -19,14 +19,14 @@ test('ContextMenu exposes an Escape-only focus target without changing outside-c
   assert.match(menu, /onClose\(\);\s+window\.setTimeout\(\(\) => escapeFocus\?\.\(\), 0\);/u);
 });
 
-test('Search Everywhere history menus return Escape focus to their owning fields', () => {
+test('Search Everywhere history menus return focus to their owning fields', () => {
   assert.match(
     searchEverywhere,
     /fallbackFocus: \(\) => searchInputRef\.current\?\.focus\?\.\(\),\s+escapeFocus: \(\) => searchInputRef\.current\?\.focus\?\.\(\),/u,
   );
   assert.match(
     searchEverywhere,
-    /fallbackFocus: \(\) => searchInputRef\.current\?\.focus\?\.\(\),\s+escapeFocus: \(\) => \(replaceInputRef\.current \?\? searchInputRef\.current\)\?\.focus\?\.\(\),/u,
+    /fallbackFocus: \(\) => \(replaceInputRef\.current \?\? searchInputRef\.current\)\?\.focus\?\.\(\),\s+escapeFocus: \(\) => \(replaceInputRef\.current \?\? searchInputRef\.current\)\?\.focus\?\.\(\),/u,
   );
 });
 

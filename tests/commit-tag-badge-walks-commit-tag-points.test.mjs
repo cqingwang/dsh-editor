@@ -150,7 +150,8 @@ test('both log views mark the commit the detail pane shows', () => {
   assert.match(client, /setSelectedCommit\(hash\);/);
   assert.match(client, /selectionIncluded=\{selectedCommits\.includes\(commit\.hash\)\}/);
   assert.match(client, /aria-selected=\{selectionIncluded\}/);
-  assert.match(client, /selected=\{graphHover \?\? graphCursor \?\? selected\}/);
+  assert.match(client, /selected=\{graphCursor \?\? selected\}/);
+  assert.match(client, /hovered=\{graphHover\}/);
   /* Walking the graph with the keyboard loads the detail pane, like IDEA's log. */
   assert.match(client, /const next = commitLogGraphMove\(graphRows, graphCursor, graphHover, delta\);/);
   assert.match(client, /onShow\?\.\(next\.hash\);/);

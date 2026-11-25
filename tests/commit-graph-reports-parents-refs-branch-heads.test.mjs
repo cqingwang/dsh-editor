@@ -42,7 +42,10 @@ test('the graph reports parents, refs and both branch heads', async (t) => {
   assert.deepEqual(graph.branches, ['feature', 'main']);
   assert.deepEqual(graph.tags, ['tag: v1']);
   /* Plumbing prefixes must be stripped or the badges read like git internals. */
-  assert.equal(graph.entries.some((entry) => entry.refs.some((ref) => ref.includes('refs/'))), false);
+  assert.equal(
+    graph.entries.some((entry) => entry.refs.some((ref) => ref.includes('refs/'))),
+    false,
+  );
 });
 
 test('the graph is bounded by the requested limit', async (t) => {
@@ -86,6 +89,23 @@ test('the graph loads on demand, not with every log refresh', async () => {
     commitLogStorage: { readGraphScope: () => null, writeGraphScope: () => {} },
     beginLogRequest: () => new AbortController(),
     finishLogRequest: () => {},
+    requestCommitGraphWithScopeFallback: async (request, branch, at) => ({
+      value: await request(branch, at),
+      branch,
+      at,
+      notice: null,
+    }),
+    commitGraphPayloadFromResponse: (value) => value,
+    emptyCommitGraphPayload: (branch, at) => ({
+      entries: [],
+      branches: [],
+      tags: [],
+      branchList: [],
+      tagList: [],
+      head: null,
+      branch: branch === '' ? null : branch,
+      at: at === '' ? null : at,
+    }),
     callGit: async (request) => {
       requests.push(request);
       return {
@@ -104,6 +124,7 @@ test('the graph loads on demand, not with every log refresh', async () => {
       graph = value;
     },
     setLogError: () => {},
+    reportGitFailure: () => {},
   });
   await loadGraph('main', 'v1');
   assert.deepEqual(requests, [{ op: 'graph', limit: 80, branch: 'main', at: 'v1' }]);

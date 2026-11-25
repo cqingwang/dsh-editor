@@ -42,6 +42,7 @@ export interface CommitGraphProps {
   busy?: boolean;
   onShow?: (hash: string) => void;
   selected?: string | null;
+  hovered?: string | null;
   selectionHashes?: string[];
   onRowClick?: (
     entry: CommitGraphEntryData,
@@ -63,6 +64,7 @@ function CommitGraphView({
   busy = false,
   onShow,
   selected,
+  hovered,
   selectionHashes = [],
   onRowClick,
   onSelect,
@@ -127,6 +129,7 @@ function CommitGraphView({
         const lane = laneOf.get(entry.hash) ?? 0;
         const isMerge = entry.parents.length > 1;
         const active = selected === entry.hash || selectedHashes.has(entry.hash);
+        const rowHovered = hovered === entry.hash;
         /* IDEA marks the checked-out commit with a HEAD badge: without it a row
          with a branch badge looks identical to the row you are standing on. */
         const isHead = head !== null && head === entry.hash;
@@ -138,6 +141,7 @@ function CommitGraphView({
             run={run as CommitGraphRun}
             lane={lane}
             active={active}
+            hovered={rowHovered}
             isMerge={isMerge}
             isHead={isHead}
             rowRef={active ? scrollGraphRowIntoView : undefined}

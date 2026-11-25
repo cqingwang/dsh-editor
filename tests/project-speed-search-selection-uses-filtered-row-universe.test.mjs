@@ -1,9 +1,12 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
+import { loadTypeScriptModule } from './ts-source.mjs';
 
-const panel = await readFile(
-  new URL('../src/client/components/project/ProjectPanel.tsx', import.meta.url),
+const panel = await readFile(new URL('../src/client/components/project/ProjectPanel.tsx', import.meta.url), 'utf8');
+const terminal = await readFile(new URL('../src/client/terminal.ts', import.meta.url), 'utf8');
+const selectionModel = await readFile(
+  new URL('../src/client/components/project/project-selection-model.ts', import.meta.url),
   'utf8',
 );
 const workspace = await readFile(new URL('../src/client/editor-workspace.tsx', import.meta.url), 'utf8');
@@ -39,4 +42,40 @@ test('cancelling Project speed search restores the pre-search selection', () => 
     /const previous = searchReturnSelectionRef\.current;[\s\S]*?onApplySelection\(previous\.selection, previous\.primary, previous\.primary\)/u,
   );
   assert.match(panel, /searchReturnSelectionRef\.current = null;/u);
+});
+
+test('filtered Project speed search opens without expanding the hidden real tree', () => {
+  const helpers = loadTypeScriptModule(terminal, ['projectSpeedSearchShouldRevealInTree']);
+  assert.equal(helpers.projectSpeedSearchShouldRevealInTree(false), true);
+  assert.equal(helpers.projectSpeedSearchShouldRevealInTree(true), false);
+  assert.match(panel, /if \(projectSpeedSearchShouldRevealInTree\(filteredView\)\) onRevealPath\?\.\(hit\.path\);/u);
+});
+
+test('switching Project view restores the pre-search selection when it is still visible', () => {
+  const helpers = loadTypeScriptModule(selectionModel, ['projectSpeedSearchSelectionAfterViewChange']);
+  const restored = helpers.projectSpeedSearchSelectionAfterViewChange(
+    { selection: new Set(['src/util.ts']), primary: 'src/util.ts' },
+    [
+      { path: 'src/util.ts', kind: 'file' },
+      { path: 'README.md', kind: 'file' },
+    ],
+  );
+  assert.deepEqual([...restored.selection], ['src/util.ts']);
+  assert.equal(restored.primary, 'src/util.ts');
+});
+
+test('switching Project view leaves a hidden pre-search selection to filtered fallback', () => {
+  const helpers = loadTypeScriptModule(selectionModel, ['projectSpeedSearchSelectionAfterViewChange']);
+  const restored = helpers.projectSpeedSearchSelectionAfterViewChange(
+    { selection: new Set(['src/util.ts']), primary: 'src/util.ts' },
+    [{ path: 'README.md', kind: 'file' }],
+  );
+  assert.equal(restored, null);
+});
+
+test('ProjectPanel restores the pre-search selection before filtered-view reconciliation', () => {
+  assert.match(
+    panel,
+    /const previous = searchReturnSelectionRef\.current;[\s\S]*?const requestId = \+\+projectViewSearchRestoreRef\.current;[\s\S]*?projectSpeedSearchSelectionAfterViewChange\(previous, rows\)[\s\S]*?onApplySelection\(restored\.selection, restored\.primary, restored\.primary\)/u,
+  );
 });

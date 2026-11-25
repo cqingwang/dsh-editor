@@ -12,9 +12,75 @@ export interface RollbackDialogEntry {
   added?: boolean;
 }
 
+export interface RollbackDialogDisplayRow {
+  kind: 'group' | 'entry';
+  key: string;
+  directory?: string;
+  entry?: RollbackDialogEntry;
+  entryIndex?: number;
+}
+
 /** Stable dialog identity: the same path can exist in more than one band. */
 export function rollbackDialogEntryKey(entry: RollbackDialogEntry): string {
   return `${entry.group}:${entry.path}`;
+}
+
+/** Workspace-relative directory used by the dialog's optional grouping. */
+export function rollbackDialogDirectory(path: unknown): string {
+  const value = typeof path === 'string' ? path : '';
+  const slash = value.lastIndexOf('/');
+  return slash < 0 ? '' : value.slice(0, slash);
+}
+
+/**
+ * Build the visual rows for the rollback list.
+ *
+ * DSH keeps the dialog as a flat listbox instead of copying IDEA's full tree.
+ * Directory grouping is therefore a visual section header over the same
+ * selectable rows; keyboard navigation still walks entry rows only.
+ */
+export function rollbackDialogDisplayRows(
+  entries: readonly RollbackDialogEntry[],
+  groupByDirectory: boolean,
+): RollbackDialogDisplayRow[] {
+  if (!groupByDirectory) {
+    return entries.map((entry, entryIndex) => ({
+      kind: 'entry',
+      key: rollbackDialogEntryKey(entry),
+      entry,
+      entryIndex,
+    }));
+  }
+  const groups = new Map<string, Array<{ entry: RollbackDialogEntry; entryIndex: number }>>();
+  for (const [entryIndex, entry] of entries.entries()) {
+    const directory = rollbackDialogDirectory(entry.path);
+    const items = groups.get(directory) ?? [];
+    items.push({ entry, entryIndex });
+    groups.set(directory, items);
+  }
+  const rows: RollbackDialogDisplayRow[] = [];
+  for (const directory of [...groups.keys()].sort((left, right) => left.localeCompare(right))) {
+    rows.push({ kind: 'group', key: `group:${directory}`, directory });
+    for (const item of groups.get(directory) ?? []) {
+      rows.push({
+        kind: 'entry',
+        key: rollbackDialogEntryKey(item.entry),
+        entry: item.entry,
+        entryIndex: item.entryIndex,
+      });
+    }
+  }
+  return rows;
+}
+
+/** Entry indices in the order the user sees them. */
+export function rollbackDialogVisualEntryIndices(
+  entries: readonly RollbackDialogEntry[],
+  groupByDirectory: boolean,
+): number[] {
+  return rollbackDialogDisplayRows(entries, groupByDirectory)
+    .filter((row) => row.kind === 'entry' && typeof row.entryIndex === 'number')
+    .map((row) => row.entryIndex as number);
 }
 
 /** Restore the dialog's keyboard row without inventing an out-of-range index. */
@@ -64,6 +130,7 @@ export type RollbackDialogResult =
       selectedEntries: RollbackDialogEntry[];
       deleteAdded: boolean;
       scrollTop: number;
+      groupByDirectory: boolean;
     };
 
 export interface RollbackDialogInitial {
@@ -71,6 +138,27 @@ export interface RollbackDialogInitial {
   deleteAdded?: boolean;
   selectedKey?: string;
   scrollTop?: number;
+  groupByDirectory?: boolean;
+}
+
+/** IDEA remembers the Rollback Changes grouping across dialog invocations. */
+export function readRollbackDialogGroupByDirectory(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    return window.localStorage.getItem('dsh-editor.rollback.groupByDirectory') === '1';
+  } catch {
+    return false;
+  }
+}
+
+export function writeRollbackDialogGroupByDirectory(groupByDirectory: boolean): void {
+  if (typeof window === 'undefined') return;
+  try {
+    if (groupByDirectory) window.localStorage.setItem('dsh-editor.rollback.groupByDirectory', '1');
+    else window.localStorage.removeItem('dsh-editor.rollback.groupByDirectory');
+  } catch {
+    /* A blocked storage backend must not prevent the dialog from working. */
+  }
 }
 
 /** Resume on the row shown in the diff; a fresh dialog keeps Cancel as its safe focus. */
@@ -178,14 +266,22 @@ export function rollbackDialogConfirmKey(
   const groups = new Set(entries.map((entry) => entry.group));
   if (groups.size === 1 && groups.has('unversioned')) return 'editor.rollbackUnversionedConfirm';
   if (groups.size === 1 && groups.has('all')) return 'editor.rollbackAllConfirm';
+  if (groups.has('unversioned')) return 'editor.rollbackMixedUnversionedConfirm';
   return 'editor.rollbackConfirm';
 }
 
 /** Project dialog rows into the diff's file-navigation identities. */
 export function rollbackNavigationEntries(
   entries: readonly RollbackDialogEntry[],
+  groupByDirectory = false,
 ): Array<{ path: string; staged: boolean }> {
-  return entries.map((entry) => ({ path: entry.path, staged: entry.group === 'staged' }));
+  if (!groupByDirectory) {
+    return entries.map((entry) => ({ path: entry.path, staged: entry.group === 'staged' }));
+  }
+  return rollbackDialogVisualEntryIndices(entries, groupByDirectory).map((entryIndex) => {
+    const entry = entries[entryIndex];
+    return { path: entry.path, staged: entry.group === 'staged' };
+  });
 }
 
 /** The added-file deletion option is meaningful only when an added row exists. */
@@ -255,6 +351,8 @@ export function confirmRollback(
     toolbar.style.display = 'flex';
     toolbar.style.alignItems = 'center';
     toolbar.style.gap = '6px';
+    toolbar.style.flexWrap = 'wrap';
+    toolbar.style.rowGap = '4px';
     toolbar.style.flex = 'none';
     const filesLabel = document.createElement('span');
     filesLabel.textContent = t('editor.rollbackDialogFiles');
@@ -273,6 +371,20 @@ export function confirmRollback(
     selectAllCheckbox.setAttribute('aria-label', t('editor.rollbackDialogSelectAll'));
     selectAllCheckbox.checked = true;
     selectAllLabel.append(selectAllCheckbox, document.createTextNode(t('editor.rollbackDialogSelectAll')));
+    const groupByLabel = document.createElement('label');
+    groupByLabel.style.display = 'inline-flex';
+    groupByLabel.style.alignItems = 'center';
+    groupByLabel.style.gap = '4px';
+    groupByLabel.style.color = 'var(--dsw-alias-label-secondary)';
+    groupByLabel.style.fontSize = '10px';
+    groupByLabel.style.whiteSpace = 'nowrap';
+    const groupByCheckbox = document.createElement('input');
+    groupByCheckbox.type = 'checkbox';
+    groupByCheckbox.dataset.dshRollbackConfirmGroupBy = '';
+    groupByCheckbox.setAttribute('aria-label', t('editor.rollbackDialogGroupBy'));
+    const groupByDirectoryPreference = initial.groupByDirectory ?? readRollbackDialogGroupByDirectory();
+    groupByCheckbox.checked = groupByDirectoryPreference;
+    groupByLabel.append(groupByCheckbox, document.createTextNode(t('editor.rollbackDialogGroupBy')));
     const showDiffButton = document.createElement('button');
     showDiffButton.type = 'button';
     showDiffButton.dataset.dshRollbackConfirmShowDiff = '';
@@ -280,7 +392,7 @@ export function confirmRollback(
     Object.assign(showDiffButton.style, styles.commitSecondary);
     showDiffButton.style.flex = '0 0 auto';
     showDiffButton.style.minWidth = '84px';
-    toolbar.append(filesLabel, selectAllLabel, showDiffButton);
+    toolbar.append(filesLabel, selectAllLabel, groupByLabel, showDiffButton);
 
     const list = document.createElement('div');
     list.setAttribute('role', 'listbox');
@@ -296,6 +408,7 @@ export function confirmRollback(
     let selectedIndex = rollbackDialogInitialIndex(entries, initial.selectedKey);
     let selectionAnchorKey = rollbackDialogEntryKey(entries[selectedIndex]);
     let selectedRowKeys = new Set([selectionAnchorKey]);
+    let groupByDirectory = groupByDirectoryPreference;
     const selectedKeys = new Set(
       initial.selectedKeys === undefined
         ? entries.map(rollbackDialogEntryKey)
@@ -303,19 +416,21 @@ export function confirmRollback(
             .filter((entry) => initial.selectedKeys?.has(rollbackDialogEntryKey(entry)) === true)
             .map(rollbackDialogEntryKey),
     );
-    const rows: HTMLDivElement[] = [];
+    const rows: HTMLDivElement[] = new Array(entries.length);
     const rowCheckboxes = new Map<string, HTMLInputElement>();
     const rowByKey = new Map<string, HTMLDivElement>();
     let syncSelectionControls = (): void => {};
     const selectRow = (index: number, focus: boolean, modifiers: { meta?: boolean; shift?: boolean } = {}): void => {
       selectedIndex = Math.max(0, Math.min(entries.length - 1, index));
-      const order = entries.map(rollbackDialogEntryKey);
-      const targetKey = order[selectedIndex];
+      const order = rollbackDialogVisualEntryIndices(entries, groupByDirectory).map((entryIndex) =>
+        rollbackDialogEntryKey(entries[entryIndex]),
+      );
+      const targetKey = rollbackDialogEntryKey(entries[selectedIndex]);
       const result = commitSelectionAfterClick(order, [...selectedRowKeys], targetKey, modifiers, selectionAnchorKey);
       selectedRowKeys = new Set(result.selected);
       selectionAnchorKey = result.anchor;
       rows.forEach((row, rowIndex) => {
-        const selected = selectedRowKeys.has(order[rowIndex]);
+        const selected = selectedRowKeys.has(rollbackDialogEntryKey(entries[rowIndex]));
         row.tabIndex = rowIndex === selectedIndex ? 0 : -1;
         Object.assign(row.style, selected ? styles.paletteRowActive : styles.paletteRow);
         row.style.width = '100%';
@@ -391,18 +506,64 @@ export function confirmRollback(
         if (event.key === 'ArrowDown' || event.key === 'ArrowUp' || event.key === 'Home' || event.key === 'End') {
           event.preventDefault();
           event.stopPropagation();
-          const next =
+          const visualIndices = rollbackDialogVisualEntryIndices(entries, groupByDirectory);
+          const currentPosition = Math.max(0, visualIndices.indexOf(selectedIndex));
+          const nextPosition =
             event.key === 'Home'
               ? 0
               : event.key === 'End'
-                ? entries.length - 1
-                : selectedIndex + (event.key === 'ArrowDown' ? 1 : -1);
-          selectRow(next, true, { shift: event.shiftKey === true });
+                ? visualIndices.length - 1
+                : currentPosition + (event.key === 'ArrowDown' ? 1 : -1);
+          const nextIndex = visualIndices[Math.max(0, Math.min(visualIndices.length - 1, nextPosition))];
+          selectRow(nextIndex ?? selectedIndex, true, { shift: event.shiftKey === true });
         }
       });
-      rows.push(row);
-      list.append(row);
+      rows[index] = row;
     }
+    const renderList = (): void => {
+      const scrollTop = list.scrollTop;
+      const focusedRow = rows[selectedIndex];
+      const hadRowFocus = focusedRow !== undefined && document.activeElement === focusedRow;
+      list.replaceChildren();
+      let currentGroup: HTMLDivElement | null = null;
+      for (const displayRow of rollbackDialogDisplayRows(entries, groupByDirectory)) {
+        if (displayRow.kind === 'group') {
+          currentGroup = document.createElement('div');
+          currentGroup.setAttribute('role', 'group');
+          const directoryLabel =
+            displayRow.directory === '' ? t('editor.rollbackDialogRootDirectory') : (displayRow.directory ?? '');
+          currentGroup.setAttribute('aria-label', directoryLabel);
+          currentGroup.style.display = 'flex';
+          currentGroup.style.flexDirection = 'column';
+          const header = document.createElement('div');
+          header.textContent = directoryLabel;
+          header.setAttribute('role', 'presentation');
+          header.style.position = 'sticky';
+          header.style.top = '0';
+          header.style.zIndex = '1';
+          header.style.padding = '4px 8px';
+          header.style.background = 'var(--dsw-alias-bg-layer-1)';
+          header.style.color = 'var(--dsw-alias-label-tertiary)';
+          header.style.fontSize = '10px';
+          header.style.fontWeight = '500';
+          currentGroup.append(header);
+          list.append(currentGroup);
+          continue;
+        }
+        const row = displayRow.entryIndex === undefined ? undefined : rows[displayRow.entryIndex];
+        if (row === undefined) continue;
+        if (currentGroup === null) list.append(row);
+        else currentGroup.append(row);
+      }
+      list.scrollTop = scrollTop;
+      if (hadRowFocus) rows[selectedIndex]?.focus({ preventScroll: true });
+    };
+    groupByCheckbox.addEventListener('change', () => {
+      groupByDirectory = groupByCheckbox.checked;
+      writeRollbackDialogGroupByDirectory(groupByDirectory);
+      renderList();
+      selectRow(selectedIndex, false);
+    });
     selectAllCheckbox.addEventListener('change', () => {
       if (selectAllCheckbox.checked) {
         for (const entry of entries) selectedKeys.add(rollbackDialogEntryKey(entry));
@@ -415,6 +576,7 @@ export function confirmRollback(
       }
       syncSelectionControls();
     });
+    renderList();
     selectRow(selectedIndex, false);
 
     const buttons = document.createElement('div');
@@ -504,6 +666,7 @@ export function confirmRollback(
           selectedEntries: entries.filter((entry) => selectedKeys.has(rollbackDialogEntryKey(entry))),
           deleteAdded: deleteAddedCheckbox.checked && !deleteAddedCheckbox.disabled,
           scrollTop: list.scrollTop,
+          groupByDirectory,
         });
         return;
       }
@@ -535,6 +698,7 @@ export function confirmRollback(
         selectedEntries: entries.filter((entry) => selectedKeys.has(rollbackDialogEntryKey(entry))),
         deleteAdded: deleteAddedCheckbox.checked && !deleteAddedCheckbox.disabled,
         scrollTop: list.scrollTop,
+        groupByDirectory,
       }),
     );
     document.body.append(backdrop);

@@ -15,6 +15,7 @@ import {
   diffEditingEnabled,
   diffFileNavModeForWidth,
   diffIncludedSummaryState,
+  diffRollbackIncludeLabelVisibleForWidth,
   diffSummaryVisibleForWidth,
   diffViewModeControlForWidth,
   groupDiffToolbarActions,
@@ -2089,6 +2090,7 @@ function DiffPreview({
   const hidden = target === null || state.binary;
   const fileNavMode = diffFileNavModeForWidth(diffToolbarWidth);
   const diffViewModeControl = diffViewModeControlForWidth(diffToolbarWidth);
+  const rollbackIncludeLabelVisible = diffRollbackIncludeLabelVisibleForWidth(diffToolbarWidth);
   const diffActionsKey = diffToolbarActions.map((action) => action.id).join('|');
   const resolvedDirectActionCount =
     diffDirectActionCount === null
@@ -2126,6 +2128,8 @@ function DiffPreview({
     target?.clipboardText ?? '',
     target?.combined === true ? '1' : '0',
     includedInCommit === true ? '1' : '0',
+    rollbackInclusion === undefined ? '0' : '1',
+    rollbackIncludeLabelVisible === true ? '1' : '0',
     filePosition?.index ?? '',
     filePosition?.total ?? '',
     navigationPosition?.index ?? '',
@@ -2307,9 +2311,10 @@ function DiffPreview({
             <input
               type='checkbox'
               checked={rollbackInclusion.included}
+              aria-label={t('editor.diffIncludeInRollback')}
               onChange={(event) => rollbackInclusion.onToggle(event.target.checked)}
             />
-            <span>{t('editor.diffIncludeInRollback')}</span>
+            {rollbackIncludeLabelVisible ? <span>{t('editor.diffIncludeInRollback')}</span> : null}
           </label>
         )}
         <span

@@ -46,6 +46,7 @@ test('Replace history preserves the draft until the user chooses an item', () =>
   );
   assert.match(open, /event\.preventDefault\(\)/);
   assert.match(open, /event\.stopPropagation\(\)/);
+  assert.match(open, /replaceInputRef\.current\?\.focus\?\.\(\)/);
   assert.match(open, /Array\.isArray\(replaceHistory\) \? replaceHistory : \[\]/);
   assert.match(open, /t\('editor\.findHistoryEmpty'\)/);
   assert.match(open, /onReplaceChange\(value\)/);

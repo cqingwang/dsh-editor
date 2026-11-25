@@ -17,6 +17,23 @@ function loadGraphWithFailure(initialGraph) {
       callGit: async () => {
         throw new Error('graph failed');
       },
+      requestCommitGraphWithScopeFallback: async (request, branch, at) => ({
+        value: await request(branch, at),
+        branch,
+        at,
+        notice: null,
+      }),
+      commitGraphPayloadFromResponse: (value) => value,
+      emptyCommitGraphPayload: (branch, at) => ({
+        entries: [],
+        branches: [],
+        tags: [],
+        branchList: [],
+        tagList: [],
+        head: null,
+        branch: branch === '' ? null : branch,
+        at: at === '' ? null : at,
+      }),
       beginLogRequest: () => new AbortController(),
       finishLogRequest: () => {},
       setGraph: (update) => {

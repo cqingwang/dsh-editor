@@ -4,7 +4,12 @@ import { dirname } from '../editor/editor-path-model';
 import type { CommitGraphMenuPayload, CommitGraphPayload } from './CommitGraph';
 import { CommitGraph } from './CommitGraph';
 import { commitLogFlatKeyIntent } from './commit-log-flat-controller';
-import { commitLogGraphCursor, commitLogGraphKeyIntent, commitLogGraphMove } from './commit-log-graph-controller';
+import {
+  commitLogGraphKeyIntent,
+  commitLogGraphMove,
+  commitLogGraphPreferredCursor,
+  commitLogGraphSelection,
+} from './commit-log-graph-controller';
 import { commitLogFlatListCommand, commitLogGraphListCommand } from './commit-log-list-command-model';
 import { commitLogContextSelection, commitSelectionAfterClick } from './commit-log-selection-model';
 import { commitLogShortcutAction } from './commit-log-shortcut-model';
@@ -373,14 +378,15 @@ function CommitLogView({
     displayedRefresh();
   };
   React.useEffect(() => {
-    if (!graphMode || typeof selected !== 'string' || selected === '') return;
-    if (!graphRows.some((entry) => entry.hash === selected)) return;
-    if (graphCursor !== selected) setGraphCursor(selected);
-  }, [graphCursor, graph?.entries, graphFolded, graphMode, selected]);
-  React.useEffect(() => {
-    const next = commitLogGraphCursor(graphRows, graphCursor);
+    if (!graphMode) return;
+    const next = commitLogGraphPreferredCursor(graphRows, graphCursor, selected);
     if (next !== graphCursor) setGraphCursor(next);
-  }, [filter, graphCursor, graphFolded, graph?.entries]);
+  }, [filter, graphCursor, graphFolded, graph?.entries, graphMode, selected]);
+  React.useEffect(() => {
+    if (!graphMode) return;
+    const next = commitLogGraphSelection(graphRows, selected);
+    if (next !== null && next !== selected) onShow?.(next);
+  }, [graphMode, graphRows, onShow, selected]);
   /**
    * Move the graph cursor by one row, clamped to the loaded page.
    *
@@ -636,7 +642,8 @@ function CommitLogView({
               busy={displayedLoading}
               error={displayedFailure}
               onShow={onShow}
-              selected={graphHover ?? graphCursor ?? selected}
+              selected={graphCursor ?? selected}
+              hovered={graphHover}
               selectionHashes={selectedCommits}
               onRowClick={selectGraphCommitRow}
               onSelect={setGraphHover}

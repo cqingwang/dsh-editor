@@ -14,6 +14,8 @@ test('CommitGraphRow owns row semantics and IDEA decorations', async () => {
   assert.match(row, /data-dsh-graph-hash=\{entry\.hash\}/u);
   assert.match(row, /aria-haspopup='menu'/u);
   assert.match(row, /aria-selected=\{active\}/u);
+  assert.match(row, /hovered = false/u);
+  assert.match(row, /\.\.\.\(active \|\| hovered \? styles\.commitGraphRowActive : null\)/u);
   assert.match(row, /ref=\{rowRef\}/u);
   assert.match(row, /styles\.commitGraphLane/u);
   assert.match(row, /styles\.commitGraphHead/u);
@@ -34,8 +36,19 @@ test('CommitGraph delegates each graph row to CommitGraphRow', async () => {
   assert.match(graph, /import \{ CommitGraphRow(?:, type CommitGraphRun)? \} from '\.\/CommitGraphRow'/u);
   assert.match(graph, /<CommitGraphRow[\s\S]*?entry=\{entry\}[\s\S]*?run=\{run(?:\s+as\s+[^}]+)?\}/u);
   assert.match(graph, /rowRef=\{active \? scrollGraphRowIntoView : undefined\}/u);
+  assert.match(graph, /hovered=\{rowHovered\}/u);
   assert.match(graph, /onPickRef=\{onPickRef\}/u);
   assert.doesNotMatch(graph, /data-dsh-graph-hash=\{entry\.hash\}/u);
   assert.match(build, /CommitGraphRow\.tsx/u);
   assert.match(client, /function CommitGraphRow\(/u);
+});
+
+test('Graph hover is visual only and does not change aria-selected', async () => {
+  const log = await read('src/client/components/commit/CommitLog.tsx');
+  const graph = await read('src/client/components/commit/CommitGraph.tsx');
+
+  assert.match(log, /selected=\{graphCursor \?\? selected\}/u);
+  assert.match(log, /hovered=\{graphHover\}/u);
+  assert.match(graph, /const rowHovered = hovered === entry\.hash;/u);
+  assert.match(graph, /active=\{active\}/u);
 });

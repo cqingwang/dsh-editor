@@ -177,13 +177,16 @@ import {
 } from './components/commit/use-rollback-diff-session';
 import { useCommitSelectionPreference } from './components/commit/use-commit-selection-preference';
 import {
+  commitGraphScopeFallbackNoticeKey,
   commitLogStorage,
   readStoredCommitSelection,
   readStoredCommitSelectionList,
+  requestCommitGraphWithScopeFallback,
   useCommitLogAuthor,
   useCommitLogInitialLoad,
   writeStoredCommitSelection,
 } from './components/commit/commit-log-view-preferences';
+import { commitGraphPayloadFromResponse, emptyCommitGraphPayload } from './components/commit/commit-log-view-model';
 import { useCommitLogSelectionRestore } from './components/commit/commit-log-selection-restore';
 import { useCommitLogSearch } from './components/commit/use-commit-log-search';
 import { currentSessionId } from './components/editor/editor-path-model';
@@ -2037,42 +2040,40 @@ function EditorWorkspace({
       const atValue = typeof at === 'string' ? at : (storedScope?.at ?? '');
       commitLogStorage.writeGraphScope(root, branchValue, atValue);
       if (git?.isRepo === false) {
-        setGraph({
-          entries: [],
-          branches: [],
-          tags: [],
-          branchList: [],
-          tagList: [],
-          head: null,
-          branch: branchValue === '' ? null : branchValue,
-          at: atValue === '' ? null : atValue,
-        });
+        setGraph(emptyCommitGraphPayload(branchValue, atValue));
         setLogError(null);
         return;
       }
       const controller = beginLogRequest(`graph\0${branchValue}\0${atValue}`);
       if (controller === null) return;
       try {
-        const value = await callGit<WorkspaceGraphResponse>(
-          {
-            op: 'graph',
-            limit: 80,
-            branch: branchValue,
-            at: atValue,
-          },
-          { signal: controller.signal },
+        const result = await requestCommitGraphWithScopeFallback(
+          (requestBranch, requestAt) =>
+            callGit<WorkspaceGraphResponse>(
+              {
+                op: 'graph',
+                limit: 80,
+                branch: requestBranch,
+                at: requestAt,
+              },
+              { signal: controller.signal },
+            ),
+          branchValue,
+          atValue,
+          storedScope !== null,
+          () => controller.signal.aborted,
         );
         if (controller.signal.aborted) return;
-        setGraph({
-          entries: value?.entries ?? [],
-          branches: value?.branches ?? [],
-          tags: value?.tags ?? [],
-          branchList: value?.branchList ?? [],
-          tagList: Array.isArray(value?.tagList) ? value.tagList : [],
-          head: typeof value?.head === 'string' ? value.head : null,
-          branch: typeof value?.branch === 'string' ? value.branch : null,
-          at: typeof value?.at === 'string' ? value.at : null,
-        });
+        if (result.notice !== null) {
+          commitLogStorage.writeGraphScope(root, result.branch, result.at);
+          setCommitNotice(
+            t(commitGraphScopeFallbackNoticeKey(result.notice), {
+              branch: branchValue,
+              hash: atValue.slice(0, 7),
+            }),
+          );
+        }
+        setGraph(commitGraphPayloadFromResponse(result.value));
         setLogError(null);
       } catch (failure) {
         if (controller.signal.aborted) return;
@@ -2081,22 +2082,13 @@ function EditorWorkspace({
           const requestedBranch = branchValue !== '' ? branchValue : null;
           const requestedAt = atValue !== '' ? atValue : null;
           if ((current?.branch ?? null) === requestedBranch && (current?.at ?? null) === requestedAt) return current;
-          return {
-            entries: [],
-            branches: [],
-            tags: [],
-            branchList: [],
-            tagList: [],
-            head: null,
-            branch: requestedBranch,
-            at: requestedAt,
-          };
+          return emptyCommitGraphPayload(branchValue, atValue);
         });
       } finally {
         finishLogRequest(controller);
       }
     },
-    [beginLogRequest, finishLogRequest, git?.isRepo, reportGitFailure, root],
+    [beginLogRequest, finishLogRequest, git?.isRepo, reportGitFailure, root, t],
   );
   /* A repository can disappear while the tool window is already open. Clear
      every Git-owned view at the state boundary so stale notices, commit rows,
@@ -2858,11 +2850,11 @@ function EditorWorkspace({
   /* IDEA's EditSource opens the local working copy and hands it the keyboard.
          Tree clicks intentionally keep focus in the tree, so callers that mean
   "edit this source" use this explicit path instead. */ const editLocalVersion = React.useCallback(
-    (path: string) => {
-      void openFile(path).then((opened) => {
+    (path: string): Promise<boolean> =>
+      openFile(path).then((opened) => {
         if (opened) focusEditorOnNextFrame(editorRef);
-      });
-    },
+        return opened;
+      }),
     [openFile],
   );
   /**
@@ -4839,6 +4831,7 @@ function EditorWorkspace({
     searchEverywhere?.caseSensitive,
     searchEverywhere?.wholeWords,
     searchEverywhere?.regex,
+    searchEverywhere?.preserveCase,
     searchEverywhere?.includeNonProject,
     searchEverywhere?.fileMask,
   ]);
@@ -9245,7 +9238,7 @@ function EditorWorkspace({
       if (decision.action === 'cancel') return;
       if (decision.action === 'showDiff') {
         beginRollbackDiffSession(rollbackDiff.begin, decision, (next) => void rollback(paths, options, next));
-        setDiffTarget(rollbackDiffTarget(decision.entry, decision.entries));
+        setDiffTarget(rollbackDiffTarget(decision.entry, decision.entries, decision.groupByDirectory));
         setDiffActive(true);
         return;
       }
@@ -11817,7 +11810,6 @@ function EditorWorkspace({
                 error={treeError}
                 createState={createState}
                 onToggle={toggleDirectory}
-                onOpen={openFile}
                 onOpenEditSource={editLocalVersion}
                 onOpenPreview={(path) => void openFile(path, { preview: true })}
                 onRevealPath={revealInProjectTree}

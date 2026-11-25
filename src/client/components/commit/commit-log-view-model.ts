@@ -1,3 +1,16 @@
+import type { CommitGraphPayload } from './CommitGraph';
+
+interface CommitGraphResponseLike {
+  entries?: CommitGraphPayload['entries'];
+  branches?: string[];
+  tags?: string[];
+  branchList?: string[];
+  tagList?: CommitGraphPayload['tagList'];
+  head?: unknown;
+  branch?: unknown;
+  at?: unknown;
+}
+
 interface CommitLogFilterable {
   subject?: unknown;
   author?: unknown;
@@ -34,6 +47,34 @@ export function shouldLoadCommitLogOnOpen(state: CommitLogInitialLoadState): boo
 
 export function commitLogOptionId(hash: string): string {
   return `dsh-editor-commit-log-option-${encodeURIComponent(hash)}`;
+}
+
+/** Normalize the Host graph response into the payload the graph renders. */
+export function commitGraphPayloadFromResponse(value: CommitGraphResponseLike | null): CommitGraphPayload {
+  return {
+    entries: Array.isArray(value?.entries) ? value.entries : [],
+    branches: Array.isArray(value?.branches) ? value.branches : [],
+    tags: Array.isArray(value?.tags) ? value.tags : [],
+    branchList: Array.isArray(value?.branchList) ? value.branchList : [],
+    tagList: Array.isArray(value?.tagList) ? value.tagList : [],
+    head: typeof value?.head === 'string' ? value.head : null,
+    branch: typeof value?.branch === 'string' ? value.branch : null,
+    at: typeof value?.at === 'string' ? value.at : null,
+  };
+}
+
+/** Empty graph payload that still names the requested scope. */
+export function emptyCommitGraphPayload(branch: string, at: string): CommitGraphPayload {
+  return {
+    entries: [],
+    branches: [],
+    tags: [],
+    branchList: [],
+    tagList: [],
+    head: null,
+    branch: branch === '' ? null : branch,
+    at: at === '' ? null : at,
+  };
 }
 
 /**
